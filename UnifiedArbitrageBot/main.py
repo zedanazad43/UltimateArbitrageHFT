@@ -33,6 +33,9 @@ MAX_DAILY_LOSS_USD = float(os.getenv("MAX_DAILY_LOSS_USD", "25"))
 MIN_SECONDS_BETWEEN_TRADES = int(os.getenv("MIN_SECONDS_BETWEEN_TRADES", "30"))
 BALANCE_LOG_INTERVAL_SCANS = int(os.getenv("BALANCE_LOG_INTERVAL_SCANS", "12"))
 
+if MAX_DAILY_LOSS_USD <= 0:
+    raise ValueError("MAX_DAILY_LOSS_USD must be greater than 0")
+
 # ============ حالة البوت ============
 bot_state = {
     "running": True,
@@ -108,7 +111,7 @@ class ExchangeManager:
     def can_trade_on(self, exchange_name: str) -> bool:
         return self.exchange_credentials.get(exchange_name, False)
 
-    async def log_balances(self):
+    def log_balances(self):
         for exchange_name, exchange in [("MEXC", self.mexc), ("Binance", self.binance)]:
             if not exchange:
                 continue
@@ -198,7 +201,7 @@ class ArbitrageEngine:
             logger.warning(f"🛑 Risk guard: {reason}")
             return {"status": "blocked", "reason": reason}
 
-        if bot_state["daily_profit"] <= -MAX_DAILY_LOSS_USD:
+        if bot_state["daily_profit"] < 0 and abs(bot_state["daily_profit"]) >= MAX_DAILY_LOSS_USD:
             reason = f"Daily stop-loss reached (${MAX_DAILY_LOSS_USD})"
             logger.warning(f"🛑 Risk guard: {reason}")
             return {"status": "blocked", "reason": reason}
@@ -222,7 +225,7 @@ class ArbitrageEngine:
         try:
             if opportunity.buy_exchange == "MEXC":
                 if not self.exchange_manager.can_trade_on("MEXC"):
-                    raise ValueError("MEXC API keys are not configured for live trading")
+                    raise ValueError("MEXC API keys are not configured. Set MEXC_API_KEY and MEXC_SECRET_KEY environment variables before enabling live trading.")
                 order = self.exchange_manager.mexc.create_market_buy_order(
                     opportunity.symbol, 
                     MAX_POSITION / opportunity.buy_price
@@ -230,7 +233,7 @@ class ArbitrageEngine:
                 logger.info(f"✅ BUY order executed: {order['id']}")
             else:
                 if not self.exchange_manager.can_trade_on("Binance"):
-                    raise ValueError("Binance API keys are not configured for live trading")
+                    raise ValueError("Binance API keys are not configured. Set BINANCE_API_KEY and BINANCE_SECRET_KEY environment variables before enabling live trading.")
                 order = self.exchange_manager.binance.create_market_buy_order(
                     opportunity.symbol,
                     MAX_POSITION / opportunity.buy_price
@@ -263,7 +266,9 @@ class UnifiedArbitrageBot:
         logger.info(f"💰 Max Position: ${MAX_POSITION}")
         logger.info(f"📈 Min Profit: {MIN_PROFIT}%")
         logger.info(f"🕐 Scan Interval: {SCAN_INTERVAL}s")
-        logger.info(f"🧯 Risk: max ${MAX_POSITION}/trade, max {MAX_DAILY_TRADES} trades/day, stop-loss ${MAX_DAILY_LOSS_USD}/day, min {MIN_SECONDS_BETWEEN_TRADES}s between trades")
+        logger.info(f"🧯 Risk: max ${MAX_POSITION}/trade")
+        logger.info(f"🧯 Risk: max {MAX_DAILY_TRADES} trades/day, stop-loss ${MAX_DAILY_LOSS_USD}/day")
+        logger.info(f"🧯 Risk: minimum {MIN_SECONDS_BETWEEN_TRADES}s between trades")
         logger.info("="*60)
     
     async def run(self):
@@ -288,7 +293,7 @@ class UnifiedArbitrageBot:
                 opportunities = await self.arbitrage_engine.scan_cross_exchange_arbitrage()
 
                 if scan_count % BALANCE_LOG_INTERVAL_SCANS == 0:
-                    await self.exchange_manager.log_balances()
+                    self.exchange_manager.log_balances()
                 
                 if opportunities:
                     best = opportunities[0]

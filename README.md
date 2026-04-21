@@ -162,7 +162,8 @@ For monitoring, the bot already logs:
 
 Recommended rollout:
 
-1. Start with very small capital (`MAX_POSITION_SIZE_USD=5` or `10`).
+1. Start with very small capital that still satisfies exchange minimum order sizes.
+   For example, set `MAX_POSITION_SIZE_USD=10` after checking each exchange's minimum order rules in their docs or test environment.
 2. Run continuously on a reliable host (local tmux/screen, VPS, or cloud VM).
 3. Watch `logs/bot.log` and balance snapshots for at least 24-72 hours.
 4. Increase position size gradually only after stable, safe behavior.
