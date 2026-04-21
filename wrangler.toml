@@ -1,4 +1,4 @@
-name = "ip-locator"
+name = "ultimate-arbitrage-tail"
 main = "ArbitrageBots/ultimate-arbitrage-hft/index.js"
 compatibility_date = "2025-01-01"
 
