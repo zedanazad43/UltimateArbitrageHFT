@@ -23,7 +23,7 @@ Cloudflare Workers based arbitrage bot with a main worker, a tail worker for err
 - `npm run cf:set-tail-telegram`: upload Telegram secrets for the tail worker
 - `npm run telegram:test-webhook`: simulate a Telegram webhook request locally against the deployed worker
 - `npm run telegram:set-webhook`: register the deployed worker as Telegram webhook receiver
-- `npm run telegram:set-allowed-chats -- -ChatIds "1771005847,123456789"`: update authorized Telegram chats in `wrangler.toml`
+- `npm run telegram:set-allowed-chats -- -ChatIds "YOUR_CHAT_ID,123456789"`: update authorized Telegram chats in `wrangler.toml`
 - `npm run ai:confidence-40`: set `MIN_CONFIDENCE_SCORE=40` in `wrangler.toml` and deploy
 - `npm run ai:history-20`: set `MIN_HISTORY_POINTS=20` in `wrangler.toml` and deploy
 - `npm run ai:aggressive`: set `MIN_CONFIDENCE_SCORE=30` in `wrangler.toml` and deploy

@@ -1,10 +1,20 @@
 # Keys and secrets
 api_keys.txt
+*.env
 .env
+.dev.vars
 *.secret
+encrypted_keys.json
+keys/ini.txt
+keys/@'.txt
 wrangler.toml.backup
 *.backup*
 *.log
+
+# Python caches
+__pycache__/
+*.pyc
+*.pyo
 
 # Dependencies and build
 node_modules/

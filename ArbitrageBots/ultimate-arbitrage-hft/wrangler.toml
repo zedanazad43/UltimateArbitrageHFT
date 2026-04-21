@@ -24,4 +24,4 @@ new_classes = ["MarketStreamer"]
 binding = "AI"
 
 [triggers]
-crons = ["*/1 * * * * *"]
+crons = ["* * * * *"]

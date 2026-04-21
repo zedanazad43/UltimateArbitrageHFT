@@ -77,8 +77,9 @@ class PolymarketArbitrage:
 # اختبار
 async def test():
     # المفتاح الخاص من ملفك
-    PRIVATE_KEY = "0xcc5d940a52ced4f1eea7459e932893e2c4278d57"
-    ADDRESS = "0xbf725439B03B9AB013200c6eF1E2d1Fb395F46fE"
+    import os
+    PRIVATE_KEY = os.environ.get("METAMASK_PRIVATE_KEY", "0xYOUR_PRIVATE_KEY")
+    ADDRESS = os.environ.get("METAMASK_ADDRESS", "0xYOUR_WALLET_ADDRESS")
     
     bot = PolymarketArbitrage(PRIVATE_KEY, ADDRESS)
     markets = await bot.get_btc_markets()
