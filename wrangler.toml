@@ -1,4 +1,4 @@
-name = "perps-executor"
+name = "ip-locator"
 main = "ArbitrageBots/ultimate-arbitrage-hft/index.js"
 compatibility_date = "2025-01-01"
 
