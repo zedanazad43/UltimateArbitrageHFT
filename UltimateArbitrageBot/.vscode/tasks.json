@@ -517,7 +517,7 @@
 			"command": "cmd",
 			"args": [
 				"/c",
-				"echo esIV25iOJKtJJNuTa6Fzp_Iw8TkpRVgsKRoPL3BGe4c1rYsaKqujXg| npx wrangler secret put TELEGRAM_BOT_TOKEN --config tail-worker/wrangler.toml"
+				"echo YOUR_TELEGRAM_BOT_TOKEN| npx wrangler secret put TELEGRAM_BOT_TOKEN --config tail-worker/wrangler.toml"
 			],
 			"isBackground": false
 		},
@@ -527,7 +527,7 @@
 			"command": "cmd",
 			"args": [
 				"/c",
-				"echo 8770101170| npx wrangler secret put TELEGRAM_CHAT_ID --config tail-worker/wrangler.toml"
+				"echo YOUR_TELEGRAM_CHAT_ID| npx wrangler secret put TELEGRAM_CHAT_ID --config tail-worker/wrangler.toml"
 			],
 			"isBackground": false
 		},
@@ -565,7 +565,7 @@
 			"args": [
 				"-NoProfile",
 				"-Command",
-				"(Invoke-WebRequest -UseBasicParsing 'https://api.telegram.org/botesIV25iOJKtJJNuTa6Fzp_Iw8TkpRVgsKRoPL3BGe4c1rYsaKqujXg/getMe').Content"
+				"(Invoke-WebRequest -UseBasicParsing 'https://api.telegram.org/botYOUR_TELEGRAM_BOT_TOKEN/getMe').Content"
 			],
 			"isBackground": false
 		},
@@ -576,7 +576,7 @@
 			"args": [
 				"-NoProfile",
 				"-Command",
-				"$token='esIV25iOJKtJJNuTa6Fzp_Iw8TkpRVgsKRoPL3BGe4c1rYsaKqujXg'; Write-Output \"HasColon=$($token.Contains(':')) Length=$($token.Length)\"; try {(Invoke-WebRequest -UseBasicParsing (\"https://api.telegram.org/bot{0}/getMe\" -f $token)).Content} catch { if ($_.ErrorDetails.Message) { $_.ErrorDetails.Message } else { $_.Exception.Message } }"
+				"$token='YOUR_TELEGRAM_BOT_TOKEN'; Write-Output \"HasColon=$($token.Contains(':')) Length=$($token.Length)\"; try {(Invoke-WebRequest -UseBasicParsing (\"https://api.telegram.org/bot{0}/getMe\" -f $token)).Content} catch { if ($_.ErrorDetails.Message) { $_.ErrorDetails.Message } else { $_.Exception.Message } }"
 			],
 			"isBackground": false
 		},
@@ -586,7 +586,7 @@
 			"command": "cmd",
 			"args": [
 				"/c",
-				"node -e \"const t='esIV25iOJKtJJNuTa6Fzp_Iw8TkpRVgsKRoPL3BGe4c1rYsaKqujXg'; console.log('HasColon=' + t.includes(':') + ' Length=' + t.length)\""
+				"node -e \"const t='YOUR_TELEGRAM_BOT_TOKEN'; console.log('HasColon=' + t.includes(':') + ' Length=' + t.length)\""
 			],
 			"isBackground": false
 		},
@@ -597,7 +597,7 @@
 			"args": [
 				"-NoProfile",
 				"-Command",
-				"(Invoke-WebRequest -UseBasicParsing 'https://api.telegram.org/bot8770101170:AAGwL-AAPIzLJ-enkuYdRIKag4qKcZXQRIo/getMe').Content"
+				"(Invoke-WebRequest -UseBasicParsing 'https://api.telegram.org/botYOUR_TELEGRAM_BOT_TOKEN/getMe').Content"
 			],
 			"isBackground": false
 		},
@@ -607,7 +607,7 @@
 			"command": "cmd",
 			"args": [
 				"/c",
-				"echo 8770101170:AAGwL-AAPIzLJ-enkuYdRIKag4qKcZXQRIo| npx wrangler secret put TELEGRAM_BOT_TOKEN --config tail-worker/wrangler.toml"
+				"echo YOUR_TELEGRAM_BOT_TOKEN| npx wrangler secret put TELEGRAM_BOT_TOKEN --config tail-worker/wrangler.toml"
 			],
 			"isBackground": false
 		},
@@ -645,7 +645,7 @@
 			"args": [
 				"-NoProfile",
 				"-Command",
-				"$body = @{ chat_id = '8770101170'; text = 'Tail Worker Telegram delivery test from UltimateArbitrageBot'; parse_mode = 'HTML' } | ConvertTo-Json; (Invoke-WebRequest -UseBasicParsing 'https://api.telegram.org/bot8770101170:AAGwL-AAPIzLJ-enkuYdRIKag4qKcZXQRIo/sendMessage' -Method POST -ContentType 'application/json' -Body $body).Content"
+				"$body = @{ chat_id = 'YOUR_TELEGRAM_CHAT_ID'; text = 'Tail Worker Telegram delivery test from UltimateArbitrageBot'; parse_mode = 'HTML' } | ConvertTo-Json; (Invoke-WebRequest -UseBasicParsing 'https://api.telegram.org/botYOUR_TELEGRAM_BOT_TOKEN/sendMessage' -Method POST -ContentType 'application/json' -Body $body).Content"
 			],
 			"isBackground": false
 		},
@@ -657,9 +657,9 @@
 				"-s",
 				"-X",
 				"POST",
-				"https://api.telegram.org/bot8770101170:AAGwL-AAPIzLJ-enkuYdRIKag4qKcZXQRIo/sendMessage",
+				"https://api.telegram.org/botYOUR_TELEGRAM_BOT_TOKEN/sendMessage",
 				"-d",
-				"chat_id=8770101170",
+				"chat_id=YOUR_TELEGRAM_CHAT_ID",
 				"-d",
 				"text=UltimateArbitrageBot Telegram delivery test"
 			],
@@ -672,7 +672,7 @@
 			"args": [
 				"-NoProfile",
 				"-Command",
-				"(Invoke-WebRequest -UseBasicParsing 'https://api.telegram.org/bot8770101170:AAGwL-AAPIzLJ-enkuYdRIKag4qKcZXQRIo/getMe').Content"
+				"(Invoke-WebRequest -UseBasicParsing 'https://api.telegram.org/botYOUR_TELEGRAM_BOT_TOKEN/getMe').Content"
 			],
 			"isBackground": false
 		},
@@ -682,7 +682,7 @@
 			"command": "cmd",
 			"args": [
 				"/c",
-				"echo 8770101170:AAGwL-AAPIzLJ-enkuYdRIKag4qKcZXQRIo| npx wrangler secret put TELEGRAM_BOT_TOKEN --config tail-worker/wrangler.toml"
+				"echo YOUR_TELEGRAM_BOT_TOKEN| npx wrangler secret put TELEGRAM_BOT_TOKEN --config tail-worker/wrangler.toml"
 			],
 			"isBackground": false
 		},
@@ -692,7 +692,7 @@
 			"command": "cmd",
 			"args": [
 				"/c",
-				"echo 8770101170:AAGwL-AAPIzLJ-enkuYdRIKag4qKcZXQRIo| npx wrangler secret put TELEGRAM_BOT_TOKEN"
+				"echo YOUR_TELEGRAM_BOT_TOKEN| npx wrangler secret put TELEGRAM_BOT_TOKEN"
 			],
 			"isBackground": false
 		},
@@ -702,7 +702,7 @@
 			"command": "cmd",
 			"args": [
 				"/c",
-				"echo 8770101170| npx wrangler secret put TELEGRAM_CHAT_ID --config tail-worker/wrangler.toml"
+				"echo YOUR_TELEGRAM_CHAT_ID| npx wrangler secret put TELEGRAM_CHAT_ID --config tail-worker/wrangler.toml"
 			],
 			"isBackground": false
 		},
@@ -712,7 +712,7 @@
 			"command": "cmd",
 			"args": [
 				"/c",
-				"echo 8770101170| npx wrangler secret put TELEGRAM_CHAT_ID"
+				"echo YOUR_TELEGRAM_CHAT_ID| npx wrangler secret put TELEGRAM_CHAT_ID"
 			],
 			"isBackground": false
 		},
@@ -723,7 +723,7 @@
 			"args": [
 				"-NoProfile",
 				"-Command",
-				"(Invoke-WebRequest -UseBasicParsing -Method Post 'https://api.telegram.org/bot8770101170:AAGwL-AAPIzLJ-enkuYdRIKag4qKcZXQRIo/sendMessage' -Body @{ chat_id='8770101170'; text='UltimateArbitrageBot final Telegram delivery test from deployment workflow' }).Content"
+				"(Invoke-WebRequest -UseBasicParsing -Method Post 'https://api.telegram.org/botYOUR_TELEGRAM_BOT_TOKEN/sendMessage' -Body @{ chat_id='YOUR_TELEGRAM_CHAT_ID'; text='UltimateArbitrageBot final Telegram delivery test from deployment workflow' }).Content"
 			],
 			"isBackground": false
 		},
@@ -735,9 +735,9 @@
 				"-s",
 				"-X",
 				"POST",
-				"https://api.telegram.org/bot8770101170:AAGwL-AAPIzLJ-enkuYdRIKag4qKcZXQRIo/sendMessage",
+				"https://api.telegram.org/botYOUR_TELEGRAM_BOT_TOKEN/sendMessage",
 				"-d",
-				"chat_id=8770101170",
+				"chat_id=YOUR_TELEGRAM_CHAT_ID",
 				"-d",
 				"text=UltimateArbitrageBot final Telegram delivery test from deployment workflow"
 			],
@@ -775,7 +775,7 @@
 			"command": "curl",
 			"args": [
 				"-s",
-				"https://api.telegram.org/bot8770101170:AAGwL-AAPIzLJ-enkuYdRIKag4qKcZXQRIo/getUpdates"
+				"https://api.telegram.org/botYOUR_TELEGRAM_BOT_TOKEN/getUpdates"
 			],
 			"isBackground": false
 		},
@@ -785,7 +785,7 @@
 			"command": "curl",
 			"args": [
 				"-s",
-				"https://api.telegram.org/bot8770101170:AAGwL-AAPIzLJ-enkuYdRIKag4qKcZXQRIo/getUpdates"
+				"https://api.telegram.org/botYOUR_TELEGRAM_BOT_TOKEN/getUpdates"
 			],
 			"isBackground": false
 		},
@@ -796,7 +796,7 @@
 			"args": [
 				"-NoProfile",
 				"-Command",
-				"$json = curl -s https://api.telegram.org/bot8770101170:AAGwL-AAPIzLJ-enkuYdRIKag4qKcZXQRIo/getUpdates | ConvertFrom-Json; if ($json.result.Count -gt 0) { $json.result[-1].message.chat.id }"
+				"$json = curl -s https://api.telegram.org/botYOUR_TELEGRAM_BOT_TOKEN/getUpdates | ConvertFrom-Json; if ($json.result.Count -gt 0) { $json.result[-1].message.chat.id }"
 			],
 			"isBackground": false
 		},
@@ -806,7 +806,7 @@
 			"command": "cmd",
 			"args": [
 				"/c",
-				"echo 1771005847| npx wrangler secret put TELEGRAM_CHAT_ID --config tail-worker/wrangler.toml"
+				"echo YOUR_TELEGRAM_CHAT_ID_2| npx wrangler secret put TELEGRAM_CHAT_ID --config tail-worker/wrangler.toml"
 			],
 			"isBackground": false
 		},
@@ -816,7 +816,7 @@
 			"command": "cmd",
 			"args": [
 				"/c",
-				"echo 1771005847| npx wrangler secret put TELEGRAM_CHAT_ID"
+				"echo YOUR_TELEGRAM_CHAT_ID_2| npx wrangler secret put TELEGRAM_CHAT_ID"
 			],
 			"isBackground": false
 		},
@@ -828,9 +828,9 @@
 				"-s",
 				"-X",
 				"POST",
-				"https://api.telegram.org/bot8770101170:AAGwL-AAPIzLJ-enkuYdRIKag4qKcZXQRIo/sendMessage",
+				"https://api.telegram.org/botYOUR_TELEGRAM_BOT_TOKEN/sendMessage",
 				"-d",
-				"chat_id=1771005847",
+				"chat_id=YOUR_TELEGRAM_CHAT_ID_2",
 				"-d",
 				"text=UltimateArbitrageBot direct delivery test to the real chat id"
 			],
@@ -906,7 +906,7 @@
 				"-H",
 				"Content-Type: application/json",
 				"-d",
-				"{\"update_id\":1,\"message\":{\"message_id\":99,\"chat\":{\"id\":1771005847,\"type\":\"private\"},\"text\":\"/status\"}}"
+				"{\"update_id\":1,\"message\":{\"message_id\":99,\"chat\":{\"id\":YOUR_TELEGRAM_CHAT_ID_2,\"type\":\"private\"},\"text\":\"/status\"}}"
 			],
 			"isBackground": false
 		},
@@ -917,7 +917,7 @@
 			"args": [
 				"-NoProfile",
 				"-Command",
-				"$body = '{\"update_id\":1,\"message\":{\"message_id\":99,\"chat\":{\"id\":1771005847,\"type\":\"private\"},\"text\":\"/status\"}}'; (Invoke-WebRequest -UseBasicParsing -Method Post 'https://ultimate-arbitrage-hft.zedanazad43.workers.dev/telegram/webhook' -ContentType 'application/json' -Body $body).Content"
+				"$body = '{\"update_id\":1,\"message\":{\"message_id\":99,\"chat\":{\"id\":YOUR_TELEGRAM_CHAT_ID_2,\"type\":\"private\"},\"text\":\"/status\"}}'; (Invoke-WebRequest -UseBasicParsing -Method Post 'https://ultimate-arbitrage-hft.zedanazad43.workers.dev/telegram/webhook' -ContentType 'application/json' -Body $body).Content"
 			],
 			"isBackground": false
 		},
@@ -927,7 +927,7 @@
 			"command": "node",
 			"args": [
 				"-e",
-				"fetch('https://ultimate-arbitrage-hft.zedanazad43.workers.dev/telegram/webhook',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({update_id:1,message:{message_id:99,chat:{id:1771005847,type:'private'},text:'/status'}})}).then(async r=>{console.log(await r.text())}).catch(err=>{console.error(err);process.exit(1)})"
+				"fetch('https://ultimate-arbitrage-hft.zedanazad43.workers.dev/telegram/webhook',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({update_id:1,message:{message_id:99,chat:{id:YOUR_TELEGRAM_CHAT_ID_2,type:'private'},text:'/status'}})}).then(async r=>{console.log(await r.text())}).catch(err=>{console.error(err);process.exit(1)})"
 			],
 			"isBackground": false
 		},
@@ -1047,7 +1047,7 @@
 				"-File",
 				"./scripts/set-allowed-chats.ps1",
 				"-ChatIds",
-				"1771005847"
+				"YOUR_TELEGRAM_CHAT_ID_2"
 			],
 			"isBackground": false
 		},

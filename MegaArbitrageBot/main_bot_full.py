@@ -1,5 +1,6 @@
 ﻿# main_bot_full.py - البوت المتكامل مع جميع المصادر
 import asyncio
+import os
 import ccxt
 import json
 import httpx
@@ -10,8 +11,8 @@ from eth_account import Account
 class FullArbitrageBot:
     def __init__(self):
         # MetaMask credentials
-        self.private_key = "0xcc5d940a52ced4f1eea7459e932893e2c4278d57"
-        self.address = "0xbf725439B03B9AB013200c6eF1E2d1Fb395F46fE"
+        self.private_key = os.environ.get("METAMASK_PRIVATE_KEY", "0xYOUR_PRIVATE_KEY")
+        self.address = os.environ.get("METAMASK_ADDRESS", "0xYOUR_WALLET_ADDRESS")
         self.w3 = Web3(Web3.HTTPProvider('https://polygon-rpc.com'))
         
         # إعدادات التداول

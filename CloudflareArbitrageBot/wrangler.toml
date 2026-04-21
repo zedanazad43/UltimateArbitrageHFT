@@ -9,6 +9,6 @@ kv_namespaces = [
 [triggers]
 crons = ["*/10 * * * *"]
 
-[vars]
-TELEGRAM_BOT_TOKEN = "esIV25iOJKtJJNuTa6Fzp_Iw8TkpRVgsKRoPL3BGe4c1rYsaKqujXg"
-TELEGRAM_CHAT_ID = "8770101170"
+# Secrets must be set via: wrangler secret put TELEGRAM_BOT_TOKEN
+# and: wrangler secret put TELEGRAM_CHAT_ID
+# Do NOT commit real values here.

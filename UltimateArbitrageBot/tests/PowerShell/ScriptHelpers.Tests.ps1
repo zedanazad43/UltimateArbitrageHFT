@@ -9,10 +9,10 @@ Describe 'PowerShell script helpers' {
   }
 
   It 'normalizes delimited values and removes duplicates' {
-    $values = ConvertTo-NormalizedDelimitedValues -Value '1771005847, 123456789, ,1771005847'
+    $values = ConvertTo-NormalizedDelimitedValues -Value '1000000001, 123456789, ,1000000001'
 
     $values.Count | Should -Be 2
-    $values[0] | Should -Be '1771005847'
+    $values[0] | Should -Be '1000000001'
     $values[1] | Should -Be '123456789'
   }
 
@@ -51,11 +51,11 @@ Describe 'PowerShell script helpers' {
 name = "test"
 
 [vars]
-ALLOWED_CHAT_IDS = "1771005847"
+ALLOWED_CHAT_IDS = "1000000001"
 "@ -NoNewline
 
       $chatIds = Get-WranglerVarValue -ScriptRoot $script:scriptsRoot -Name 'ALLOWED_CHAT_IDS' -ConfigPath $tempConfig
-      $chatIds | Should -Be '1771005847'
+      $chatIds | Should -Be '1000000001'
     }
     finally {
       if (Test-Path $tempConfig) {
@@ -119,7 +119,7 @@ Describe 'promptless script validation' {
 name = "test"
 
 [vars]
-ALLOWED_CHAT_IDS = "1771005847"
+ALLOWED_CHAT_IDS = "1000000001"
 "@ -NoNewline
 
       $resolvedChatId = Resolve-Setting -ScriptRoot $script:scriptsRoot -Name 'TELEGRAM_CHAT_ID' -DisablePrompt
@@ -127,7 +127,7 @@ ALLOWED_CHAT_IDS = "1771005847"
         $resolvedChatId = (ConvertTo-NormalizedDelimitedValues -Value (Get-WranglerVarValue -ScriptRoot $script:scriptsRoot -Name 'ALLOWED_CHAT_IDS' -ConfigPath $tempConfig) | Select-Object -First 1)
       }
 
-      $resolvedChatId | Should -Be '1771005847'
+      $resolvedChatId | Should -Be '1000000001'
     }
     finally {
       [Environment]::SetEnvironmentVariable('TELEGRAM_CHAT_ID', $originalChatId)
@@ -151,10 +151,10 @@ name = "test"
 ALLOWED_CHAT_IDS = "old"
 "@ -NoNewline
 
-      & (Join-Path $script:scriptsRoot 'set-allowed-chats.ps1') -ChatIds '1771005847, 123456789, 1771005847' -ConfigPath $tempConfig | Out-Null
+      & (Join-Path $script:scriptsRoot 'set-allowed-chats.ps1') -ChatIds '1000000001, 123456789, 1000000001' -ConfigPath $tempConfig | Out-Null
       $content = Get-Content $tempConfig -Raw
 
-      $content | Should -Match 'ALLOWED_CHAT_IDS = "1771005847,123456789"'
+      $content | Should -Match 'ALLOWED_CHAT_IDS = "1000000001,123456789"'
     }
     finally {
       if (Test-Path $tempConfig) {
@@ -165,7 +165,7 @@ ALLOWED_CHAT_IDS = "old"
 
   It 'fails fast for invalid webhook test URLs' {
     {
-      & (Join-Path $script:scriptsRoot 'test-telegram-webhook.ps1') -WebhookUrl 'not-a-url' -ChatId '1771005847' -NoPrompt | Out-Null
+      & (Join-Path $script:scriptsRoot 'test-telegram-webhook.ps1') -WebhookUrl 'not-a-url' -ChatId '1000000001' -NoPrompt | Out-Null
     } | Should -Throw 'WebhookUrl must be a valid absolute http(s) URL.'
   }
 

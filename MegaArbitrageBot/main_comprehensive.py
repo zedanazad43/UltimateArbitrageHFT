@@ -34,7 +34,7 @@ class ComprehensiveArbitrageBot:
         logger.info("🚀 INITIALIZING COMPREHENSIVE ARBITRAGE BOT...")
         
         # عنوان محفظة MetaMask
-        self.wallet_address = "0xbf725439B03B9AB013200c6eF1E2d1Fb395F46fE"
+        self.wallet_address = os.environ.get("METAMASK_ADDRESS", "0xYOUR_WALLET_ADDRESS")
         logger.info(f"💰 Wallet: {self.wallet_address}")
         
         # تهيئة المكونات

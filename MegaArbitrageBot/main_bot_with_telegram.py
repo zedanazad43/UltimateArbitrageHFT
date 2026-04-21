@@ -79,8 +79,8 @@ class MegaArbitrageBot:
         
         # تهيئة Telegram
         self.telegram = TelegramNotifier(
-            bot_token="esIV25iOJKtJJNuTa6Fzp_Iw8TkpRVgsKRoPL3BGe4c1rYsaKqujXg",
-            chat_id="8770101170"
+            bot_token=os.environ.get("TELEGRAM_BOT_TOKEN", ""),
+            chat_id=os.environ.get("TELEGRAM_CHAT_ID", "")
         )
         
         self.is_running = True
