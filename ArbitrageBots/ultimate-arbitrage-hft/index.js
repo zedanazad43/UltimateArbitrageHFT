@@ -452,16 +452,16 @@ async function renderChecklist(env) {
     } catch (_) {}
   }
   const checks = [
-    { name: 'MEXC API Key مضبوط', ok: !!env.MEXC_API_KEY, critical: true, note: 'مطلوب للتداول الحقيقي' },
-    { name: 'MEXC API Secret مضبوط', ok: !!env.MEXC_API_SECRET, critical: true, note: 'مطلوب للتداول الحقيقي' },
-    { name: 'Admin Token مضبوط', ok: !!env.ADMIN_TOKEN, critical: true, note: 'لحماية أوامر التحكم' },
-    { name: 'Telegram Bot Token', ok: !!env.TELEGRAM_BOT_TOKEN, critical: false, note: 'للتنبيهات' },
-    { name: 'وضع Paper مفعّل', ok: state.paper_trading !== false, critical: false, note: 'يجب اختبار Paper أولاً' },
-    { name: 'صفقات Paper مسجّلة', ok: paperTradesCount > 0, critical: false, note: `${paperTradesCount} صفقة محاكاة` },
+    { name: 'مفتاح MEXC API مضبوط', ok: !!env.MEXC_API_KEY, critical: true, note: 'مطلوب للتداول الحقيقي' },
+    { name: 'سر MEXC API مضبوط', ok: !!env.MEXC_API_SECRET, critical: true, note: 'مطلوب للتداول الحقيقي' },
+    { name: 'رمز المدير (ADMIN_TOKEN) مضبوط', ok: !!env.ADMIN_TOKEN, critical: true, note: 'لحماية أوامر التحكم' },
+    { name: 'رمز Telegram Bot مضبوط', ok: !!env.TELEGRAM_BOT_TOKEN, critical: false, note: 'للتنبيهات' },
+    { name: 'وضع المحاكاة (Paper) مفعّل', ok: state.paper_trading !== false, critical: false, note: 'يجب اختبار Paper أولاً' },
+    { name: 'صفقات محاكاة مسجّلة', ok: paperTradesCount > 0, critical: false, note: `${paperTradesCount} صفقة محاكاة` },
     { name: 'حد الخسارة اليومية محدد', ok: !!(state.max_daily_loss_usd), critical: true, note: `الحالي: $${state.max_daily_loss_usd || DEFAULT_RISK.MAX_DAILY_LOSS_USD}` },
     { name: 'حد الصفقات اليومية محدد', ok: !!(state.max_daily_trades), critical: false, note: `الحالي: ${state.max_daily_trades || DEFAULT_RISK.MAX_DAILY_TRADES}` },
     { name: 'التداول مفعّل', ok: state.trading_enabled !== false, critical: false, note: 'تشغيل قبل الفحص' },
-    { name: 'لا يوجد Auto-stop نشط', ok: !state.auto_stopped, critical: false, note: state.auto_stop_reason || '' }
+    { name: 'لا يوجد إيقاف تلقائي نشط', ok: !state.auto_stopped, critical: false, note: state.auto_stop_reason || '' }
   ];
   const criticalOk = checks.filter(c => c.critical).every(c => c.ok);
   const allOk = checks.every(c => c.ok);
@@ -555,7 +555,6 @@ function calculatePositionSize(equity, winRate, riskRewardRatio) {
 
 async function placeMarketOrderMEXC(env, symbol, side, quantity) {
   const apiKey = env.MEXC_API_KEY, apiSecret = env.MEXC_API_SECRET;
-  if (!apiKey && !apiSecret) throw new Error('MEXC_API_KEY and MEXC_API_SECRET are not configured');
   if (!apiKey) throw new Error('MEXC_API_KEY is not configured');
   if (!apiSecret) throw new Error('MEXC_API_SECRET is not configured');
   const timestamp = Date.now().toString();
@@ -703,7 +702,7 @@ async function scanAndExecute(env) {
           try {
             await env.DB.prepare(
               `INSERT INTO trades (strategy, size_usd, net_profit_percent, mode, created_at) VALUES (?, ?, ?, ?, ?)`
-            ).bind(`${mode.toUpperCase()}_${direction}`, sizeUsd, bestDiff, mode, Date.now()).run();
+            ).bind(direction, sizeUsd, bestDiff, mode, Date.now()).run();
           } catch (dbErr) {
             console.error('D1 log error:', dbErr.message);
           }
