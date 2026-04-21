@@ -1,4 +1,4 @@
-name = "arbitrage-bot"
+name = "ultimate-arbitrage-bot"
 main = "ArbitrageBots/ultimate-arbitrage-hft/index.js"
 compatibility_date = "2025-01-01"
 
