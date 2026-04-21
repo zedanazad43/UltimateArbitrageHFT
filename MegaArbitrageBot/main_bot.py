@@ -11,10 +11,12 @@ from src.secure_key_manager import SecureKeyManager, import_keys_from_txt, Excha
 from src.integrated_trading_engine import IntegratedTradingEngine
 
 class MegaArbitrageBot:
-    def __init__(self, master_password: str):
+    def __init__(self, master_password: str, enable_live_trading: bool = True):
         self.master_password = master_password
+        self.enable_live_trading = enable_live_trading
         self.key_manager = None
         self.trading_engine = None
+        self.keys_file = os.path.join(os.path.dirname(__file__), "keys", "api_keys.txt")
         self.is_running = False
         self.stats = {
             'start_time': None,
@@ -28,21 +30,44 @@ class MegaArbitrageBot:
     def _initialize(self):
         self.key_manager = SecureKeyManager(self.master_password)
         
-        keys_file = os.path.join(os.path.dirname(__file__), "keys", "api_keys.txt")
-        if os.path.exists(keys_file):
-            print(f"📂 Found keys file: {keys_file}")
-            import_keys_from_txt(keys_file, self.key_manager)
+        if os.path.exists(self.keys_file):
+            print(f"📂 Found keys file: {self.keys_file}")
+            import_keys_from_txt(self.keys_file, self.key_manager)
+        else:
+            print(f"⚠️ Keys file not found: {self.keys_file}")
         
         self.trading_engine = IntegratedTradingEngine(self.key_manager)
         
         configured = self.key_manager.list_configured_exchanges()
         print(f"✅ Configured exchanges: {configured}")
+
+    def _validate_live_trading_keys(self):
+        if not self.enable_live_trading:
+            return
+        if not self.key_manager:
+            raise RuntimeError("SecureKeyManager is not initialized.")
+
+        required_exchanges = [ExchangeType.MEXC, ExchangeType.BINANCE]
+        missing_exchanges = [
+            exchange.value.upper()
+            for exchange in required_exchanges
+            if not self.key_manager.verify_keys(exchange)
+        ]
+
+        if missing_exchanges:
+            raise RuntimeError(
+                "Live trading requires valid API keys in keys/api_keys.txt for: "
+                + ", ".join(missing_exchanges)
+            )
     
     async def start(self):
+        self._validate_live_trading_keys()
+
         print("\n" + "="*60)
         print("🚀 MEGA ARBITRAGE BOT - ULTIMATE EDITION")
         print("="*60)
         print(f"📅 Starting at: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+        print(f"🔴 Live Trading: {'ENABLED' if self.enable_live_trading else 'DISABLED'}")
         print(f"💱 Exchanges: {', '.join(self.key_manager.list_configured_exchanges())}")
         print("="*60 + "\n")
         
@@ -73,9 +98,9 @@ class MegaArbitrageBot:
                     print(f"   Sell: {opportunity['sell_exchange'].upper()} @ ${opportunity['sell_price']:.2f}")
                     print(f"   Profit: {opportunity['profit_percent']:.3f}%")
                     
-                    if opportunity['profit_percent'] > 0.5:
+                    if self.enable_live_trading and opportunity['profit_percent'] > 0.5:
                         self.stats['opportunities_taken'] += 1
-                        trade_amount = 50  # 50 USDT للاختبار
+                        trade_amount = 50  # 50 USDT for testing
                         result = await self.trading_engine.execute_trade(opportunity, trade_amount)
                         
                         if result.get('status') == 'executed':
@@ -119,10 +144,11 @@ class MegaArbitrageBot:
 
 async def main():
     MASTER_PASSWORD = os.getenv("MASTER_PASSWORD", "")
+    ENABLE_REAL_TRADING = os.getenv("ENABLE_REAL_TRADING", "false").lower() == "true"
     if not MASTER_PASSWORD:
         print("❌ MASTER_PASSWORD environment variable is required.")
         sys.exit(1)
-    bot = MegaArbitrageBot(MASTER_PASSWORD)
+    bot = MegaArbitrageBot(MASTER_PASSWORD, enable_live_trading=ENABLE_REAL_TRADING)
     await bot.start()
 
 if __name__ == "__main__":
