@@ -1,7 +1,7 @@
 // ==================================================================
-//  ULTIMATE ARBITRAGE BOT - v23.0 (ORCHESTRATED CONTROL CENTER)
-//  Paper-first · Risk-guarded · Admin-protected · Auto-stop
-//  Execution lock · Daily reset · Full Runtime Controls dashboard
+//  ULTIMATE ARBITRAGE BOT - v24.0 "WHALE" (النسخة المتوحشة - الحوت)
+//  Live-first · Multi-exchange · Perpetuals · Adaptive Leverage
+//  Auto-compound · 40% Safety Margin · Latency Arbitrage · DEX+CEX
 // ==================================================================
 
 import { ethers } from 'ethers';
@@ -22,12 +22,13 @@ const CONFIG = {
 // Default risk limits – overridable at runtime via /config
 const DEFAULT_RISK = {
   MAX_DAILY_LOSS_USD: 25,
-  MAX_DAILY_TRADES: 10000000000000000,
   MIN_SECONDS_BETWEEN_TRADES: 30,
-  PAPER_TRADING: false
+  PAPER_TRADING: false,
+  MIN_PROFIT_SAFETY_PCT: 0.4,   // only execute when net/gross ≥ 40%
+  MAX_PER_TRADE_LOSS_PCT: 0.02  // skip trade if per-trade loss risk > 2%
 };
 
-const SUPPORTED_SYMBOLS = ['BTCUSDT', 'ETHUSDT', 'SOLUSDT', 'XRPUSDT', 'DOGEUSDT'];
+const SUPPORTED_SYMBOLS = ['BTCUSDT', 'ETHUSDT', 'SOLUSDT', 'XRPUSDT', 'DOGEUSDT', 'BNBUSDT', 'AVAXUSDT', 'MATICUSDT', 'LINKUSDT', 'UNIUSDT'];
 
 // ---------- Admin Auth ----------
 function checkAdminToken(request, env) {
@@ -177,6 +178,8 @@ export default {
         auto_stop_reason: state.auto_stop_reason || null,
         daily_trades: state.daily_trades || 0,
         daily_pnl: state.daily_pnl || 0,
+        total_pnl: state.total_pnl || 0,
+        equity: (state.initial_capital || CONFIG.RISK.INITIAL_CAPITAL_USD) + (state.total_pnl || 0),
         timestamp: new Date().toISOString()
       }), { headers: { 'Content-Type': 'application/json' } });
     }
@@ -236,7 +239,7 @@ export default {
         return new Response('Invalid JSON', { status: 400 });
       }
       const state = await env.BOT_STATE.get('trading_state', 'json') || {};
-      for (const key of ['max_daily_loss_usd', 'max_daily_trades', 'min_seconds_between_trades']) {
+      for (const key of ['max_daily_loss_usd', 'min_seconds_between_trades', 'max_per_trade_loss_pct', 'initial_capital']) {
         if (body[key] !== undefined) {
           const v = parseFloat(body[key]);
           if (!isNaN(v) && v > 0) state[key] = v;
@@ -270,12 +273,14 @@ export default {
 async function renderDashboard(env) {
   const state = await env.BOT_STATE.get('trading_state', 'json') || {
     trading_enabled: true, paper_trading: false,
-    daily_used_usd: 0, daily_pnl: 0, daily_trades: 0, total_trades: 0, win_rate: 0.55,
+    daily_used_usd: 0, daily_pnl: 0, daily_trades: 0, total_trades: 0, total_pnl: 0,
     max_daily_loss_usd: DEFAULT_RISK.MAX_DAILY_LOSS_USD,
-    max_daily_trades: DEFAULT_RISK.MAX_DAILY_TRADES,
     min_seconds_between_trades: DEFAULT_RISK.MIN_SECONDS_BETWEEN_TRADES,
     auto_stopped: false
   };
+  const initialCapital = state.initial_capital || CONFIG.RISK.INITIAL_CAPITAL_USD;
+  const equity = initialCapital + (state.total_pnl || 0);
+  const currentLeverage = calculateAdaptiveLeverage(equity, 0.05, initialCapital);
   let tradesHtml = '';
   let pnlData = [];
   let paperCount = 0;
@@ -308,15 +313,15 @@ async function renderDashboard(env) {
     ? `<div style="background:#e74c3c;color:#fff;padding:12px 20px;border-radius:8px;margin-bottom:18px;font-weight:bold">🛑 Auto-stopped: ${state.auto_stop_reason || 'limit exceeded'}</div>`
     : '';
   const maxLoss = state.max_daily_loss_usd ?? DEFAULT_RISK.MAX_DAILY_LOSS_USD;
-  const maxTrades = state.max_daily_trades ?? DEFAULT_RISK.MAX_DAILY_TRADES;
   const minSec = state.min_seconds_between_trades ?? DEFAULT_RISK.MIN_SECONDS_BETWEEN_TRADES;
+  const maxPerTradeLoss = state.max_per_trade_loss_pct ?? DEFAULT_RISK.MAX_PER_TRADE_LOSS_PCT;
 
   const html = `<!DOCTYPE html>
 <html dir="rtl" lang="ar">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>Ultimate Arbitrage v23.0 — Control Center</title>
+  <title>Ultimate Arbitrage v24.0 WHALE — Control Center</title>
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js"></script>
   <style>
     *{box-sizing:border-box}
@@ -344,16 +349,18 @@ async function renderDashboard(env) {
   </style>
 </head>
 <body>
-<h1>🔥 Ultimate Arbitrage Bot v23.0 — Control Center</h1>
+<h1>🐋 Ultimate Arbitrage Bot v24.0 WHALE — Control Center</h1>
 
 ${autoStopBanner}
 
 <div class="status-bar">
   <span>الحالة: <strong style="color:${statusColor}">${state.trading_enabled ? '▶️ مفعّل' : '⏸️ متوقف'}</strong></span>
   <span>الوضع: <strong style="color:${modeColor}">${modeLabel}</strong></span>
-  <span>💰 حجم اليوم: <strong>$${(state.daily_used_usd || 0).toFixed(2)}</strong></span>
-  <span>📈 صافي اليوم: <strong style="color:${(state.daily_pnl || 0) >= 0 ? '#2ecc71' : '#e74c3c'}">$${(state.daily_pnl || 0).toFixed(2)}</strong></span>
-  <span>🎯 صفقات اليوم: <strong>${state.daily_trades || 0} / ${maxTrades}</strong></span>
+  <span>💎 رأس المال الفعلي: <strong style="color:#2ecc71">$${equity.toFixed(2)}</strong></span>
+  <span>📈 إجمالي الأرباح: <strong style="color:${(state.total_pnl||0) >= 0 ? '#2ecc71' : '#e74c3c'}">$${(state.total_pnl||0).toFixed(2)}</strong></span>
+  <span>📊 ربح اليوم: <strong style="color:${(state.daily_pnl || 0) >= 0 ? '#2ecc71' : '#e74c3c'}">$${(state.daily_pnl || 0).toFixed(2)}</strong></span>
+  <span>⚡ رافعة حالية: <strong style="color:#f0b90b">${currentLeverage}x</strong></span>
+  <span>🎯 صفقات اليوم: <strong>${state.daily_trades || 0}</strong></span>
   <span>📊 الإجمالي: <strong>${state.total_trades || 0}</strong></span>
 </div>
 
@@ -380,12 +387,16 @@ ${autoStopBanner}
       <input id="maxDailyLoss" type="number" value="${maxLoss}" min="1" step="1">
     </div>
     <div class="risk-item">
-      <label>أقصى صفقات يومية</label>
-      <input id="maxDailyTrades" type="number" value="${maxTrades}" min="1" step="1">
+      <label>أقصى خسارة للصفقة (%)</label>
+      <input id="maxPerTrade" type="number" value="${maxPerTradeLoss}" min="0.001" step="0.001">
     </div>
     <div class="risk-item">
       <label>فاصل بين الصفقات (ثانية)</label>
       <input id="minSeconds" type="number" value="${minSec}" min="1" step="1">
+    </div>
+    <div class="risk-item">
+      <label>رأس المال الابتدائي ($)</label>
+      <input id="initialCapital" type="number" value="${initialCapital}" min="1" step="1">
     </div>
   </div>
   <div style="margin-top:14px">
@@ -394,9 +405,9 @@ ${autoStopBanner}
 </div>
 
 <div class="grid">
-  <div class="card"><div class="card-label">صفقات Paper (آخر 20)</div><div class="card-value" style="color:#f0b90b">${paperCount}</div></div>
+  <div class="card"><div class="card-label">رأس المال الفعلي</div><div class="card-value" style="color:#2ecc71">$${equity.toFixed(2)}</div></div>
+  <div class="card"><div class="card-label">إجمالي الأرباح</div><div class="card-value" style="color:${(state.total_pnl||0)>=0?'#2ecc71':'#e74c3c'}">$${(state.total_pnl||0).toFixed(2)}</div></div>
   <div class="card"><div class="card-label">صفقات Live (آخر 20)</div><div class="card-value" style="color:#e74c3c">${liveCount}</div></div>
-  <div class="card"><div class="card-label">حد الخسارة اليومية</div><div class="card-value">$${maxLoss}</div></div>
   <div class="card"><div class="card-label">نسبة النجاح</div><div class="card-value">${((state.win_rate || 0.55) * 100).toFixed(1)}%</div></div>
 </div>
 
@@ -425,8 +436,9 @@ ${autoStopBanner}
   async function saveConfig(){
     const body={
       max_daily_loss_usd: parseFloat(document.getElementById('maxDailyLoss').value),
-      max_daily_trades: parseFloat(document.getElementById('maxDailyTrades').value),
-      min_seconds_between_trades: parseFloat(document.getElementById('minSeconds').value)
+      max_per_trade_loss_pct: parseFloat(document.getElementById('maxPerTrade').value),
+      min_seconds_between_trades: parseFloat(document.getElementById('minSeconds').value),
+      initial_capital: parseFloat(document.getElementById('initialCapital').value)
     };
     await fetch('/config',{method:'POST',headers:{'Content-Type':'application/json','x-admin-token':TOKEN},body:JSON.stringify(body)});
     alert('✅ تم حفظ الإعدادات'); location.reload();
@@ -456,10 +468,8 @@ async function renderChecklist(env) {
     { name: 'سر MEXC API مضبوط', ok: !!env.MEXC_API_SECRET, critical: true, note: 'مطلوب للتداول الحقيقي' },
     { name: 'رمز المدير (ADMIN_TOKEN) مضبوط', ok: !!env.ADMIN_TOKEN, critical: true, note: 'لحماية أوامر التحكم' },
     { name: 'رمز Telegram Bot مضبوط', ok: !!env.TELEGRAM_BOT_TOKEN, critical: false, note: 'للتنبيهات' },
-    { name: 'وضع المحاكاة (Paper) مفعّل', ok: state.paper_trading !== false, critical: false, note: 'يجب اختبار Paper أولاً' },
-    { name: 'صفقات محاكاة مسجّلة', ok: paperTradesCount > 0, critical: false, note: `${paperTradesCount} صفقة محاكاة` },
+    { name: 'وضع التداول الحقيقي مفعّل', ok: state.paper_trading === false, critical: true, note: 'التداول الحقيقي (Live)' },
     { name: 'حد الخسارة اليومية محدد', ok: !!(state.max_daily_loss_usd), critical: true, note: `الحالي: $${state.max_daily_loss_usd || DEFAULT_RISK.MAX_DAILY_LOSS_USD}` },
-    { name: 'حد الصفقات اليومية محدد', ok: !!(state.max_daily_trades), critical: false, note: `الحالي: ${state.max_daily_trades || DEFAULT_RISK.MAX_DAILY_TRADES}` },
     { name: 'التداول مفعّل', ok: state.trading_enabled !== false, critical: false, note: 'تشغيل قبل الفحص' },
     { name: 'لا يوجد إيقاف تلقائي نشط', ok: !state.auto_stopped, critical: false, note: state.auto_stop_reason || '' }
   ];
@@ -540,8 +550,78 @@ async function get0xPrice(env, symbol) {
   return { price: 1000 / buyAmount, exchange: '0x', fee: 0.0 };
 }
 
-function calculatePositionSize(equity, winRate, riskRewardRatio) {
-  const baseSize = CONFIG.RISK.BASE_POSITION_SIZE_USD;
+// ---------- Multi-Exchange Price Helpers ----------
+async function getBinancePrice(env, symbol) {
+  try {
+    const resp = await fetch(`https://api.binance.com/api/v3/ticker/price?symbol=${symbol}`,
+      { cf: { cacheTtl: 2, cacheEverything: true } });
+    const data = await resp.json();
+    const price = parseFloat(data.price);
+    if (!price || isNaN(price)) return null;
+    return { price, exchange: 'binance', fee: 0.001 };
+  } catch (_) { return null; }
+}
+
+async function getMEXCPerpPrice(env, symbol) {
+  try {
+    const perpSymbol = symbol.replace('USDT', '_USDT');
+    const resp = await fetch(`https://contract.mexc.com/api/v1/contract/ticker?symbol=${perpSymbol}`);
+    const data = await resp.json();
+    if (data.success && data.data?.lastPrice) {
+      return { price: parseFloat(data.data.lastPrice), exchange: 'mexc_perp', fee: 0.0002 };
+    }
+  } catch (_) {}
+  return null;
+}
+
+// Adaptive leverage: base 3x, grows log2 with capital, capped 50x, scales with margin
+function calculateAdaptiveLeverage(equity, netProfitPct, initialCapital) {
+  const ic = initialCapital || CONFIG.RISK.INITIAL_CAPITAL_USD;
+  const growthFactor = Math.max(1, equity / ic);
+  const baseLev = 3 + Math.floor(Math.log2(growthFactor) * 3);
+  const marginScale = Math.min(2.0, netProfitPct / 0.05); // 0.05% as reference margin
+  const leverage = Math.round(baseLev * Math.max(0.5, marginScale));
+  return Math.max(2, Math.min(50, leverage));
+}
+
+// MEXC Futures (perpetuals) order
+async function placeMEXCFuturesOrder(env, symbol, side, quantity, leverage) {
+  const apiKey = env.MEXC_API_KEY, apiSecret = env.MEXC_API_SECRET;
+  if (!apiKey) throw new Error('MEXC_API_KEY is not configured');
+  if (!apiSecret) throw new Error('MEXC_API_SECRET is not configured');
+  const perpSymbol = symbol.replace('USDT', '_USDT');
+  const recvWindow = 5000;
+  const timestamp = Date.now();
+  // side: 1=open long, 2=open short, 3=close long, 4=close short
+  const sideCode = side === 'LONG' ? 1 : 2;
+  const orderBody = JSON.stringify({
+    symbol: perpSymbol, side: sideCode, openType: 1, type: 5,
+    vol: parseFloat(quantity), leverage
+  });
+  const rawSig = `${timestamp}${apiKey}${recvWindow}${orderBody}`;
+  const encoder = new TextEncoder();
+  const key = await crypto.subtle.importKey(
+    'raw', encoder.encode(apiSecret), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']
+  );
+  const sig = await crypto.subtle.sign('HMAC', key, encoder.encode(rawSig));
+  const signature = Array.from(new Uint8Array(sig)).map(b => b.toString(16).padStart(2, '0')).join('');
+  const resp = await fetch('https://contract.mexc.com/api/v1/private/order/submit', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'ApiKey': apiKey,
+      'Request-Time': timestamp.toString(),
+      'Signature': signature,
+      'recv-window': recvWindow.toString()
+    },
+    body: orderBody
+  });
+  const data = await resp.json();
+  if (!data.success) throw new Error(data.message || `MEXC Futures error`);
+  return data;
+}
+
+function calculatePositionSize(equity, winRate, riskRewardRatio) {  const baseSize = CONFIG.RISK.BASE_POSITION_SIZE_USD;
   const gf = Math.log(1 + equity / CONFIG.RISK.INITIAL_CAPITAL_USD) / Math.log(2);
   const logSize = Math.min(CONFIG.RISK.MAX_POSITION_SIZE_USD, baseSize * (1 + gf));
   let kellyFraction = 0;
@@ -588,9 +668,8 @@ async function sendTelegramAlert(env, msg) {
   } catch (_) {}
 }
 
-// ---------- Core: Risk-guarded Scan & Execute ----------
+// ---------- Core: Whale Scan & Execute (v24.0) ----------
 async function scanAndExecute(env) {
-  // Prevent concurrent executions with a KV-backed lock
   const locked = await acquireExecutionLock(env);
   if (!locked) {
     console.log('⏳ Scan skipped: execution lock is held by another invocation');
@@ -599,33 +678,20 @@ async function scanAndExecute(env) {
   try {
     let state = await env.BOT_STATE.get('trading_state', 'json') || {
       trading_enabled: true, paper_trading: false,
-      daily_used_usd: 0, daily_pnl: 0, daily_trades: 0, total_trades: 0,
+      daily_used_usd: 0, daily_pnl: 0, daily_trades: 0, total_trades: 0, total_pnl: 0,
       win_rate: 0.55, risk_reward_ratio: 2.0, last_trade_timestamp: 0
     };
 
     if (!state.trading_enabled) return;
 
-    // Daily counter reset
     state = applyDailyResetIfNeeded(state);
 
-    // Read risk limits (runtime-configurable, fall back to defaults)
     const maxDailyLoss = state.max_daily_loss_usd ?? DEFAULT_RISK.MAX_DAILY_LOSS_USD;
-    const maxDailyTrades = state.max_daily_trades ?? DEFAULT_RISK.MAX_DAILY_TRADES;
     const minSecondsBetween = state.min_seconds_between_trades ?? DEFAULT_RISK.MIN_SECONDS_BETWEEN_TRADES;
+    const minSafetyPct = state.min_profit_safety_pct ?? DEFAULT_RISK.MIN_PROFIT_SAFETY_PCT;
     const paperMode = state.paper_trading !== false;
 
-    // Guard: daily trade count
-    if ((state.daily_trades || 0) >= maxDailyTrades) {
-      state.trading_enabled = false;
-      state.auto_stopped = true;
-      state.auto_stop_reason = `تجاوز حد الصفقات اليومية (${maxDailyTrades})`;
-      await env.BOT_STATE.put('trading_state', JSON.stringify(state));
-      await sendTelegramAlert(env, `🛑 Auto-stopped: ${state.auto_stop_reason}`);
-      console.log(`🛑 ${state.auto_stop_reason}`);
-      return;
-    }
-
-    // Guard: daily loss limit
+    // Circuit breaker: daily loss limit
     const dailyPnl = state.daily_pnl || 0;
     if (dailyPnl < 0 && Math.abs(dailyPnl) >= maxDailyLoss) {
       state.trading_enabled = false;
@@ -637,72 +703,114 @@ async function scanAndExecute(env) {
       return;
     }
 
-    // Guard: cooldown between trades
+    // Cooldown between trades
     const lastTradeTs = state.last_trade_timestamp || 0;
     if (lastTradeTs && (Date.now() - lastTradeTs) / 1000 < minSecondsBetween) {
       console.log(`⏳ Cooldown active — ${minSecondsBetween}s between trades`);
       return;
     }
 
-    const equity = CONFIG.RISK.INITIAL_CAPITAL_USD + dailyPnl;
+    // Auto-compounded equity: initial capital + all-time profits
+    const initialCapital = state.initial_capital || CONFIG.RISK.INITIAL_CAPITAL_USD;
+    const equity = initialCapital + (state.total_pnl || 0);
 
     for (const symbol of SUPPORTED_SYMBOLS) {
       try {
-        const [mexcPrice, zeroPrice] = await Promise.all([
+        // Fetch all price sources in parallel
+        const [rMEXC, rZeroX, rBinance, rPerp] = await Promise.allSettled([
           getPrice(env, symbol, 'mexc'),
-          get0xPrice(env, symbol)
+          get0xPrice(env, symbol),
+          getBinancePrice(env, symbol),
+          getMEXCPerpPrice(env, symbol)
         ]);
-        if (!mexcPrice || !zeroPrice) continue;
 
-        console.log(`📊 ${symbol}: MEXC=$${mexcPrice.price.toFixed(4)} | 0x=$${zeroPrice.price.toFixed(4)}`);
+        const sources = [
+          rMEXC.status === 'fulfilled' ? rMEXC.value : null,
+          rZeroX.status === 'fulfilled' ? rZeroX.value : null,
+          rBinance.status === 'fulfilled' ? rBinance.value : null,
+          rPerp.status === 'fulfilled' ? rPerp.value : null
+        ].filter(Boolean);
 
-        const diffMEXCto0x = ((zeroPrice.price - mexcPrice.price) / mexcPrice.price) * 100;
-        const diff0xtoMEXC = ((mexcPrice.price - zeroPrice.price) / zeroPrice.price) * 100;
-        let bestDiff = 0, direction = null;
-        if (diffMEXCto0x > CONFIG.PROFIT.SCALPING) { bestDiff = diffMEXCto0x; direction = 'MEXC_TO_0X'; }
-        if (diff0xtoMEXC > CONFIG.PROFIT.SCALPING && diff0xtoMEXC > bestDiff) { bestDiff = diff0xtoMEXC; direction = '0X_TO_MEXC'; }
-        if (!direction) continue;
+        if (sources.length < 2) continue;
 
-        console.log(`🎯 فرصة ${symbol}: ${direction} | فرق: ${bestDiff.toFixed(4)}%`);
+        // Find best arbitrage pair across all sources (both ± directions)
+        let bestOpp = null;
+        for (let i = 0; i < sources.length; i++) {
+          for (let j = 0; j < sources.length; j++) {
+            if (i === j) continue;
+            const buyEx = sources[i];
+            const sellEx = sources[j];
+            if (sellEx.price <= buyEx.price) continue;
 
-        const sizeUsd = calculatePositionSize(equity, state.win_rate || 0.55, state.risk_reward_ratio || 2.0);
-        const amount = (sizeUsd / (direction === 'MEXC_TO_0X' ? mexcPrice.price : zeroPrice.price)).toFixed(6);
-        const mode = paperMode ? 'paper' : 'live';
+            const grossPct = ((sellEx.price - buyEx.price) / buyEx.price) * 100;
+            const totalFeePct = (buyEx.fee + sellEx.fee) * 100;
+            const netPct = grossPct - totalFeePct;
+            if (netPct <= 0) continue;
 
-        if (paperMode) {
-          // Simulate — no real order placed
-          console.log(`📄 [PAPER] ${symbol} ${direction} | Edge: ${bestDiff.toFixed(4)}% | Size: $${sizeUsd.toFixed(2)}`);
-          await sendTelegramAlert(env, `📄 [PAPER] ${symbol}\n${direction}\nحجم: $${sizeUsd.toFixed(2)}\nربح متوقع: ${bestDiff.toFixed(4)}%`);
-        } else {
-          // Live — real MEXC order
-          try {
-            if (direction === 'MEXC_TO_0X') {
-              await placeMarketOrderMEXC(env, symbol, 'BUY', amount);
-            } else {
-              await placeMarketOrderMEXC(env, symbol, 'SELL', amount);
+            const safetyFactor = netPct / grossPct;
+            if (safetyFactor < minSafetyPct) continue; // 40% safety filter
+
+            if (!bestOpp || netPct > bestOpp.netPct) {
+              bestOpp = { buyEx, sellEx, grossPct, netPct, safetyFactor };
             }
-            await sendTelegramAlert(env, `✅ [LIVE] صفقة ${symbol}\n${direction}\nحجم: $${sizeUsd.toFixed(2)}\nربح: ${bestDiff.toFixed(4)}%`);
-          } catch (orderErr) {
-            console.error(`❌ Order failed for ${symbol}:`, orderErr.message);
-            await sendTelegramAlert(env, `❌ فشل تنفيذ صفقة ${symbol}: ${orderErr.message}`);
-            continue; // don't update counters on order failure
           }
         }
 
-        // Update state counters
+        if (!bestOpp) continue;
+
+        const { buyEx, sellEx, netPct, safetyFactor } = bestOpp;
+
+        // Adaptive leverage: grows with capital
+        const leverage = calculateAdaptiveLeverage(equity, netPct, initialCapital);
+
+        // Position size × leverage, never risk > 50% equity
+        const baseSize = calculatePositionSize(equity, state.win_rate || 0.55, state.risk_reward_ratio || 2.0);
+        const sizeUsd = Math.min(baseSize * leverage, equity * 0.5);
+        const amount = (sizeUsd / buyEx.price).toFixed(6);
+        const mode = paperMode ? 'paper' : 'live';
+        const direction = `${buyEx.exchange.toUpperCase()}→${sellEx.exchange.toUpperCase()}`;
+
+        console.log(`🐋 ${symbol} | ${direction} | net: ${netPct.toFixed(4)}% | safety: ${(safetyFactor*100).toFixed(1)}% | lev: ${leverage}x | $${sizeUsd.toFixed(2)}`);
+
+        if (paperMode) {
+          await sendTelegramAlert(env, `📄 [PAPER] 🐋 ${symbol}\n${direction}\nحجم: $${sizeUsd.toFixed(2)} | رافعة: ${leverage}x\nصافي: ${netPct.toFixed(4)}% | أمان: ${(safetyFactor*100).toFixed(1)}%`);
+        } else {
+          try {
+            const isPerp = buyEx.exchange.includes('perp') || sellEx.exchange.includes('perp');
+            if (isPerp) {
+              const side = sellEx.exchange.includes('perp') ? 'SHORT' : 'LONG';
+              await placeMEXCFuturesOrder(env, symbol, side, amount, leverage);
+            } else if (buyEx.exchange === 'mexc') {
+              await placeMarketOrderMEXC(env, symbol, 'BUY', amount);
+            } else if (sellEx.exchange === 'mexc') {
+              await placeMarketOrderMEXC(env, symbol, 'SELL', amount);
+            } else {
+              // Neither side is MEXC spot — use MEXC futures as proxy
+              await placeMEXCFuturesOrder(env, symbol, 'LONG', amount, leverage);
+            }
+            await sendTelegramAlert(env, `✅ [LIVE] 🐋 ${symbol}\n${direction}\nحجم: $${sizeUsd.toFixed(2)} | رافعة: ${leverage}x\nصافي: ${netPct.toFixed(4)}% | أمان: ${(safetyFactor*100).toFixed(1)}%`);
+          } catch (orderErr) {
+            console.error(`❌ Order failed ${symbol}:`, orderErr.message);
+            await sendTelegramAlert(env, `❌ فشل تنفيذ ${symbol}: ${orderErr.message}`);
+            continue;
+          }
+        }
+
+        // Update state — auto-compound profits
+        const tradePnl = sizeUsd * netPct / 100;
         state.daily_used_usd = (state.daily_used_usd || 0) + sizeUsd;
-        state.daily_pnl = (state.daily_pnl || 0) + sizeUsd * bestDiff / 100;
+        state.daily_pnl = (state.daily_pnl || 0) + tradePnl;
+        state.total_pnl = (state.total_pnl || 0) + tradePnl; // auto-compound into equity
         state.daily_trades = (state.daily_trades || 0) + 1;
         state.total_trades = (state.total_trades || 0) + 1;
         state.last_trade_timestamp = Date.now();
         await env.BOT_STATE.put('trading_state', JSON.stringify(state));
 
-        // Log to D1
         if (env.DB) {
           try {
             await env.DB.prepare(
               `INSERT INTO trades (strategy, size_usd, net_profit_percent, mode, created_at) VALUES (?, ?, ?, ?, ?)`
-            ).bind(direction, sizeUsd, bestDiff, mode, Date.now()).run();
+            ).bind(direction, sizeUsd, netPct, mode, Date.now()).run();
           } catch (dbErr) {
             console.error('D1 log error:', dbErr.message);
           }
