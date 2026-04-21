@@ -9,6 +9,15 @@ const SUPPORTED_SYMBOLS = ['BTCUSDT', 'ETHUSDT', 'SOLUSDT', 'XRPUSDT', 'DOGEUSDT
 let priceCache = { mexc: {}, bitget: {} };
 let wsConnections = {};
 
+// ---------- Admin Auth ----------
+function checkAdminToken(request, env) {
+  if (!env.ADMIN_TOKEN) return true;
+  const token =
+    request.headers.get('x-admin-token') ||
+    (request.headers.get('authorization') || '').replace(/^Bearer\s+/i, '') ||
+    new URL(request.url).searchParams.get('token');
+  return token === env.ADMIN_TOKEN;
+}
 
 // ---------- Cross-Chain Price Helpers ----------
 async function getAlchemyPrice(symbol, apiKey) {
@@ -128,6 +137,14 @@ async function scheduledScan(env) {
 export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
+
+    // Protected scan/ws endpoints require admin token when one is configured
+    if (['/scan', '/cross-chain-scan', '/start-ws'].includes(url.pathname)) {
+      if (!checkAdminToken(request, env)) {
+        return new Response('Unauthorized', { status: 401 });
+      }
+    }
+
     if (url.pathname === '/scan') {
       ctx.waitUntil(scheduledScan(env));
       return new Response('Scan started (WebSocket enhanced)');
