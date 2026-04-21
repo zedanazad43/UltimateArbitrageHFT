@@ -5,3 +5,6 @@ compatibility_date = "2025-01-01"
 [[kv_namespaces]]
 binding = "BOT_STATE"
 id = "ac954cedbedd48f8aa4452975e5fc2a1"
+
+# Secrets required by this worker (set via `wrangler secret put <NAME>`):
+# - ALCHEMY_API_KEY  : Alchemy Token Prices API key
