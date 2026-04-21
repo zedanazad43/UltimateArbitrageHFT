@@ -131,9 +131,41 @@ Combined JS + Python orchestrator.
 ```bash
 cd UnifiedArbitrageBot
 pip install -r requirements.txt
-# edit index.js or main.py to set your exchange credentials via environment variables
+# copy live-trading config template and set real API keys
+cp .env.example .env
 python main.py
 ```
+
+Pre-configured exchanges in `UnifiedArbitrageBot/main.py`:
+
+- `MEXC` (enabled by default)
+- `Binance` (enable with `ENABLE_BINANCE_ARBITRAGE=true`)
+
+Set exchange API credentials in `UnifiedArbitrageBot/.env`:
+
+- `MEXC_API_KEY`, `MEXC_SECRET_KEY`
+- `BINANCE_API_KEY`, `BINANCE_SECRET_KEY`
+
+Live-trading mode and risk controls are controlled by:
+
+- `TEST_MODE=false`
+- `ENABLE_REAL_TRADING=true`
+- `MAX_POSITION_SIZE_USD`
+- `MAX_DAILY_TRADES`
+- `MAX_DAILY_LOSS_USD`
+- `MIN_SECONDS_BETWEEN_TRADES`
+
+For monitoring, the bot already logs:
+
+- Executed/simulated trades and errors to stdout and `logs/bot.log`
+- Periodic exchange balances (USDT) every `BALANCE_LOG_INTERVAL_SCANS` scans
+
+Recommended rollout:
+
+1. Start with very small capital (`MAX_POSITION_SIZE_USD=5` or `10`).
+2. Run continuously on a reliable host (local tmux/screen, VPS, or cloud VM).
+3. Watch `logs/bot.log` and balance snapshots for at least 24-72 hours.
+4. Increase position size gradually only after stable, safe behavior.
 
 ---
 
