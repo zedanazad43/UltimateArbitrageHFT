@@ -1,0 +1,38 @@
+{
+  "name": "ultimate-arbitrage-bot",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "bot:health": "pwsh -NoProfile -File ./scripts/invoke-admin-action.ps1 -Action health -NoPrompt",
+    "bot:start": "pwsh -NoProfile -File ./scripts/invoke-admin-action.ps1 -Action start -NoPrompt",
+    "bot:stop": "pwsh -NoProfile -File ./scripts/invoke-admin-action.ps1 -Action stop -NoPrompt",
+    "bot:scan": "pwsh -NoProfile -File ./scripts/invoke-admin-action.ps1 -Action scan -NoPrompt",
+    "bot:test-alert": "pwsh -NoProfile -File ./scripts/invoke-admin-action.ps1 -Action test-alert -NoPrompt",
+    "bot:dashboard": "pwsh -NoProfile -File ./scripts/invoke-admin-action.ps1 -Action dashboard -NoPrompt",
+    "telegram:test-webhook": "pwsh -NoProfile -File ./scripts/test-telegram-webhook.ps1 -NoPrompt",
+    "telegram:set-webhook": "pwsh -NoProfile -File ./scripts/set-telegram-webhook.ps1 -NoPrompt",
+    "telegram:set-allowed-chats": "pwsh -NoProfile -File ./scripts/set-allowed-chats.ps1",
+    "ai:confidence-40": "pwsh -NoProfile -File ./scripts/set-ai-mode.ps1 -Preset confidence-40 -Deploy",
+    "ai:history-20": "pwsh -NoProfile -File ./scripts/set-ai-mode.ps1 -Preset history-20 -Deploy",
+    "ai:aggressive": "pwsh -NoProfile -File ./scripts/set-ai-mode.ps1 -Preset aggressive -Deploy",
+    "ops:validate": "pwsh -NoProfile -File ./scripts/validate-operations.ps1",
+    "test:powershell": "pwsh -NoProfile -File ./scripts/run-powershell-tests.ps1",
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "cf:check": "wrangler deploy --dry-run",
+    "cf:tail": "wrangler tail",
+    "cf:set-admin-token": "pwsh -NoProfile -File ./scripts/set-admin-token.ps1",
+    "cf:set-main-telegram": "pwsh -NoProfile -File ./scripts/set-telegram-secrets.ps1",
+    "cf:set-tail-telegram": "pwsh -NoProfile -File ./scripts/set-telegram-secrets.ps1 -ConfigPath tail-worker/wrangler.toml",
+    "d1:migrate:local": "wrangler d1 migrations apply ultimate-arbitrage-db --local",
+    "d1:migrate:remote": "wrangler d1 migrations apply ultimate-arbitrage-db --remote",
+    "tail:dev": "wrangler dev --config tail-worker/wrangler.toml",
+    "tail:deploy": "wrangler deploy --config tail-worker/wrangler.toml"
+  },
+  "dependencies": {
+    "ethers": "^6.16.0"
+  },
+  "devDependencies": {
+    "wrangler": "^4.12.0"
+  }
+}

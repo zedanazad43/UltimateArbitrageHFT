@@ -1,0 +1,9 @@
+{
+    "did": "did:matchid:0xcc5d940a52ced4f1eea7459e932893e2c4278d57",
+    "address": "0xcc5d940a52ced4f1eea7459e932893e2c4278d57",
+    "client_id": "fsthjglonup0fpbj",
+    "client_secret": "cWu3d0Cn5BdCvRsmg77cMJB9P33r5vHh",
+    "api_url": "https://api.matchid.ai/v1",
+    "redirect_uri": "http://localhost:3000/callback",
+    "app_name": "ArbitrageBot"
+}

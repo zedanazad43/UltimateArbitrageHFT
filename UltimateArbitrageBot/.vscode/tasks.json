@@ -1,0 +1,2560 @@
+{
+	"version": "2.0.0",
+	"tasks": [
+		{
+			"label": "npm install",
+			"type": "shell",
+			"command": "npm",
+			"args": [
+				"install"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "wrangler dry run",
+			"type": "shell",
+			"command": "npx",
+			"args": [
+				"wrangler",
+				"deploy",
+				"--dry-run"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "tail worker dry run",
+			"type": "shell",
+			"command": "npx",
+			"args": [
+				"wrangler",
+				"deploy",
+				"--dry-run",
+				"--config",
+				"tail-worker/wrangler.toml"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "d1 migrate local",
+			"type": "shell",
+			"command": "npx",
+			"args": [
+				"wrangler",
+				"d1",
+				"migrations",
+				"apply",
+				"ultimate-arbitrage-db",
+				"--local"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "d1 migrate local noninteractive",
+			"type": "shell",
+			"command": "cmd",
+			"args": [
+				"/c",
+				"echo Y| npx wrangler d1 migrations apply ultimate-arbitrage-db --local"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "d1 migrate remote",
+			"type": "shell",
+			"command": "cmd",
+			"args": [
+				"/c",
+				"echo Y| npx wrangler d1 migrations apply ultimate-arbitrage-db --remote"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "deploy main worker",
+			"type": "shell",
+			"command": "npx",
+			"args": [
+				"wrangler",
+				"deploy"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "deploy tail worker",
+			"type": "shell",
+			"command": "npx",
+			"args": [
+				"wrangler",
+				"deploy",
+				"--config",
+				"tail-worker/wrangler.toml"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "redeploy main worker",
+			"type": "shell",
+			"command": "npx",
+			"args": [
+				"wrangler",
+				"deploy"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "wrangler tail help",
+			"type": "shell",
+			"command": "npx",
+			"args": [
+				"wrangler",
+				"tail",
+				"--help"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "redeploy main with tail consumer",
+			"type": "shell",
+			"command": "npx",
+			"args": [
+				"wrangler",
+				"deploy"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "wrangler dry run secure",
+			"type": "shell",
+			"command": "npx",
+			"args": [
+				"wrangler",
+				"deploy",
+				"--dry-run"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "set admin token secret",
+			"type": "shell",
+			"command": "pwsh",
+			"args": [
+				"-NoProfile",
+				"-Command",
+				"$token = ([guid]::NewGuid().ToString('N') + [guid]::NewGuid().ToString('N').Substring(0, 16)); Write-Output \"ADMIN_TOKEN=$token\"; $token | npx wrangler secret put ADMIN_TOKEN"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "set admin token secret cmd",
+			"type": "shell",
+			"command": "cmd",
+			"args": [
+				"/c",
+				"for /f %i in ('node -e \"console.log(require(\\\"crypto\\\").randomBytes(24).toString(\\\"hex\\\"))\"') do @echo ADMIN_TOKEN=%i && echo %i| npx wrangler secret put ADMIN_TOKEN"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "set admin token script",
+			"type": "shell",
+			"command": "npm",
+			"args": [
+				"run",
+				"cf:set-admin-token"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "deploy secured main worker",
+			"type": "shell",
+			"command": "npx",
+			"args": [
+				"wrangler",
+				"deploy"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "deploy self-healing schema",
+			"type": "shell",
+			"command": "npx",
+			"args": [
+				"wrangler",
+				"deploy"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "redeploy tail worker clean",
+			"type": "shell",
+			"command": "npx",
+			"args": [
+				"wrangler",
+				"deploy",
+				"--config",
+				"tail-worker/wrangler.toml"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "direct start request",
+			"type": "shell",
+			"command": "pwsh",
+			"args": [
+				"-NoProfile",
+				"-Command",
+				"(Invoke-WebRequest -UseBasicParsing 'https://ultimate-arbitrage-hft.zedanazad43.workers.dev/start?token=19e033e0b9798bc42efebf070b25a031cb126b32fe88d107').Content"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "direct dashboard request",
+			"type": "shell",
+			"command": "pwsh",
+			"args": [
+				"-NoProfile",
+				"-Command",
+				"(Invoke-WebRequest -UseBasicParsing 'https://ultimate-arbitrage-hft.zedanazad43.workers.dev/dashboard').Content"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "scripted scan",
+			"type": "shell",
+			"command": "pwsh",
+			"args": [
+				"-NoProfile",
+				"-File",
+				"./scripts/invoke-admin-action.ps1",
+				"-NoPrompt",
+				"-Action",
+				"scan",
+				"-AdminToken",
+				"19e033e0b9798bc42efebf070b25a031cb126b32fe88d107"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "scripted stop",
+			"type": "shell",
+			"command": "pwsh",
+			"args": [
+				"-NoProfile",
+				"-File",
+				"./scripts/invoke-admin-action.ps1",
+				"-NoPrompt",
+				"-Action",
+				"stop",
+				"-AdminToken",
+				"19e033e0b9798bc42efebf070b25a031cb126b32fe88d107"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "scripted dashboard",
+			"type": "shell",
+			"command": "pwsh",
+			"args": [
+				"-NoProfile",
+				"-File",
+				"./scripts/invoke-admin-action.ps1",
+				"-NoPrompt",
+				"-Action",
+				"dashboard"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "scripted health",
+			"type": "shell",
+			"command": "pwsh",
+			"args": [
+				"-NoProfile",
+				"-File",
+				"./scripts/invoke-admin-action.ps1",
+				"-NoPrompt",
+				"-Action",
+				"health"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "deploy admin audit",
+			"type": "shell",
+			"command": "npx",
+			"args": [
+				"wrangler",
+				"deploy"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "admin start log",
+			"type": "shell",
+			"command": "pwsh",
+			"args": [
+				"-NoProfile",
+				"-File",
+				"./scripts/invoke-admin-action.ps1",
+				"-NoPrompt",
+				"-Action",
+				"start",
+				"-AdminToken",
+				"19e033e0b9798bc42efebf070b25a031cb126b32fe88d107"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "admin stop log",
+			"type": "shell",
+			"command": "pwsh",
+			"args": [
+				"-NoProfile",
+				"-File",
+				"./scripts/invoke-admin-action.ps1",
+				"-NoPrompt",
+				"-Action",
+				"stop",
+				"-AdminToken",
+				"19e033e0b9798bc42efebf070b25a031cb126b32fe88d107"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "dashboard with admin log",
+			"type": "shell",
+			"command": "pwsh",
+			"args": [
+				"-NoProfile",
+				"-Command",
+				"(Invoke-WebRequest -UseBasicParsing 'https://ultimate-arbitrage-hft.zedanazad43.workers.dev/dashboard').Content"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "deploy admin audit sync",
+			"type": "shell",
+			"command": "npx",
+			"args": [
+				"wrangler",
+				"deploy"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "admin start log sync",
+			"type": "shell",
+			"command": "pwsh",
+			"args": [
+				"-NoProfile",
+				"-File",
+				"./scripts/invoke-admin-action.ps1",
+				"-Action",
+				"start",
+				"-AdminToken",
+				"19e033e0b9798bc42efebf070b25a031cb126b32fe88d107"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "admin stop log sync",
+			"type": "shell",
+			"command": "pwsh",
+			"args": [
+				"-NoProfile",
+				"-File",
+				"./scripts/invoke-admin-action.ps1",
+				"-Action",
+				"stop",
+				"-AdminToken",
+				"19e033e0b9798bc42efebf070b25a031cb126b32fe88d107"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "dashboard with admin log sync",
+			"type": "shell",
+			"command": "pwsh",
+			"args": [
+				"-NoProfile",
+				"-Command",
+				"(Invoke-WebRequest -UseBasicParsing 'https://ultimate-arbitrage-hft.zedanazad43.workers.dev/dashboard').Content"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "deploy admin audit kv",
+			"type": "shell",
+			"command": "npx",
+			"args": [
+				"wrangler",
+				"deploy"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "admin start log kv",
+			"type": "shell",
+			"command": "pwsh",
+			"args": [
+				"-NoProfile",
+				"-File",
+				"./scripts/invoke-admin-action.ps1",
+				"-Action",
+				"start",
+				"-AdminToken",
+				"19e033e0b9798bc42efebf070b25a031cb126b32fe88d107"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "admin stop log kv",
+			"type": "shell",
+			"command": "pwsh",
+			"args": [
+				"-NoProfile",
+				"-File",
+				"./scripts/invoke-admin-action.ps1",
+				"-Action",
+				"stop",
+				"-AdminToken",
+				"19e033e0b9798bc42efebf070b25a031cb126b32fe88d107"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "dashboard with admin log kv",
+			"type": "shell",
+			"command": "pwsh",
+			"args": [
+				"-NoProfile",
+				"-Command",
+				"(Invoke-WebRequest -UseBasicParsing 'https://ultimate-arbitrage-hft.zedanazad43.workers.dev/dashboard').Content"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "dry run main after tail test support",
+			"type": "shell",
+			"command": "npx",
+			"args": [
+				"wrangler",
+				"deploy",
+				"--dry-run"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "dry run tail after hardening",
+			"type": "shell",
+			"command": "npx",
+			"args": [
+				"wrangler",
+				"deploy",
+				"--dry-run",
+				"--config",
+				"tail-worker/wrangler.toml"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "deploy main debug fail",
+			"type": "shell",
+			"command": "npx",
+			"args": [
+				"wrangler",
+				"deploy"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "deploy hardened tail",
+			"type": "shell",
+			"command": "npx",
+			"args": [
+				"wrangler",
+				"deploy",
+				"--config",
+				"tail-worker/wrangler.toml"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "tail health request",
+			"type": "shell",
+			"command": "pwsh",
+			"args": [
+				"-NoProfile",
+				"-Command",
+				"(Invoke-WebRequest -UseBasicParsing 'https://ultimate-arbitrage-tail.zedanazad43.workers.dev').Content"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "debug fail unauthorized",
+			"type": "shell",
+			"command": "pwsh",
+			"args": [
+				"-NoProfile",
+				"-Command",
+				"try {(Invoke-WebRequest -UseBasicParsing 'https://ultimate-arbitrage-hft.zedanazad43.workers.dev/debug/fail').Content} catch { $_.Exception.Response.StatusCode.value__ }"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "debug fail authorized",
+			"type": "shell",
+			"command": "pwsh",
+			"args": [
+				"-NoProfile",
+				"-Command",
+				"try {(Invoke-WebRequest -UseBasicParsing 'https://ultimate-arbitrage-hft.zedanazad43.workers.dev/debug/fail?token=19e033e0b9798bc42efebf070b25a031cb126b32fe88d107').Content} catch { if ($_.ErrorDetails.Message) { $_.ErrorDetails.Message } else { $_.Exception.Message } }"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "set tail telegram bot token",
+			"type": "shell",
+			"command": "cmd",
+			"args": [
+				"/c",
+				"echo esIV25iOJKtJJNuTa6Fzp_Iw8TkpRVgsKRoPL3BGe4c1rYsaKqujXg| npx wrangler secret put TELEGRAM_BOT_TOKEN --config tail-worker/wrangler.toml"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "set tail telegram chat id",
+			"type": "shell",
+			"command": "cmd",
+			"args": [
+				"/c",
+				"echo 8770101170| npx wrangler secret put TELEGRAM_CHAT_ID --config tail-worker/wrangler.toml"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "redeploy tail with telegram secrets",
+			"type": "shell",
+			"command": "npx",
+			"args": [
+				"wrangler",
+				"deploy",
+				"--config",
+				"tail-worker/wrangler.toml"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "trigger tail alert test",
+			"type": "shell",
+			"command": "pwsh",
+			"args": [
+				"-NoProfile",
+				"-File",
+				"./scripts/invoke-admin-action.ps1",
+				"-Action",
+				"test-alert",
+				"-AdminToken",
+				"19e033e0b9798bc42efebf070b25a031cb126b32fe88d107"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "verify telegram bot token",
+			"type": "shell",
+			"command": "pwsh",
+			"args": [
+				"-NoProfile",
+				"-Command",
+				"(Invoke-WebRequest -UseBasicParsing 'https://api.telegram.org/botesIV25iOJKtJJNuTa6Fzp_Iw8TkpRVgsKRoPL3BGe4c1rYsaKqujXg/getMe').Content"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "recheck telegram token format",
+			"type": "shell",
+			"command": "pwsh",
+			"args": [
+				"-NoProfile",
+				"-Command",
+				"$token='esIV25iOJKtJJNuTa6Fzp_Iw8TkpRVgsKRoPL3BGe4c1rYsaKqujXg'; Write-Output \"HasColon=$($token.Contains(':')) Length=$($token.Length)\"; try {(Invoke-WebRequest -UseBasicParsing (\"https://api.telegram.org/bot{0}/getMe\" -f $token)).Content} catch { if ($_.ErrorDetails.Message) { $_.ErrorDetails.Message } else { $_.Exception.Message } }"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "recheck telegram token simple",
+			"type": "shell",
+			"command": "cmd",
+			"args": [
+				"/c",
+				"node -e \"const t='esIV25iOJKtJJNuTa6Fzp_Iw8TkpRVgsKRoPL3BGe4c1rYsaKqujXg'; console.log('HasColon=' + t.includes(':') + ' Length=' + t.length)\""
+			],
+			"isBackground": false
+		},
+		{
+			"label": "verify valid telegram bot token",
+			"type": "shell",
+			"command": "pwsh",
+			"args": [
+				"-NoProfile",
+				"-Command",
+				"(Invoke-WebRequest -UseBasicParsing 'https://api.telegram.org/bot8770101170:AAGwL-AAPIzLJ-enkuYdRIKag4qKcZXQRIo/getMe').Content"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "set valid tail telegram token",
+			"type": "shell",
+			"command": "cmd",
+			"args": [
+				"/c",
+				"echo 8770101170:AAGwL-AAPIzLJ-enkuYdRIKag4qKcZXQRIo| npx wrangler secret put TELEGRAM_BOT_TOKEN --config tail-worker/wrangler.toml"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "redeploy tail with valid token",
+			"type": "shell",
+			"command": "npx",
+			"args": [
+				"wrangler",
+				"deploy",
+				"--config",
+				"tail-worker/wrangler.toml"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "run final telegram alert test",
+			"type": "shell",
+			"command": "pwsh",
+			"args": [
+				"-NoProfile",
+				"-File",
+				"./scripts/invoke-admin-action.ps1",
+				"-Action",
+				"test-alert",
+				"-AdminToken",
+				"19e033e0b9798bc42efebf070b25a031cb126b32fe88d107"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "direct telegram send test",
+			"type": "shell",
+			"command": "pwsh",
+			"args": [
+				"-NoProfile",
+				"-Command",
+				"$body = @{ chat_id = '8770101170'; text = 'Tail Worker Telegram delivery test from UltimateArbitrageBot'; parse_mode = 'HTML' } | ConvertTo-Json; (Invoke-WebRequest -UseBasicParsing 'https://api.telegram.org/bot8770101170:AAGwL-AAPIzLJ-enkuYdRIKag4qKcZXQRIo/sendMessage' -Method POST -ContentType 'application/json' -Body $body).Content"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "direct telegram send test curl",
+			"type": "shell",
+			"command": "curl",
+			"args": [
+				"-s",
+				"-X",
+				"POST",
+				"https://api.telegram.org/bot8770101170:AAGwL-AAPIzLJ-enkuYdRIKag4qKcZXQRIo/sendMessage",
+				"-d",
+				"chat_id=8770101170",
+				"-d",
+				"text=UltimateArbitrageBot Telegram delivery test"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "verify telegram bot getMe",
+			"type": "shell",
+			"command": "pwsh",
+			"args": [
+				"-NoProfile",
+				"-Command",
+				"(Invoke-WebRequest -UseBasicParsing 'https://api.telegram.org/bot8770101170:AAGwL-AAPIzLJ-enkuYdRIKag4qKcZXQRIo/getMe').Content"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "set tail telegram bot token valid",
+			"type": "shell",
+			"command": "cmd",
+			"args": [
+				"/c",
+				"echo 8770101170:AAGwL-AAPIzLJ-enkuYdRIKag4qKcZXQRIo| npx wrangler secret put TELEGRAM_BOT_TOKEN --config tail-worker/wrangler.toml"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "set main telegram bot token valid",
+			"type": "shell",
+			"command": "cmd",
+			"args": [
+				"/c",
+				"echo 8770101170:AAGwL-AAPIzLJ-enkuYdRIKag4qKcZXQRIo| npx wrangler secret put TELEGRAM_BOT_TOKEN"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "set tail telegram chat id final",
+			"type": "shell",
+			"command": "cmd",
+			"args": [
+				"/c",
+				"echo 8770101170| npx wrangler secret put TELEGRAM_CHAT_ID --config tail-worker/wrangler.toml"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "set main telegram chat id final",
+			"type": "shell",
+			"command": "cmd",
+			"args": [
+				"/c",
+				"echo 8770101170| npx wrangler secret put TELEGRAM_CHAT_ID"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "direct telegram send final",
+			"type": "shell",
+			"command": "pwsh",
+			"args": [
+				"-NoProfile",
+				"-Command",
+				"(Invoke-WebRequest -UseBasicParsing -Method Post 'https://api.telegram.org/bot8770101170:AAGwL-AAPIzLJ-enkuYdRIKag4qKcZXQRIo/sendMessage' -Body @{ chat_id='8770101170'; text='UltimateArbitrageBot final Telegram delivery test from deployment workflow' }).Content"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "direct telegram send curl final",
+			"type": "shell",
+			"command": "curl",
+			"args": [
+				"-s",
+				"-X",
+				"POST",
+				"https://api.telegram.org/bot8770101170:AAGwL-AAPIzLJ-enkuYdRIKag4qKcZXQRIo/sendMessage",
+				"-d",
+				"chat_id=8770101170",
+				"-d",
+				"text=UltimateArbitrageBot final Telegram delivery test from deployment workflow"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "trigger final tail alert test",
+			"type": "shell",
+			"command": "pwsh",
+			"args": [
+				"-NoProfile",
+				"-File",
+				"./scripts/invoke-admin-action.ps1",
+				"-Action",
+				"test-alert",
+				"-AdminToken",
+				"19e033e0b9798bc42efebf070b25a031cb126b32fe88d107"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "tail health final",
+			"type": "shell",
+			"command": "pwsh",
+			"args": [
+				"-NoProfile",
+				"-Command",
+				"(Invoke-WebRequest -UseBasicParsing 'https://ultimate-arbitrage-tail.zedanazad43.workers.dev').Content"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "telegram getUpdates",
+			"type": "shell",
+			"command": "curl",
+			"args": [
+				"-s",
+				"https://api.telegram.org/bot8770101170:AAGwL-AAPIzLJ-enkuYdRIKag4qKcZXQRIo/getUpdates"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "telegram getUpdates after start",
+			"type": "shell",
+			"command": "curl",
+			"args": [
+				"-s",
+				"https://api.telegram.org/bot8770101170:AAGwL-AAPIzLJ-enkuYdRIKag4qKcZXQRIo/getUpdates"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "extract latest chat id",
+			"type": "shell",
+			"command": "pwsh",
+			"args": [
+				"-NoProfile",
+				"-Command",
+				"$json = curl -s https://api.telegram.org/bot8770101170:AAGwL-AAPIzLJ-enkuYdRIKag4qKcZXQRIo/getUpdates | ConvertFrom-Json; if ($json.result.Count -gt 0) { $json.result[-1].message.chat.id }"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "set tail real chat id",
+			"type": "shell",
+			"command": "cmd",
+			"args": [
+				"/c",
+				"echo 1771005847| npx wrangler secret put TELEGRAM_CHAT_ID --config tail-worker/wrangler.toml"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "set main real chat id",
+			"type": "shell",
+			"command": "cmd",
+			"args": [
+				"/c",
+				"echo 1771005847| npx wrangler secret put TELEGRAM_CHAT_ID"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "direct telegram send real chat",
+			"type": "shell",
+			"command": "curl",
+			"args": [
+				"-s",
+				"-X",
+				"POST",
+				"https://api.telegram.org/bot8770101170:AAGwL-AAPIzLJ-enkuYdRIKag4qKcZXQRIo/sendMessage",
+				"-d",
+				"chat_id=1771005847",
+				"-d",
+				"text=UltimateArbitrageBot direct delivery test to the real chat id"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "redeploy tail real chat",
+			"type": "shell",
+			"command": "npx",
+			"args": [
+				"wrangler",
+				"deploy",
+				"--config",
+				"tail-worker/wrangler.toml"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "trigger final alert real chat",
+			"type": "shell",
+			"command": "pwsh",
+			"args": [
+				"-NoProfile",
+				"-File",
+				"./scripts/invoke-admin-action.ps1",
+				"-Action",
+				"test-alert",
+				"-AdminToken",
+				"19e033e0b9798bc42efebf070b25a031cb126b32fe88d107"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "dry run telegram webhook",
+			"type": "shell",
+			"command": "npx",
+			"args": [
+				"wrangler",
+				"deploy",
+				"--dry-run"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "deploy telegram webhook",
+			"type": "shell",
+			"command": "npx",
+			"args": [
+				"wrangler",
+				"deploy"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "set telegram webhook live",
+			"type": "shell",
+			"command": "npm",
+			"args": [
+				"run",
+				"telegram:set-webhook"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "simulate telegram status webhook",
+			"type": "shell",
+			"command": "curl",
+			"args": [
+				"-s",
+				"-X",
+				"POST",
+				"https://ultimate-arbitrage-hft.zedanazad43.workers.dev/telegram/webhook",
+				"-H",
+				"Content-Type: application/json",
+				"-d",
+				"{\"update_id\":1,\"message\":{\"message_id\":99,\"chat\":{\"id\":1771005847,\"type\":\"private\"},\"text\":\"/status\"}}"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "simulate telegram status webhook pwsh",
+			"type": "shell",
+			"command": "pwsh",
+			"args": [
+				"-NoProfile",
+				"-Command",
+				"$body = '{\"update_id\":1,\"message\":{\"message_id\":99,\"chat\":{\"id\":1771005847,\"type\":\"private\"},\"text\":\"/status\"}}'; (Invoke-WebRequest -UseBasicParsing -Method Post 'https://ultimate-arbitrage-hft.zedanazad43.workers.dev/telegram/webhook' -ContentType 'application/json' -Body $body).Content"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "simulate telegram status webhook node",
+			"type": "shell",
+			"command": "node",
+			"args": [
+				"-e",
+				"fetch('https://ultimate-arbitrage-hft.zedanazad43.workers.dev/telegram/webhook',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({update_id:1,message:{message_id:99,chat:{id:1771005847,type:'private'},text:'/status'}})}).then(async r=>{console.log(await r.text())}).catch(err=>{console.error(err);process.exit(1)})"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "test telegram webhook script",
+			"type": "shell",
+			"command": "npm",
+			"args": [
+				"run",
+				"telegram:test-webhook"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "deploy telegram commands extended",
+			"type": "shell",
+			"command": "npx",
+			"args": [
+				"wrangler",
+				"deploy"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "telegram webhook events",
+			"type": "shell",
+			"command": "pwsh",
+			"args": [
+				"-NoProfile",
+				"-File",
+				"./scripts/test-telegram-webhook.ps1",
+				"-NoPrompt",
+				"-Command",
+				"/events"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "telegram webhook trades",
+			"type": "shell",
+			"command": "pwsh",
+			"args": [
+				"-NoProfile",
+				"-File",
+				"./scripts/test-telegram-webhook.ps1",
+				"-NoPrompt",
+				"-Command",
+				"/trades"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "debug fail disabled check",
+			"type": "shell",
+			"command": "pwsh",
+			"args": [
+				"-NoProfile",
+				"-Command",
+				"try {(Invoke-WebRequest -UseBasicParsing 'https://ultimate-arbitrage-hft.zedanazad43.workers.dev/debug/fail?token=19e033e0b9798bc42efebf070b25a031cb126b32fe88d107').Content} catch { $_.Exception.Response.StatusCode.value__ }"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "deploy allowed chats and commands",
+			"type": "shell",
+			"command": "npx",
+			"args": [
+				"wrangler",
+				"deploy"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "telegram webhook help",
+			"type": "shell",
+			"command": "pwsh",
+			"args": [
+				"-NoProfile",
+				"-File",
+				"./scripts/test-telegram-webhook.ps1",
+				"-NoPrompt",
+				"-Command",
+				"/help"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "telegram webhook config",
+			"type": "shell",
+			"command": "pwsh",
+			"args": [
+				"-NoProfile",
+				"-File",
+				"./scripts/test-telegram-webhook.ps1",
+				"-NoPrompt",
+				"-Command",
+				"/config"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "deploy richer telegram ops",
+			"type": "shell",
+			"command": "npx",
+			"args": [
+				"wrangler",
+				"deploy"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "test allowed chats script",
+			"type": "shell",
+			"command": "pwsh",
+			"args": [
+				"-NoProfile",
+				"-File",
+				"./scripts/set-allowed-chats.ps1",
+				"-ChatIds",
+				"1771005847"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "telegram webhook runtime",
+			"type": "shell",
+			"command": "pwsh",
+			"args": [
+				"-NoProfile",
+				"-File",
+				"./scripts/test-telegram-webhook.ps1",
+				"-Command",
+				"/runtime"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "telegram webhook pairs",
+			"type": "shell",
+			"command": "pwsh",
+			"args": [
+				"-NoProfile",
+				"-File",
+				"./scripts/test-telegram-webhook.ps1",
+				"-Command",
+				"/pairs"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "telegram webhook lastalert",
+			"type": "shell",
+			"command": "pwsh",
+			"args": [
+				"-NoProfile",
+				"-File",
+				"./scripts/test-telegram-webhook.ps1",
+				"-Command",
+				"/lastalert"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "deploy strategy hardening",
+			"type": "shell",
+			"command": "npx",
+			"args": [
+				"wrangler",
+				"deploy"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "paper start bot",
+			"type": "shell",
+			"command": "pwsh",
+			"args": [
+				"-NoProfile",
+				"-File",
+				"./scripts/invoke-admin-action.ps1",
+				"-Action",
+				"start",
+				"-AdminToken",
+				"19e033e0b9798bc42efebf070b25a031cb126b32fe88d107"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "paper scan bot",
+			"type": "shell",
+			"command": "pwsh",
+			"args": [
+				"-NoProfile",
+				"-File",
+				"./scripts/invoke-admin-action.ps1",
+				"-Action",
+				"scan",
+				"-AdminToken",
+				"19e033e0b9798bc42efebf070b25a031cb126b32fe88d107"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "telegram strategy snapshot",
+			"type": "shell",
+			"command": "pwsh",
+			"args": [
+				"-NoProfile",
+				"-File",
+				"./scripts/test-telegram-webhook.ps1",
+				"-Command",
+				"/strategy"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "paper stop bot",
+			"type": "shell",
+			"command": "pwsh",
+			"args": [
+				"-NoProfile",
+				"-File",
+				"./scripts/invoke-admin-action.ps1",
+				"-Action",
+				"stop",
+				"-AdminToken",
+				"19e033e0b9798bc42efebf070b25a031cb126b32fe88d107"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "deploy multi-sample strategy",
+			"type": "shell",
+			"command": "npx",
+			"args": [
+				"wrangler",
+				"deploy"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "start multi-sample paper bot",
+			"type": "shell",
+			"command": "pwsh",
+			"args": [
+				"-NoProfile",
+				"-File",
+				"./scripts/invoke-admin-action.ps1",
+				"-Action",
+				"start",
+				"-AdminToken",
+				"19e033e0b9798bc42efebf070b25a031cb126b32fe88d107"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "scan multi-sample paper bot",
+			"type": "shell",
+			"command": "pwsh",
+			"args": [
+				"-NoProfile",
+				"-File",
+				"./scripts/invoke-admin-action.ps1",
+				"-Action",
+				"scan",
+				"-AdminToken",
+				"19e033e0b9798bc42efebf070b25a031cb126b32fe88d107"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "telegram strategy multi-sample",
+			"type": "shell",
+			"command": "pwsh",
+			"args": [
+				"-NoProfile",
+				"-File",
+				"./scripts/test-telegram-webhook.ps1",
+				"-Command",
+				"/strategy"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "telegram config multi-sample",
+			"type": "shell",
+			"command": "pwsh",
+			"args": [
+				"-NoProfile",
+				"-File",
+				"./scripts/test-telegram-webhook.ps1",
+				"-Command",
+				"/config"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "stop multi-sample paper bot",
+			"type": "shell",
+			"command": "pwsh",
+			"args": [
+				"-NoProfile",
+				"-File",
+				"./scripts/invoke-admin-action.ps1",
+				"-Action",
+				"stop",
+				"-AdminToken",
+				"19e033e0b9798bc42efebf070b25a031cb126b32fe88d107"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "deploy perps strategy",
+			"type": "shell",
+			"command": "npx",
+			"args": [
+				"wrangler",
+				"deploy"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "start perps paper bot",
+			"type": "shell",
+			"command": "pwsh",
+			"args": [
+				"-NoProfile",
+				"-File",
+				"./scripts/invoke-admin-action.ps1",
+				"-Action",
+				"start",
+				"-AdminToken",
+				"19e033e0b9798bc42efebf070b25a031cb126b32fe88d107"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "scan perps paper bot",
+			"type": "shell",
+			"command": "pwsh",
+			"args": [
+				"-NoProfile",
+				"-File",
+				"./scripts/invoke-admin-action.ps1",
+				"-Action",
+				"scan",
+				"-AdminToken",
+				"19e033e0b9798bc42efebf070b25a031cb126b32fe88d107"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "telegram perps snapshot",
+			"type": "shell",
+			"command": "pwsh",
+			"args": [
+				"-NoProfile",
+				"-File",
+				"./scripts/test-telegram-webhook.ps1",
+				"-Command",
+				"/perps"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "telegram strategy after perps",
+			"type": "shell",
+			"command": "pwsh",
+			"args": [
+				"-NoProfile",
+				"-File",
+				"./scripts/test-telegram-webhook.ps1",
+				"-Command",
+				"/strategy"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "stop perps paper bot",
+			"type": "shell",
+			"command": "pwsh",
+			"args": [
+				"-NoProfile",
+				"-File",
+				"./scripts/invoke-admin-action.ps1",
+				"-Action",
+				"stop",
+				"-AdminToken",
+				"19e033e0b9798bc42efebf070b25a031cb126b32fe88d107"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "deploy regime-filter build",
+			"type": "shell",
+			"command": "npx",
+			"args": [
+				"wrangler",
+				"deploy"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "start final paper bot",
+			"type": "shell",
+			"command": "pwsh",
+			"args": [
+				"-NoProfile",
+				"-File",
+				"./scripts/invoke-admin-action.ps1",
+				"-Action",
+				"start",
+				"-AdminToken",
+				"19e033e0b9798bc42efebf070b25a031cb126b32fe88d107"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "scan final paper bot",
+			"type": "shell",
+			"command": "pwsh",
+			"args": [
+				"-NoProfile",
+				"-File",
+				"./scripts/invoke-admin-action.ps1",
+				"-Action",
+				"scan",
+				"-AdminToken",
+				"19e033e0b9798bc42efebf070b25a031cb126b32fe88d107"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "telegram final strategy",
+			"type": "shell",
+			"command": "pwsh",
+			"args": [
+				"-NoProfile",
+				"-File",
+				"./scripts/test-telegram-webhook.ps1",
+				"-Command",
+				"/strategy"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "telegram final perps",
+			"type": "shell",
+			"command": "pwsh",
+			"args": [
+				"-NoProfile",
+				"-File",
+				"./scripts/test-telegram-webhook.ps1",
+				"-Command",
+				"/perps"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "telegram final config",
+			"type": "shell",
+			"command": "pwsh",
+			"args": [
+				"-NoProfile",
+				"-File",
+				"./scripts/test-telegram-webhook.ps1",
+				"-Command",
+				"/config"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "stop final paper bot",
+			"type": "shell",
+			"command": "pwsh",
+			"args": [
+				"-NoProfile",
+				"-File",
+				"./scripts/invoke-admin-action.ps1",
+				"-Action",
+				"stop",
+				"-AdminToken",
+				"19e033e0b9798bc42efebf070b25a031cb126b32fe88d107"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "inspect mexc funding fields",
+			"type": "shell",
+			"command": "pwsh",
+			"args": [
+				"-NoProfile",
+				"-Command",
+				"$response = Invoke-RestMethod -UseBasicParsing 'https://contract.mexc.com/api/v1/contract/detail'; ($response.data | Select-Object -First 2 | ConvertTo-Json -Depth 6)"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "probe mexc funding endpoint",
+			"type": "shell",
+			"command": "pwsh",
+			"args": [
+				"-NoProfile",
+				"-Command",
+				"$urls = @('https://contract.mexc.com/api/v1/contract/funding_rate/BTC_USDT','https://contract.mexc.com/api/v1/contract/funding_rate/history/BTC_USDT','https://contract.mexc.com/api/v1/contract/funding_rate?symbol=BTC_USDT'); foreach ($url in $urls) { try { $r = Invoke-WebRequest -UseBasicParsing $url; Write-Host ('URL: ' + $url); Write-Host $r.Content } catch { Write-Host ('URL: ' + $url); if ($_.ErrorDetails.Message) { Write-Host $_.ErrorDetails.Message } else { Write-Host $_.Exception.Message } } }"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "probe funding curl",
+			"type": "shell",
+			"command": "curl.exe",
+			"args": [
+				"-s",
+				"https://contract.mexc.com/api/v1/contract/funding_rate/BTC_USDT"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "deploy funding leaderboard build",
+			"type": "shell",
+			"command": "npx",
+			"args": [
+				"wrangler",
+				"deploy"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "start leaderboard paper bot",
+			"type": "shell",
+			"command": "pwsh",
+			"args": [
+				"-NoProfile",
+				"-File",
+				"./scripts/invoke-admin-action.ps1",
+				"-Action",
+				"start",
+				"-AdminToken",
+				"19e033e0b9798bc42efebf070b25a031cb126b32fe88d107"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "scan leaderboard paper bot",
+			"type": "shell",
+			"command": "pwsh",
+			"args": [
+				"-NoProfile",
+				"-File",
+				"./scripts/invoke-admin-action.ps1",
+				"-Action",
+				"scan",
+				"-AdminToken",
+				"19e033e0b9798bc42efebf070b25a031cb126b32fe88d107"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "telegram perps funding snapshot",
+			"type": "shell",
+			"command": "pwsh",
+			"args": [
+				"-NoProfile",
+				"-File",
+				"./scripts/test-telegram-webhook.ps1",
+				"-Command",
+				"/perps"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "telegram leaderboard snapshot",
+			"type": "shell",
+			"command": "pwsh",
+			"args": [
+				"-NoProfile",
+				"-File",
+				"./scripts/test-telegram-webhook.ps1",
+				"-Command",
+				"/leaderboard"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "telegram final strategy snapshot",
+			"type": "shell",
+			"command": "pwsh",
+			"args": [
+				"-NoProfile",
+				"-File",
+				"./scripts/test-telegram-webhook.ps1",
+				"-Command",
+				"/strategy"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "stop leaderboard paper bot",
+			"type": "shell",
+			"command": "pwsh",
+			"args": [
+				"-NoProfile",
+				"-File",
+				"./scripts/invoke-admin-action.ps1",
+				"-Action",
+				"stop",
+				"-AdminToken",
+				"19e033e0b9798bc42efebf070b25a031cb126b32fe88d107"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "deploy dashboard rotation build",
+			"type": "shell",
+			"command": "npx",
+			"args": [
+				"wrangler",
+				"deploy"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "start dashboard rotation bot",
+			"type": "shell",
+			"command": "pwsh",
+			"args": [
+				"-NoProfile",
+				"-File",
+				"./scripts/invoke-admin-action.ps1",
+				"-Action",
+				"start",
+				"-AdminToken",
+				"19e033e0b9798bc42efebf070b25a031cb126b32fe88d107"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "scan dashboard rotation bot",
+			"type": "shell",
+			"command": "pwsh",
+			"args": [
+				"-NoProfile",
+				"-File",
+				"./scripts/invoke-admin-action.ps1",
+				"-Action",
+				"scan",
+				"-AdminToken",
+				"19e033e0b9798bc42efebf070b25a031cb126b32fe88d107"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "telegram pairs rotation",
+			"type": "shell",
+			"command": "pwsh",
+			"args": [
+				"-NoProfile",
+				"-File",
+				"./scripts/test-telegram-webhook.ps1",
+				"-Command",
+				"/pairs"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "telegram leaderboard rotation",
+			"type": "shell",
+			"command": "pwsh",
+			"args": [
+				"-NoProfile",
+				"-File",
+				"./scripts/test-telegram-webhook.ps1",
+				"-Command",
+				"/leaderboard"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "fetch dashboard html",
+			"type": "shell",
+			"command": "pwsh",
+			"args": [
+				"-NoProfile",
+				"-File",
+				"./scripts/invoke-admin-action.ps1",
+				"-Action",
+				"dashboard"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "stop dashboard rotation bot",
+			"type": "shell",
+			"command": "pwsh",
+			"args": [
+				"-NoProfile",
+				"-File",
+				"./scripts/invoke-admin-action.ps1",
+				"-Action",
+				"stop",
+				"-AdminToken",
+				"19e033e0b9798bc42efebf070b25a031cb126b32fe88d107"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "deploy updated worker",
+			"type": "shell",
+			"command": "npm",
+			"args": [
+				"run",
+				"deploy"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "start updated bot",
+			"type": "shell",
+			"command": "pwsh",
+			"args": [
+				"-NoProfile",
+				"-File",
+				"./scripts/invoke-admin-action.ps1",
+				"-Action",
+				"start",
+				"-AdminToken",
+				"19e033e0b9798bc42efebf070b25a031cb126b32fe88d107"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "scan updated bot",
+			"type": "shell",
+			"command": "pwsh",
+			"args": [
+				"-NoProfile",
+				"-File",
+				"./scripts/invoke-admin-action.ps1",
+				"-Action",
+				"scan",
+				"-AdminToken",
+				"19e033e0b9798bc42efebf070b25a031cb126b32fe88d107"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "fetch updated dashboard",
+			"type": "shell",
+			"command": "pwsh",
+			"args": [
+				"-NoProfile",
+				"-File",
+				"./scripts/invoke-admin-action.ps1",
+				"-Action",
+				"dashboard"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "telegram analytics updated",
+			"type": "shell",
+			"command": "pwsh",
+			"args": [
+				"-NoProfile",
+				"-File",
+				"./scripts/test-telegram-webhook.ps1",
+				"-Command",
+				"/analytics"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "telegram pairs updated",
+			"type": "shell",
+			"command": "pwsh",
+			"args": [
+				"-NoProfile",
+				"-File",
+				"./scripts/test-telegram-webhook.ps1",
+				"-Command",
+				"/pairs"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "telegram leaderboard updated",
+			"type": "shell",
+			"command": "pwsh",
+			"args": [
+				"-NoProfile",
+				"-File",
+				"./scripts/test-telegram-webhook.ps1",
+				"-Command",
+				"/leaderboard"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "telegram strategy updated",
+			"type": "shell",
+			"command": "pwsh",
+			"args": [
+				"-NoProfile",
+				"-File",
+				"./scripts/test-telegram-webhook.ps1",
+				"-Command",
+				"/strategy"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "telegram perps updated",
+			"type": "shell",
+			"command": "pwsh",
+			"args": [
+				"-NoProfile",
+				"-File",
+				"./scripts/test-telegram-webhook.ps1",
+				"-Command",
+				"/perps"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "deploy final worker",
+			"type": "shell",
+			"command": "npm",
+			"args": [
+				"run",
+				"deploy"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "rescan final bot",
+			"type": "shell",
+			"command": "pwsh",
+			"args": [
+				"-NoProfile",
+				"-File",
+				"./scripts/invoke-admin-action.ps1",
+				"-Action",
+				"scan",
+				"-AdminToken",
+				"19e033e0b9798bc42efebf070b25a031cb126b32fe88d107"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "stop final bot",
+			"type": "shell",
+			"command": "pwsh",
+			"args": [
+				"-NoProfile",
+				"-File",
+				"./scripts/invoke-admin-action.ps1",
+				"-Action",
+				"stop",
+				"-AdminToken",
+				"19e033e0b9798bc42efebf070b25a031cb126b32fe88d107"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "deploy separated snapshots build",
+			"type": "shell",
+			"command": "npm",
+			"args": [
+				"run",
+				"deploy"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "start separated snapshots bot",
+			"type": "shell",
+			"command": "pwsh",
+			"args": [
+				"-NoProfile",
+				"-File",
+				"./scripts/invoke-admin-action.ps1",
+				"-Action",
+				"start",
+				"-AdminToken",
+				"19e033e0b9798bc42efebf070b25a031cb126b32fe88d107"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "scan separated snapshots bot",
+			"type": "shell",
+			"command": "pwsh",
+			"args": [
+				"-NoProfile",
+				"-File",
+				"./scripts/invoke-admin-action.ps1",
+				"-Action",
+				"scan",
+				"-AdminToken",
+				"19e033e0b9798bc42efebf070b25a031cb126b32fe88d107"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "telegram strategy dex snapshot",
+			"type": "shell",
+			"command": "pwsh",
+			"args": [
+				"-NoProfile",
+				"-File",
+				"./scripts/test-telegram-webhook.ps1",
+				"-Command",
+				"/strategy"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "telegram perps snapshot",
+			"type": "shell",
+			"command": "pwsh",
+			"args": [
+				"-NoProfile",
+				"-File",
+				"./scripts/test-telegram-webhook.ps1",
+				"-Command",
+				"/perps"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "stop separated snapshots bot",
+			"type": "shell",
+			"command": "pwsh",
+			"args": [
+				"-NoProfile",
+				"-File",
+				"./scripts/invoke-admin-action.ps1",
+				"-Action",
+				"stop",
+				"-AdminToken",
+				"19e033e0b9798bc42efebf070b25a031cb126b32fe88d107"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "deploy dex snapshot fix",
+			"type": "shell",
+			"command": "npm",
+			"args": [
+				"run",
+				"deploy"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "start dex snapshot fix bot",
+			"type": "shell",
+			"command": "pwsh",
+			"args": [
+				"-NoProfile",
+				"-File",
+				"./scripts/invoke-admin-action.ps1",
+				"-Action",
+				"start",
+				"-AdminToken",
+				"19e033e0b9798bc42efebf070b25a031cb126b32fe88d107"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "scan dex snapshot fix bot",
+			"type": "shell",
+			"command": "pwsh",
+			"args": [
+				"-NoProfile",
+				"-File",
+				"./scripts/invoke-admin-action.ps1",
+				"-Action",
+				"scan",
+				"-AdminToken",
+				"19e033e0b9798bc42efebf070b25a031cb126b32fe88d107"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "stop dex snapshot fix bot",
+			"type": "shell",
+			"command": "pwsh",
+			"args": [
+				"-NoProfile",
+				"-File",
+				"./scripts/invoke-admin-action.ps1",
+				"-Action",
+				"stop",
+				"-AdminToken",
+				"19e033e0b9798bc42efebf070b25a031cb126b32fe88d107"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "probe paraswap quote payloads",
+			"type": "shell",
+			"command": "pwsh",
+			"args": [
+				"-NoProfile",
+				"-Command",
+				"$pairs = @(@{Symbol='ETHUSDT'; Address='0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2'; Decimals=18}, @{Symbol='BTCUSDT'; Address='0x2260FAC5E5542a773Aa44fBCfeDf7C193bc2C599'; Decimals=8}, @{Symbol='LINKUSDT'; Address='0x514910771AF9Ca656af840dff83E8264EcF986CA'; Decimals=18}); foreach ($pair in $pairs) { $url = \"https://apiv5.paraswap.io/prices/?srcToken=0xdAC17F958D2ee523a2206206994597C13D831ec7&destToken=$($pair.Address)&amount=100000000&srcDecimals=6&destDecimals=$($pair.Decimals)&side=SELL&network=1&userAddress=0x0000000000000000000000000000000000000001\"; $result = curl.exe -s $url; Write-Output \"=== $($pair.Symbol) ===\"; Write-Output $result; Write-Output \"\" }"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "probe paraswap quote payloads fixed",
+			"type": "shell",
+			"command": "pwsh",
+			"args": [
+				"-NoProfile",
+				"-Command",
+				"$pairs = @([pscustomobject]@{Symbol=\"ETHUSDT\"; Address=\"0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2\"; Decimals=18}, [pscustomobject]@{Symbol=\"BTCUSDT\"; Address=\"0x2260FAC5E5542a773Aa44fBCfeDf7C193bc2C599\"; Decimals=8}, [pscustomobject]@{Symbol=\"LINKUSDT\"; Address=\"0x514910771AF9Ca656af840dff83E8264EcF986CA\"; Decimals=18}); foreach ($pair in $pairs) { $url = \"https://apiv5.paraswap.io/prices/?srcToken=0xdAC17F958D2ee523a2206206994597C13D831ec7&destToken=$($pair.Address)&amount=100000000&srcDecimals=6&destDecimals=$($pair.Decimals)&side=SELL&network=1&userAddress=0x0000000000000000000000000000000000000001\"; $result = curl.exe -s \"$url\"; Write-Output \"=== $($pair.Symbol) ===\"; Write-Output $result; Write-Output \"\" }"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "probe paraswap eth",
+			"type": "shell",
+			"command": "curl.exe",
+			"args": [
+				"-s",
+				"https://apiv5.paraswap.io/prices/?srcToken=0xdAC17F958D2ee523a2206206994597C13D831ec7&destToken=0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2&amount=100000000&srcDecimals=6&destDecimals=18&side=SELL&network=1&userAddress=0x0000000000000000000000000000000000000001"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "probe paraswap btc",
+			"type": "shell",
+			"command": "curl.exe",
+			"args": [
+				"-s",
+				"https://apiv5.paraswap.io/prices/?srcToken=0xdAC17F958D2ee523a2206206994597C13D831ec7&destToken=0x2260FAC5E5542a773Aa44fBCfeDf7C193bc2C599&amount=100000000&srcDecimals=6&destDecimals=8&side=SELL&network=1&userAddress=0x0000000000000000000000000000000000000001"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "probe paraswap link",
+			"type": "shell",
+			"command": "curl.exe",
+			"args": [
+				"-s",
+				"https://apiv5.paraswap.io/prices/?srcToken=0xdAC17F958D2ee523a2206206994597C13D831ec7&destToken=0x514910771AF9Ca656af840dff83E8264EcF986CA&amount=100000000&srcDecimals=6&destDecimals=18&side=SELL&network=1&userAddress=0x0000000000000000000000000000000000000001"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "deploy paraswap+d1 history fix",
+			"type": "shell",
+			"command": "npm",
+			"args": [
+				"run",
+				"deploy"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "start paraswap fix bot",
+			"type": "shell",
+			"command": "pwsh",
+			"args": [
+				"-NoProfile",
+				"-File",
+				"./scripts/invoke-admin-action.ps1",
+				"-Action",
+				"start",
+				"-AdminToken",
+				"19e033e0b9798bc42efebf070b25a031cb126b32fe88d107"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "scan paraswap fix bot",
+			"type": "shell",
+			"command": "pwsh",
+			"args": [
+				"-NoProfile",
+				"-File",
+				"./scripts/invoke-admin-action.ps1",
+				"-Action",
+				"scan",
+				"-AdminToken",
+				"19e033e0b9798bc42efebf070b25a031cb126b32fe88d107"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "telegram strategy after paraswap fix",
+			"type": "shell",
+			"command": "pwsh",
+			"args": [
+				"-NoProfile",
+				"-File",
+				"./scripts/test-telegram-webhook.ps1",
+				"-Command",
+				"/strategy"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "stop paraswap fix bot",
+			"type": "shell",
+			"command": "pwsh",
+			"args": [
+				"-NoProfile",
+				"-File",
+				"./scripts/invoke-admin-action.ps1",
+				"-Action",
+				"stop",
+				"-AdminToken",
+				"19e033e0b9798bc42efebf070b25a031cb126b32fe88d107"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "deploy dex profitability refinement",
+			"type": "shell",
+			"command": "npm",
+			"args": [
+				"run",
+				"deploy"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "start refined dex bot",
+			"type": "shell",
+			"command": "pwsh",
+			"args": [
+				"-NoProfile",
+				"-File",
+				"./scripts/invoke-admin-action.ps1",
+				"-Action",
+				"start",
+				"-AdminToken",
+				"19e033e0b9798bc42efebf070b25a031cb126b32fe88d107"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "scan refined dex bot",
+			"type": "shell",
+			"command": "pwsh",
+			"args": [
+				"-NoProfile",
+				"-File",
+				"./scripts/invoke-admin-action.ps1",
+				"-Action",
+				"scan",
+				"-AdminToken",
+				"19e033e0b9798bc42efebf070b25a031cb126b32fe88d107"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "telegram strategy refined dex",
+			"type": "shell",
+			"command": "pwsh",
+			"args": [
+				"-NoProfile",
+				"-File",
+				"./scripts/test-telegram-webhook.ps1",
+				"-Command",
+				"/strategy"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "stop refined dex bot",
+			"type": "shell",
+			"command": "pwsh",
+			"args": [
+				"-NoProfile",
+				"-File",
+				"./scripts/invoke-admin-action.ps1",
+				"-Action",
+				"stop",
+				"-AdminToken",
+				"19e033e0b9798bc42efebf070b25a031cb126b32fe88d107"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "deploy rotation telemetry improvements",
+			"type": "shell",
+			"command": "npm",
+			"args": [
+				"run",
+				"deploy"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "start all improvements bot",
+			"type": "shell",
+			"command": "pwsh",
+			"args": [
+				"-NoProfile",
+				"-File",
+				"./scripts/invoke-admin-action.ps1",
+				"-Action",
+				"start",
+				"-AdminToken",
+				"19e033e0b9798bc42efebf070b25a031cb126b32fe88d107"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "scan all improvements bot",
+			"type": "shell",
+			"command": "pwsh",
+			"args": [
+				"-NoProfile",
+				"-File",
+				"./scripts/invoke-admin-action.ps1",
+				"-Action",
+				"scan",
+				"-AdminToken",
+				"19e033e0b9798bc42efebf070b25a031cb126b32fe88d107"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "telegram strategy all improvements",
+			"type": "shell",
+			"command": "pwsh",
+			"args": [
+				"-NoProfile",
+				"-File",
+				"./scripts/test-telegram-webhook.ps1",
+				"-Command",
+				"/strategy"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "stop all improvements bot",
+			"type": "shell",
+			"command": "pwsh",
+			"args": [
+				"-NoProfile",
+				"-File",
+				"./scripts/invoke-admin-action.ps1",
+				"-Action",
+				"stop",
+				"-AdminToken",
+				"19e033e0b9798bc42efebf070b25a031cb126b32fe88d107"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "deploy all three improvements",
+			"type": "shell",
+			"command": "npm",
+			"args": [
+				"run",
+				"deploy"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "start latest deployed bot",
+			"type": "shell",
+			"command": "pwsh",
+			"args": [
+				"-NoProfile",
+				"-File",
+				"./scripts/invoke-admin-action.ps1",
+				"-Action",
+				"start",
+				"-AdminToken",
+				"19e033e0b9798bc42efebf070b25a031cb126b32fe88d107"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "scan latest deployed bot",
+			"type": "shell",
+			"command": "pwsh",
+			"args": [
+				"-NoProfile",
+				"-File",
+				"./scripts/invoke-admin-action.ps1",
+				"-Action",
+				"scan",
+				"-AdminToken",
+				"19e033e0b9798bc42efebf070b25a031cb126b32fe88d107"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "telegram pairs latest deployed",
+			"type": "shell",
+			"command": "pwsh",
+			"args": [
+				"-NoProfile",
+				"-File",
+				"./scripts/test-telegram-webhook.ps1",
+				"-Command",
+				"/pairs"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "telegram leaderboard latest deployed",
+			"type": "shell",
+			"command": "pwsh",
+			"args": [
+				"-NoProfile",
+				"-File",
+				"./scripts/test-telegram-webhook.ps1",
+				"-Command",
+				"/leaderboard"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "telegram strategy latest deployed",
+			"type": "shell",
+			"command": "pwsh",
+			"args": [
+				"-NoProfile",
+				"-File",
+				"./scripts/test-telegram-webhook.ps1",
+				"-Command",
+				"/strategy"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "final stop after all three improvements",
+			"type": "shell",
+			"command": "pwsh",
+			"args": [
+				"-NoProfile",
+				"-File",
+				"./scripts/invoke-admin-action.ps1",
+				"-Action",
+				"stop",
+				"-AdminToken",
+				"19e033e0b9798bc42efebf070b25a031cb126b32fe88d107"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "deploy updated ops diagnostics",
+			"type": "shell",
+			"command": "npm",
+			"args": [
+				"run",
+				"deploy"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "start after ops deploy",
+			"type": "shell",
+			"command": "pwsh",
+			"args": [
+				"-NoProfile",
+				"-File",
+				"./scripts/invoke-admin-action.ps1",
+				"-Action",
+				"start",
+				"-AdminToken",
+				"19e033e0b9798bc42efebf070b25a031cb126b32fe88d107"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "scan after ops deploy",
+			"type": "shell",
+			"command": "pwsh",
+			"args": [
+				"-NoProfile",
+				"-File",
+				"./scripts/invoke-admin-action.ps1",
+				"-Action",
+				"scan",
+				"-AdminToken",
+				"19e033e0b9798bc42efebf070b25a031cb126b32fe88d107"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "stop after ops validation",
+			"type": "shell",
+			"command": "pwsh",
+			"args": [
+				"-NoProfile",
+				"-File",
+				"./scripts/invoke-admin-action.ps1",
+				"-Action",
+				"stop",
+				"-AdminToken",
+				"19e033e0b9798bc42efebf070b25a031cb126b32fe88d107"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "run operational validation",
+			"type": "shell",
+			"command": "npm",
+			"args": [
+				"run",
+				"ops:validate"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "stable: bot health",
+			"type": "shell",
+			"command": "pwsh",
+			"args": [
+				"-NoProfile",
+				"-File",
+				".\\scripts\\invoke-admin-action.ps1",
+				"-NoPrompt",
+				"-Action",
+				"health"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "stable: bot start",
+			"type": "shell",
+			"command": "pwsh",
+			"args": [
+				"-NoProfile",
+				"-File",
+				".\\scripts\\invoke-admin-action.ps1",
+				"-NoPrompt",
+				"-Action",
+				"start",
+				"-AdminToken",
+				"19e033e0b9798bc42efebf070b25a031cb126b32fe88d107"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "stable: bot scan",
+			"type": "shell",
+			"command": "pwsh",
+			"args": [
+				"-NoProfile",
+				"-File",
+				".\\scripts\\invoke-admin-action.ps1",
+				"-NoPrompt",
+				"-Action",
+				"scan",
+				"-AdminToken",
+				"19e033e0b9798bc42efebf070b25a031cb126b32fe88d107"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "stable: bot stop",
+			"type": "shell",
+			"command": "pwsh",
+			"args": [
+				"-NoProfile",
+				"-File",
+				".\\scripts\\invoke-admin-action.ps1",
+				"-NoPrompt",
+				"-Action",
+				"stop",
+				"-AdminToken",
+				"19e033e0b9798bc42efebf070b25a031cb126b32fe88d107"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "stable: telegram status",
+			"type": "shell",
+			"command": "pwsh",
+			"args": [
+				"-NoProfile",
+				"-File",
+				".\\scripts\\test-telegram-webhook.ps1",
+				"-NoPrompt",
+				"-Command",
+				"/status"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "stable: telegram snapshot",
+			"type": "shell",
+			"command": "pwsh",
+			"args": [
+				"-NoProfile",
+				"-File",
+				".\\scripts\\test-telegram-webhook.ps1",
+				"-NoPrompt",
+				"-Command",
+				"/snapshot"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "stable: telegram ops",
+			"type": "shell",
+			"command": "pwsh",
+			"args": [
+				"-NoProfile",
+				"-File",
+				".\\scripts\\test-telegram-webhook.ps1",
+				"-NoPrompt",
+				"-Command",
+				"/ops"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "stable: telegram history",
+			"type": "shell",
+			"command": "pwsh",
+			"args": [
+				"-NoProfile",
+				"-File",
+				".\\scripts\\test-telegram-webhook.ps1",
+				"-NoPrompt",
+				"-Command",
+				"/history"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "stable: telegram rejected",
+			"type": "shell",
+			"command": "pwsh",
+			"args": [
+				"-NoProfile",
+				"-File",
+				".\\scripts\\test-telegram-webhook.ps1",
+				"-NoPrompt",
+				"-Command",
+				"/rejected"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "stable: deploy worker",
+			"type": "shell",
+			"command": "npm",
+			"args": [
+				"run",
+				"deploy"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "stable: test powershell",
+			"type": "shell",
+			"command": "npm",
+			"args": [
+				"run",
+				"test:powershell"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "stable: wrangler whoami check",
+			"type": "shell",
+			"command": "npx",
+			"args": [
+				"wrangler",
+				"whoami"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "stable: wrangler login",
+			"type": "shell",
+			"command": "npx",
+			"args": [
+				"wrangler",
+				"login"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "stable: deploy all three ai presets",
+			"type": "shell",
+			"command": "pwsh",
+			"args": [
+				"-NoProfile",
+				"-Command",
+				"npm run ai:confidence-40; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }; npm run ai:history-20; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }; npm run ai:aggressive; exit $LASTEXITCODE"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "stable: wrangler dry run after history retention fix",
+			"type": "shell",
+			"command": "npm",
+			"args": [
+				"run",
+				"cf:check"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "stable: tail history verification",
+			"type": "shell",
+			"command": "npm",
+			"args": [
+				"run",
+				"cf:tail"
+			],
+			"isBackground": true
+		},
+		{
+			"label": "stable: clean tail verification",
+			"type": "shell",
+			"command": "npm",
+			"args": [
+				"run",
+				"cf:tail"
+			],
+			"isBackground": true
+		}
+	]
+}

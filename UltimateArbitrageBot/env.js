@@ -1,0 +1,34 @@
+﻿// env.js - مفاتيح API للبوت
+// تم استيرادها من مجلد MegaArbitrageBot
+
+export default {
+    // MEXC Keys
+    MEXC_API_KEY: "YOUR_MEXC_API_KEY",
+    MEXC_API_SECRET: "YOUR_MEXC_API_SECRET",
+    
+    // Binance Keys
+    BINANCE_API_KEY: "YOUR_BINANCE_API_KEY",
+    BINANCE_API_SECRET: "YOUR_BINANCE_API_SECRET",
+    
+    // OKX Keys
+    OKX_API_KEY: "YOUR_OKX_API_KEY",
+    OKX_API_SECRET: "YOUR_OKX_API_SECRET",
+    OKX_PASSPHRASE: "YOUR_OKX_PASSPHRASE",
+    
+    // KuCoin Keys
+    Kucoin_API_KEY: "YOUR_KUCOIN_API_KEY",
+    Kucoin_API_SECRET: "YOUR_KUCOIN_API_SECRET",
+    Kucoin_PASSPHRASE: "YOUR_KUCOIN_PASSPHRASE",
+    
+    // Hyperliquid (via MetaMask)
+    HYPERLIQUID_ADDRESS: "0xbf725439B03B9AB013200c6eF1E2d1Fb395F46fE",
+    HYPERLIQUID_PRIVATE_KEY: "0xcc5d940a52ced4f1eea7459e932893e2c4278d57",
+    
+    // Bitget Keys
+    BITGET_API_KEY: "YOUR_BITGET_API_KEY",
+    BITGET_API_SECRET: "YOUR_BITGET_API_SECRET",
+    
+    // Gate.io Keys
+    GATE_API_KEY: "YOUR_GATE_API_KEY",
+    GATE_API_SECRET: "YOUR_GATE_API_SECRET"
+};

@@ -1,0 +1,17 @@
+# Keys and secrets
+api_keys.txt
+.env
+*.secret
+wrangler.toml.backup
+*.backup*
+*.log
+
+# Dependencies and build
+node_modules/
+.wrangler/
+dist/
+build/
+
+# System files
+.DS_Store
+Thumbs.db
