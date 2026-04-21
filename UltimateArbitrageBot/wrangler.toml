@@ -32,4 +32,7 @@ persist = true
 [triggers]
 crons = ["*/5 * * * *"]
 
+# Secrets required by this worker (set via `wrangler secret put <NAME>`):
+# - ALCHEMY_API_KEY  : Alchemy Token Prices API key
+
 
