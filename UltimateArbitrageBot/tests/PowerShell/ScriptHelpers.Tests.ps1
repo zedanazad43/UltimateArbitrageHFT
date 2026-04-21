@@ -252,3 +252,67 @@ MIN_HISTORY_POINTS = "3"
     }
   }
 }
+
+Describe 'set-mexc-secrets script' {
+  BeforeEach {
+    $script:scriptsRoot = Join-Path (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)) 'scripts'
+  }
+
+  It 'fails fast when MEXC_API_KEY is missing with prompting disabled' {
+    $originalKey = [Environment]::GetEnvironmentVariable('MEXC_API_KEY')
+    try {
+      [Environment]::SetEnvironmentVariable('MEXC_API_KEY', $null)
+
+      {
+        & (Join-Path $script:scriptsRoot 'set-mexc-secrets.ps1') -ApiSecret 'test-secret' -NoPrompt -SkipUpload | Out-Null
+      } | Should -Throw 'MEXC_API_KEY is required. Pass -ApiKey, set MEXC_API_KEY in the environment, or add it to .dev.vars.'
+    }
+    finally {
+      [Environment]::SetEnvironmentVariable('MEXC_API_KEY', $originalKey)
+    }
+  }
+
+  It 'fails fast when MEXC_API_SECRET is missing with prompting disabled' {
+    $originalSecret = [Environment]::GetEnvironmentVariable('MEXC_API_SECRET')
+    try {
+      [Environment]::SetEnvironmentVariable('MEXC_API_SECRET', $null)
+
+      {
+        & (Join-Path $script:scriptsRoot 'set-mexc-secrets.ps1') -ApiKey 'test-key' -NoPrompt -SkipUpload | Out-Null
+      } | Should -Throw 'MEXC_API_SECRET is required. Pass -ApiSecret, set MEXC_API_SECRET in the environment, or add it to .dev.vars.'
+    }
+    finally {
+      [Environment]::SetEnvironmentVariable('MEXC_API_SECRET', $originalSecret)
+    }
+  }
+
+  It 'validates MEXC secrets and skips upload when requested' {
+    & (Join-Path $script:scriptsRoot 'set-mexc-secrets.ps1') -ApiKey 'test-key' -ApiSecret 'test-secret' -SkipUpload | Out-Null
+  }
+}
+
+Describe 'set-trading-mode script' {
+  BeforeEach {
+    $script:scriptsRoot = Join-Path (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)) 'scripts'
+  }
+
+  It 'fails fast for set-trading-mode without ADMIN_TOKEN when prompting is disabled' {
+    $originalToken = [Environment]::GetEnvironmentVariable('ADMIN_TOKEN')
+    try {
+      [Environment]::SetEnvironmentVariable('ADMIN_TOKEN', $null)
+
+      {
+        & (Join-Path $script:scriptsRoot 'set-trading-mode.ps1') -Mode paper -NoPrompt | Out-Null
+      } | Should -Throw 'ADMIN_TOKEN is required. Pass -AdminToken, set ADMIN_TOKEN in the environment, or add it to .dev.vars.'
+    }
+    finally {
+      [Environment]::SetEnvironmentVariable('ADMIN_TOKEN', $originalToken)
+    }
+  }
+
+  It 'fails fast for set-trading-mode with invalid base URL' {
+    {
+      & (Join-Path $script:scriptsRoot 'set-trading-mode.ps1') -Mode live -BaseUrl 'not-a-url' -AdminToken 'test-token' | Out-Null
+    } | Should -Throw 'BaseUrl must be a valid absolute http(s) URL.'
+  }
+}
