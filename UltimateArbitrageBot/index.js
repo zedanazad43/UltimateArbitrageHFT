@@ -42,9 +42,17 @@ async function checkCrossChainArbitrage(env) {
   const ethPrice = await get1inchPrice(1, USDC_ETH, WETH, amount, env);
   const bscPrice = await getPancakePrice('0x2170ed0880ac9a755fd29b2688956bd959f933f8'); // WETH on BSC
   const spread = ((bscPrice - ethPrice) / ethPrice) * 100;
-  console.log(`?? Cross-Chain ETH: Ethereum ${ethPrice.toFixed(2)} | BSC ${bscPrice.toFixed(2)} | Spread ${spread.toFixed(4)}%`);
+  console.log(`🌐 Cross-Chain ETH: Ethereum ${ethPrice.toFixed(2)} | BSC ${bscPrice.toFixed(2)} | Spread ${spread.toFixed(4)}%`);
   if (Math.abs(spread) > 0.5) {
-    console.log(`?? ???? ?????? ??? ???????: ${spread > 0 ? '???? ??? Ethereum ???? ??? BSC' : '???? ??? BSC ???? ??? Ethereum'}`);
+    const direction = spread > 0 ? 'BUY_ETH_SELL_BSC' : 'BUY_BSC_SELL_ETH';
+    console.log(`🎯 Cross-chain opportunity: ${direction} | Spread ${spread.toFixed(4)}%`);
+    if (env.DEX_EXECUTOR) {
+      await env.DEX_EXECUTOR.fetch('https://dex-executor.zedanazad43.workers.dev/execute', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ type: 'cross_chain', direction, spread, ethPrice, bscPrice })
+      });
+    }
   }
 }
 
@@ -88,8 +96,8 @@ async function checkForArbitrageOpportunity(symbol, env) {
   if (!mexcPrice || !bitgetPrice) return;
   
   const spread = ((bitgetPrice - mexcPrice) / mexcPrice) * 100;
-  if (spread > CONFIG.PROFIT.SPATIAL_ARBITRAGE_CEX) {
-    console.log(`?? ???? CEX ${symbol}: MEXC $${mexcPrice} | Bitget $${bitgetPrice} | Spread ${spread.toFixed(4)}%`);
+  if (Math.abs(spread) > CONFIG.PROFIT.SPATIAL_ARBITRAGE_CEX) {
+    console.log(`📊 CEX opportunity ${symbol}: MEXC $${mexcPrice} | Bitget $${bitgetPrice} | Spread ${spread.toFixed(4)}%`);
     if (env.PERPS_EXECUTOR) {
       await env.PERPS_EXECUTOR.fetch('https://arbitrage-bot.zedanazad43.workers.dev/execute', {
         method: 'POST',
@@ -102,7 +110,7 @@ async function checkForArbitrageOpportunity(symbol, env) {
 
 // ---------- Scheduled (fallback) ----------
 async function scheduledScan(env) {
-  console.log('? Scheduled scan (fallback)');
+  console.log('⏰ Scheduled scan (fallback)');
   for (const symbol of SUPPORTED_SYMBOLS) {
     try {
       const mexc = await fetch(`https://api.mexc.com/api/v3/ticker/price?symbol=${symbol}`).then(r => r.json());
@@ -112,6 +120,11 @@ async function scheduledScan(env) {
       await checkForArbitrageOpportunity(symbol, env);
     } catch (e) {}
   }
+  try {
+    await checkCrossChainArbitrage(env);
+  } catch (e) {
+    console.error('❌ Cross-chain scan failed:', e.message);
+  }
 }
 
 export default {
@@ -120,6 +133,10 @@ export default {
     if (url.pathname === '/scan') {
       ctx.waitUntil(scheduledScan(env));
       return new Response('Scan started (WebSocket enhanced)');
+    }
+    if (url.pathname === '/cross-chain-scan') {
+      ctx.waitUntil(checkCrossChainArbitrage(env).catch(e => console.error('❌ Cross-chain scan error:', e.message)));
+      return new Response('Cross-chain scan started');
     }
     if (url.pathname === '/start-ws') {
       if (!wsConnections.mexc) wsConnections.mexc = connectWebSocket(CONFIG.WS.MEXC, 'mexc', SUPPORTED_SYMBOLS, env);
