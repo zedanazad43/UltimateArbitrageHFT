@@ -11,17 +11,18 @@ let wsConnections = {};
 
 
 // ---------- Cross-Chain Price Helpers ----------
-async function get1inchPrice(chainId, srcToken, dstToken, amount, env) {
-  const url = `https://api.1inch.dev/swap/v6.0/${chainId}/quote?src=${srcToken}&dst=${dstToken}&amount=${amount}`;
-  const resp = await fetch(url, { headers: { 'Authorization': `Bearer ${env.ONEINCH_API_KEY}` } });
+async function getAlchemyPrice(symbol, apiKey) {
+  const url = `https://api.g.alchemy.com/prices/v1/${apiKey}/tokens/by-symbol?symbols[]=${symbol}`;
+  const resp = await fetch(url);
   if (!resp.ok) {
-    throw new Error(`1inch quote request failed with status ${resp.status}`);
+    throw new Error(`Alchemy price request failed with status ${resp.status}`);
   }
   const data = await resp.json();
-  if (!data?.dstAmount) {
-    throw new Error('1inch quote response missing dstAmount');
+  const price = data?.data?.[0]?.prices?.[0]?.value;
+  if (!price) {
+    throw new Error('Alchemy price response missing value');
   }
-  return parseFloat(data.dstAmount) / 1e18;
+  return parseFloat(price);
 }
 async function getPancakePrice(symbol) {
   const response = await fetch(`https://api.pancakeswap.info/api/v2/tokens/${symbol}`);
@@ -36,10 +37,7 @@ async function getPancakePrice(symbol) {
   return parseFloat(data.data.price);
 }
 async function checkCrossChainArbitrage(env) {
-  const USDC_ETH = '0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48';
-  const WETH = '0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2';
-  const amount = '1000000000';
-  const ethPrice = await get1inchPrice(1, USDC_ETH, WETH, amount, env);
+  const ethPrice = await getAlchemyPrice('ETH', env.ALCHEMY_API_KEY);
   const bscPrice = await getPancakePrice('0x2170ed0880ac9a755fd29b2688956bd959f933f8'); // WETH on BSC
   const spread = ((bscPrice - ethPrice) / ethPrice) * 100;
   console.log(`🌐 Cross-Chain ETH: Ethereum ${ethPrice.toFixed(2)} | BSC ${bscPrice.toFixed(2)} | Spread ${spread.toFixed(4)}%`);

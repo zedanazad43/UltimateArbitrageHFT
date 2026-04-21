@@ -12,12 +12,13 @@ async function fetchWithRetry(url, options = {}, retries = 2) {
   }
 }
 
-async function get1inchPrice(chainId, srcToken, dstToken, amount, apiKey) {
-  if (!apiKey) throw new Error('ONEINCH_API_KEY environment variable is required');
-  const url = `https://api.1inch.dev/swap/v6.0/${chainId}/quote?src=${srcToken}&dst=${dstToken}&amount=${amount}`;
-  const data = await fetchWithRetry(url, { headers: { 'Authorization': `Bearer ${apiKey}` } });
-  if (!data?.dstAmount) throw new Error('1inch quote missing dstAmount');
-  return parseFloat(data.dstAmount) / 1e18;
+async function getAlchemyPrice(symbol, apiKey) {
+  if (!apiKey) throw new Error('ALCHEMY_API_KEY environment variable is required');
+  const url = `https://api.g.alchemy.com/prices/v1/${apiKey}/tokens/by-symbol?symbols[]=${symbol}`;
+  const data = await fetchWithRetry(url);
+  const price = data?.data?.[0]?.prices?.[0]?.value;
+  if (!price) throw new Error('Alchemy price response missing value');
+  return parseFloat(price);
 }
 
 async function getPancakePrice(tokenAddress) {
@@ -27,15 +28,10 @@ async function getPancakePrice(tokenAddress) {
   return parseFloat(price);
 }
 
-const USDC_SCAN_AMOUNT = '1000000000'; // 1000 USDC (6 decimals)
-
 async function scanCrossChain(env) {
-  const USDC_ETH = '0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48';
-  const WETH = '0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2';
   const WETH_BSC = '0x2170ed0880ac9a755fd29b2688956bd959f933f8';
-  const amount = USDC_SCAN_AMOUNT;
 
-  const ethPrice = await get1inchPrice(1, USDC_ETH, WETH, amount, env.ONEINCH_API_KEY);
+  const ethPrice = await getAlchemyPrice('ETH', env.ALCHEMY_API_KEY);
   const bscPrice = await getPancakePrice(WETH_BSC);
   const spread = ((bscPrice - ethPrice) / ethPrice) * 100;
 
