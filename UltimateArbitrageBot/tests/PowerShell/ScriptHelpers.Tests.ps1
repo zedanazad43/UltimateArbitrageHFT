@@ -47,7 +47,7 @@ Describe 'PowerShell script helpers' {
   It 'reads wrangler vars from the vars block' {
     $tempConfig = Join-Path ([System.IO.Path]::GetTempPath()) ('wrangler-vars-' + [guid]::NewGuid().ToString() + '.toml')
     try {
-      Set-Content -Path $tempConfig -Value @"
+      Set-Content -Path $tempConfig -Encoding utf8 -Value @"
 name = "test"
 
 [vars]
@@ -115,7 +115,7 @@ Describe 'promptless script validation' {
     $tempConfig = Join-Path ([System.IO.Path]::GetTempPath()) ('wrangler-vars-' + [guid]::NewGuid().ToString() + '.toml')
     try {
       [Environment]::SetEnvironmentVariable('TELEGRAM_CHAT_ID', $null)
-      Set-Content -Path $tempConfig -Value @"
+      Set-Content -Path $tempConfig -Encoding utf8 -Value @"
 name = "test"
 
 [vars]
@@ -146,7 +146,7 @@ Describe 'set-allowed-chats script' {
   It 'updates ALLOWED_CHAT_IDS in a temp config file with normalized values' {
     $tempConfig = Join-Path ([System.IO.Path]::GetTempPath()) ('wrangler-test-' + [guid]::NewGuid().ToString() + '.toml')
     try {
-      Set-Content -Path $tempConfig -Value @"
+      Set-Content -Path $tempConfig -Encoding utf8 -Value @"
 name = "test"
 ALLOWED_CHAT_IDS = "old"
 "@ -NoNewline
@@ -184,7 +184,7 @@ Describe 'strategy settings scripts' {
   It 'updates MIN_CONFIDENCE_SCORE in a temp config file' {
     $tempConfig = Join-Path ([System.IO.Path]::GetTempPath()) ('wrangler-strategy-' + [guid]::NewGuid().ToString() + '.toml')
     try {
-      Set-Content -Path $tempConfig -Value @"
+      Set-Content -Path $tempConfig -Encoding utf8 -Value @"
 name = "test"
 
 [vars]
@@ -208,7 +208,7 @@ MIN_HISTORY_POINTS = "3"
   It 'updates MIN_HISTORY_POINTS in a temp config file' {
     $tempConfig = Join-Path ([System.IO.Path]::GetTempPath()) ('wrangler-strategy-' + [guid]::NewGuid().ToString() + '.toml')
     try {
-      Set-Content -Path $tempConfig -Value @"
+      Set-Content -Path $tempConfig -Encoding utf8 -Value @"
 name = "test"
 
 [vars]
@@ -232,7 +232,7 @@ MIN_HISTORY_POINTS = "3"
   It 'maps the aggressive preset to confidence 30' {
     $tempConfig = Join-Path ([System.IO.Path]::GetTempPath()) ('wrangler-strategy-' + [guid]::NewGuid().ToString() + '.toml')
     try {
-      Set-Content -Path $tempConfig -Value @"
+      Set-Content -Path $tempConfig -Encoding utf8 -Value @"
 name = "test"
 
 [vars]
