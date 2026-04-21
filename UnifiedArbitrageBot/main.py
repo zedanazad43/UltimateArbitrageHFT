@@ -28,6 +28,13 @@ ENABLE_POLYMARKET = os.getenv("ENABLE_POLYMARKET", "false").lower() == "true"
 MAX_POSITION = float(os.getenv("MAX_POSITION_SIZE_USD", "10"))
 MIN_PROFIT = float(os.getenv("MIN_PROFIT_PERCENT", "0.5"))
 SCAN_INTERVAL = int(os.getenv("SCAN_INTERVAL_SECONDS", "5"))
+MAX_DAILY_TRADES = int(os.getenv("MAX_DAILY_TRADES", "20"))
+MAX_DAILY_LOSS_USD = float(os.getenv("MAX_DAILY_LOSS_USD", "25"))
+MIN_SECONDS_BETWEEN_TRADES = int(os.getenv("MIN_SECONDS_BETWEEN_TRADES", "30"))
+BALANCE_LOG_INTERVAL_SCANS = int(os.getenv("BALANCE_LOG_INTERVAL_SCANS", "12"))
+
+if MAX_DAILY_LOSS_USD <= 0:
+    raise ValueError("MAX_DAILY_LOSS_USD must be greater than 0")
 
 # ============ حالة البوت ============
 bot_state = {
@@ -36,7 +43,8 @@ bot_state = {
     "total_trades": 0,
     "total_profit": 0.0,
     "daily_trades": 0,
-    "daily_profit": 0.0
+    "daily_profit": 0.0,
+    "last_trade_timestamp": None
 }
 
 # ============ تهيئة البورصات ============
@@ -44,30 +52,43 @@ class ExchangeManager:
     def __init__(self):
         self.mexc = None
         self.binance = None
+        self.exchange_credentials = {"MEXC": False, "Binance": False}
         self.init_exchanges()
     
     def init_exchanges(self):
+        mexc_api_key = os.getenv("MEXC_API_KEY")
+        mexc_secret = os.getenv("MEXC_SECRET_KEY")
+        self.exchange_credentials["MEXC"] = bool(mexc_api_key and mexc_secret)
+
         try:
             self.mexc = ccxt.mexc({
-                'apiKey': os.getenv("MEXC_API_KEY"),
-                'secret': os.getenv("MEXC_SECRET_KEY"),
+                'apiKey': mexc_api_key,
+                'secret': mexc_secret,
                 'enableRateLimit': True,
                 'options': {'createMarketBuyOrderRequiresPrice': False}
             })
             self.mexc.load_markets()
             logger.info("✅ MEXC Connected")
+            if ENABLE_REAL_TRADING and not TEST_MODE and not self.exchange_credentials["MEXC"]:
+                logger.warning("⚠️ MEXC API keys are missing. MEXC live orders will be blocked.")
         except Exception as e:
             logger.error(f"MEXC connection failed: {e}")
         
         if ENABLE_BINANCE_ARBITRAGE:
+            binance_api_key = os.getenv("BINANCE_API_KEY")
+            binance_secret = os.getenv("BINANCE_SECRET_KEY")
+            self.exchange_credentials["Binance"] = bool(binance_api_key and binance_secret)
+
             try:
                 self.binance = ccxt.binance({
-                    'apiKey': os.getenv("BINANCE_API_KEY"),
-                    'secret': os.getenv("BINANCE_SECRET_KEY"),
+                    'apiKey': binance_api_key,
+                    'secret': binance_secret,
                     'enableRateLimit': True,
                 })
                 self.binance.load_markets()
                 logger.info("✅ Binance Connected")
+                if ENABLE_REAL_TRADING and not TEST_MODE and not self.exchange_credentials["Binance"]:
+                    logger.warning("⚠️ Binance API keys are missing. Binance live orders will be blocked.")
             except Exception as e:
                 logger.error(f"Binance connection failed: {e}")
     
@@ -86,6 +107,22 @@ class ExchangeManager:
             return ticker['last']
         except:
             return 0
+
+    def can_trade_on(self, exchange_name: str) -> bool:
+        return self.exchange_credentials.get(exchange_name, False)
+
+    def log_balances(self):
+        for exchange_name, exchange in [("MEXC", self.mexc), ("Binance", self.binance)]:
+            if not exchange:
+                continue
+            try:
+                balance = exchange.fetch_balance()
+                usdt = balance.get("USDT", {})
+                free_usdt = usdt.get("free", 0)
+                total_usdt = usdt.get("total", 0)
+                logger.info(f"💳 {exchange_name} Balance | USDT Free: {free_usdt} | USDT Total: {total_usdt}")
+            except Exception as e:
+                logger.warning(f"⚠️ Unable to fetch {exchange_name} balance: {e}")
 
 # ============ محرك المراجحة ============
 @dataclass
@@ -158,6 +195,22 @@ class ArbitrageEngine:
         logger.info(f"Buy: {opportunity.buy_exchange} @ ${opportunity.buy_price:.2f}")
         logger.info(f"Sell: {opportunity.sell_exchange} @ ${opportunity.sell_price:.2f}")
         logger.info(f"Profit: {opportunity.profit_percent:.2f}% (${opportunity.profit_usd:.2f})")
+
+        if bot_state["daily_trades"] >= MAX_DAILY_TRADES:
+            reason = f"Daily trade limit reached ({MAX_DAILY_TRADES})"
+            logger.warning(f"🛑 Risk guard: {reason}")
+            return {"status": "blocked", "reason": reason}
+
+        if bot_state["daily_profit"] < 0 and abs(bot_state["daily_profit"]) >= MAX_DAILY_LOSS_USD:
+            reason = f"Daily stop-loss reached (${MAX_DAILY_LOSS_USD})"
+            logger.warning(f"🛑 Risk guard: {reason}")
+            return {"status": "blocked", "reason": reason}
+
+        last_trade_ts = bot_state.get("last_trade_timestamp")
+        if last_trade_ts and (time.time() - last_trade_ts) < MIN_SECONDS_BETWEEN_TRADES:
+            reason = f"Minimum trade interval not met ({MIN_SECONDS_BETWEEN_TRADES}s)"
+            logger.warning(f"🛑 Risk guard: {reason}")
+            return {"status": "blocked", "reason": reason}
         
         if TEST_MODE or not ENABLE_REAL_TRADING:
             logger.info(f"🟢 [SIMULATION] Would execute trade")
@@ -165,17 +218,22 @@ class ArbitrageEngine:
             bot_state["total_profit"] += opportunity.profit_usd
             bot_state["daily_trades"] += 1
             bot_state["daily_profit"] += opportunity.profit_usd
+            bot_state["last_trade_timestamp"] = time.time()
             return {"status": "simulated", "profit": opportunity.profit_usd}
         
         # التداول الحقيقي
         try:
             if opportunity.buy_exchange == "MEXC":
+                if not self.exchange_manager.can_trade_on("MEXC"):
+                    raise ValueError("MEXC API keys are not configured. Set MEXC_API_KEY and MEXC_SECRET_KEY environment variables before enabling live trading.")
                 order = self.exchange_manager.mexc.create_market_buy_order(
                     opportunity.symbol, 
                     MAX_POSITION / opportunity.buy_price
                 )
                 logger.info(f"✅ BUY order executed: {order['id']}")
             else:
+                if not self.exchange_manager.can_trade_on("Binance"):
+                    raise ValueError("Binance API keys are not configured. Set BINANCE_API_KEY and BINANCE_SECRET_KEY environment variables before enabling live trading.")
                 order = self.exchange_manager.binance.create_market_buy_order(
                     opportunity.symbol,
                     MAX_POSITION / opportunity.buy_price
@@ -184,6 +242,9 @@ class ArbitrageEngine:
             
             bot_state["total_trades"] += 1
             bot_state["total_profit"] += opportunity.profit_usd
+            bot_state["daily_trades"] += 1
+            bot_state["daily_profit"] += opportunity.profit_usd
+            bot_state["last_trade_timestamp"] = time.time()
             
             return {"status": "executed", "order_id": order['id']}
             
@@ -205,6 +266,9 @@ class UnifiedArbitrageBot:
         logger.info(f"💰 Max Position: ${MAX_POSITION}")
         logger.info(f"📈 Min Profit: {MIN_PROFIT}%")
         logger.info(f"🕐 Scan Interval: {SCAN_INTERVAL}s")
+        logger.info(f"🧯 Risk: max ${MAX_POSITION}/trade")
+        logger.info(f"🧯 Risk: max {MAX_DAILY_TRADES} trades/day, stop-loss ${MAX_DAILY_LOSS_USD}/day")
+        logger.info(f"🧯 Risk: minimum {MIN_SECONDS_BETWEEN_TRADES}s between trades")
         logger.info("="*60)
     
     async def run(self):
@@ -227,6 +291,9 @@ class UnifiedArbitrageBot:
                 
                 # فحص فرص المراجحة
                 opportunities = await self.arbitrage_engine.scan_cross_exchange_arbitrage()
+
+                if scan_count % BALANCE_LOG_INTERVAL_SCANS == 0:
+                    self.exchange_manager.log_balances()
                 
                 if opportunities:
                     best = opportunities[0]
