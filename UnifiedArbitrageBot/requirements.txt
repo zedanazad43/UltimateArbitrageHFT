@@ -1,5 +1,5 @@
 ccxt==4.4.72
-web3==6.20.0
+web3==7.15.0
 eth-account==0.13.0
 python-dotenv==1.0.1
 httpx==0.27.0
