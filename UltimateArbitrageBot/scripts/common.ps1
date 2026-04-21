@@ -21,7 +21,7 @@ function Get-DevVarsValue {
     return $null
   }
 
-  foreach ($line in [System.IO.File]::ReadAllLines($devVarsPath)) {
+  foreach ($line in (Get-Content -Path $devVarsPath)) {
     if ([string]::IsNullOrWhiteSpace($line)) { continue }
     if ($line.TrimStart().StartsWith('#')) { continue }
     $parts = $line -split '=', 2
@@ -74,7 +74,7 @@ function Get-WranglerVarValue {
   }
 
   $inVarsBlock = $false
-  foreach ($line in [System.IO.File]::ReadAllLines($resolvedConfigPath)) {
+  foreach ($line in (Get-Content -Path $resolvedConfigPath)) {
     $trimmedLine = $line.Trim()
     if ([string]::IsNullOrWhiteSpace($trimmedLine) -or $trimmedLine.StartsWith('#')) {
       continue
