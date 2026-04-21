@@ -91,6 +91,13 @@ Copy and fill in your credentials (gitignored):
 cp keys/api_keys.md keys/api_keys.txt   # then edit with real API keys
 ```
 
+Key mapping inside `keys/api_keys.txt`:
+
+- `MEXC`, `BINANCE`, `OKX`, `BITGET`, `HYPERLIQUID`, `POLYMARKET` → `API_KEY` + `API_SECRET`
+- `BITMART` → `ACCESS_KEY` + `PRIVATE_KEY`
+- `PRIMEXBT` → `CLIENT_ID` (optional metadata: `NAME`, `EMAIL`)
+- `METAMASK` → `ADDRESS` (optional: `PRIVATE_KEY`)
+
 Set environment variables before running:
 
 ```bash
@@ -98,6 +105,7 @@ export METAMASK_PRIVATE_KEY="0xYOUR_PRIVATE_KEY"
 export METAMASK_ADDRESS="0xYOUR_WALLET_ADDRESS"
 export TELEGRAM_BOT_TOKEN="your_bot_token"
 export TELEGRAM_CHAT_ID="your_chat_id"
+export ENABLE_REAL_TRADING="true"       # requires valid MEXC + BINANCE keys in keys/api_keys.txt
 ```
 
 ### Run

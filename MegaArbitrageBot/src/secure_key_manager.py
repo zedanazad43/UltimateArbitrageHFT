@@ -13,6 +13,10 @@ from enum import Enum
 class ExchangeType(Enum):
     MEXC = "mexc"
     BINANCE = "binance"
+    OKX = "okx"
+    BITGET = "bitget"
+    BITMART = "bitmart"
+    PRIMEXBT = "primexbt"
     METAMASK = "metamask"
     HYPERLIQUID = "hyperliquid"
     POLYMARKET = "polymarket"
@@ -108,8 +112,18 @@ class SecureKeyManager:
         keys = self.get_keys(exchange)
         if not keys:
             return False
-        if exchange in [ExchangeType.MEXC, ExchangeType.BINANCE]:
+        if exchange in [
+            ExchangeType.MEXC,
+            ExchangeType.BINANCE,
+            ExchangeType.OKX,
+            ExchangeType.BITGET,
+            ExchangeType.BITMART,
+            ExchangeType.HYPERLIQUID,
+            ExchangeType.POLYMARKET,
+        ]:
             return bool(keys.api_key and keys.api_secret)
+        elif exchange == ExchangeType.PRIMEXBT:
+            return bool(keys.api_key)
         elif exchange == ExchangeType.METAMASK:
             return bool(keys.wallet_address)
         return False
@@ -123,42 +137,83 @@ class SecureKeyManager:
 
 def import_keys_from_txt(filepath: str, key_manager: SecureKeyManager):
     import configparser
+
+    def normalize(value: str) -> str:
+        if value is None:
+            return ""
+        cleaned = value.strip()
+        placeholders = {
+            "",
+            "your_mexc_api_key_here",
+            "your_mexc_api_secret_here",
+            "your_binance_api_key_here",
+            "your_binance_api_secret_here",
+            "0xYOUR_WALLET_ADDRESS",
+            "0xYOUR_PRIVATE_KEY",
+            "your_bitmart_access_key_here",
+            "your_bitmart_private_key_here",
+            "your_client_id_here",
+            "Your Name",
+            "your_email@example.com",
+        }
+        return "" if cleaned in placeholders else cleaned
+
     config = configparser.ConfigParser()
-    config.read(filepath)
+    config.read(filepath, encoding='utf-8')
+
+    def import_api_pair(section_name: str, exchange: ExchangeType, key_field: str = 'API_KEY', secret_field: str = 'API_SECRET', passphrase_field: str = None):
+        if section_name not in config:
+            return
+        api_key = normalize(config[section_name].get(key_field, ''))
+        api_secret = normalize(config[section_name].get(secret_field, ''))
+        passphrase = normalize(config[section_name].get(passphrase_field, '')) if passphrase_field else None
+        if api_key and api_secret:
+            key_manager.add_keys(
+                exchange,
+                api_key=api_key,
+                api_secret=api_secret,
+                passphrase=passphrase or None
+            )
+            print(f"✅ {section_name} keys imported")
+        else:
+            print(f"⚠️ {section_name} keys missing or placeholders in {filepath}")
+
+    import_api_pair('MEXC', ExchangeType.MEXC, passphrase_field='PASSPHRASE')
+    import_api_pair('BINANCE', ExchangeType.BINANCE)
+    import_api_pair('OKX', ExchangeType.OKX)
+    import_api_pair('BITGET', ExchangeType.BITGET)
+    import_api_pair('HYPERLIQUID', ExchangeType.HYPERLIQUID)
+    import_api_pair('POLYMARKET', ExchangeType.POLYMARKET)
+    import_api_pair('BITMART', ExchangeType.BITMART, key_field='ACCESS_KEY', secret_field='PRIVATE_KEY')
     
-    if 'MEXC' in config:
-        key_manager.add_keys(
-            ExchangeType.MEXC,
-            api_key=config['MEXC'].get('API_KEY', ''),
-            api_secret=config['MEXC'].get('API_SECRET', ''),
-            passphrase=config['MEXC'].get('PASSPHRASE', None)
-        )
-        print("✅ MEXC keys imported")
-    
-    if 'BINANCE' in config:
-        key_manager.add_keys(
-            ExchangeType.BINANCE,
-            api_key=config['BINANCE'].get('API_KEY', ''),
-            api_secret=config['BINANCE'].get('API_SECRET', '')
-        )
-        print("✅ Binance keys imported")
-    
+    if 'PRIMEXBT' in config:
+        client_id = normalize(config['PRIMEXBT'].get('CLIENT_ID', ''))
+        name = normalize(config['PRIMEXBT'].get('NAME', ''))
+        email = normalize(config['PRIMEXBT'].get('EMAIL', ''))
+        if client_id:
+            key_manager.add_keys(
+                ExchangeType.PRIMEXBT,
+                api_key=client_id,
+                api_secret=email,
+                passphrase=name or None
+            )
+            print("✅ PRIMEXBT keys imported")
+        else:
+            print(f"⚠️ PRIMEXBT keys missing or placeholders in {filepath}")
+
     if 'METAMASK' in config:
-        key_manager.add_keys(
-            ExchangeType.METAMASK,
-            api_key="",
-            api_secret="",
-            wallet_address=config['METAMASK'].get('ADDRESS', ''),
-            private_key=config['METAMASK'].get('PRIVATE_KEY', None)
-        )
-        print("✅ MetaMask wallet imported")
-    
-    if 'HYPERLIQUID' in config:
-        key_manager.add_keys(
-            ExchangeType.HYPERLIQUID,
-            api_key=config['HYPERLIQUID'].get('API_KEY', ''),
-            api_secret=config['HYPERLIQUID'].get('API_SECRET', '')
-        )
-        print("✅ Hyperliquid imported")
-    
+        wallet_address = normalize(config['METAMASK'].get('ADDRESS', ''))
+        private_key = normalize(config['METAMASK'].get('PRIVATE_KEY', ''))
+        if wallet_address:
+            key_manager.add_keys(
+                ExchangeType.METAMASK,
+                api_key="",
+                api_secret="",
+                wallet_address=wallet_address,
+                private_key=private_key or None
+            )
+            print("✅ MetaMask wallet imported")
+        else:
+            print(f"⚠️ MetaMask address missing or placeholder in {filepath}")
+
     return key_manager
