@@ -138,7 +138,7 @@ class SecureKeyManager:
 def import_keys_from_txt(filepath: str, key_manager: SecureKeyManager):
     import configparser
 
-    def normalize(value: str) -> str:
+    def normalize(value: Optional[str]) -> str:
         if value is None:
             return ""
         cleaned = value.strip()
@@ -152,6 +152,14 @@ def import_keys_from_txt(filepath: str, key_manager: SecureKeyManager):
             "0xYOUR_PRIVATE_KEY",
             "your_bitmart_access_key_here",
             "your_bitmart_private_key_here",
+            "your_okx_api_key_here",
+            "your_okx_api_secret_here",
+            "your_bitget_api_key_here",
+            "your_bitget_api_secret_here",
+            "your_hyperliquid_api_key_here",
+            "your_hyperliquid_api_secret_here",
+            "your_polymarket_api_key_here",
+            "your_polymarket_api_secret_here",
             "your_client_id_here",
             "Your Name",
             "your_email@example.com",
@@ -188,14 +196,11 @@ def import_keys_from_txt(filepath: str, key_manager: SecureKeyManager):
     
     if 'PRIMEXBT' in config:
         client_id = normalize(config['PRIMEXBT'].get('CLIENT_ID', ''))
-        name = normalize(config['PRIMEXBT'].get('NAME', ''))
-        email = normalize(config['PRIMEXBT'].get('EMAIL', ''))
         if client_id:
             key_manager.add_keys(
                 ExchangeType.PRIMEXBT,
                 api_key=client_id,
-                api_secret=email,
-                passphrase=name or None
+                api_secret=""
             )
             print("✅ PRIMEXBT keys imported")
         else:

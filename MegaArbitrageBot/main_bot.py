@@ -44,6 +44,8 @@ class MegaArbitrageBot:
     def _validate_live_trading_keys(self):
         if not self.enable_live_trading:
             return
+        if not self.key_manager:
+            raise RuntimeError("SecureKeyManager is not initialized.")
 
         required_exchanges = [ExchangeType.MEXC, ExchangeType.BINANCE]
         missing_exchanges = [
@@ -98,7 +100,7 @@ class MegaArbitrageBot:
                     
                     if self.enable_live_trading and opportunity['profit_percent'] > 0.5:
                         self.stats['opportunities_taken'] += 1
-                        trade_amount = 50  # 50 USDT للاختبار
+                        trade_amount = 50  # 50 USDT for testing
                         result = await self.trading_engine.execute_trade(opportunity, trade_amount)
                         
                         if result.get('status') == 'executed':
