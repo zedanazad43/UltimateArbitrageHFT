@@ -14,11 +14,25 @@ let wsConnections = {};
 async function get1inchPrice(chainId, srcToken, dstToken, amount, env) {
   const url = `https://api.1inch.dev/swap/v6.0/${chainId}/quote?src=${srcToken}&dst=${dstToken}&amount=${amount}`;
   const resp = await fetch(url, { headers: { 'Authorization': `Bearer ${env.ONEINCH_API_KEY}` } });
+  if (!resp.ok) {
+    throw new Error(`1inch quote request failed with status ${resp.status}`);
+  }
   const data = await resp.json();
+  if (!data?.dstAmount) {
+    throw new Error('1inch quote response missing dstAmount');
+  }
   return parseFloat(data.dstAmount) / 1e18;
 }
 async function getPancakePrice(symbol) {
-  const data = await fetch(`https://api.pancakeswap.info/api/v2/tokens/${symbol}`).then(r => r.json());
+  const response = await fetch(`https://api.pancakeswap.info/api/v2/tokens/${symbol}`);
+  if (!response.ok) {
+    throw new Error(`PancakeSwap token request failed with status ${response.status}`);
+  }
+  const data = await response.json();
+  const price = data?.data?.price;
+  if (price === undefined || price === null) {
+    throw new Error('PancakeSwap token response missing price');
+  }
   return parseFloat(data.data.price);
 }
 async function checkCrossChainArbitrage(env) {
