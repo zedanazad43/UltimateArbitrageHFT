@@ -196,6 +196,12 @@ class IntegratedTradingEngine:
             actual_profit = sell_value - buy_value
             results['actual_profit_usd'] = actual_profit
             print(f"💰 Actual Profit: ${actual_profit:.2f}")
+        elif 'mexc_buy' in results and 'binance_sell' in results:
+            buy_value = results['mexc_buy']['cost']
+            sell_value = results['binance_sell']['cost']
+            actual_profit = sell_value - buy_value
+            results['actual_profit_usd'] = actual_profit
+            print(f"💰 Actual Profit: ${actual_profit:.2f}")
         
         return {'status': 'executed', 'results': results}
     

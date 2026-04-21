@@ -8,8 +8,8 @@
     },
     "telegram": {
         "enabled": true,
-        "bot_token": "esIV25iOJKtJJNuTa6Fzp_Iw8TkpRVgsKRoPL3BGe4c1rYsaKqujXg",
-        "chat_id": "8770101170"
+        "bot_token": "YOUR_TELEGRAM_BOT_TOKEN",
+        "chat_id": "YOUR_TELEGRAM_CHAT_ID"
     },
     "notifications": {
         "send_on_trade": true,

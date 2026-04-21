@@ -118,7 +118,10 @@ class MegaArbitrageBot:
         print("="*50 + "\n")
 
 async def main():
-    MASTER_PASSWORD = "AzadZedan_Secure_Password_2026"
+    MASTER_PASSWORD = os.getenv("MASTER_PASSWORD", "")
+    if not MASTER_PASSWORD:
+        print("❌ MASTER_PASSWORD environment variable is required.")
+        sys.exit(1)
     bot = MegaArbitrageBot(MASTER_PASSWORD)
     await bot.start()
 
