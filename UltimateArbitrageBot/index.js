@@ -11,21 +11,21 @@ let wsConnections = {};
 
 
 // ---------- Cross-Chain Price Helpers ----------
-async function get1inchPrice(chainId, srcToken, dstToken, amount) {
+async function get1inchPrice(chainId, srcToken, dstToken, amount, env) {
   const url = `https://api.1inch.dev/swap/v6.0/${chainId}/quote?src=${srcToken}&dst=${dstToken}&amount=${amount}`;
   const resp = await fetch(url, { headers: { 'Authorization': `Bearer ${env.ONEINCH_API_KEY}` } });
   const data = await resp.json();
   return parseFloat(data.dstAmount) / 1e18;
 }
 async function getPancakePrice(symbol) {
-  const data = await fetchAPI(`https://api.pancakeswap.info/api/v2/tokens/${symbol}`);
+  const data = await fetch(`https://api.pancakeswap.info/api/v2/tokens/${symbol}`).then(r => r.json());
   return parseFloat(data.data.price);
 }
 async function checkCrossChainArbitrage(env) {
   const USDC_ETH = '0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48';
   const WETH = '0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2';
   const amount = '1000000000';
-  const ethPrice = await get1inchPrice(1, USDC_ETH, WETH, amount);
+  const ethPrice = await get1inchPrice(1, USDC_ETH, WETH, amount, env);
   const bscPrice = await getPancakePrice('0x2170ed0880ac9a755fd29b2688956bd959f933f8'); // WETH on BSC
   const spread = ((bscPrice - ethPrice) / ethPrice) * 100;
   console.log(`?? Cross-Chain ETH: Ethereum ${ethPrice.toFixed(2)} | BSC ${bscPrice.toFixed(2)} | Spread ${spread.toFixed(4)}%`);
@@ -35,7 +35,7 @@ async function checkCrossChainArbitrage(env) {
 }
 
 // ---------- WebSocket Helpers ----------
-function connectWebSocket(url, exchange, symbols) {
+function connectWebSocket(url, exchange, symbols, env) {
   const ws = new WebSocket(url);
   ws.onopen = () => {
     console.log(`?? WebSocket ${exchange} connected`);
@@ -63,7 +63,7 @@ function connectWebSocket(url, exchange, symbols) {
     } catch (e) {}
   };
   ws.onerror = (e) => console.error(`? WebSocket ${exchange} error:`, e);
-  ws.onclose = () => { console.log(`?? WebSocket ${exchange} closed, reconnecting...`); setTimeout(() => connectWebSocket(url, exchange, symbols), 5000); };
+  ws.onclose = () => { console.log(`?? WebSocket ${exchange} closed, reconnecting...`); setTimeout(() => connectWebSocket(url, exchange, symbols, env), 5000); };
   return ws;
 }
 
@@ -118,4 +118,3 @@ export default {
 };
 
 export class MarketStreamer {}
-

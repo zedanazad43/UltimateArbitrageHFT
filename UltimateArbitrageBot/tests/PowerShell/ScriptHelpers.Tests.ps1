@@ -4,28 +4,32 @@ $scriptsRoot = Join-Path $projectRoot 'scripts'
 . (Join-Path $scriptsRoot 'common.ps1')
 
 Describe 'PowerShell script helpers' {
+  BeforeEach {
+    $script:scriptsRoot = Join-Path (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)) 'scripts'
+  }
+
   It 'normalizes delimited values and removes duplicates' {
     $values = ConvertTo-NormalizedDelimitedValues -Value '1771005847, 123456789, ,1771005847'
 
-    $values.Count | Should Be 2
-    $values[0] | Should Be '1771005847'
-    $values[1] | Should Be '123456789'
+    $values.Count | Should -Be 2
+    $values[0] | Should -Be '1771005847'
+    $values[1] | Should -Be '123456789'
   }
 
   It 'builds wrangler args only when config path is supplied' {
     $withConfig = @(Get-WranglerArgs -ConfigPath 'tail-worker/wrangler.toml')
     $withoutConfig = @(Get-WranglerArgs)
 
-    $withConfig.Count | Should Be 2
-    $withConfig[0] | Should Be '--config'
-    $withConfig[1] | Should Be 'tail-worker/wrangler.toml'
-    $withoutConfig.Count | Should Be 0
+    $withConfig.Count | Should -Be 2
+    $withConfig[0] | Should -Be '--config'
+    $withConfig[1] | Should -Be 'tail-worker/wrangler.toml'
+    $withoutConfig.Count | Should -Be 0
   }
 
   It 'returns the explicit setting value without prompting' {
-    $value = Resolve-Setting -ScriptRoot $scriptsRoot -Name 'ADMIN_TOKEN' -ExplicitValue 'explicit-token' -DisablePrompt
+    $value = Resolve-Setting -ScriptRoot $script:scriptsRoot -Name 'ADMIN_TOKEN' -ExplicitValue 'explicit-token' -DisablePrompt
 
-    $value | Should Be 'explicit-token'
+    $value | Should -Be 'explicit-token'
   }
 
   It 'detects non-interactive sessions from CI markers' {
@@ -33,7 +37,7 @@ Describe 'PowerShell script helpers' {
     try {
       [Environment]::SetEnvironmentVariable('CI', 'true')
 
-      Test-NonInteractiveSession | Should Be $true
+      Test-NonInteractiveSession | Should -Be $true
     }
     finally {
       [Environment]::SetEnvironmentVariable('CI', $originalCi)
@@ -41,33 +45,51 @@ Describe 'PowerShell script helpers' {
   }
 
   It 'reads wrangler vars from the vars block' {
-    $chatIds = Get-WranglerVarValue -ScriptRoot $scriptsRoot -Name 'ALLOWED_CHAT_IDS'
+    $tempConfig = Join-Path ([System.IO.Path]::GetTempPath()) ('wrangler-vars-' + [guid]::NewGuid().ToString() + '.toml')
+    try {
+      Set-Content -Path $tempConfig -Value @"
+name = "test"
 
-    $chatIds | Should Be '1771005847'
+[vars]
+ALLOWED_CHAT_IDS = "1771005847"
+"@ -NoNewline
+
+      $chatIds = Get-WranglerVarValue -ScriptRoot $script:scriptsRoot -Name 'ALLOWED_CHAT_IDS' -ConfigPath $tempConfig
+      $chatIds | Should -Be '1771005847'
+    }
+    finally {
+      if (Test-Path $tempConfig) {
+        Remove-Item $tempConfig -Force
+      }
+    }
   }
 
   It 'resolves relative config paths against the project root' {
-    $resolvedPath = Resolve-ScriptRelativePath -ScriptRoot $scriptsRoot -Path 'wrangler.toml'
+    $resolvedPath = Resolve-ScriptRelativePath -ScriptRoot $script:scriptsRoot -Path 'wrangler.toml'
 
-    $resolvedPath | Should Match 'UltimateArbitrageBot\\wrangler.toml$'
+    $resolvedPath | Should -Match 'UltimateArbitrageBot[\\/]+wrangler\.toml$'
   }
 
   It 'validates absolute https URLs' {
     $url = Get-ValidatedAbsoluteHttpUrl -Name 'WebhookUrl' -Value 'https://example.com/path/'
 
-    $url | Should Be 'https://example.com/path'
+    $url | Should -Be 'https://example.com/path'
   }
 }
 
 Describe 'promptless script validation' {
+  BeforeEach {
+    $script:scriptsRoot = Join-Path (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)) 'scripts'
+  }
+
   It 'fails fast for protected admin actions without a token when prompting is disabled' {
     $originalAdminToken = [Environment]::GetEnvironmentVariable('ADMIN_TOKEN')
     try {
       [Environment]::SetEnvironmentVariable('ADMIN_TOKEN', $null)
 
       {
-        & (Join-Path $scriptsRoot 'invoke-admin-action.ps1') -Action start -NoPrompt | Out-Null
-      } | Should Throw 'ADMIN_TOKEN is required for protected actions. Pass -AdminToken, set ADMIN_TOKEN in the environment, or add it to .dev.vars.'
+        & (Join-Path $script:scriptsRoot 'invoke-admin-action.ps1') -Action start -NoPrompt | Out-Null
+      } | Should -Throw 'ADMIN_TOKEN is required for protected actions. Pass -AdminToken, set ADMIN_TOKEN in the environment, or add it to .dev.vars.'
     }
     finally {
       [Environment]::SetEnvironmentVariable('ADMIN_TOKEN', $originalAdminToken)
@@ -80,8 +102,8 @@ Describe 'promptless script validation' {
       [Environment]::SetEnvironmentVariable('TELEGRAM_BOT_TOKEN', $null)
 
       {
-        & (Join-Path $scriptsRoot 'set-telegram-webhook.ps1') -NoPrompt | Out-Null
-      } | Should Throw 'TELEGRAM_BOT_TOKEN is required. Pass -BotToken, set TELEGRAM_BOT_TOKEN in the environment, or add it to .dev.vars.'
+        & (Join-Path $script:scriptsRoot 'set-telegram-webhook.ps1') -NoPrompt | Out-Null
+      } | Should -Throw 'TELEGRAM_BOT_TOKEN is required. Pass -BotToken, set TELEGRAM_BOT_TOKEN in the environment, or add it to .dev.vars.'
     }
     finally {
       [Environment]::SetEnvironmentVariable('TELEGRAM_BOT_TOKEN', $originalBotToken)
@@ -90,35 +112,49 @@ Describe 'promptless script validation' {
 
   It 'falls back to ALLOWED_CHAT_IDS from wrangler.toml for webhook tests' {
     $originalChatId = [Environment]::GetEnvironmentVariable('TELEGRAM_CHAT_ID')
+    $tempConfig = Join-Path ([System.IO.Path]::GetTempPath()) ('wrangler-vars-' + [guid]::NewGuid().ToString() + '.toml')
     try {
       [Environment]::SetEnvironmentVariable('TELEGRAM_CHAT_ID', $null)
+      Set-Content -Path $tempConfig -Value @"
+name = "test"
 
-      $resolvedChatId = Resolve-Setting -ScriptRoot $scriptsRoot -Name 'TELEGRAM_CHAT_ID' -DisablePrompt
+[vars]
+ALLOWED_CHAT_IDS = "1771005847"
+"@ -NoNewline
+
+      $resolvedChatId = Resolve-Setting -ScriptRoot $script:scriptsRoot -Name 'TELEGRAM_CHAT_ID' -DisablePrompt
       if ([string]::IsNullOrWhiteSpace($resolvedChatId)) {
-        $resolvedChatId = (ConvertTo-NormalizedDelimitedValues -Value (Get-WranglerVarValue -ScriptRoot $scriptsRoot -Name 'ALLOWED_CHAT_IDS') | Select-Object -First 1)
+        $resolvedChatId = (ConvertTo-NormalizedDelimitedValues -Value (Get-WranglerVarValue -ScriptRoot $script:scriptsRoot -Name 'ALLOWED_CHAT_IDS' -ConfigPath $tempConfig) | Select-Object -First 1)
       }
 
-      $resolvedChatId | Should Be '1771005847'
+      $resolvedChatId | Should -Be '1771005847'
     }
     finally {
       [Environment]::SetEnvironmentVariable('TELEGRAM_CHAT_ID', $originalChatId)
+      if (Test-Path $tempConfig) {
+        Remove-Item $tempConfig -Force
+      }
     }
   }
 }
 
 Describe 'set-allowed-chats script' {
+  BeforeEach {
+    $script:scriptsRoot = Join-Path (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)) 'scripts'
+  }
+
   It 'updates ALLOWED_CHAT_IDS in a temp config file with normalized values' {
-    $tempConfig = Join-Path $env:TEMP ('wrangler-test-' + [guid]::NewGuid().ToString() + '.toml')
+    $tempConfig = Join-Path ([System.IO.Path]::GetTempPath()) ('wrangler-test-' + [guid]::NewGuid().ToString() + '.toml')
     try {
       Set-Content -Path $tempConfig -Value @"
 name = "test"
 ALLOWED_CHAT_IDS = "old"
 "@ -NoNewline
 
-      & (Join-Path $scriptsRoot 'set-allowed-chats.ps1') -ChatIds '1771005847, 123456789, 1771005847' -ConfigPath $tempConfig | Out-Null
+      & (Join-Path $script:scriptsRoot 'set-allowed-chats.ps1') -ChatIds '1771005847, 123456789, 1771005847' -ConfigPath $tempConfig | Out-Null
       $content = Get-Content $tempConfig -Raw
 
-      $content | Should Match 'ALLOWED_CHAT_IDS = "1771005847,123456789"'
+      $content | Should -Match 'ALLOWED_CHAT_IDS = "1771005847,123456789"'
     }
     finally {
       if (Test-Path $tempConfig) {
@@ -129,20 +165,24 @@ ALLOWED_CHAT_IDS = "old"
 
   It 'fails fast for invalid webhook test URLs' {
     {
-      & (Join-Path $scriptsRoot 'test-telegram-webhook.ps1') -WebhookUrl 'not-a-url' -NoPrompt | Out-Null
-    } | Should Throw 'WebhookUrl must be a valid absolute http(s) URL.'
+      & (Join-Path $script:scriptsRoot 'test-telegram-webhook.ps1') -WebhookUrl 'not-a-url' -ChatId '1771005847' -NoPrompt | Out-Null
+    } | Should -Throw 'WebhookUrl must be a valid absolute http(s) URL.'
   }
 
   It 'fails fast for invalid admin base URLs' {
     {
-      & (Join-Path $scriptsRoot 'invoke-admin-action.ps1') -Action health -BaseUrl 'not-a-url' -NoPrompt | Out-Null
-    } | Should Throw 'BaseUrl must be a valid absolute http(s) URL.'
+      & (Join-Path $script:scriptsRoot 'invoke-admin-action.ps1') -Action health -BaseUrl 'not-a-url' -NoPrompt | Out-Null
+    } | Should -Throw 'BaseUrl must be a valid absolute http(s) URL.'
   }
 }
 
 Describe 'strategy settings scripts' {
+  BeforeEach {
+    $script:scriptsRoot = Join-Path (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)) 'scripts'
+  }
+
   It 'updates MIN_CONFIDENCE_SCORE in a temp config file' {
-    $tempConfig = Join-Path $env:TEMP ('wrangler-strategy-' + [guid]::NewGuid().ToString() + '.toml')
+    $tempConfig = Join-Path ([System.IO.Path]::GetTempPath()) ('wrangler-strategy-' + [guid]::NewGuid().ToString() + '.toml')
     try {
       Set-Content -Path $tempConfig -Value @"
 name = "test"
@@ -152,11 +192,11 @@ MIN_CONFIDENCE_SCORE = "72"
 MIN_HISTORY_POINTS = "3"
 "@ -NoNewline
 
-      & (Join-Path $scriptsRoot 'set-strategy-vars.ps1') -MinConfidenceScore 40 -ConfigPath $tempConfig | Out-Null
+      & (Join-Path $script:scriptsRoot 'set-strategy-vars.ps1') -MinConfidenceScore 40 -ConfigPath $tempConfig | Out-Null
       $content = Get-Content $tempConfig -Raw
 
-      $content | Should Match 'MIN_CONFIDENCE_SCORE = "40"'
-      $content | Should Match 'MIN_HISTORY_POINTS = "3"'
+      $content | Should -Match 'MIN_CONFIDENCE_SCORE = "40"'
+      $content | Should -Match 'MIN_HISTORY_POINTS = "3"'
     }
     finally {
       if (Test-Path $tempConfig) {
@@ -166,7 +206,7 @@ MIN_HISTORY_POINTS = "3"
   }
 
   It 'updates MIN_HISTORY_POINTS in a temp config file' {
-    $tempConfig = Join-Path $env:TEMP ('wrangler-strategy-' + [guid]::NewGuid().ToString() + '.toml')
+    $tempConfig = Join-Path ([System.IO.Path]::GetTempPath()) ('wrangler-strategy-' + [guid]::NewGuid().ToString() + '.toml')
     try {
       Set-Content -Path $tempConfig -Value @"
 name = "test"
@@ -176,11 +216,11 @@ MIN_CONFIDENCE_SCORE = "72"
 MIN_HISTORY_POINTS = "3"
 "@ -NoNewline
 
-      & (Join-Path $scriptsRoot 'set-strategy-vars.ps1') -MinHistoryPoints 20 -ConfigPath $tempConfig | Out-Null
+      & (Join-Path $script:scriptsRoot 'set-strategy-vars.ps1') -MinHistoryPoints 20 -ConfigPath $tempConfig | Out-Null
       $content = Get-Content $tempConfig -Raw
 
-      $content | Should Match 'MIN_CONFIDENCE_SCORE = "72"'
-      $content | Should Match 'MIN_HISTORY_POINTS = "20"'
+      $content | Should -Match 'MIN_CONFIDENCE_SCORE = "72"'
+      $content | Should -Match 'MIN_HISTORY_POINTS = "20"'
     }
     finally {
       if (Test-Path $tempConfig) {
@@ -190,7 +230,7 @@ MIN_HISTORY_POINTS = "3"
   }
 
   It 'maps the aggressive preset to confidence 30' {
-    $tempConfig = Join-Path $env:TEMP ('wrangler-strategy-' + [guid]::NewGuid().ToString() + '.toml')
+    $tempConfig = Join-Path ([System.IO.Path]::GetTempPath()) ('wrangler-strategy-' + [guid]::NewGuid().ToString() + '.toml')
     try {
       Set-Content -Path $tempConfig -Value @"
 name = "test"
@@ -200,10 +240,10 @@ MIN_CONFIDENCE_SCORE = "72"
 MIN_HISTORY_POINTS = "3"
 "@ -NoNewline
 
-      & (Join-Path $scriptsRoot 'set-ai-mode.ps1') -Preset aggressive -ConfigPath $tempConfig | Out-Null
+      & (Join-Path $script:scriptsRoot 'set-ai-mode.ps1') -Preset aggressive -ConfigPath $tempConfig | Out-Null
       $content = Get-Content $tempConfig -Raw
 
-      $content | Should Match 'MIN_CONFIDENCE_SCORE = "30"'
+      $content | Should -Match 'MIN_CONFIDENCE_SCORE = "30"'
     }
     finally {
       if (Test-Path $tempConfig) {
