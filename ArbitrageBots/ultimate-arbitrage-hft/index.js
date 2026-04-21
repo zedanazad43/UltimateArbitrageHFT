@@ -31,7 +31,11 @@ const SUPPORTED_SYMBOLS = ['BTCUSDT', 'ETHUSDT', 'SOLUSDT', 'XRPUSDT', 'DOGEUSDT
 
 // ---------- Admin Auth ----------
 function checkAdminToken(request, env) {
-  if (!env.ADMIN_TOKEN) return true; // no token configured → allow
+  if (!env.ADMIN_TOKEN) {
+    // No token configured — log a warning and allow; set ADMIN_TOKEN in production
+    console.warn('⚠️  ADMIN_TOKEN is not set. Protected endpoints are unguarded.');
+    return true;
+  }
   const token =
     request.headers.get('x-admin-token') ||
     (request.headers.get('authorization') || '').replace(/^Bearer\s+/i, '') ||
@@ -405,9 +409,9 @@ ${autoStopBanner}
 </table>
 
 <script>
-  const TOKEN = localStorage.getItem('adminToken') || (()=>{
+  const TOKEN = sessionStorage.getItem('adminToken') || (()=>{
     const t = prompt('أدخل Admin Token (اتركه فارغاً للعرض فقط)') || '';
-    if(t) localStorage.setItem('adminToken', t);
+    if(t) sessionStorage.setItem('adminToken', t);
     return t;
   })();
   async function adminAction(a){
@@ -551,7 +555,9 @@ function calculatePositionSize(equity, winRate, riskRewardRatio) {
 
 async function placeMarketOrderMEXC(env, symbol, side, quantity) {
   const apiKey = env.MEXC_API_KEY, apiSecret = env.MEXC_API_SECRET;
-  if (!apiKey || !apiSecret) throw new Error('MEXC API keys missing');
+  if (!apiKey && !apiSecret) throw new Error('MEXC_API_KEY and MEXC_API_SECRET are not configured');
+  if (!apiKey) throw new Error('MEXC_API_KEY is not configured');
+  if (!apiSecret) throw new Error('MEXC_API_SECRET is not configured');
   const timestamp = Date.now().toString();
   const params = { symbol, side: side.toUpperCase(), type: 'MARKET', quantity, timestamp };
   const sorted = Object.keys(params).sort().map(k => `${k}=${params[k]}`).join('&');
