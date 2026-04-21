@@ -28,11 +28,14 @@ enabled = true
 [observability.logs]
 enabled = true
 persist = true
+invocation_logs = true
+
+[observability.traces]
+enabled = false
 
 [triggers]
 crons = ["*/5 * * * *"]
 
 # Secrets required by this worker (set via `wrangler secret put <NAME>`):
 # - ALCHEMY_API_KEY  : Alchemy Token Prices API key
-
 
