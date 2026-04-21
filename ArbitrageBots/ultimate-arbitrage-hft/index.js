@@ -22,9 +22,9 @@ const CONFIG = {
 // Default risk limits – overridable at runtime via /config
 const DEFAULT_RISK = {
   MAX_DAILY_LOSS_USD: 25,
-  MAX_DAILY_TRADES: 20,
+  MAX_DAILY_TRADES: 10000000000000000,
   MIN_SECONDS_BETWEEN_TRADES: 30,
-  PAPER_TRADING: true
+  PAPER_TRADING: false
 };
 
 const SUPPORTED_SYMBOLS = ['BTCUSDT', 'ETHUSDT', 'SOLUSDT', 'XRPUSDT', 'DOGEUSDT'];
@@ -269,7 +269,7 @@ export default {
 // ---------- Dashboard HTML ----------
 async function renderDashboard(env) {
   const state = await env.BOT_STATE.get('trading_state', 'json') || {
-    trading_enabled: true, paper_trading: true,
+    trading_enabled: true, paper_trading: false,
     daily_used_usd: 0, daily_pnl: 0, daily_trades: 0, total_trades: 0, win_rate: 0.55,
     max_daily_loss_usd: DEFAULT_RISK.MAX_DAILY_LOSS_USD,
     max_daily_trades: DEFAULT_RISK.MAX_DAILY_TRADES,
@@ -598,7 +598,7 @@ async function scanAndExecute(env) {
   }
   try {
     let state = await env.BOT_STATE.get('trading_state', 'json') || {
-      trading_enabled: true, paper_trading: true,
+      trading_enabled: true, paper_trading: false,
       daily_used_usd: 0, daily_pnl: 0, daily_trades: 0, total_trades: 0,
       win_rate: 0.55, risk_reward_ratio: 2.0, last_trade_timestamp: 0
     };
