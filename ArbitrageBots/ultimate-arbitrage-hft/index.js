@@ -25,10 +25,15 @@ const DEFAULT_RISK = {
   MIN_SECONDS_BETWEEN_TRADES: 30,
   PAPER_TRADING: false,
   MIN_PROFIT_SAFETY_PCT: 0.4,   // only execute when net/gross ≥ 40%
-  MAX_PER_TRADE_LOSS_PCT: 0.02  // skip trade if per-trade loss risk > 2%
+  MAX_PER_TRADE_LOSS_PCT: 0.02, // skip trade if per-trade loss risk > 2%
+  MAX_SPREAD_PCT: 5.0           // skip if gross spread > 5% (likely stale/erroneous price)
 };
 
-const SUPPORTED_SYMBOLS = ['BTCUSDT', 'ETHUSDT', 'SOLUSDT', 'XRPUSDT', 'DOGEUSDT', 'BNBUSDT', 'AVAXUSDT', 'MATICUSDT', 'LINKUSDT', 'UNIUSDT'];
+const SUPPORTED_SYMBOLS = [
+  'BTCUSDT', 'ETHUSDT', 'SOLUSDT', 'XRPUSDT', 'DOGEUSDT',
+  'BNBUSDT', 'AVAXUSDT', 'MATICUSDT', 'LINKUSDT', 'UNIUSDT',
+  'ADAUSDT', 'DOTUSDT', 'LTCUSDT', 'TRXUSDT', 'NEARUSDT'
+];
 
 // ---------- Admin Auth ----------
 function checkAdminToken(request, env) {
@@ -239,7 +244,7 @@ export default {
         return new Response('Invalid JSON', { status: 400 });
       }
       const state = await env.BOT_STATE.get('trading_state', 'json') || {};
-      for (const key of ['max_daily_loss_usd', 'min_seconds_between_trades', 'max_per_trade_loss_pct', 'initial_capital']) {
+      for (const key of ['max_daily_loss_usd', 'min_seconds_between_trades', 'max_per_trade_loss_pct', 'initial_capital', 'max_spread_pct']) {
         if (body[key] !== undefined) {
           const v = parseFloat(body[key]);
           if (!isNaN(v) && v > 0) state[key] = v;
@@ -366,9 +371,9 @@ ${autoStopBanner}
 
 <div class="panel">
   <h2 style="margin-top:0">⚡ تحكم سريع</h2>
-  <button class="btn btn-green" onclick="adminAction('start')">▶️ تشغيل التداول</button>
-  <button class="btn btn-red" onclick="adminAction('stop')">⏸️ إيقاف التداول</button>
-  <button class="btn" onclick="adminAction('scan')">🔍 مسح فوري</button>
+  <button class="btn btn-green" data-admin-action="1" onclick="adminAction('start')">▶️ تشغيل التداول</button>
+  <button class="btn btn-red" data-admin-action="1" onclick="adminAction('stop')">⏸️ إيقاف التداول</button>
+  <button class="btn" data-admin-action="1" onclick="adminAction('scan')">🔍 مسح فوري</button>
   <button class="btn btn-blue" onclick="location.reload()">🔄 تحديث</button>
   <button class="btn" onclick="window.open('/checklist','_blank')">✅ قائمة التشغيل</button>
 </div>
@@ -377,8 +382,8 @@ ${autoStopBanner}
   <h2 style="margin-top:0">🎛️ إعدادات التشغيل</h2>
   <div style="margin-bottom:14px">
     <strong>وضع التداول:</strong>
-    <button class="btn" onclick="setMode('paper')" style="margin-right:8px">📄 Paper (محاكاة)</button>
-    <button class="btn btn-red" onclick="setMode('live')">🔴 Live (حقيقي)</button>
+    <button class="btn" data-admin-action="1" onclick="setMode('paper')" style="margin-right:8px">📄 Paper (محاكاة)</button>
+    <button class="btn btn-red" data-admin-action="1" onclick="setMode('live')">🔴 Live (حقيقي)</button>
     <span style="margin-right:10px;color:${modeColor};font-weight:bold">${modeLabel}</span>
   </div>
   <div class="risk-row">
@@ -400,7 +405,7 @@ ${autoStopBanner}
     </div>
   </div>
   <div style="margin-top:14px">
-    <button class="btn" onclick="saveConfig()">💾 حفظ الإعدادات</button>
+    <button class="btn" data-admin-action="1" onclick="saveConfig()">💾 حفظ الإعدادات</button>
   </div>
 </div>
 
@@ -425,13 +430,56 @@ ${autoStopBanner}
     if(t) sessionStorage.setItem('adminToken', t);
     return t;
   })();
+  function setButtonsBusy(isBusy){
+    document.querySelectorAll('[data-admin-action]').forEach((btn) => btn.disabled = isBusy);
+  }
+  const MIN_DAILY_LOSS_USD = 1;
+  const MIN_TRADE_INTERVAL_SECONDS = 1;
+  const MIN_INITIAL_CAPITAL_USD = 1;
+  const MIN_PER_TRADE_LOSS_PCT = 0.001;
+  function tryParseJson(text) {
+    try { return text ? JSON.parse(text) : null; } catch (_) { return null; }
+  }
+  async function callAdminApi(path, options = {}) {
+    let response;
+    try {
+      response = await fetch(path, {
+        ...options,
+        headers: {
+          ...(options.headers || {}),
+          'x-admin-token': TOKEN
+        }
+      });
+    } catch (_) {
+      throw new Error('تعذر الاتصال بالخادم');
+    }
+    const text = await response.text();
+    if (!response.ok) throw new Error(text || ('HTTP ' + response.status));
+    return { text, response };
+  }
   async function adminAction(a){
-    const r = await fetch('/'+a,{headers:{'x-admin-token':TOKEN}});
-    alert(await r.text()); location.reload();
+    setButtonsBusy(true);
+    try {
+      const result = await callAdminApi('/' + a);
+      alert(result.text || '✅ تم التنفيذ');
+      location.reload();
+    } catch (e) {
+      alert('❌ فشل تنفيذ الأمر: ' + (e?.message || 'خطأ غير متوقع'));
+    } finally {
+      setButtonsBusy(false);
+    }
   }
   async function setMode(m){
-    const r = await fetch('/mode/'+m,{headers:{'x-admin-token':TOKEN}});
-    alert(await r.text()); location.reload();
+    setButtonsBusy(true);
+    try {
+      const result = await callAdminApi('/mode/' + m);
+      alert(result.text || '✅ تم التنفيذ');
+      location.reload();
+    } catch (e) {
+      alert('❌ فشل تغيير الوضع: ' + (e?.message || 'خطأ غير متوقع'));
+    } finally {
+      setButtonsBusy(false);
+    }
   }
   async function saveConfig(){
     const body={
@@ -440,8 +488,37 @@ ${autoStopBanner}
       min_seconds_between_trades: parseFloat(document.getElementById('minSeconds').value),
       initial_capital: parseFloat(document.getElementById('initialCapital').value)
     };
-    await fetch('/config',{method:'POST',headers:{'Content-Type':'application/json','x-admin-token':TOKEN},body:JSON.stringify(body)});
-    alert('✅ تم حفظ الإعدادات'); location.reload();
+    if (Number.isNaN(body.max_daily_loss_usd) || body.max_daily_loss_usd < MIN_DAILY_LOSS_USD) {
+      alert('❌ أقصى خسارة يومية يجب أن تكون ' + MIN_DAILY_LOSS_USD + ' أو أكثر');
+      return;
+    }
+    if (Number.isNaN(body.max_per_trade_loss_pct) || body.max_per_trade_loss_pct < MIN_PER_TRADE_LOSS_PCT) {
+      alert('❌ أقصى خسارة للصفقة يجب أن تكون ' + MIN_PER_TRADE_LOSS_PCT + ' أو أكثر');
+      return;
+    }
+    if (Number.isNaN(body.min_seconds_between_trades) || body.min_seconds_between_trades < MIN_TRADE_INTERVAL_SECONDS) {
+      alert('❌ فاصل الصفقات يجب أن يكون ' + MIN_TRADE_INTERVAL_SECONDS + ' ثانية أو أكثر');
+      return;
+    }
+    if (Number.isNaN(body.initial_capital) || body.initial_capital < MIN_INITIAL_CAPITAL_USD) {
+      alert('❌ رأس المال الابتدائي يجب أن يكون ' + MIN_INITIAL_CAPITAL_USD + ' أو أكثر');
+      return;
+    }
+    setButtonsBusy(true);
+    try {
+      const result = await callAdminApi('/config', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body)
+      });
+      const payload = tryParseJson(result.text);
+      alert(payload?.status === 'updated' ? '✅ تم حفظ الإعدادات' : (result.text || '✅ تم التنفيذ'));
+      location.reload();
+    } catch (e) {
+      alert('❌ فشل حفظ الإعدادات: ' + (e?.message || 'خطأ غير متوقع'));
+    } finally {
+      setButtonsBusy(false);
+    }
   }
   const ctx = document.getElementById('pnlChart').getContext('2d');
   new Chart(ctx,{type:'line',data:{
@@ -574,6 +651,20 @@ async function getMEXCPerpPrice(env, symbol) {
   return null;
 }
 
+async function getKuCoinPrice(env, symbol) {
+  try {
+    const kuSymbol = symbol.endsWith('USDT') ? symbol.slice(0, -4) + '-USDT' : symbol;
+    const resp = await fetch(
+      `https://api.kucoin.com/api/v1/market/orderbook/level1?symbol=${kuSymbol}`,
+      { cf: { cacheTtl: 2, cacheEverything: true } }
+    );
+    const data = await resp.json();
+    const price = parseFloat(data?.data?.price);
+    if (!price || isNaN(price)) return null;
+    return { price, exchange: 'kucoin', fee: 0.001 };
+  } catch (_) { return null; }
+}
+
 // Adaptive leverage: base 3x, grows log2 with capital, capped 50x, scales with margin
 function calculateAdaptiveLeverage(equity, netProfitPct, initialCapital) {
   const ic = initialCapital || CONFIG.RISK.INITIAL_CAPITAL_USD;
@@ -682,13 +773,23 @@ async function scanAndExecute(env) {
       win_rate: 0.55, risk_reward_ratio: 2.0, last_trade_timestamp: 0
     };
 
-    if (!state.trading_enabled) return;
-
+    // Apply daily reset first; this may re-enable trading if auto_stopped on previous day
+    const wasAutoStopped = state.auto_stopped;
     state = applyDailyResetIfNeeded(state);
+    if (wasAutoStopped && state.auto_stopped === false) {
+      // Daily reset cleared an automatic stop — re-enable and notify
+      state.trading_enabled = true;
+      await env.BOT_STATE.put('trading_state', JSON.stringify(state));
+      await sendTelegramAlert(env, '🔄 Auto-restarted after daily reset');
+      console.log('🔄 Auto-restarted: trading re-enabled after daily reset');
+    }
+
+    if (!state.trading_enabled) return;
 
     const maxDailyLoss = state.max_daily_loss_usd ?? DEFAULT_RISK.MAX_DAILY_LOSS_USD;
     const minSecondsBetween = state.min_seconds_between_trades ?? DEFAULT_RISK.MIN_SECONDS_BETWEEN_TRADES;
     const minSafetyPct = state.min_profit_safety_pct ?? DEFAULT_RISK.MIN_PROFIT_SAFETY_PCT;
+    const maxSpreadPct = state.max_spread_pct ?? DEFAULT_RISK.MAX_SPREAD_PCT;
     const paperMode = state.paper_trading !== false;
 
     // Circuit breaker: daily loss limit
@@ -716,22 +817,35 @@ async function scanAndExecute(env) {
 
     for (const symbol of SUPPORTED_SYMBOLS) {
       try {
-        // Fetch all price sources in parallel
-        const [rMEXC, rZeroX, rBinance, rPerp] = await Promise.allSettled([
+        // Fetch all price sources in parallel (MEXC spot, 0x DEX, Binance, MEXC perps, KuCoin)
+        const [rMEXC, rZeroX, rBinance, rPerp, rKuCoin] = await Promise.allSettled([
           getPrice(env, symbol, 'mexc'),
           get0xPrice(env, symbol),
           getBinancePrice(env, symbol),
-          getMEXCPerpPrice(env, symbol)
+          getMEXCPerpPrice(env, symbol),
+          getKuCoinPrice(env, symbol)
         ]);
 
         const sources = [
           rMEXC.status === 'fulfilled' ? rMEXC.value : null,
           rZeroX.status === 'fulfilled' ? rZeroX.value : null,
           rBinance.status === 'fulfilled' ? rBinance.value : null,
-          rPerp.status === 'fulfilled' ? rPerp.value : null
+          rPerp.status === 'fulfilled' ? rPerp.value : null,
+          rKuCoin.status === 'fulfilled' ? rKuCoin.value : null
         ].filter(Boolean);
 
         if (sources.length < 2) continue;
+
+        // Volatility guard: reject if any pair's gross spread exceeds MAX_SPREAD_PCT
+        // (protects against stale / erroneous price data)
+        const prices = sources.map(s => s.price);
+        const priceMin = Math.min(...prices);
+        const priceMax = Math.max(...prices);
+        const maxObservedSpread = ((priceMax - priceMin) / priceMin) * 100;
+        if (maxObservedSpread > maxSpreadPct) {
+          console.log(`⚠️  ${symbol} skipped — spread ${maxObservedSpread.toFixed(2)}% exceeds ${maxSpreadPct}% guard`);
+          continue;
+        }
 
         // Find best arbitrage pair across all sources (both ± directions)
         let bestOpp = null;
