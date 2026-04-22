@@ -77,8 +77,36 @@ Python bot supporting CEX (MEXC, Binance via ccxt) and on-chain (Hyperliquid, Po
 
 - Python ≥ 3.10
 - pip
+- PowerShell ≥ 7 (`pwsh`) — for the setup/run scripts
 
-### Setup
+### Setup (PowerShell — recommended)
+
+```powershell
+cd MegaArbitrageBot
+pip install -r requirements.txt
+
+# Interactive: prompts for all Telegram + Control Center values, then writes MegaArbitrageBot/.env
+.\scripts\setup-telegram-control.ps1
+
+# Or supply values directly (CI / scripted):
+.\scripts\setup-telegram-control.ps1 `
+  -BotToken         "7654321:AAxxxxxx" `
+  -PrimaryChatId    "111111111" `
+  -AdminChatIds     "111111111" `
+  -ControlCenterUrl "https://ultimate-arbitrage-hft.zedanazad43.workers.dev" `
+  -AdminToken       "your_admin_token"
+```
+
+From the repository root you can also use the npm convenience scripts:
+
+```bash
+npm run mega:setup    # run setup-telegram-control.ps1 (interactive)
+npm run mega:run      # run-telegram-bot.ps1 (load .env + launch bot)
+npm run mega:test     # test-telegram-control.ps1 (verify connectivity)
+npm run mega:test:powershell  # run the Pester test suite
+```
+
+### Setup (manual / bash)
 
 ```bash
 cd MegaArbitrageBot
@@ -98,7 +126,7 @@ Key mapping inside `keys/api_keys.txt`:
 - `PRIMEXBT` → `CLIENT_ID` (optional metadata: `NAME`, `EMAIL`)
 - `METAMASK` → `ADDRESS` (optional: `PRIVATE_KEY`)
 
-Set environment variables before running:
+Set environment variables before running (or put them in `MegaArbitrageBot/.env`):
 
 ```bash
 export METAMASK_PRIVATE_KEY="0xYOUR_PRIVATE_KEY"
@@ -114,11 +142,22 @@ export ENABLE_REAL_TRADING="true"       # requires valid MEXC + BINANCE keys in 
 
 If `TELEGRAM_ADMIN_CHAT_IDS` is empty, the bot falls back to `TELEGRAM_CHAT_ID` as the only admin.
 
+### PowerShell scripts
+
+| Script | Purpose |
+|--------|---------|
+| `scripts/setup-telegram-control.ps1` | Interactive/scripted `.env` writer for all Telegram + Control Center vars |
+| `scripts/run-telegram-bot.ps1` | Load `.env`, activate venv if present, run `main_bot_with_telegram.py` |
+| `scripts/test-telegram-control.ps1` | Smoke-test Telegram bot token validity + `/status` endpoint connectivity |
+| `scripts/run-powershell-tests.ps1` | Run the Pester unit test suite for the helper scripts |
+
 ### Run
 
-```bash
-python final_ultimate_bot.py        # full multi-strategy bot
-# or
+```powershell
+# After running setup-telegram-control.ps1:
+.\scripts\run-telegram-bot.ps1
+
+# Or directly:
 python main_bot_with_telegram.py    # Telegram alerts + Telegram command center proxying web control APIs
 ```
 
