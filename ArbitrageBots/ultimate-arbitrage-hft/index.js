@@ -165,7 +165,7 @@ export default {
     const url = new URL(request.url);
     const path = url.pathname;
 
-    if (path === '/dashboard') return renderDashboard(env);
+    if (path === '/' || path === '/dashboard') return renderDashboard(env);
     if (path === '/checklist') return renderChecklist(env);
 
     if (path === '/health') {
@@ -259,7 +259,7 @@ export default {
       return new Response(`✅ بدأ اتصال WebSocket لـ ${symbol}`);
     }
 
-    return new Response('🤖 Ultimate Arbitrage Bot v23.0 — Control Center', { status: 200 });
+    return new Response('🤖 Ultimate Arbitrage Bot v24.0 WHALE — Control Center. Open /dashboard', { status: 200 });
   },
 
   async scheduled(event, env) {
