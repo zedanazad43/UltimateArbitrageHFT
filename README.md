@@ -2,6 +2,40 @@
 
 A collection of crypto arbitrage bots spanning Cloudflare Workers, Python, and unified JS/Python approaches.
 
+## ⚡ One-Command Activation (PowerShell 7+)
+
+The fastest way to deploy everything and start live trading:
+
+```powershell
+# From the repo root:
+cd UltimateArbitrageBot && npx wrangler login   # 1. Authenticate with Cloudflare (once)
+cd ..
+
+# 2. Full activation — deploys worker, uploads all secrets, registers Telegram
+#    webhook, and starts the bot in LIVE trading mode:
+.\Deploy-All.ps1
+
+# Or use npm:
+npm run deploy:all         # live trading
+npm run deploy:all:paper   # paper/simulation mode
+npm run deploy:all:skip-deploy  # re-configure only (worker already deployed)
+```
+
+`Deploy-All.ps1` will interactively prompt for any missing values and walk through each step. You can also pre-fill everything:
+
+```powershell
+.\Deploy-All.ps1 `
+    -MexcApiKey     "mx0vg..." `
+    -MexcApiSecret  "abc123..." `
+    -TelegramBotToken "7654321:AAx..." `
+    -TelegramChatId   "111111111" `
+    -AdminToken       "your_token"
+```
+
+After completion, open: **https://ultimate-arbitrage-hft.zedanazad43.workers.dev**
+
+---
+
 ## Sub-projects
 
 | Directory | Runtime | Description |
@@ -20,6 +54,7 @@ The most complete implementation. Runs on [Cloudflare Workers](https://workers.c
 ### Prerequisites
 
 - [Node.js](https://nodejs.org/) ≥ 18
+- [PowerShell 7+](https://learn.microsoft.com/en-us/powershell/scripting/install/installing-powershell) (`pwsh`)
 - A [Cloudflare account](https://dash.cloudflare.com/sign-up) (free tier works)
 - A Telegram bot token + chat ID for alerts (optional but recommended)
 
@@ -35,19 +70,24 @@ Create local secrets file (gitignored):
 
 ```bash
 # UltimateArbitrageBot/.dev.vars
+MEXC_API_KEY=your_mexc_api_key
+MEXC_API_SECRET=your_mexc_api_secret
 TELEGRAM_BOT_TOKEN=your_bot_token
 TELEGRAM_CHAT_ID=your_chat_id
 ADMIN_TOKEN=your_admin_token
 ```
 
-### Deploy
+### Deploy (step-by-step)
 
 ```bash
 npm run cf:set-admin-token          # generate + upload ADMIN_TOKEN secret
+npm run cf:set-mexc                 # upload MEXC API keys
 npm run cf:set-main-telegram        # upload Telegram secrets for main worker
 npm run cf:set-tail-telegram        # upload Telegram secrets for tail worker
 npm run deploy                      # deploy to Cloudflare Workers
 npm run telegram:set-webhook        # register Telegram webhook
+npm run bot:mode:live               # switch to live trading mode
+npm run bot:start                   # start the bot
 ```
 
 ### Operate
@@ -68,6 +108,7 @@ npm run test:powershell  # run PowerShell helper-script tests (requires pwsh)
 ```
 
 ---
+
 
 ## MegaArbitrageBot
 
