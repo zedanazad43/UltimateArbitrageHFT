@@ -653,7 +653,7 @@ async function getMEXCPerpPrice(env, symbol) {
 
 async function getKuCoinPrice(env, symbol) {
   try {
-    const kuSymbol = symbol.replace('USDT', '-USDT');
+    const kuSymbol = symbol.endsWith('USDT') ? symbol.slice(0, -4) + '-USDT' : symbol;
     const resp = await fetch(
       `https://api.kucoin.com/api/v1/market/orderbook/level1?symbol=${kuSymbol}`,
       { cf: { cacheTtl: 2, cacheEverything: true } }
@@ -776,7 +776,7 @@ async function scanAndExecute(env) {
     // Apply daily reset first; this may re-enable trading if auto_stopped on previous day
     const wasAutoStopped = state.auto_stopped;
     state = applyDailyResetIfNeeded(state);
-    if (wasAutoStopped && !state.auto_stopped) {
+    if (wasAutoStopped && state.auto_stopped === false) {
       // Daily reset cleared an automatic stop — re-enable and notify
       state.trading_enabled = true;
       await env.BOT_STATE.put('trading_state', JSON.stringify(state));
@@ -789,6 +789,7 @@ async function scanAndExecute(env) {
     const maxDailyLoss = state.max_daily_loss_usd ?? DEFAULT_RISK.MAX_DAILY_LOSS_USD;
     const minSecondsBetween = state.min_seconds_between_trades ?? DEFAULT_RISK.MIN_SECONDS_BETWEEN_TRADES;
     const minSafetyPct = state.min_profit_safety_pct ?? DEFAULT_RISK.MIN_PROFIT_SAFETY_PCT;
+    const maxSpreadPct = state.max_spread_pct ?? DEFAULT_RISK.MAX_SPREAD_PCT;
     const paperMode = state.paper_trading !== false;
 
     // Circuit breaker: daily loss limit
@@ -837,7 +838,6 @@ async function scanAndExecute(env) {
 
         // Volatility guard: reject if any pair's gross spread exceeds MAX_SPREAD_PCT
         // (protects against stale / erroneous price data)
-        const maxSpreadPct = state.max_spread_pct ?? DEFAULT_RISK.MAX_SPREAD_PCT;
         const prices = sources.map(s => s.price);
         const priceMin = Math.min(...prices);
         const priceMax = Math.max(...prices);
