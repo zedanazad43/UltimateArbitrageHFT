@@ -10,6 +10,7 @@ Cloudflare Workers based arbitrage bot with a main worker, a tail worker for err
 ## Main scripts
 
 - `npm run bot:health`: query deployed worker health
+- `npm run bot:status`: query deployed worker status JSON
 - `npm run bot:dashboard`: fetch deployed dashboard HTML
 - `npm run bot:start`: enable trading on the deployed worker
 - `npm run bot:scan`: trigger a manual scan on the deployed worker
@@ -81,6 +82,7 @@ Tail worker secrets:
 ## Control endpoints
 
 - `GET /health`: health and runtime readiness
+- `GET /status`: alias of `/health` for status checks and bot control integrations
 - `GET /dashboard`: runtime dashboard
 - `GET /start?token=...`: enable trading
 - `GET /stop?token=...`: disable trading

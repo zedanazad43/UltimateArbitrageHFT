@@ -4,6 +4,7 @@
   "type": "module",
   "scripts": {
     "bot:health": "pwsh -NoProfile -File ./scripts/invoke-admin-action.ps1 -Action health -NoPrompt",
+    "bot:status": "pwsh -NoProfile -File ./scripts/invoke-admin-action.ps1 -Action status -NoPrompt",
     "bot:start": "pwsh -NoProfile -File ./scripts/invoke-admin-action.ps1 -Action start -NoPrompt",
     "bot:stop": "pwsh -NoProfile -File ./scripts/invoke-admin-action.ps1 -Action stop -NoPrompt",
     "bot:scan": "pwsh -NoProfile -File ./scripts/invoke-admin-action.ps1 -Action scan -NoPrompt",

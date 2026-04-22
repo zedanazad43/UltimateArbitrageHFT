@@ -173,7 +173,7 @@ export default {
     if (path === '/' || path === '/dashboard') return renderDashboard(env);
     if (path === '/checklist') return renderChecklist(env);
 
-    if (path === '/health') {
+    if (path === '/health' || path === '/status') {
       const state = await env.BOT_STATE.get('trading_state', 'json') || {};
       return new Response(JSON.stringify({
         status: 'ok',

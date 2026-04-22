@@ -105,6 +105,10 @@ export METAMASK_PRIVATE_KEY="0xYOUR_PRIVATE_KEY"
 export METAMASK_ADDRESS="0xYOUR_WALLET_ADDRESS"
 export TELEGRAM_BOT_TOKEN="your_bot_token"
 export TELEGRAM_CHAT_ID="your_chat_id"
+export TELEGRAM_ADMIN_CHAT_IDS="your_chat_id,123456789"   # only these IDs can run commands
+export TELEGRAM_NOTIFY_CHAT_IDS="your_chat_id,987654321"  # optional extra alert receivers
+export CONTROL_CENTER_BASE_URL="https://ultimate-arbitrage-hft.zedanazad43.workers.dev"
+export CONTROL_CENTER_ADMIN_TOKEN="your_admin_token"
 export ENABLE_REAL_TRADING="true"       # requires valid MEXC + BINANCE keys in keys/api_keys.txt
 ```
 
@@ -113,8 +117,21 @@ export ENABLE_REAL_TRADING="true"       # requires valid MEXC + BINANCE keys in 
 ```bash
 python final_ultimate_bot.py        # full multi-strategy bot
 # or
-python main_bot_with_telegram.py    # simpler bot with Telegram alerts
+python main_bot_with_telegram.py    # Telegram alerts + Telegram command center proxying web control APIs
 ```
+
+Telegram admin commands supported in `main_bot_with_telegram.py`:
+
+- `/status`
+- `/dashboard`
+- `/start` (or `/startbot`)
+- `/stop` (or `/stopbot`)
+- `/scan`
+- `/live`
+- `/paper`
+- `/help`
+
+Live trading is never auto-enabled by default; it must be explicitly switched to `/live` by an authorized admin and then started.
 
 ---
 

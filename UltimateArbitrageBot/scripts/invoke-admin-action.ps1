@@ -1,6 +1,6 @@
 param(
   [Parameter(Mandatory = $true)]
-  [ValidateSet('health', 'dashboard', 'start', 'stop', 'scan', 'test-alert')]
+  [ValidateSet('health', 'status', 'dashboard', 'start', 'stop', 'scan', 'test-alert')]
   [string]$Action,
 
   [string]$BaseUrl = 'https://ultimate-arbitrage-hft.zedanazad43.workers.dev',
@@ -27,7 +27,11 @@ if ($protectedActions -contains $Action -and [string]::IsNullOrWhiteSpace($resol
   throw 'ADMIN_TOKEN is required for protected actions. Pass -AdminToken, set ADMIN_TOKEN in the environment, or add it to .dev.vars.'
 }
 
-$actionPath = if ($Action -eq 'test-alert') { 'debug/fail' } else { $Action }
+$actionPath = switch ($Action) {
+  'test-alert' { 'debug/fail' }
+  'status' { 'status' }
+  default { $Action }
+}
 $trimmedBaseUrl = Get-ValidatedAbsoluteHttpUrl -Name 'BaseUrl' -Value $BaseUrl
 $uriBuilder = [System.UriBuilder]::new("$trimmedBaseUrl/$actionPath")
 $headers = @{}
