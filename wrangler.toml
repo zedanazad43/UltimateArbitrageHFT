@@ -15,7 +15,7 @@ database_id = "cd726538-9c41-456c-b172-15fcc3a63a0c"
 binding = "AI"
 
 [observability]
-enabled = true
+enabled = false
 head_sampling_rate = 1
 
 [observability.logs]
@@ -23,6 +23,11 @@ enabled = true
 head_sampling_rate = 1
 persist = true
 invocation_logs = true
+
+[observability.traces]
+enabled = false
+persist = true
+head_sampling_rate = 1
 
 [triggers]
 crons = ["*/1 * * * *"]
