@@ -1,3 +1,4 @@
+#Requires -Version 7.0
 # run-powershell-tests.ps1
 # Runs the MegaArbitrageBot Pester test suite.
 Set-StrictMode -Version Latest

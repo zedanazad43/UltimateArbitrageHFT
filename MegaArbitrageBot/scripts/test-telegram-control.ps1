@@ -1,3 +1,4 @@
+#Requires -Version 7.0
 # test-telegram-control.ps1
 # Smoke-tests the Telegram Bot Center and Control Center connectivity:
 #   1. Verifies TELEGRAM_BOT_TOKEN is valid with Telegram getMe API.

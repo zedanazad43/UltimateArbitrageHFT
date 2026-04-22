@@ -1,3 +1,4 @@
+#Requires -Version 7.0
 # setup-telegram-control.ps1
 # Interactive setup: writes (or updates) MegaArbitrageBot/.env with all
 # Telegram Bot Center + Control Center configuration.

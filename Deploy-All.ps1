@@ -218,8 +218,9 @@ if ([string]::IsNullOrWhiteSpace($resolvedAdminToken)) {
     $bytes = New-Object byte[] 24
     [System.Security.Cryptography.RandomNumberGenerator]::Create().GetBytes($bytes)
     $resolvedAdminToken = [Convert]::ToHexString($bytes).ToLowerInvariant()
-    Write-OK "Auto-generated ADMIN_TOKEN: $resolvedAdminToken"
-    Write-Warn "Save this token — you need it to access protected endpoints!"
+    $tokenPreview = $resolvedAdminToken.Substring(0, 8) + '…'
+    Write-OK "Auto-generated ADMIN_TOKEN (preview: $tokenPreview)"
+    Write-Warn "Full token written only to final summary. Store it securely — do not share terminal output."
 }
 
 # Validate required secrets
@@ -429,7 +430,9 @@ Write-Host ""
 Write-Host "  🌐 Control Center Dashboard  : $workerUrl" -ForegroundColor White
 Write-Host "  📊 Status API               : $workerUrl/health" -ForegroundColor White
 Write-Host "  🤖 Telegram Bot              : configured" -ForegroundColor White
-Write-Host "  🔑 ADMIN_TOKEN               : $resolvedAdminToken" -ForegroundColor Yellow
+$tokenPreview = $resolvedAdminToken.Substring(0, 8) + '…'
+Write-Host "  🔑 ADMIN_TOKEN (first 8)     : $tokenPreview" -ForegroundColor Yellow
+Write-Host "     Store the full token somewhere safe (password manager / secret store)." -ForegroundColor DarkYellow
 Write-Host ""
 Write-Host "  Quick commands:" -ForegroundColor Cyan
 Write-Host "    Check status  : cd UltimateArbitrageBot && npm run bot:status" -ForegroundColor White

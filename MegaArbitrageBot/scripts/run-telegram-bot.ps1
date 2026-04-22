@@ -1,3 +1,4 @@
+#Requires -Version 7.0
 # run-telegram-bot.ps1
 # Loads .env, activates venv (if present), and runs main_bot_with_telegram.py.
 #
