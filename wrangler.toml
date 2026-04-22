@@ -1,4 +1,4 @@
-name = "throbbing-wildflower-8aab"
+name = "ip-worker3"
 main = "ArbitrageBots/ultimate-arbitrage-hft/index.js"
 compatibility_date = "2025-01-01"
 
