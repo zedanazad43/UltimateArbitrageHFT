@@ -25,10 +25,15 @@ const DEFAULT_RISK = {
   MIN_SECONDS_BETWEEN_TRADES: 30,
   PAPER_TRADING: false,
   MIN_PROFIT_SAFETY_PCT: 0.4,   // only execute when net/gross ≥ 40%
-  MAX_PER_TRADE_LOSS_PCT: 0.02  // skip trade if per-trade loss risk > 2%
+  MAX_PER_TRADE_LOSS_PCT: 0.02, // skip trade if per-trade loss risk > 2%
+  MAX_SPREAD_PCT: 5.0           // skip if gross spread > 5% (likely stale/erroneous price)
 };
 
-const SUPPORTED_SYMBOLS = ['BTCUSDT', 'ETHUSDT', 'SOLUSDT', 'XRPUSDT', 'DOGEUSDT', 'BNBUSDT', 'AVAXUSDT', 'MATICUSDT', 'LINKUSDT', 'UNIUSDT'];
+const SUPPORTED_SYMBOLS = [
+  'BTCUSDT', 'ETHUSDT', 'SOLUSDT', 'XRPUSDT', 'DOGEUSDT',
+  'BNBUSDT', 'AVAXUSDT', 'MATICUSDT', 'LINKUSDT', 'UNIUSDT',
+  'ADAUSDT', 'DOTUSDT', 'LTCUSDT', 'TRXUSDT', 'NEARUSDT'
+];
 
 // ---------- Admin Auth ----------
 function checkAdminToken(request, env) {
@@ -239,7 +244,7 @@ export default {
         return new Response('Invalid JSON', { status: 400 });
       }
       const state = await env.BOT_STATE.get('trading_state', 'json') || {};
-      for (const key of ['max_daily_loss_usd', 'min_seconds_between_trades', 'max_per_trade_loss_pct', 'initial_capital']) {
+      for (const key of ['max_daily_loss_usd', 'min_seconds_between_trades', 'max_per_trade_loss_pct', 'initial_capital', 'max_spread_pct']) {
         if (body[key] !== undefined) {
           const v = parseFloat(body[key]);
           if (!isNaN(v) && v > 0) state[key] = v;
@@ -646,6 +651,20 @@ async function getMEXCPerpPrice(env, symbol) {
   return null;
 }
 
+async function getKuCoinPrice(env, symbol) {
+  try {
+    const kuSymbol = symbol.replace('USDT', '-USDT');
+    const resp = await fetch(
+      `https://api.kucoin.com/api/v1/market/orderbook/level1?symbol=${kuSymbol}`,
+      { cf: { cacheTtl: 2, cacheEverything: true } }
+    );
+    const data = await resp.json();
+    const price = parseFloat(data?.data?.price);
+    if (!price || isNaN(price)) return null;
+    return { price, exchange: 'kucoin', fee: 0.001 };
+  } catch (_) { return null; }
+}
+
 // Adaptive leverage: base 3x, grows log2 with capital, capped 50x, scales with margin
 function calculateAdaptiveLeverage(equity, netProfitPct, initialCapital) {
   const ic = initialCapital || CONFIG.RISK.INITIAL_CAPITAL_USD;
@@ -754,9 +773,18 @@ async function scanAndExecute(env) {
       win_rate: 0.55, risk_reward_ratio: 2.0, last_trade_timestamp: 0
     };
 
-    if (!state.trading_enabled) return;
-
+    // Apply daily reset first; this may re-enable trading if auto_stopped on previous day
+    const wasAutoStopped = state.auto_stopped;
     state = applyDailyResetIfNeeded(state);
+    if (wasAutoStopped && !state.auto_stopped) {
+      // Daily reset cleared an automatic stop — re-enable and notify
+      state.trading_enabled = true;
+      await env.BOT_STATE.put('trading_state', JSON.stringify(state));
+      await sendTelegramAlert(env, '🔄 Auto-restarted after daily reset');
+      console.log('🔄 Auto-restarted: trading re-enabled after daily reset');
+    }
+
+    if (!state.trading_enabled) return;
 
     const maxDailyLoss = state.max_daily_loss_usd ?? DEFAULT_RISK.MAX_DAILY_LOSS_USD;
     const minSecondsBetween = state.min_seconds_between_trades ?? DEFAULT_RISK.MIN_SECONDS_BETWEEN_TRADES;
@@ -788,22 +816,36 @@ async function scanAndExecute(env) {
 
     for (const symbol of SUPPORTED_SYMBOLS) {
       try {
-        // Fetch all price sources in parallel
-        const [rMEXC, rZeroX, rBinance, rPerp] = await Promise.allSettled([
+        // Fetch all price sources in parallel (MEXC spot, 0x DEX, Binance, MEXC perps, KuCoin)
+        const [rMEXC, rZeroX, rBinance, rPerp, rKuCoin] = await Promise.allSettled([
           getPrice(env, symbol, 'mexc'),
           get0xPrice(env, symbol),
           getBinancePrice(env, symbol),
-          getMEXCPerpPrice(env, symbol)
+          getMEXCPerpPrice(env, symbol),
+          getKuCoinPrice(env, symbol)
         ]);
 
         const sources = [
           rMEXC.status === 'fulfilled' ? rMEXC.value : null,
           rZeroX.status === 'fulfilled' ? rZeroX.value : null,
           rBinance.status === 'fulfilled' ? rBinance.value : null,
-          rPerp.status === 'fulfilled' ? rPerp.value : null
+          rPerp.status === 'fulfilled' ? rPerp.value : null,
+          rKuCoin.status === 'fulfilled' ? rKuCoin.value : null
         ].filter(Boolean);
 
         if (sources.length < 2) continue;
+
+        // Volatility guard: reject if any pair's gross spread exceeds MAX_SPREAD_PCT
+        // (protects against stale / erroneous price data)
+        const maxSpreadPct = state.max_spread_pct ?? DEFAULT_RISK.MAX_SPREAD_PCT;
+        const prices = sources.map(s => s.price);
+        const priceMin = Math.min(...prices);
+        const priceMax = Math.max(...prices);
+        const maxObservedSpread = ((priceMax - priceMin) / priceMin) * 100;
+        if (maxObservedSpread > maxSpreadPct) {
+          console.log(`⚠️  ${symbol} skipped — spread ${maxObservedSpread.toFixed(2)}% exceeds ${maxSpreadPct}% guard`);
+          continue;
+        }
 
         // Find best arbitrage pair across all sources (both ± directions)
         let bestOpp = null;
