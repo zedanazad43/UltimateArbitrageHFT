@@ -259,7 +259,7 @@ Write-Step '2' 'Upload ADMIN_TOKEN secret'
 try {
     $prevLocation = Get-Location
     Set-Location $WorkerDir
-    $resolvedAdminToken | npx wrangler secret put ADMIN_TOKEN
+    $resolvedAdminToken | npx wrangler versions secret put ADMIN_TOKEN
     Write-OK "ADMIN_TOKEN uploaded."
 } catch {
     Write-Fail "Failed to upload ADMIN_TOKEN: $($_.Exception.Message)"
@@ -274,8 +274,8 @@ Write-Step '3' 'Upload MEXC API secrets'
 try {
     $prevLocation = Get-Location
     Set-Location $WorkerDir
-    $resolvedMexcKey    | npx wrangler secret put MEXC_API_KEY
-    $resolvedMexcSecret | npx wrangler secret put MEXC_API_SECRET
+    $resolvedMexcKey    | npx wrangler versions secret put MEXC_API_KEY
+    $resolvedMexcSecret | npx wrangler versions secret put MEXC_API_SECRET
     Write-OK "MEXC secrets uploaded."
 } catch {
     Write-Fail "Failed to upload MEXC secrets: $($_.Exception.Message)"
@@ -290,8 +290,8 @@ Write-Step '4' 'Upload Telegram secrets'
 try {
     $prevLocation = Get-Location
     Set-Location $WorkerDir
-    $resolvedBotToken | npx wrangler secret put TELEGRAM_BOT_TOKEN
-    $resolvedChatId   | npx wrangler secret put TELEGRAM_CHAT_ID
+    $resolvedBotToken | npx wrangler versions secret put TELEGRAM_BOT_TOKEN
+    $resolvedChatId   | npx wrangler versions secret put TELEGRAM_CHAT_ID
     Write-OK "Telegram secrets uploaded."
 } catch {
     Write-Fail "Failed to upload Telegram secrets: $($_.Exception.Message)"
@@ -307,13 +307,13 @@ $prevLocation = Get-Location
 Set-Location $WorkerDir
 try {
     if (-not [string]::IsNullOrWhiteSpace($resolvedAlchemy)) {
-        $resolvedAlchemy | npx wrangler secret put ALCHEMY_API_KEY
+        $resolvedAlchemy | npx wrangler versions secret put ALCHEMY_API_KEY
         Write-OK "ALCHEMY_API_KEY uploaded."
     } else {
         Write-Warn "ALCHEMY_API_KEY not provided — DEX price feeds via Alchemy will be unavailable."
     }
     if (-not [string]::IsNullOrWhiteSpace($resolvedDexWallet)) {
-        $resolvedDexWallet | npx wrangler secret put DEX_WALLET_ADDRESS
+        $resolvedDexWallet | npx wrangler versions secret put DEX_WALLET_ADDRESS
         Write-OK "DEX_WALLET_ADDRESS uploaded."
     } else {
         Write-Warn "DEX_WALLET_ADDRESS not provided — on-chain DEX trading will be skipped."
