@@ -431,7 +431,10 @@ ${autoStopBanner}
   const MIN_DAILY_LOSS_USD = 1;
   const MIN_TRADE_INTERVAL_SECONDS = 1;
   const MIN_INITIAL_CAPITAL_USD = 1;
-  const MIN_PER_TRADE_LOSS_PCT = 0;
+  const MIN_PER_TRADE_LOSS_PCT = 0.001;
+  function tryParseJson(text) {
+    try { return text ? JSON.parse(text) : null; } catch (_) { return null; }
+  }
   async function callAdminApi(path, options = {}) {
     let response;
     try {
@@ -484,8 +487,8 @@ ${autoStopBanner}
       alert('❌ أقصى خسارة يومية يجب أن تكون ' + MIN_DAILY_LOSS_USD + ' أو أكثر');
       return;
     }
-    if (Number.isNaN(body.max_per_trade_loss_pct) || body.max_per_trade_loss_pct <= MIN_PER_TRADE_LOSS_PCT) {
-      alert('❌ أقصى خسارة للصفقة يجب أن تكون أكبر من ' + MIN_PER_TRADE_LOSS_PCT);
+    if (Number.isNaN(body.max_per_trade_loss_pct) || body.max_per_trade_loss_pct < MIN_PER_TRADE_LOSS_PCT) {
+      alert('❌ أقصى خسارة للصفقة يجب أن تكون ' + MIN_PER_TRADE_LOSS_PCT + ' أو أكثر');
       return;
     }
     if (Number.isNaN(body.min_seconds_between_trades) || body.min_seconds_between_trades < MIN_TRADE_INTERVAL_SECONDS) {
@@ -503,8 +506,7 @@ ${autoStopBanner}
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body)
       });
-      let payload = null;
-      try { payload = result.text ? JSON.parse(result.text) : null; } catch (_) { /* non-JSON success payload */ }
+      const payload = tryParseJson(result.text);
       alert(payload?.status === 'updated' ? '✅ تم حفظ الإعدادات' : (result.text || '✅ تم التنفيذ'));
       location.reload();
     } catch (e) {
