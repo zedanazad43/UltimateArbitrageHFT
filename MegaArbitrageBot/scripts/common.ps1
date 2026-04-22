@@ -1,3 +1,4 @@
+#Requires -Version 7.0
 # common.ps1 — shared helpers for MegaArbitrageBot scripts
 
 function Get-BotRootPath {
@@ -56,7 +57,7 @@ function Resolve-BotSetting {
 
   if ($DisablePrompt) { return '' }
 
-  return Read-Host ($PromptMessage ? $PromptMessage : "Enter $Name")
+  return Read-Host (if ($PromptMessage) { $PromptMessage } else { "Enter $Name" })
 }
 
 function Test-NonInteractiveBotSession {

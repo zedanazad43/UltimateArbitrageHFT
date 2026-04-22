@@ -197,7 +197,7 @@ class TelegramControlCenter:
         text = (message.get("text") or "").strip()
         if not text.startswith("/"):
             return
-        command = text.split()[0].lower()
+        command = text.split(maxsplit=1)[0].lower()
         chat = message.get("chat", {})
         chat_id = str(chat.get("id", ""))
         if not chat_id:
