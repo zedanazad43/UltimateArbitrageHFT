@@ -29,7 +29,6 @@ if ($protectedActions -contains $Action -and [string]::IsNullOrWhiteSpace($resol
 
 $actionPath = switch ($Action) {
   'test-alert' { 'debug/fail' }
-  'status' { 'status' }
   default { $Action }
 }
 $trimmedBaseUrl = Get-ValidatedAbsoluteHttpUrl -Name 'BaseUrl' -Value $BaseUrl

@@ -29,6 +29,7 @@ class TelegramNotifier:
 
     @property
     def is_configured(self) -> bool:
+        """True when Telegram Bot token exists and API URL is initialized."""
         return bool(self.api_url)
 
     async def send_message(self, text: str, chat_id: str) -> bool:
@@ -52,8 +53,11 @@ class TelegramNotifier:
     async def broadcast_message(self, text: str) -> bool:
         if not self.notify_chat_ids:
             return False
-        results = await asyncio.gather(*(self.send_message(text, chat_id) for chat_id in self.notify_chat_ids))
-        return any(results)
+        results = await asyncio.gather(
+            *(self.send_message(text, chat_id) for chat_id in self.notify_chat_ids),
+            return_exceptions=True
+        )
+        return any(result is True for result in results)
 
     async def get_updates(self, offset: int, timeout: int = 30) -> List[Dict]:
         if not self.is_configured:
@@ -116,10 +120,7 @@ class UltimateControlCenterClient:
     def _admin_headers(self) -> Dict[str, str]:
         if not self.admin_token:
             return {}
-        return {
-            "x-admin-token": self.admin_token,
-            "Authorization": f"Bearer {self.admin_token}"
-        }
+        return {"x-admin-token": self.admin_token}
 
     async def call(self, path: str) -> Tuple[bool, str]:
         if not self.base_url:
@@ -250,7 +251,7 @@ class MegaArbitrageBot:
 
         if primary_chat_id:
             if primary_chat_id not in notify_chat_ids:
-                notify_chat_ids.insert(0, primary_chat_id)
+                notify_chat_ids = [primary_chat_id, *notify_chat_ids]
             if not admin_chat_ids:
                 admin_chat_ids = [primary_chat_id]
 

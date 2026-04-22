@@ -112,6 +112,8 @@ export CONTROL_CENTER_ADMIN_TOKEN="your_admin_token"
 export ENABLE_REAL_TRADING="true"       # requires valid MEXC + BINANCE keys in keys/api_keys.txt
 ```
 
+If `TELEGRAM_ADMIN_CHAT_IDS` is empty, the bot falls back to `TELEGRAM_CHAT_ID` as the only admin.
+
 ### Run
 
 ```bash
@@ -132,6 +134,14 @@ Telegram admin commands supported in `main_bot_with_telegram.py`:
 - `/help`
 
 Live trading is never auto-enabled by default; it must be explicitly switched to `/live` by an authorized admin and then started.
+
+Safe activation sequence for real trading:
+
+1. `/status` (verify bot is reachable)
+2. `/paper` (confirm paper mode first)
+3. `/live` (switch mode intentionally)
+4. `/start` (enable trading loop)
+5. `/status` (confirm live + enabled state)
 
 ---
 
