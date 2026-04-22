@@ -1,4 +1,13 @@
 {
+  "scripts": {
+    "deploy:all": "pwsh -NoProfile -File ./Deploy-All.ps1",
+    "deploy:all:paper": "pwsh -NoProfile -File ./Deploy-All.ps1 -PaperMode",
+    "deploy:all:skip-deploy": "pwsh -NoProfile -File ./Deploy-All.ps1 -SkipDeploy",
+    "mega:setup": "pwsh -NoProfile -File ./MegaArbitrageBot/scripts/setup-telegram-control.ps1",
+    "mega:run": "pwsh -NoProfile -File ./MegaArbitrageBot/scripts/run-telegram-bot.ps1",
+    "mega:test": "pwsh -NoProfile -File ./MegaArbitrageBot/scripts/test-telegram-control.ps1 -NoPrompt",
+    "mega:test:powershell": "pwsh -NoProfile -File ./MegaArbitrageBot/scripts/run-powershell-tests.ps1"
+  },
   "dependencies": {
     "ethers": "^6.16.0"
   }

@@ -43,8 +43,8 @@ if ($SkipUpload) {
 }
 
 try {
-  $resolvedApiKey | npx wrangler secret put MEXC_API_KEY @wranglerArgs
-  $resolvedApiSecret | npx wrangler secret put MEXC_API_SECRET @wranglerArgs
+  $resolvedApiKey | npx wrangler versions secret put MEXC_API_KEY @wranglerArgs
+  $resolvedApiSecret | npx wrangler versions secret put MEXC_API_SECRET @wranglerArgs
 } catch {
   $details = $_.Exception.Message
   if ($_.ErrorDetails -and -not [string]::IsNullOrWhiteSpace($_.ErrorDetails.Message)) {

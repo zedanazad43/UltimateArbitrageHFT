@@ -25,8 +25,8 @@ if ($SkipUpload) {
 }
 
 try {
-  $botToken | npx wrangler secret put TELEGRAM_BOT_TOKEN @wranglerArgs
-  $chatId | npx wrangler secret put TELEGRAM_CHAT_ID @wranglerArgs
+  $botToken | npx wrangler versions secret put TELEGRAM_BOT_TOKEN @wranglerArgs
+  $chatId | npx wrangler versions secret put TELEGRAM_CHAT_ID @wranglerArgs
 } catch {
   $details = $_.Exception.Message
   if ($_.ErrorDetails -and -not [string]::IsNullOrWhiteSpace($_.ErrorDetails.Message)) {

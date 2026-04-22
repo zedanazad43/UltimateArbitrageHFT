@@ -174,6 +174,12 @@ ALLOWED_CHAT_IDS = "old"
       & (Join-Path $script:scriptsRoot 'invoke-admin-action.ps1') -Action health -BaseUrl 'not-a-url' -NoPrompt | Out-Null
     } | Should -Throw 'BaseUrl must be a valid absolute http(s) URL.'
   }
+
+  It 'accepts the status action and validates invalid status base URLs' {
+    {
+      & (Join-Path $script:scriptsRoot 'invoke-admin-action.ps1') -Action status -BaseUrl 'not-a-url' -NoPrompt | Out-Null
+    } | Should -Throw 'BaseUrl must be a valid absolute http(s) URL.'
+  }
 }
 
 Describe 'strategy settings scripts' {

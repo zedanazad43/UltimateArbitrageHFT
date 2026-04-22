@@ -25,7 +25,7 @@ if ($SkipUpload) {
 $wranglerArgs = Get-WranglerArgs -ConfigPath $ConfigPath
 
 try {
-	$Token | npx wrangler secret put ADMIN_TOKEN @wranglerArgs
+	$Token | npx wrangler versions secret put ADMIN_TOKEN @wranglerArgs
 } catch {
 	$details = $_.Exception.Message
 	if ($_.ErrorDetails -and -not [string]::IsNullOrWhiteSpace($_.ErrorDetails.Message)) {

@@ -134,7 +134,7 @@ $failed = 0
 foreach ($j in $jobs) {
     try {
         Write-Host "  ↑ Uploading $($j.SecretName) ..."
-        $j.Value | npx wrangler secret put $j.SecretName @wranglerArgs
+        $j.Value | npx wrangler versions secret put $j.SecretName @wranglerArgs
         Write-Host "  ✅ $($j.SecretName) uploaded."
     }
     catch {
