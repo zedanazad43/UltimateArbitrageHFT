@@ -425,13 +425,44 @@ ${autoStopBanner}
     if(t) sessionStorage.setItem('adminToken', t);
     return t;
   })();
+  function setButtonsBusy(isBusy){
+    document.querySelectorAll('.btn').forEach((btn) => btn.disabled = isBusy);
+  }
+  async function callAdminApi(path, options = {}) {
+    const response = await fetch(path, {
+      ...options,
+      headers: {
+        ...(options.headers || {}),
+        'x-admin-token': TOKEN
+      }
+    });
+    const text = await response.text();
+    if (!response.ok) throw new Error(text || ('HTTP ' + response.status));
+    return text || '✅ تم التنفيذ';
+  }
   async function adminAction(a){
-    const r = await fetch('/'+a,{headers:{'x-admin-token':TOKEN}});
-    alert(await r.text()); location.reload();
+    setButtonsBusy(true);
+    try {
+      const message = await callAdminApi('/' + a);
+      alert(message);
+      location.reload();
+    } catch (e) {
+      alert('❌ فشل تنفيذ الأمر: ' + (e?.message || 'خطأ غير متوقع'));
+    } finally {
+      setButtonsBusy(false);
+    }
   }
   async function setMode(m){
-    const r = await fetch('/mode/'+m,{headers:{'x-admin-token':TOKEN}});
-    alert(await r.text()); location.reload();
+    setButtonsBusy(true);
+    try {
+      const message = await callAdminApi('/mode/' + m);
+      alert(message);
+      location.reload();
+    } catch (e) {
+      alert('❌ فشل تغيير الوضع: ' + (e?.message || 'خطأ غير متوقع'));
+    } finally {
+      setButtonsBusy(false);
+    }
   }
   async function saveConfig(){
     const body={
@@ -440,8 +471,24 @@ ${autoStopBanner}
       min_seconds_between_trades: parseFloat(document.getElementById('minSeconds').value),
       initial_capital: parseFloat(document.getElementById('initialCapital').value)
     };
-    await fetch('/config',{method:'POST',headers:{'Content-Type':'application/json','x-admin-token':TOKEN},body:JSON.stringify(body)});
-    alert('✅ تم حفظ الإعدادات'); location.reload();
+    if (Object.values(body).some(v => Number.isNaN(v) || v <= 0)) {
+      alert('❌ تأكد من صحة القيم قبل الحفظ');
+      return;
+    }
+    setButtonsBusy(true);
+    try {
+      const message = await callAdminApi('/config', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body)
+      });
+      alert(message.includes('updated') ? '✅ تم حفظ الإعدادات' : message);
+      location.reload();
+    } catch (e) {
+      alert('❌ فشل حفظ الإعدادات: ' + (e?.message || 'خطأ غير متوقع'));
+    } finally {
+      setButtonsBusy(false);
+    }
   }
   const ctx = document.getElementById('pnlChart').getContext('2d');
   new Chart(ctx,{type:'line',data:{
