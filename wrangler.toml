@@ -1,5 +1,5 @@
-name = "ultimate-arbitrage-hft"
-main = "index.js"
+name = "orchestrator-bot"
+main = "ArbitrageBots/ultimate-arbitrage-hft/index.js"
 compatibility_date = "2025-01-01"
 
 [[kv_namespaces]]
