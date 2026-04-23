@@ -1,5 +1,5 @@
 name = "ultimate-arbitrage-hft"
-main = "../ArbitrageBots/ultimate-arbitrage-hft/index.js"
+main = "src/worker.js"
 compatibility_date = "2025-01-01"
 compatibility_flags = ["nodejs_compat"]
 
