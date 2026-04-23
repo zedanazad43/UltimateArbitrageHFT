@@ -1,5 +1,5 @@
-name = "orchestrator-bot"
-main = "index.js"
+name = "ultimate-arbitrage-hft"
+main = "../ArbitrageBots/ultimate-arbitrage-hft/index.js"
 compatibility_date = "2025-01-01"
 
 [[kv_namespaces]]
@@ -14,13 +14,13 @@ database_id = "cd726538-9c41-456c-b172-15fcc3a63a0c"
 [ai]
 binding = "AI"
 
-[[services]]
-binding = "PERPS_EXECUTOR"
-service = "perps-executor"
+[[durable_objects.bindings]]
+name = "MARKET_STREAMER"
+class_name = "MarketStreamer"
 
-[[services]]
-binding = "DEX_EXECUTOR"
-service = "dex-executor"
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["MarketStreamer"]
 
 [observability]
 enabled = false
@@ -38,8 +38,7 @@ persist = true
 head_sampling_rate = 1
 
 [triggers]
-crons = ["*/5 * * * *"]
+crons = ["*/1 * * * *"]
 
 # Secrets required by this worker (set via `wrangler secret put <NAME>`):
 # - ALCHEMY_API_KEY  : Alchemy Token Prices API key
-
