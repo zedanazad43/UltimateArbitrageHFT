@@ -294,3 +294,11 @@ Recommended rollout:
 - Environment variables or `wrangler secret put` for production
 
 Both files are listed in `.gitignore` and will not be committed.
+
+## Cloudflare Durable Object config guardrails
+
+When editing any `wrangler.toml` in this repository:
+
+- In `[[durable_objects.bindings]]`, each `name` must be unique within that worker config.
+- Use one binding name per Durable Object class (do not duplicate the same binding block).
+- Keep migration tags unique and append new migration tags for schema/class changes instead of re-adding old tags.
