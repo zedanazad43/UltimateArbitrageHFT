@@ -39,7 +39,7 @@ export async function renderDashboard(env) {
 
   const autoStopBanner = state.auto_stopped
     ? `<div style="background:#e74c3c;color:#fff;padding:12px 20px;border-radius:8px;margin-bottom:18px;font-weight:bold">
-        🛑 تم الإيقاف التلقائي: ${state.auto_stop_reason || 'تجاوز الحد المسموح'}
+        🛑 تم الإيقاف التلقائي: ${state.auto_stop_reason || 'تجاوز الحد المسموح به'}
        </div>`
     : '';
 
