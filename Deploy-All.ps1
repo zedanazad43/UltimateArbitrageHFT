@@ -156,29 +156,29 @@ $scriptRoot    = $PSScriptRoot
 $isNonInteractive = $NoPrompt -or (Test-IsCI)
 
 if ([string]::IsNullOrWhiteSpace($WorkerDir)) {
-    $WorkerDir = Join-Path $scriptRoot 'UltimateArbitrageBot'
+    $WorkerDir = Join-Path $scriptRoot 'nexus'
 }
 
 if (-not (Test-Path $WorkerDir)) {
-    throw "UltimateArbitrageBot directory not found at: $WorkerDir`nClone the repo and run this script from the repo root."
+    throw "nexus directory not found at: $WorkerDir`nClone the repo and run this script from the repo root."
 }
 
-$scriptsDir   = Join-Path $WorkerDir 'scripts'
+$scriptsDir   = Join-Path $scriptRoot 'UltimateArbitrageBot' 'scripts'
 $wranglerToml = Join-Path $WorkerDir 'wrangler.toml'
 $devVarsPath  = Join-Path $WorkerDir '.dev.vars'
 $devVars      = Read-DevVars -Path $devVarsPath
-$workerUrl    = 'https://ultimate-arbitrage-hft.zedanazad43.workers.dev'
+$workerUrl    = 'https://nexus-hub.zedanazad43.workers.dev'
 
 # ── Banner ────────────────────────────────────────────────────────────────────
 
 Write-Host ""
 Write-Host "╔══════════════════════════════════════════════════════╗" -ForegroundColor Magenta
-Write-Host "║   ULTIMATE ARBITRAGE BOT — Full Activation Script   ║" -ForegroundColor Magenta
-Write-Host "║   Control Center + Telegram Bot + Live Trading       ║" -ForegroundColor Magenta
+Write-Host "║   NEXUS ARBITRAGE SYSTEM — Full Activation Script   ║" -ForegroundColor Magenta
+Write-Host "║   Unified Hub (CEX + DEX + Perps) + Telegram Bot    ║" -ForegroundColor Magenta
 Write-Host "╚══════════════════════════════════════════════════════╝" -ForegroundColor Magenta
 Write-Host ""
 Write-Host "  Worker directory : $WorkerDir" -ForegroundColor White
-Write-Host "  Worker URL       : $workerUrl"  -ForegroundColor White
+Write-Host "  Worker URL       : $workerUrl (nexus-hub)"  -ForegroundColor White
 Write-Host "  Mode             : $(if ($PaperMode) { 'PAPER (simulation)' } else { 'LIVE (real trades)' })" `
     -ForegroundColor $(if ($PaperMode) { 'Yellow' } else { 'Red' })
 Write-Host ""
@@ -427,17 +427,20 @@ Write-Host "╔═════════════════════�
 Write-Host "║           ✅  ACTIVATION COMPLETE                   ║" -ForegroundColor Green
 Write-Host "╚══════════════════════════════════════════════════════╝" -ForegroundColor Green
 Write-Host ""
-Write-Host "  🌐 Control Center Dashboard  : $workerUrl" -ForegroundColor White
-Write-Host "  📊 Status API               : $workerUrl/health" -ForegroundColor White
-Write-Host "  🤖 Telegram Bot              : configured" -ForegroundColor White
+Write-Host "  🌐 Nexus Hub Dashboard     : $workerUrl" -ForegroundColor White
+Write-Host "  📊 Status API              : $workerUrl/health" -ForegroundColor White
+Write-Host "  📊 CEX Status              : $workerUrl/strategy/cex/status" -ForegroundColor White
+Write-Host "  📊 DEX Status              : $workerUrl/strategy/dex/status" -ForegroundColor White
+Write-Host "  📊 Perps Status            : $workerUrl/strategy/perps/status" -ForegroundColor White
+Write-Host "  🤖 Telegram Bot            : configured" -ForegroundColor White
 $tokenPreview = $resolvedAdminToken.Substring(0, 8) + '…'
-Write-Host "  🔑 ADMIN_TOKEN (first 8)     : $tokenPreview" -ForegroundColor Yellow
+Write-Host "  🔑 ADMIN_TOKEN (first 8)   : $tokenPreview" -ForegroundColor Yellow
 Write-Host "     Store the full token somewhere safe (password manager / secret store)." -ForegroundColor DarkYellow
 Write-Host ""
 Write-Host "  Quick commands:" -ForegroundColor Cyan
-Write-Host "    Check status  : cd UltimateArbitrageBot && npm run bot:status" -ForegroundColor White
-Write-Host "    Stop trading  : cd UltimateArbitrageBot && npm run bot:stop" -ForegroundColor White
-Write-Host "    Force scan    : cd UltimateArbitrageBot && npm run bot:scan" -ForegroundColor White
-Write-Host "    Paper mode    : cd UltimateArbitrageBot && npm run bot:mode:paper" -ForegroundColor White
+Write-Host "    Check status  : Invoke-RestMethod '$workerUrl/health'" -ForegroundColor White
+Write-Host "    Stop trading  : Invoke-WebRequest '$workerUrl/stop' -Headers @{'x-admin-token'='<token>'}" -ForegroundColor White
+Write-Host "    Force scan    : Invoke-WebRequest '$workerUrl/scan' -Headers @{'x-admin-token'='<token>'}" -ForegroundColor White
+Write-Host "    Paper mode    : Invoke-WebRequest '$workerUrl/mode/paper' -Headers @{'x-admin-token'='<token>'}" -ForegroundColor White
 Write-Host ""
 Write-Host "  ⚠️  Keep your ADMIN_TOKEN safe — it controls all protected endpoints." -ForegroundColor Yellow
