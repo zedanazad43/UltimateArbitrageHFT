@@ -99,10 +99,10 @@ class TelegramNotifier:
 
     async def send_startup_message(self, control_center_url: str) -> bool:
         message = f"""
-🤖 <b>🚀 بوت المراجحة يعمل الآن!</b>
+🔷 <b>🚀 Nexus Arbitrage System يعمل الآن!</b>
 
 ✅ البوت بدأ العمل بنجاح
-📡 يراقب الفروق السعرية بين Binance و MEXC
+📡 يراقب الفروق السعرية عبر CEX + DEX + Perps
 ⚙️ عتبة الربح: 0.15%
 💰 حجم الصفقة: 100 USDT
 🌐 Control Center: {control_center_url}/dashboard
@@ -140,13 +140,21 @@ class UltimateControlCenterClient:
     async def status(self) -> Tuple[bool, str]:
         ok, text = await self.call("/status")
         if ok:
-            return True, f"📊 <b>Control Center Status</b>\n{text}"
+            return True, f"📊 <b>Nexus Hub Status</b>\n{text}"
         return ok, text
 
     async def dashboard(self) -> Tuple[bool, str]:
         if not self.base_url:
             return False, "❌ CONTROL_CENTER_BASE_URL غير مضبوط."
         return True, f"📈 Dashboard: {self.base_url}/dashboard"
+
+    async def strategy_status(self, strategy: str) -> Tuple[bool, str]:
+        """Fetch the last scan result for a specific strategy (cex/dex/perps)."""
+        ok, text = await self.call(f"/strategy/{strategy}/status")
+        if ok:
+            label = {"cex": "📊 CEX", "dex": "🌐 DEX", "perps": "⚡ Perps"}.get(strategy, strategy.upper())
+            return True, f"{label} <b>Strategy Status</b>\n{text}"
+        return ok, text
 
 
 class TelegramControlCenter:
@@ -158,14 +166,17 @@ class TelegramControlCenter:
 
     def _help_text(self) -> str:
         return (
-            "🤖 <b>Control Center Commands</b>\n"
-            "/status - عرض حالة البوت\n"
+            "🔷 <b>Nexus Arbitrage System — Commands</b>\n"
+            "/status - عرض حالة النظام\n"
             "/dashboard - رابط لوحة التحكم\n"
             "/start - تشغيل التداول\n"
             "/stop - إيقاف التداول\n"
-            "/scan - تشغيل مسح فوري\n"
+            "/scan - تشغيل مسح فوري (CEX + DEX + Perps)\n"
             "/live - تفعيل التداول الحقيقي\n"
             "/paper - تفعيل التداول الورقي\n"
+            "/cex-status - حالة استراتيجية CEX\n"
+            "/dex-status - حالة استراتيجية DEX\n"
+            "/perps-status - حالة استراتيجية Perps\n"
             "/help - عرض الأوامر"
         )
 
@@ -176,6 +187,12 @@ class TelegramControlCenter:
             return await self.control_client.dashboard()
         if command in ("/status",):
             return await self.control_client.status()
+        if command in ("/cex-status",):
+            return await self.control_client.strategy_status("cex")
+        if command in ("/dex-status",):
+            return await self.control_client.strategy_status("dex")
+        if command in ("/perps-status",):
+            return await self.control_client.strategy_status("perps")
         if not self.control_client.admin_token:
             return False, "❌ CONTROL_CENTER_ADMIN_TOKEN غير مضبوط."
 
@@ -257,7 +274,7 @@ class MegaArbitrageBot:
 
         self.control_center_url = os.environ.get(
             "CONTROL_CENTER_BASE_URL",
-            "https://ultimate-arbitrage-hft.zedanazad43.workers.dev"
+            "https://nexus-hub.zedanazad43.workers.dev"
         ).strip().rstrip("/")
         self.telegram = TelegramNotifier(bot_token=bot_token, primary_chat_id=primary_chat_id, notify_chat_ids=notify_chat_ids)
         self.control_client = UltimateControlCenterClient(

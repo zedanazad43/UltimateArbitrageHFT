@@ -1,5 +1,5 @@
 name = "nexus-hub"
-main = "nexus/index.js"
+main = "index.js"
 compatibility_date = "2025-04-18"
 compatibility_flags = ["nodejs_compat"]
 
