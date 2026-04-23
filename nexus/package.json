@@ -1,0 +1,10 @@
+{
+  "name": "nexus-hub",
+  "version": "1.0.0",
+  "type": "module",
+  "description": "Nexus Arbitrage System — Unified Control Hub",
+  "main": "index.js",
+  "dependencies": {
+    "ethers": "^6.16.0"
+  }
+}

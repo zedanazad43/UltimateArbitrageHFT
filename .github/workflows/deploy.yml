@@ -16,10 +16,14 @@ jobs:
         with:
           node-version: '24'
 
-      - name: Install dependencies
+      - name: Install root dependencies
         run: npm install
 
-      - name: Deploy with Wrangler
+      - name: Install nexus dependencies
+        run: npm install
+        working-directory: nexus
+
+      - name: Deploy Nexus Hub with Wrangler
         run: npx --yes wrangler@4 deploy
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
