@@ -17,14 +17,6 @@ class_name = "MarketStreamer"
 
 [[migrations]]
 tag = "v1"
-new_classes = ["MarketStreamer"]
-
-[[durable_objects.bindings]]
-name = "MARKET_STREAMER"
-class_name = "MarketStreamer"
-
-[[migrations]]
-tag = "v1"
 new_sqlite_classes = ["MarketStreamer"]
 
 [[tail_consumers]]
