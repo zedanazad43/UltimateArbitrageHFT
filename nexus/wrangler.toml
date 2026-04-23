@@ -1,15 +1,7 @@
-name = "ultimate-arbitrage-hft"
-main = "ArbitrageBots/ultimate-arbitrage-hft/index.js"
-compatibility_date = "2025-01-01"
+name = "nexus-hub"
+main = "index.js"
+compatibility_date = "2025-04-18"
 compatibility_flags = ["nodejs_compat"]
-
-[[durable_objects.bindings]]
-name = "MARKET_STREAMER"
-class_name = "MarketStreamer"
-
-[[migrations]]
-tag = "v1"
-new_classes = ["MarketStreamer"]
 
 [[kv_namespaces]]
 binding = "BOT_STATE"
@@ -26,10 +18,7 @@ class_name = "MarketStreamer"
 
 [[migrations]]
 tag = "v1"
-new_sqlite_classes = ["MarketStreamer"]
-
-[[tail_consumers]]
-service = "ultimate-arbitrage-tail"
+new_classes = ["MarketStreamer"]
 
 [observability]
 enabled = false
