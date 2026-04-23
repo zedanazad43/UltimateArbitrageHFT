@@ -1,4 +1,5 @@
 name = "ultimate-arbitrage-hft"
+# Intentionally target the canonical HFT worker source from this deployment folder.
 main = "../ArbitrageBots/ultimate-arbitrage-hft/index.js"
 compatibility_date = "2025-01-01"
 
@@ -38,7 +39,7 @@ persist = true
 head_sampling_rate = 1
 
 [triggers]
-crons = ["*/1 * * * *"]
+crons = ["*/5 * * * *"]
 
 # Secrets required by this worker (set via `wrangler secret put <NAME>`):
 # - ALCHEMY_API_KEY  : Alchemy Token Prices API key
