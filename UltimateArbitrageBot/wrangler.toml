@@ -23,6 +23,9 @@ class_name = "MarketStreamer"
 tag = "v1"
 new_sqlite_classes = ["MarketStreamer"]
 
+[[tail_consumers]]
+service = "ultimate-arbitrage-tail"
+
 [observability]
 enabled = false
 head_sampling_rate = 1

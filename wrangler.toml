@@ -1,4 +1,4 @@
-name = "dex-executor"
+name = "ultimate-arbitrage-hft"
 main = "ArbitrageBots/ultimate-arbitrage-hft/index.js"
 compatibility_date = "2025-01-01"
 
@@ -13,6 +13,17 @@ database_id = "cd726538-9c41-456c-b172-15fcc3a63a0c"
 
 [ai]
 binding = "AI"
+
+[[durable_objects.bindings]]
+name = "MARKET_STREAMER"
+class_name = "MarketStreamer"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["MarketStreamer"]
+
+[[tail_consumers]]
+service = "ultimate-arbitrage-tail"
 
 [observability]
 enabled = false
