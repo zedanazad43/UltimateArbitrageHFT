@@ -1,6 +1,7 @@
 // ===== NEXUS HUB – REAL TRADING ENGINE =====
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';
+import { renderDashboard, renderChecklist } from './src/dashboard.js';
 
 // ─── الثوابت ───
 const SUPPORTED_SYMBOLS = [
@@ -178,16 +179,28 @@ async function placeOrder(env, exchangeKey, symbol, side, quantity) {
 }
 
 // ─── Durable Objects ───
-export class MarketStreamer { /* كما السابق */ }
-export class TradeExecutor { /* كما السابق */ }
-export class TelegramSession { /* كما السابق */ }
+export class MarketStreamer {
+  constructor(state, env) { this.state = state; this.env = env; }
+  async fetch(request) { return new Response('MarketStreamer OK'); }
+}
+export class TradeExecutor {
+  constructor(state, env) { this.state = state; this.env = env; }
+  async fetch(request) { return new Response('TradeExecutor OK'); }
+}
+export class TelegramSession {
+  constructor(state, env) { this.state = state; this.env = env; }
+  async fetch(request) { return new Response('TelegramSession OK'); }
+}
 
 // ─── تطبيق Hono ───
 const app = new Hono();
 app.use('*', cors());
 
-// الصفحة الرئيسية (لوحة التحكم كما السابق)
-app.get('/', (c) => c.html(DASHBOARD_HTML));
+// الصفحة الرئيسية (لوحة التحكم)
+app.get('/', async (c) => await renderDashboard(c.env));
+
+// قائمة التحقق قبل التشغيل
+app.get('/checklist', async (c) => await renderChecklist(c.env));
 
 // نقطة نهاية الأسعار الحية
 app.get('/api/prices/live', async (c) => {
