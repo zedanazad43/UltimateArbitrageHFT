@@ -2,6 +2,7 @@
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';
 import { renderDashboard, renderChecklist } from './src/dashboard.js';
+import { runScan } from './src/orchestrator.js';
 
 // ─── الثوابت ───
 const SUPPORTED_SYMBOLS = [
@@ -305,25 +306,55 @@ app.get('/cron', async (c) => {
 });
 
 // ─── معالج Cron (Scheduled) ───
+async function sendTelegramAlert(env, message) {
+  const token = env.TELEGRAM_BOT_TOKEN;
+  if (!token) return;
+  try {
+    const state = await env.BOT_STATE.get('trading_state', 'json').catch(() => null);
+    const chatId = state?.telegram_chat_id;
+    if (!chatId) return;
+    await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ chat_id: chatId, text: message, parse_mode: 'Markdown' }),
+    });
+  } catch (err) {
+    console.error('Telegram alert failed:', err.message);
+  }
+}
+
 async function runCronJob(env) {
-  const autoTrade = await env.BOT_STATE.get('auto_trade');
-  if (autoTrade !== 'true') {
-    console.log('🔕 التداول التلقائي معطّل');
+  // Load trading state — default to paper_trading:true so KV failures never
+  // trigger real orders with real money.
+  const state = await env.BOT_STATE.get('trading_state', 'json').catch(() => null) || {
+    trading_enabled: false,
+    paper_trading: true,
+    daily_pnl: 0,
+    daily_trades: 0,
+    total_pnl: 0,
+    total_trades: 0,
+    initial_capital: 1000,
+  };
+
+  // Also honour the simple `auto_trade` toggle set via /api/trade/toggle
+  const autoTrade = await env.BOT_STATE.get('auto_trade').catch(() => null);
+  if (autoTrade === 'false') {
+    console.log('🔕 التداول التلقائي معطّل عبر auto_trade');
     return;
   }
 
-  const opps = await findArbitrageOpportunities(env);
-  console.log(`🔄 تم فحص ${SUPPORTED_SYMBOLS.length} زوج، وُجد ${opps.length} فرصة`);
-  if (opps.length > 0) {
-    const best = opps[0];
-    console.log(`🎯 تنفيذ صفقة: ${best.symbol} شراء ${best.buyExchange} → بيع ${best.sellExchange}`);
-    try {
-      await placeOrder(env, best.buyExchange, best.symbol, 'buy', 1);
-      await placeOrder(env, best.sellExchange, best.symbol, 'sell', 1);
-      console.log('✅ صفقة تلقائية نُفذت بنجاح');
-    } catch (err) {
-      console.error('❌ فشل تنفيذ الصفقة التلقائية:', err.message);
-    }
+  if (!state.trading_enabled) {
+    console.log('🔕 التداول التلقائي معطّل عبر trading_state');
+    return;
+  }
+
+  const result = await runScan(env, state, sendTelegramAlert);
+
+  // Persist updated state counters back to KV
+  await env.BOT_STATE.put('trading_state', JSON.stringify(state));
+
+  if (result) {
+    console.log(`✅ صفقة نُفذت: ${result.opportunity.symbol} $${result.sizeUsd.toFixed(2)}`);
   }
 }
 

@@ -16,7 +16,8 @@ export async function renderDashboard(env) {
   const [state, lastScan, trades, stratPnl] = await Promise.all([
     env.BOT_STATE.get('trading_state', 'json').then(s => s || {
       trading_enabled: true, paper_trading: false,
-      daily_pnl: 0, daily_trades: 0, total_pnl: 0, total_trades: 0
+      daily_pnl: 0, daily_trades: 0, total_pnl: 0, total_trades: 0,
+      initial_capital: 1000,
     }),
     env.BOT_STATE.get('nexus_last_scan', 'json').catch(() => null),
     getRecentTrades(env, 20),
