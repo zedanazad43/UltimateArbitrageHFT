@@ -284,26 +284,39 @@ app.post('/telegram/webhook', async (c) => {
   return c.json({ ok: true });
 });
 
-// مهمة cron (كل دقيقة) – التداول التلقائي
+// مهمة cron (كل دقيقة) – التداول التلقائي (HTTP trigger يدوي)
 app.get('/cron', async (c) => {
-  const autoTrade = await c.env.BOT_STATE.get('auto_trade');
-  if (autoTrade !== 'true') return c.json({ auto_trade: false });
-
+  await runCronJob(c.env);
   const opps = await findArbitrageOpportunities(c.env);
+  return c.json({ opportunities: opps.length });
+});
+
+// ─── معالج Cron (Scheduled) ───
+async function runCronJob(env) {
+  const autoTrade = await env.BOT_STATE.get('auto_trade');
+  if (autoTrade !== 'true') {
+    console.log('🔕 التداول التلقائي معطّل');
+    return;
+  }
+
+  const opps = await findArbitrageOpportunities(env);
   console.log(`🔄 تم فحص ${SUPPORTED_SYMBOLS.length} زوج، وُجد ${opps.length} فرصة`);
   if (opps.length > 0) {
     const best = opps[0];
     console.log(`🎯 تنفيذ صفقة: ${best.symbol} شراء ${best.buyExchange} → بيع ${best.sellExchange}`);
-    // تنفيذ الصفقة الحقيقية
     try {
-      await placeOrder(c.env, best.buyExchange, best.symbol, 'buy', 1); // كمية افتراضية 1 وحدة
-      await placeOrder(c.env, best.sellExchange, best.symbol, 'sell', 1);
-      console.log(`✅ صفقة تلقائية نُفذت بنجاح`);
+      await placeOrder(env, best.buyExchange, best.symbol, 'buy', 1);
+      await placeOrder(env, best.sellExchange, best.symbol, 'sell', 1);
+      console.log('✅ صفقة تلقائية نُفذت بنجاح');
     } catch (err) {
-      console.error(`❌ فشل تنفيذ الصفقة التلقائية:`, err.message);
+      console.error('❌ فشل تنفيذ الصفقة التلقائية:', err.message);
     }
   }
-  return c.json({ opportunities: opps.length, executed: autoTrade === 'true' });
-});
+}
 
-export default app;
+export default {
+  fetch: app.fetch.bind(app),
+  async scheduled(event, env, ctx) {
+    ctx.waitUntil(runCronJob(env));
+  },
+};
