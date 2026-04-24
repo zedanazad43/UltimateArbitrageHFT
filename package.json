@@ -1,0 +1,20 @@
+{
+  "name": "nexus-arbitrage-hub",
+  "version": "2.0.0",
+  "description": "Unified Arbitrage Hub - Real Trading Engine",
+  "main": "src/index.js",
+  "scripts": {
+    "deploy": "wrangler deploy",
+    "dev": "wrangler dev",
+    "tail": "wrangler tail",
+    "db:migrate": "wrangler d1 execute ultimate-arbitrage-db --file=./migrations/schema.sql",
+    "secret:all": "pwsh -Command \"Get-Content api_keys.txt | ForEach-Object { $line=$_.Trim(); if($line -and -not $line.StartsWith('#')) { $parts=$line -split '=',2; if($parts.Count -eq 2) { $parts[1].Trim() | npx wrangler secret put $parts[0].Trim() } } }\"",
+    "setup": "npm install && npm run secret:all && npm run db:migrate && npm run deploy"
+  },
+  "dependencies": {
+    "hono": "^4.0.0"
+  },
+  "devDependencies": {
+    "wrangler": "^4.0.0"
+  }
+}
