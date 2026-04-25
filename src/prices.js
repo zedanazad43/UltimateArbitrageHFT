@@ -2,8 +2,9 @@
 
 // ── Minimal BigInt unit helpers (replaces ethers.parseUnits / formatUnits) ────
 function parseUnits(value, decimals) {
-  const factor = 10 ** decimals;
-  return BigInt(Math.round(parseFloat(value) * factor)).toString();
+  // Use string-based multiplication to avoid floating-point precision loss
+  const [int, frac = ''] = parseFloat(value).toFixed(decimals).split('.');
+  return BigInt(int + frac.slice(0, decimals).padEnd(decimals, '0')).toString();
 }
 function formatUnits(value, decimals) {
   return Number(BigInt(value)) / (10 ** decimals);

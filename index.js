@@ -38,7 +38,10 @@ const DEFAULT_STATE = {
 };
 
 async function getState(env) {
-  return await env.BOT_STATE.get('trading_state', 'json').catch(() => null) || { ...DEFAULT_STATE };
+  return await env.BOT_STATE.get('trading_state', 'json').catch((err) => {
+    console.error('KV getState error:', err?.message);
+    return null;
+  }) || { ...DEFAULT_STATE };
 }
 
 async function saveState(env, state) {
@@ -189,7 +192,10 @@ app.get('/api/pnl', async (c) => {
 
 // ── Telegram webhook ──────────────────────────────────────────────────────────
 app.post('/telegram/webhook', async (c) => {
-  const body = await c.req.json().catch(() => ({}));
+  const body = await c.req.json().catch((err) => {
+    console.error('Telegram webhook JSON parse error:', err?.message);
+    return {};
+  });
   const msg = body.message || body.edited_message;
   if (!msg) return c.json({ ok: true });
 
@@ -334,7 +340,8 @@ async function runScheduledCycle(env) {
     return null;
   }
 
-  // Throttle between trades
+  // Throttle: enforce a minimum gap between consecutive trades to prevent
+  // over-trading and allow market prices to settle between executions.
   const minMs = (state.min_seconds_between_trades || 30) * 1000;
   if (state.last_trade_timestamp && now - state.last_trade_timestamp < minMs) {
     return null;
