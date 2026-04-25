@@ -11,11 +11,15 @@ const BRIDGE_COST_PCT   = 0.2;  // estimated bridge/gas cost deducted from profi
  * Returns an OpportunityObject or null when no actionable opportunity exists.
  */
 export async function scanDEX(env) {
-  if (!env.ALCHEMY_API_KEY) return null;
+  // Accept either a bare API key or a full Alchemy endpoint URL as the secret.
+  // ALCHEMY_ETHEREUM_ENDPOINT (full RPC URL) was the documented secret name in deploy.ps1,
+  // but the prices layer only needs the API key embedded in it.
+  const alchemyKey = env.ALCHEMY_API_KEY || env.ALCHEMY_ETHEREUM_ENDPOINT;
+  if (!alchemyKey) return null;
 
   try {
     const [ethPrice, bscPrice] = await Promise.all([
-      getAlchemyPrice('ETH', env.ALCHEMY_API_KEY),
+      getAlchemyPrice('ETH', alchemyKey),
       getPancakePrice(WETH_BSC_ADDRESS)
     ]);
 
