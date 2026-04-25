@@ -8,6 +8,105 @@ import { renderDashboard, renderChecklist } from './src/dashboard.js';
 import { runScan } from './src/orchestrator.js';
 import { logAdminEvent, logBotEvent, getRecentTrades, getStrategyPnL } from './src/db.js';
 
+// ─── Cloudflare Access JWT Validation ────────────────────────────────────────
+// Audience tag issued by Cloudflare Access for this worker.
+const CF_ACCESS_AUD = '856a4d449abb2632086df2a21bb69bff19286c6eb30d718eede3a0fdec8ab3b3';
+const CF_ACCESS_CERTS_URL = 'https://zedanazad43.cloudflareaccess.com/cdn-cgi/access/certs';
+
+// In-memory JWKS cache (refreshed on cold start).
+let cachedJwks = null;
+
+async function getJwks() {
+  if (cachedJwks) return cachedJwks;
+  const res = await fetch(CF_ACCESS_CERTS_URL);
+  if (!res.ok) throw new Error(`Failed to fetch Cloudflare Access JWKS: ${res.status}`);
+  cachedJwks = await res.json();
+  return cachedJwks;
+}
+
+function base64urlToBytes(str) {
+  const base64 = str.replace(/-/g, '+').replace(/_/g, '/');
+  const padded = base64.padEnd(base64.length + (4 - (base64.length % 4)) % 4, '=');
+  const binary = atob(padded);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+  return bytes;
+}
+
+async function importJwk(jwk) {
+  // Support RS256 (RSA) and ES256 (EC) — Cloudflare Access uses RS256 by default.
+  if (jwk.kty === 'RSA') {
+    return crypto.subtle.importKey(
+      'jwk', jwk,
+      { name: 'RSASSA-PKCS1-v1_5', hash: 'SHA-256' },
+      false, ['verify']
+    );
+  }
+  if (jwk.kty === 'EC') {
+    return crypto.subtle.importKey(
+      'jwk', jwk,
+      { name: 'ECDSA', namedCurve: jwk.crv || 'P-256' },
+      false, ['verify']
+    );
+  }
+  throw new Error(`Unsupported JWK key type: ${jwk.kty}`);
+}
+
+async function verifySignature(key, jwk, signingInput, signature) {
+  if (jwk.kty === 'RSA') {
+    return crypto.subtle.verify('RSASSA-PKCS1-v1_5', key, signature, signingInput);
+  }
+  return crypto.subtle.verify({ name: 'ECDSA', hash: 'SHA-256' }, key, signature, signingInput);
+}
+
+/**
+ * Validates a Cloudflare Access JWT.
+ * Returns true if the token is valid, false otherwise.
+ */
+async function verifyCloudflareJwt(token) {
+  const parts = token.split('.');
+  if (parts.length !== 3) return false;
+
+  const [headerB64, payloadB64, signatureB64] = parts;
+  let header, payload;
+  try {
+    header  = JSON.parse(new TextDecoder().decode(base64urlToBytes(headerB64)));
+    payload = JSON.parse(new TextDecoder().decode(base64urlToBytes(payloadB64)));
+  } catch {
+    return false;
+  }
+
+  // Verify audience.
+  const aud = Array.isArray(payload.aud) ? payload.aud : [payload.aud];
+  if (!aud.includes(CF_ACCESS_AUD)) return false;
+
+  // Verify expiry.
+  if (payload.exp && payload.exp < Math.floor(Date.now() / 1000)) return false;
+
+  // Fetch JWKS and find the matching key.
+  let jwks;
+  try { jwks = await getJwks(); } catch { return false; }
+
+  const jwk = jwks.keys?.find((k) => k.kid === header.kid);
+  if (!jwk) {
+    // kid not found — invalidate cache and retry once.
+    cachedJwks = null;
+    try { jwks = await getJwks(); } catch { return false; }
+    const retryJwk = jwks.keys?.find((k) => k.kid === header.kid);
+    if (!retryJwk) return false;
+    return verifyCloudflareJwt(token); // retry with fresh cache
+  }
+
+  try {
+    const key = await importJwk(jwk);
+    const signingInput = new TextEncoder().encode(`${headerB64}.${payloadB64}`);
+    const signature = base64urlToBytes(signatureB64);
+    return await verifySignature(key, jwk, signingInput, signature);
+  } catch {
+    return false;
+  }
+}
+
 // ─── Telegram notification helper ────────────────────────────────────────────
 async function sendTelegramAlert(env, message) {
   const token = env.TELEGRAM_BOT_TOKEN;
@@ -82,6 +181,29 @@ export class MarketStreamer {
 // ─── Hono App ─────────────────────────────────────────────────────────────────
 const app = new Hono();
 app.use('*', cors());
+
+// ── Cloudflare Access JWT middleware ──────────────────────────────────────────
+// All routes are protected except /telegram/webhook, which must remain open
+// to Telegram's servers (they cannot authenticate via Cloudflare Access).
+app.use('*', async (c, next) => {
+  if (c.req.path === '/telegram/webhook') return next();
+
+  // Extract JWT from the CF-Access-Jwt-Assertion header (set by CF Access edge)
+  // or from the CF_Authorization cookie (set when user authenticates via browser).
+  const token =
+    c.req.header('CF-Access-Jwt-Assertion') ||
+    c.req.raw.headers.get('cookie')?.match(/CF_Authorization=([^;]+)/)?.[1];
+
+  if (!token) return c.text('Unauthorized', 401);
+
+  const valid = await verifyCloudflareJwt(token).catch((err) => {
+    console.error('CF Access JWT verification error:', err?.message);
+    return false;
+  });
+  if (!valid) return c.text('Unauthorized', 401);
+
+  return next();
+});
 
 // ── Dashboard routes ──────────────────────────────────────────────────────────
 app.get('/', async (c) => renderDashboard(c.env));
@@ -192,6 +314,14 @@ app.get('/api/pnl', async (c) => {
 
 // ── Telegram webhook ──────────────────────────────────────────────────────────
 app.post('/telegram/webhook', async (c) => {
+  // Validate the optional webhook secret set via `wrangler secret put TELEGRAM_WEBHOOK_SECRET`
+  // and passed to Telegram during setWebhook as the `secret_token` parameter.
+  const expectedSecret = c.env.TELEGRAM_WEBHOOK_SECRET;
+  if (expectedSecret) {
+    const provided = c.req.header('X-Telegram-Bot-Api-Secret-Token');
+    if (provided !== expectedSecret) return c.json({ ok: false }, 401);
+  }
+
   const body = await c.req.json().catch((err) => {
     console.error('Telegram webhook JSON parse error:', err?.message);
     return {};
