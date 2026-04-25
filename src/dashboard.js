@@ -258,7 +258,7 @@ ${autoStopBanner}
   }
   async function setMode(m){
     setButtonsBusy(true);
-    try{ await callAdminApi('/mode/'+m); location.reload(); }
+    try{ await callAdminApi('/mode/'+m,{method:'POST'}); location.reload(); }
     catch(e){ alert('❌ '+e.message); }
     finally{ setButtonsBusy(false); }
   }

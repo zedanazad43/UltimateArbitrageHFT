@@ -1,4 +1,10 @@
 name: Deploy to Cloudflare Workers
+# CLOUDFLARE_API_TOKEN must be set as a repository secret.
+# The token needs: Workers Scripts:Edit + D1:Edit permissions.
+# IMPORTANT: The token must NOT have IP address restrictions, because
+# GitHub Actions runners use dynamic IPs that change with every run.
+# To fix "Cannot use the access token from location" (error 9109):
+#   Cloudflare dashboard → My Profile → API Tokens → Edit token → remove IP Filter.
 
 on:
   push:
