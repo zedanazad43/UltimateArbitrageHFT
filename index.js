@@ -14,14 +14,29 @@ const CF_ACCESS_AUD = '856a4d449abb2632086df2a21bb69bff19286c6eb30d718eede3a0fde
 const CF_ACCESS_CERTS_URL = 'https://zedanazad43.cloudflareaccess.com/cdn-cgi/access/certs';
 
 // In-memory JWKS cache (refreshed on cold start).
+// A promise lock ensures concurrent cold-start requests share a single fetch.
 let cachedJwks = null;
+let jwksFetchPromise = null;
 
 async function getJwks() {
   if (cachedJwks) return cachedJwks;
-  const res = await fetch(CF_ACCESS_CERTS_URL);
-  if (!res.ok) throw new Error(`Failed to fetch Cloudflare Access JWKS: ${res.status}`);
-  cachedJwks = await res.json();
-  return cachedJwks;
+  if (!jwksFetchPromise) {
+    jwksFetchPromise = fetch(CF_ACCESS_CERTS_URL)
+      .then((res) => {
+        if (!res.ok) throw new Error(`Failed to fetch Cloudflare Access JWKS: ${res.status}`);
+        return res.json();
+      })
+      .then((data) => {
+        cachedJwks = data;
+        jwksFetchPromise = null;
+        return data;
+      })
+      .catch((err) => {
+        jwksFetchPromise = null;
+        throw err;
+      });
+  }
+  return jwksFetchPromise;
 }
 
 function base64urlToBytes(str) {
@@ -89,12 +104,21 @@ async function verifyCloudflareJwt(token) {
 
   const jwk = jwks.keys?.find((k) => k.kid === header.kid);
   if (!jwk) {
-    // kid not found — invalidate cache and retry once.
+    // kid not found — invalidate cache and retry once with fresh JWKS.
     cachedJwks = null;
+    jwksFetchPromise = null;
     try { jwks = await getJwks(); } catch { return false; }
     const retryJwk = jwks.keys?.find((k) => k.kid === header.kid);
     if (!retryJwk) return false;
-    return verifyCloudflareJwt(token); // retry with fresh cache
+    // Verify signature directly with retryJwk (no recursion).
+    try {
+      const key = await importJwk(retryJwk);
+      const signingInput = new TextEncoder().encode(`${headerB64}.${payloadB64}`);
+      const signature = base64urlToBytes(signatureB64);
+      return await verifySignature(key, retryJwk, signingInput, signature);
+    } catch {
+      return false;
+    }
   }
 
   try {
@@ -196,10 +220,7 @@ app.use('*', async (c, next) => {
 
   if (!token) return c.text('Unauthorized', 401);
 
-  const valid = await verifyCloudflareJwt(token).catch((err) => {
-    console.error('CF Access JWT verification error:', err?.message);
-    return false;
-  });
+  const valid = await verifyCloudflareJwt(token);
   if (!valid) return c.text('Unauthorized', 401);
 
   return next();
