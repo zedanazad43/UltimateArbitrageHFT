@@ -1,6 +1,14 @@
 // nexus/src/prices.js — Unified price fetching layer
 
-import { ethers } from 'ethers';
+// ── Minimal BigInt unit helpers (replaces ethers.parseUnits / formatUnits) ────
+function parseUnits(value, decimals) {
+  // Use string-based multiplication to avoid floating-point precision loss
+  const [int, frac = ''] = parseFloat(value).toFixed(decimals).split('.');
+  return BigInt(int + frac.slice(0, decimals).padEnd(decimals, '0')).toString();
+}
+function formatUnits(value, decimals) {
+  return Number(BigInt(value)) / (10 ** decimals);
+}
 
 const FETCH_CF = { cf: { cacheTtl: 2, cacheEverything: true } };
 
@@ -102,7 +110,7 @@ export async function get0xPrice(env, symbol) {
   if (!token) return null;
 
   try {
-    const amount = ethers.parseUnits('1000', 6).toString();
+    const amount = parseUnits('1000', 6);
     const params = new URLSearchParams({
       chainId: '1',
       sellToken: token.sell,
@@ -116,7 +124,7 @@ export async function get0xPrice(env, symbol) {
     );
     const data = await resp.json();
     if (data.code) return null;
-    const buyAmount = parseFloat(ethers.formatUnits(data.buyAmount, token.decimals));
+    const buyAmount = formatUnits(data.buyAmount, token.decimals);
     return { price: 1000 / buyAmount, exchange: '0x', fee: 0.0 };
   } catch (_) { return null; }
 }

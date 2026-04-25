@@ -1,46 +1,32 @@
--- ???? ?????????
+-- Nexus Arbitrage Hub — canonical D1 schema (combined migrations 0001 + 0002)
+
 CREATE TABLE IF NOT EXISTS trades (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  symbol TEXT NOT NULL,
-  buy_exchange TEXT NOT NULL,
-  sell_exchange TEXT NOT NULL,
-  buy_price REAL NOT NULL,
-  sell_price REAL NOT NULL,
-  amount REAL NOT NULL,
-  spread_percent REAL NOT NULL,
-  net_profit REAL,
-  status TEXT DEFAULT 'pending',
-  created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  id                 INTEGER PRIMARY KEY AUTOINCREMENT,
+  strategy           TEXT    NOT NULL,
+  size_usd           REAL    NOT NULL,
+  net_profit_percent REAL    NOT NULL,
+  mode               TEXT    NOT NULL DEFAULT 'paper',
+  created_at         INTEGER NOT NULL
 );
 
--- ???? ???????
-CREATE TABLE IF NOT EXISTS profits (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  trade_id INTEGER,
-  amount REAL NOT NULL,
-  currency TEXT DEFAULT 'USDT',
-  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-  FOREIGN KEY (trade_id) REFERENCES trades(id)
+CREATE TABLE IF NOT EXISTS admin_events (
+  id         INTEGER PRIMARY KEY AUTOINCREMENT,
+  action     TEXT    NOT NULL,
+  source_ip  TEXT,
+  created_at INTEGER NOT NULL
 );
 
--- ???? ???????
-CREATE TABLE IF NOT EXISTS logs (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  level TEXT NOT NULL,
-  message TEXT NOT NULL,
-  metadata TEXT,
-  created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+CREATE TABLE IF NOT EXISTS bot_events (
+  id         INTEGER PRIMARY KEY AUTOINCREMENT,
+  event_type TEXT    NOT NULL,
+  details    TEXT,
+  created_at INTEGER NOT NULL
 );
 
--- ???? ??????? ????????
-CREATE TABLE IF NOT EXISTS settings (
-  key TEXT PRIMARY KEY,
-  value TEXT NOT NULL,
-  updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
-);
+CREATE INDEX IF NOT EXISTS idx_trades_created_at
+  ON trades(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_admin_events_created_at
+  ON admin_events(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_bot_events_created_at
+  ON bot_events(created_at DESC);
 
--- ??????? ????????
-INSERT OR IGNORE INTO settings (key, value) VALUES ('min_spread', '0.1');
-INSERT OR IGNORE INTO settings (key, value) VALUES ('max_trade_amount', '100');
-INSERT OR IGNORE INTO settings (key, value) VALUES ('auto_trade', 'false');
-INSERT OR IGNORE INTO settings (key, value) VALUES ('telegram_alerts', 'true');
