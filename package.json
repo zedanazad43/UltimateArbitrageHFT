@@ -2,7 +2,7 @@
   "name": "nexus-arbitrage-hub",
   "version": "2.0.0",
   "description": "Unified Arbitrage Hub - Real Trading Engine",
-  "main": "src/index.js",
+  "main": "index.js",
   "scripts": {
     "deploy": "wrangler deploy",
     "dev": "wrangler dev",
