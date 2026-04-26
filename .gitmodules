@@ -5,3 +5,7 @@
 [submodule "CloudflareArbitrageBot/arbitrage-bot"]
   path = CloudflareArbitrageBot/arbitrage-bot
   url = https://github.com/zedanazad43/CloudflareArbitrageBot.git
+
+[submodule "nexus"]
+  path = nexus
+  url = https://github.com/zedanazad43/nexus.git
