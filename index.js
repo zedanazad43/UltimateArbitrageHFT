@@ -15,11 +15,12 @@ async function sendTelegramAlert(env, message) {
   const chatId = env.TELEGRAM_CHAT_ID;
   if (!token || !chatId) return;
   try {
-    await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+    const resp = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ chat_id: chatId, text: message, parse_mode: 'Markdown' })
     });
+    await resp.body?.cancel();
   } catch (_) {}
 }
 
@@ -213,11 +214,14 @@ app.post('/telegram/webhook', async (c) => {
   const token = c.env.TELEGRAM_BOT_TOKEN;
   if (!token) return c.json({ ok: true });
 
-  const send = (txt) => fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ chat_id: chatId, text: txt, parse_mode: 'Markdown' })
-  });
+  const send = async (txt) => {
+    const resp = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ chat_id: chatId, text: txt, parse_mode: 'Markdown' })
+    });
+    await resp.body?.cancel();
+  };
 
   const cmd = text.trim().split(/\s+/)[0].toLowerCase();
   const state = await getState(c.env);
