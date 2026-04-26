@@ -1,3 +1,7 @@
 ﻿[submodule "ArbitrageBot"]
   path = ArbitrageBot
   url = https://github.com/zedanazad43/ArbitrageBot.git
+
+[submodule "CloudflareArbitrageBot/arbitrage-bot"]
+  path = CloudflareArbitrageBot/arbitrage-bot
+  url = https://github.com/zedanazad43/CloudflareArbitrageBot.git
