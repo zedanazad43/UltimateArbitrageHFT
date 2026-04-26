@@ -6,7 +6,7 @@ export async function logTrade(env, { strategy, sizeUsd, netPct, mode }) {
     await env.DB.prepare(
       `INSERT INTO trades (strategy, size_usd, net_profit_percent, mode, created_at) VALUES (?, ?, ?, ?, ?)`
     ).bind(strategy, sizeUsd, netPct, mode, Date.now()).run();
-  } catch (_) {}
+  } catch (e) { console.error('[DB] logTrade error:', e.message); }
 }
 
 export async function getRecentTrades(env, limit = 20) {
@@ -16,7 +16,7 @@ export async function getRecentTrades(env, limit = 20) {
       `SELECT * FROM trades ORDER BY created_at DESC LIMIT ?`
     ).bind(limit).all();
     return results || [];
-  } catch (_) { return []; }
+  } catch (e) { console.error('[DB] getRecentTrades error:', e.message); return []; }
 }
 
 export async function getStrategyPnL(env) {
@@ -37,7 +37,7 @@ export async function getStrategyPnL(env) {
       }
     }
     return out;
-  } catch (_) { return empty; }
+  } catch (e) { console.error('[DB] getStrategyPnL error:', e.message); return empty; }
 }
 
 export async function logAdminEvent(env, action, request) {
@@ -48,7 +48,7 @@ export async function logAdminEvent(env, action, request) {
     await env.DB.prepare(
       `INSERT INTO admin_events (action, source_ip, created_at) VALUES (?, ?, ?)`
     ).bind(action, ip, Date.now()).run();
-  } catch (_) {}
+  } catch (e) { console.error('[DB] logAdminEvent error:', e.message); }
 }
 
 export async function logBotEvent(env, eventType, details = null) {
@@ -57,5 +57,134 @@ export async function logBotEvent(env, eventType, details = null) {
     await env.DB.prepare(
       `INSERT INTO bot_events (event_type, details, created_at) VALUES (?, ?, ?)`
     ).bind(eventType, details ? JSON.stringify(details) : null, Date.now()).run();
-  } catch (_) {}
+  } catch (e) { console.error('[DB] logBotEvent error:', e.message); }
+}
+
+/**
+ * Returns aggregate performance metrics for the /api/report endpoint.
+ * Computes: total trades, win rate, average P&L, max drawdown,
+ * best/worst trade, total P&L, and an annualised Sharpe-ratio approximation.
+ */
+export async function getPerformanceMetrics(env, fromMs = 0, toMs = Date.now()) {
+  const empty = {
+    total_trades: 0, win_trades: 0, loss_trades: 0,
+    win_rate: 0, avg_pnl_usd: 0,
+    best_trade_usd: 0, worst_trade_usd: 0,
+    max_drawdown_usd: 0, total_pnl_usd: 0, sharpe: 0
+  };
+  if (!env.DB) return empty;
+  try {
+    const { results } = await env.DB.prepare(
+      `SELECT size_usd, net_profit_percent FROM trades
+       WHERE created_at >= ? AND created_at <= ? ORDER BY created_at ASC`
+    ).bind(fromMs, toMs).all();
+    const rows = results || [];
+    if (rows.length === 0) return empty;
+
+    const pnls   = rows.map(r => (r.size_usd * r.net_profit_percent) / 100);
+    const wins   = pnls.filter(p => p > 0).length;
+    const total  = pnls.length;
+    const totalPnl = pnls.reduce((s, p) => s + p, 0);
+    const avgPnl   = totalPnl / total;
+    const best     = Math.max(...pnls);
+    const worst    = Math.min(...pnls);
+
+    // Max drawdown: largest peak-to-trough drop in cumulative P&L
+    let peak = 0, cumPnl = 0, maxDrawdown = 0;
+    for (const p of pnls) {
+      cumPnl += p;
+      if (cumPnl > peak) peak = cumPnl;
+      const dd = peak - cumPnl;
+      if (dd > maxDrawdown) maxDrawdown = dd;
+    }
+
+    // Sharpe ratio approximation.
+    // Annualisation factor: sqrt(1440) assumes one trade per minute (cron runs every minute).
+    // In practice trades are less frequent, so the actual annualised Sharpe will be lower.
+    // This figure should be treated as an order-of-magnitude indicator only.
+    const variance = pnls.reduce((s, p) => s + (p - avgPnl) ** 2, 0) / total;
+    const stdDev   = Math.sqrt(variance);
+    const sharpe   = stdDev > 0 ? (avgPnl / stdDev) * Math.sqrt(1440) : 0;
+
+    return {
+      total_trades: total,
+      win_trades: wins,
+      loss_trades: total - wins,
+      win_rate: wins / total,
+      avg_pnl_usd: avgPnl,
+      best_trade_usd: best,
+      worst_trade_usd: worst,
+      max_drawdown_usd: maxDrawdown,
+      total_pnl_usd: totalPnl,
+      sharpe
+    };
+  } catch (e) {
+    console.error('[DB] getPerformanceMetrics error:', e.message);
+    return empty;
+  }
+}
+
+/**
+ * Returns all trades within the given date range (for CSV export).
+ */
+export async function exportTrades(env, fromMs = 0, toMs = Date.now()) {
+  if (!env.DB) return [];
+  try {
+    const { results } = await env.DB.prepare(
+      `SELECT * FROM trades WHERE created_at >= ? AND created_at <= ? ORDER BY created_at ASC`
+    ).bind(fromMs, toMs).all();
+    return results || [];
+  } catch (e) {
+    console.error('[DB] exportTrades error:', e.message);
+    return [];
+  }
+}
+
+// ── Paper position tracking ───────────────────────────────────────────────────
+
+/**
+ * Records a newly opened paper position.
+ */
+export async function openPaperPosition(env, opp, sizeUsd) {
+  if (!env.DB) return;
+  try {
+    await env.DB.prepare(
+      `INSERT INTO paper_positions
+         (strategy, symbol, direction, size_usd, entry_price, buy_exchange, sell_exchange, opened_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+    ).bind(
+      opp.strategy, opp.symbol, opp.direction,
+      sizeUsd, opp.buyPrice,
+      opp.buyExchange, opp.sellExchange,
+      Date.now()
+    ).run();
+  } catch (e) { console.error('[DB] openPaperPosition error:', e.message); }
+}
+
+/**
+ * Fetches all currently open (unresolved) paper positions.
+ */
+export async function getOpenPaperPositions(env) {
+  if (!env.DB) return [];
+  try {
+    const { results } = await env.DB.prepare(
+      `SELECT * FROM paper_positions WHERE closed_at IS NULL ORDER BY opened_at ASC`
+    ).all();
+    return results || [];
+  } catch (e) {
+    console.error('[DB] getOpenPaperPositions error:', e.message);
+    return [];
+  }
+}
+
+/**
+ * Closes a paper position, recording the exit price and realised P&L.
+ */
+export async function closePaperPosition(env, id, exitPrice, pnlUsd) {
+  if (!env.DB) return;
+  try {
+    await env.DB.prepare(
+      `UPDATE paper_positions SET closed_at = ?, exit_price = ?, pnl_usd = ? WHERE id = ?`
+    ).bind(Date.now(), exitPrice, pnlUsd, id).run();
+  } catch (e) { console.error('[DB] closePaperPosition error:', e.message); }
 }
