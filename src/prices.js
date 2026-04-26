@@ -34,7 +34,7 @@ export async function getMEXCSpotPrice(symbol) {
       `https://api.mexc.com/api/v3/ticker/price?symbol=${symbol}`,
       FETCH_CF
     );
-    if (!resp.ok) return null;
+    if (!resp.ok) { await resp.body?.cancel(); return null; }
     const data = await resp.json();
     const price = parseFloat(data.price);
     if (!price || isNaN(price)) return null;
@@ -48,7 +48,7 @@ export async function getBinancePrice(symbol) {
       `https://api.binance.com/api/v3/ticker/price?symbol=${symbol}`,
       FETCH_CF
     );
-    if (!resp.ok) return null;
+    if (!resp.ok) { await resp.body?.cancel(); return null; }
     const data = await resp.json();
     const price = parseFloat(data.price);
     if (!price || isNaN(price)) return null;
@@ -63,7 +63,7 @@ export async function getKuCoinPrice(symbol) {
       `https://api.kucoin.com/api/v1/market/orderbook/level1?symbol=${kuSymbol}`,
       FETCH_CF
     );
-    if (!resp.ok) return null;
+    if (!resp.ok) { await resp.body?.cancel(); return null; }
     const data = await resp.json();
     const price = parseFloat(data?.data?.price);
     if (!price || isNaN(price)) return null;
@@ -79,7 +79,7 @@ export async function getMEXCPerpPrice(symbol) {
     const resp = await fetch(
       `https://contract.mexc.com/api/v1/contract/ticker?symbol=${perpSymbol}`
     );
-    if (!resp.ok) return null;
+    if (!resp.ok) { await resp.body?.cancel(); return null; }
     const data = await resp.json();
     if (data.success && data.data?.lastPrice) {
       return { price: parseFloat(data.data.lastPrice), exchange: 'mexc_perp', fee: 0.0002 };
@@ -141,7 +141,7 @@ export async function getAlchemyPrice(symbol, apiKey) {
   const resp = await fetch(
     `https://api.g.alchemy.com/prices/v1/${key}/tokens/by-symbol?symbols[]=${symbol}`
   );
-  if (!resp.ok) throw new Error(`Alchemy HTTP ${resp.status}`);
+  if (!resp.ok) { await resp.body?.cancel(); throw new Error(`Alchemy HTTP ${resp.status}`); }
   const data = await resp.json();
   const price = data?.data?.[0]?.prices?.[0]?.value;
   if (!price) throw new Error('Alchemy price missing in response');
@@ -154,7 +154,7 @@ export async function getAlchemyPrice(symbol, apiKey) {
  */
 export async function getPancakePrice(tokenAddress) {
   const resp = await fetch(`https://api.pancakeswap.info/api/v2/tokens/${tokenAddress}`);
-  if (!resp.ok) throw new Error(`PancakeSwap HTTP ${resp.status}`);
+  if (!resp.ok) { await resp.body?.cancel(); throw new Error(`PancakeSwap HTTP ${resp.status}`); }
   const data = await resp.json();
   const price = data?.data?.price;
   if (price === undefined || price === null) throw new Error('PancakeSwap missing price');
