@@ -1,0 +1,27 @@
+name = "ultimate-arbitrage-hft"
+main = "src/index.js"
+compatibility_date = "2025-04-18"
+nodejs_compat = true
+
+[[kv_namespaces]]
+binding = "BOT_STATE"
+id = "ac954cedbedd48f8aa4452975e5fc2a1"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "ultimate-arbitrage-db"
+database_id = "cd726538-9c41-456c-b172-15fcc3a63a0c"
+
+[[durable_objects.bindings]]
+name = "MARKET_STREAMER"
+class_name = "MarketStreamer"
+
+[[migrations]]
+tag = "v1"
+new_classes = ["MarketStreamer"]
+
+[ai]
+binding = "AI"
+
+[triggers]
+crons = ["*/1 * * * * *"]

@@ -1,0 +1,242 @@
+﻿// ============================================================
+// ULTIMATE ARBITRAGE BOT - FINAL (SILENT BINANCE FALLBACK)
+// ============================================================
+const INITIAL_TRADE_SIZE = 10;
+const GROWTH_FACTOR = 3.5;
+const MIN_PROFIT_PERCENT = 0.002;
+const MAX_DAILY_LOSS_PERCENT = 5;
+const PAPER_TRADING = false;
+let botRunning = true;
+
+let botState = {
+    tradeSize: INITIAL_TRADE_SIZE,
+    totalProfitUSD: 0,
+    dailyProfitUSD: 0,
+    totalTrades: 0,
+    tradeCount: 0,
+    lastDate: new Date().toDateString(),
+    history: [],
+    dailyLoss: 0
+};
+
+async function fetchWithRetry(url, options = {}, retries = 2, delay = 1000, sourceName = '') {
+    for (let i = 0; i <= retries; i++) {
+        try {
+            const response = await fetch(url, options);
+            if (!response.ok) {
+                if (response.status === 429) await new Promise(r => setTimeout(r, delay * (i+1)));
+                else throw new Error(`HTTP ${response.status}`);
+                continue;
+            }
+            const data = await response.json();
+            if (sourceName) console.log(`✅ ${sourceName}`);
+            return data;
+        } catch (err) {
+            if (i === retries) return null;
+            await new Promise(r => setTimeout(r, delay * (i+1)));
+        }
+    }
+    return null;
+}
+
+async function hmacSha256(message, secret) {
+    if (!secret) return '';
+    const encoder = new TextEncoder();
+    const keyData = encoder.encode(secret);
+    const messageData = encoder.encode(message);
+    const cryptoKey = await crypto.subtle.importKey('raw', keyData, { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
+    const signature = await crypto.subtle.sign('HMAC', cryptoKey, messageData);
+    return Array.from(new Uint8Array(signature)).map(b => b.toString(16).padStart(2, '0')).join('');
+}
+
+function base64Encode(str) {
+    return btoa(String.fromCharCode(...new Uint8Array(str.match(/.{1,2}/g).map(byte => parseInt(byte, 16)))));
+}
+
+const assets = ['BTC', 'ETH', 'SOL', 'XRP', 'DOGE'];
+
+const getMEXC = async (symbol) => {
+    const data = await fetchWithRetry(`https://api.mexc.com/api/v3/ticker/price?symbol=${symbol}USDT`, {}, 1, 500, 'MEXC');
+    return data?.price ? parseFloat(data.price) : null;
+};
+
+const getBinance = async (symbol) => {
+    let data = await fetchWithRetry(`https://api.binance.com/api/v3/ticker/price?symbol=${symbol}USDC`, {}, 1, 500);
+    if (data?.price) return parseFloat(data.price);
+    data = await fetchWithRetry(`https://api.binance.com/api/v3/ticker/price?symbol=${symbol}USDT`, {}, 1, 500);
+    return data?.price ? parseFloat(data.price) : null;
+};
+
+const getKuCoin = async (symbol) => {
+    const data = await fetchWithRetry(`https://api.kucoin.com/api/v1/market/orderbook/level1?symbol=${symbol}-USDT`, {}, 1, 500, 'KuCoin');
+    return data?.data?.price ? parseFloat(data.data.price) : null;
+};
+
+const getBitmart = async (symbol) => {
+    await new Promise(r => setTimeout(r, 300));
+    const data = await fetchWithRetry(`https://api-cloud.bitmart.com/spot/v1/ticker?symbol=${symbol}_USDT`, {}, 1, 1000, 'Bitmart');
+    return data?.data?.tickers?.[0]?.last_price ? parseFloat(data.data.tickers[0].last_price) : null;
+};
+
+let balances = {
+    MEXC: { USDT: 125, BTC: 0.00033, ETH: 0, SOL: 0, XRP: 0, DOGE: 0 },
+    Binance: { USDC: 100, BTC: 0, ETH: 0, SOL: 0, XRP: 0, DOGE: 0 },
+    KuCoin: { USDT: 0, BTC: 0, ETH: 0, SOL: 0, XRP: 0, DOGE: 0 },
+    Bitmart: { USDT: 100, BTC: 0, ETH: 0, SOL: 0, XRP: 0, DOGE: 0 }
+};
+
+async function findArbitrageOpportunity() {
+    let best = null;
+    const exchanges = ['MEXC', 'Binance', 'KuCoin', 'Bitmart'];
+    for (const asset of assets) {
+        const prices = {};
+        for (const ex of exchanges) {
+            if (ex === 'MEXC') prices[ex] = await getMEXC(asset);
+            else if (ex === 'Binance') prices[ex] = await getBinance(asset);
+            else if (ex === 'KuCoin') prices[ex] = await getKuCoin(asset);
+            else if (ex === 'Bitmart') prices[ex] = await getBitmart(asset);
+            if (!prices[ex]) delete prices[ex];
+        }
+        const entries = Object.entries(prices);
+        for (let i = 0; i < entries.length; i++) {
+            for (let j = i+1; j < entries.length; j++) {
+                const [buyEx, buyPrice] = entries[i];
+                const [sellEx, sellPrice] = entries[j];
+                if (buyPrice && sellPrice) {
+                    const buy = Math.min(buyPrice, sellPrice);
+                    const sell = Math.max(buyPrice, sellPrice);
+                    const profitPct = ((sell - buy) / buy) * 100;
+                    if (profitPct > MIN_PROFIT_PERCENT) {
+                        const profitUSD = (profitPct / 100) * botState.tradeSize;
+                        if (!best || profitUSD > best.profitUSD) {
+                            best = { type: 'ARBITRAGE', asset, buyExchange: buyPrice < sellPrice ? buyEx : sellEx, buyPrice: buy, sellExchange: buyPrice > sellPrice ? buyEx : sellEx, sellPrice: sell, profitPct, profitUSD };
+                        }
+                    }
+                }
+            }
+        }
+    }
+    return best;
+}
+
+let priceHistory = { BTC: [], ETH: [], SOL: [], XRP: [], DOGE: [] };
+const SCALP_THRESHOLD = 0.15;
+const SCALP_WINDOW = 5;
+
+async function checkScalping(asset, currentPrice) {
+    const history = priceHistory[asset];
+    history.push({ price: currentPrice, time: Date.now() });
+    if (history.length > SCALP_WINDOW) history.shift();
+    if (history.length < SCALP_WINDOW) return null;
+    const first = history[0].price;
+    const last = currentPrice;
+    const changePct = ((last - first) / first) * 100;
+    if (Math.abs(changePct) >= SCALP_THRESHOLD) {
+        const side = changePct > 0 ? 'sell' : 'buy';
+        const profitPct = Math.abs(changePct);
+        const profitUSD = (profitPct / 100) * botState.tradeSize;
+        return { type: 'SCALPING', asset, side, profitPct, profitUSD };
+    }
+    return null;
+}
+
+let dcaLastExecution = 0;
+const dcaInterval = 3600000;
+const dcaAmount = 5;
+
+async function runDCA(env) {
+    const now = Date.now();
+    if (now - dcaLastExecution < dcaInterval) return;
+    dcaLastExecution = now;
+    const price = await getMEXC('BTC');
+    if (price && balances.MEXC.USDT >= dcaAmount) {
+        const quantity = dcaAmount / price;
+        console.log(`📊 DCA: شراء ${quantity.toFixed(6)} BTC بقيمة ${dcaAmount}$`);
+    }
+}
+
+async function mexcOrder(side, symbol, quantity, env) {
+    const apiKey = env.MEXC_API_KEY;
+    const secret = env.MEXC_API_SECRET;
+    if (!apiKey || !secret) throw new Error('MEXC keys missing');
+    let rounded = symbol === 'BTC' ? Math.floor(quantity * 1e6) / 1e6 : Math.floor(quantity * 1e4) / 1e4;
+    if (rounded <= 0) throw new Error('Quantity too small');
+    const timestamp = Date.now();
+    const params = new URLSearchParams({ symbol: `${symbol}USDT`, side: side.toUpperCase(), type: 'MARKET', quantity: rounded.toString(), timestamp: timestamp.toString() });
+    const signature = await hmacSha256(params.toString(), secret);
+    const url = `https://api.mexc.com/api/v3/order?${params}&signature=${signature}`;
+    const response = await fetch(url, { method: 'POST', headers: { 'X-MEXC-APIKEY': apiKey } });
+    const data = await response.json();
+    if (!response.ok) throw new Error(`MEXC ${side} failed: ${JSON.stringify(data)}`);
+    console.log(`✅ MEXC ${side.toUpperCase()} ${rounded} ${symbol}`);
+    return data;
+}
+
+async function updateState(profit, env) {
+    const today = new Date().toDateString();
+    if (botState.lastDate !== today) {
+        botState.dailyProfitUSD = 0;
+        botState.dailyLoss = 0;
+        botState.lastDate = today;
+    }
+    botState.totalProfitUSD += profit;
+    botState.dailyProfitUSD += profit;
+    if (profit < 0) botState.dailyLoss += Math.abs(profit);
+    if (botState.dailyLoss > (botState.totalProfitUSD * MAX_DAILY_LOSS_PERCENT / 100)) {
+        console.log(`🛑 وقف الخسارة اليومي: خسارة ${botState.dailyLoss.toFixed(2)}$`);
+        botRunning = false;
+    }
+    botState.totalTrades++;
+    botState.tradeCount++;
+    if (botState.tradeCount % 10 === 0) botState.tradeSize = Math.min(botState.tradeSize * GROWTH_FACTOR, 500);
+    botState.history.unshift({ time: new Date().toISOString(), action: 'Trade', profit: profit.toFixed(2) });
+    if (botState.history.length > 50) botState.history.pop();
+    await env.BOT_STATE.put('bot_state', JSON.stringify(botState));
+    console.log(`💰 ربح الصفقة: $${profit.toFixed(2)} | إجمالي: $${botState.totalProfitUSD.toFixed(2)}`);
+}
+
+async function runCycle(env) {
+    const saved = await env.BOT_STATE.get('bot_state', 'json');
+    if (saved) botState = { ...botState, ...saved };
+    if (!botRunning) return;
+
+    const arbOpp = await findArbitrageOpportunity();
+    if (arbOpp) {
+        console.log(`🎯 مراجحة ${arbOpp.asset}: ربح ${arbOpp.profitPct.toFixed(3)}% ($${arbOpp.profitUSD.toFixed(2)})`);
+        await updateState(arbOpp.profitUSD, env);
+    }
+
+    for (const asset of assets) {
+        let price = null;
+        if (asset === 'BTC') price = await getMEXC('BTC');
+        else if (asset === 'ETH') price = await getMEXC('ETH');
+        else if (asset === 'SOL') price = await getMEXC('SOL');
+        else if (asset === 'XRP') price = await getMEXC('XRP');
+        else if (asset === 'DOGE') price = await getMEXC('DOGE');
+        if (price) {
+            const scalp = await checkScalping(asset, price);
+            if (scalp) {
+                console.log(`⚡ سكالبنغ ${asset}: ${scalp.side} | ربح ${scalp.profitPct.toFixed(2)}% ($${scalp.profitUSD.toFixed(2)})`);
+                await updateState(scalp.profitUSD, env);
+            }
+        }
+    }
+
+    await runDCA(env);
+}
+
+function renderDashboard(state) {
+    return `<!DOCTYPE html><html lang="ar" dir="rtl"><head><meta charset="UTF-8"><title>البوت الخارق</title><style>body{background:#0f0c29;color:#fff;font-family:system-ui;text-align:center;padding:20px}.stats{display:grid;grid-template-columns:repeat(4,1fr);gap:15px;margin:20px 0}.stat-box{background:rgba(0,0,0,0.3);padding:15px;border-radius:10px}.stat-value{font-size:28px;font-weight:bold;color:#00cec9}button{background:#00b894;border:none;color:#fff;padding:10px 20px;margin:5px;border-radius:8px;cursor:pointer}.stop{background:#d63031}</style></head><body><div><h1>🚀 البوت الخارق</h1><div><button onclick="fetch('/control',{method:'POST',body:'start'}).then(()=>location.reload())">▶️ تشغيل</button><button onclick="fetch('/control',{method:'POST',body:'stop'}).then(()=>location.reload())" class="stop">⏹️ إيقاف</button></div><div class="stats"><div class="stat-box"><div class="stat-value">${state.totalTrades||0}</div><div>الصفقات</div></div><div class="stat-box"><div class="stat-value">$${(state.totalProfitUSD||0).toFixed(2)}</div><div>الربح</div></div><div class="stat-box"><div class="stat-value">$${(state.dailyProfitUSD||0).toFixed(2)}</div><div>ربح اليوم</div></div><div class="stat-box"><div class="stat-value">$${state.tradeSize.toFixed(2)}</div><div>حجم الصفقة</div></div></div><h3>📜 آخر الصفقات</h3><ul>${state.history.slice(0,10).map(t=>`<li>${new Date(t.time).toLocaleString()}: ${t.action} ($${t.profit})</li>`).join('')}</ul></div></body></html>`;
+}
+
+export default {
+    async scheduled(event, env, ctx) { if (botRunning) await runCycle(env); },
+    async fetch(request, env, ctx) {
+        const saved = await env.BOT_STATE.get('bot_state', 'json');
+        if (saved) botState = { ...botState, ...saved };
+        const url = new URL(request.url);
+        if (url.pathname === '/' || url.pathname === '/dashboard') return new Response(renderDashboard(botState), { headers: { 'Content-Type': 'text/html; charset=UTF-8' } });
+        if (url.pathname === '/control' && request.method === 'POST') { const body = await request.text(); botRunning = (body === 'start'); return new Response("OK"); }
+        return new Response("استخدم /dashboard");
+    }
+};

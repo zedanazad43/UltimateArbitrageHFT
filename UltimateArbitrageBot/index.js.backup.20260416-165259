@@ -1,0 +1,341 @@
+// ============================================================
+// ULTIMATE ARBITRAGE BOT - AUTO CLOSE POSITIONS & LOWER THRESHOLD
+// ============================================================
+const INITIAL_TRADE_SIZE = 10;
+const GROWTH_FACTOR = 3.5;
+const MIN_PROFIT_PERCENT = 0.002;
+const SCALP_THRESHOLD = 0.15;
+const MAX_DAILY_LOSS_PERCENT = 5;
+const PAPER_TRADING = false;
+let botRunning = true;
+
+let botState = {
+    tradeSize: INITIAL_TRADE_SIZE,
+    totalProfitUSD: 0,
+    dailyProfitUSD: 0,
+    totalTrades: 0,
+    tradeCount: 0,
+    lastDate: new Date().toDateString(),
+    history: [],
+    dailyLoss: 0,
+    positions: {}     // { "BTC": { quantity, entryPrice, timestamp } }
+};
+
+// ========== دوال مساعدة ==========
+async function fetchWithRetry(url, options = {}, retries = 2, delay = 1000, sourceName = '') {
+    for (let i = 0; i <= retries; i++) {
+        try {
+            const response = await fetch(url, options);
+            if (!response.ok) {
+                if (response.status === 429) await new Promise(r => setTimeout(r, delay * (i+1)));
+                else throw new Error(`HTTP ${response.status}`);
+                continue;
+            }
+            const data = await response.json();
+            if (sourceName && i === 0) console.log(`✅ ${sourceName}`);
+            return data;
+        } catch (err) {
+            if (i === retries) return null;
+            await new Promise(r => setTimeout(r, delay * (i+1)));
+        }
+    }
+    return null;
+}
+
+async function hmacSha256(message, secret) {
+    if (!secret) return '';
+    const encoder = new TextEncoder();
+    const keyData = encoder.encode(secret);
+    const messageData = encoder.encode(message);
+    const cryptoKey = await crypto.subtle.importKey('raw', keyData, { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
+    const signature = await crypto.subtle.sign('HMAC', cryptoKey, messageData);
+    return Array.from(new Uint8Array(signature)).map(b => b.toString(16).padStart(2, '0')).join('');
+}
+
+function roundQuantity(symbol, quantity) {
+    if (symbol === 'BTC') return Math.floor(quantity * 1e6) / 1e6;
+    if (symbol === 'ETH') return Math.floor(quantity * 1e4) / 1e4;
+    if (symbol === 'SOL') return Math.floor(quantity * 1e2) / 1e2;
+    if (symbol === 'XRP') return Math.floor(quantity * 1e1) / 1e1;
+    if (symbol === 'DOGE') return Math.floor(quantity * 1e1) / 1e1;
+    return quantity;
+}
+
+// ========== جلب الأسعار ==========
+const assets = ['BTC', 'ETH', 'SOL', 'XRP', 'DOGE'];
+
+const getMEXC = async (symbol) => {
+    const data = await fetchWithRetry(`https://api.mexc.com/api/v3/ticker/price?symbol=${symbol}USDT`, {}, 1, 500, 'MEXC');
+    return data?.price ? parseFloat(data.price) : null;
+};
+const getBinance = async (symbol) => {
+    let data = await fetchWithRetry(`https://api.binance.com/api/v3/ticker/price?symbol=${symbol}USDC`, {}, 1, 500);
+    if (data?.price) return parseFloat(data.price);
+    data = await fetchWithRetry(`https://api.binance.com/api/v3/ticker/price?symbol=${symbol}USDT`, {}, 1, 500);
+    return data?.price ? parseFloat(data.price) : null;
+};
+const getKuCoin = async (symbol) => {
+    const data = await fetchWithRetry(`https://api.kucoin.com/api/v1/market/orderbook/level1?symbol=${symbol}-USDT`, {}, 1, 500, 'KuCoin');
+    return data?.data?.price ? parseFloat(data.data.price) : null;
+};
+const getBitmart = async (symbol) => {
+    await new Promise(r => setTimeout(r, 300));
+    const data = await fetchWithRetry(`https://api-cloud.bitmart.com/spot/v1/ticker?symbol=${symbol}_USDT`, {}, 1, 1000, 'Bitmart');
+    return data?.data?.tickers?.[0]?.last_price ? parseFloat(data.data.tickers[0].last_price) : null;
+};
+const getHyperliquid = async (symbol) => {
+    const data = await fetchWithRetry('https://api.hyperliquid.xyz/info', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ type: "l2Book", coin: symbol })
+    }, 1, 500, 'Hyperliquid');
+    return data?.levels?.[0]?.[0]?.px ? parseFloat(data.levels[0][0].px) : null;
+};
+const getCoinGecko = async (coinId, env) => {
+    const apiKey = env.COINGECKO_API_KEY;
+    if (!apiKey) return null;
+    const data = await fetchWithRetry(`https://api.coingecko.com/api/v3/simple/price?ids=${coinId}&vs_currencies=usd&x_cg_demo_api_key=${apiKey}`, {}, 1, 500, 'CoinGecko');
+    return data?.[coinId]?.usd || null;
+};
+
+async function getConsensusPrice(asset, env) {
+    let prices = [];
+    let p;
+    p = await getMEXC(asset); if (p) prices.push(p);
+    p = await getBinance(asset); if (p) prices.push(p);
+    p = await getKuCoin(asset); if (p) prices.push(p);
+    p = await getBitmart(asset); if (p) prices.push(p);
+    p = await getHyperliquid(asset); if (p) prices.push(p);
+    let coinId = (asset === 'BTC' ? 'bitcoin' : (asset === 'ETH' ? 'ethereum' : asset.toLowerCase()));
+    p = await getCoinGecko(coinId, env); if (p) prices.push(p);
+    if (prices.length === 0) return null;
+    const mean = prices.reduce((a,b) => a+b, 0) / prices.length;
+    const min = Math.min(...prices);
+    const max = Math.max(...prices);
+    return { mean, min, max };
+}
+
+async function getSignal(asset, env, currentMEXC) {
+    const consensus = await getConsensusPrice(asset, env);
+    if (!consensus) return null;
+    const diffPercent = ((consensus.mean - currentMEXC) / currentMEXC) * 100;
+    // خفض العتبة إلى 0.005% للشراء والبيع
+    if (diffPercent > 0.005) return { type: 'BUY', reason: `MEXC is ${diffPercent.toFixed(3)}% below consensus`, profitPct: diffPercent };
+    if (diffPercent < -0.005) return { type: 'SELL', reason: `MEXC is ${Math.abs(diffPercent).toFixed(3)}% above consensus`, profitPct: Math.abs(diffPercent) };
+    return null;
+}
+
+// سكالبنغ
+let priceHistory = { BTC: [], ETH: [], SOL: [], XRP: [], DOGE: [] };
+async function checkScalpingSignal(asset, env) {
+    let fastPrice = null, source = '';
+    let binancePrice = await getBinance(asset);
+    if (binancePrice) { fastPrice = binancePrice; source = 'Binance'; }
+    else {
+        let hyperPrice = await getHyperliquid(asset);
+        if (hyperPrice) { fastPrice = hyperPrice; source = 'Hyperliquid'; }
+    }
+    if (!fastPrice) return null;
+    let mexcPrice = await getMEXC(asset);
+    if (!mexcPrice) return null;
+    const history = priceHistory[asset];
+    history.push({ price: fastPrice, time: Date.now(), mexcPrice });
+    if (history.length > 5) history.shift();
+    if (history.length < 3) return null;
+    const first = history[0].price;
+    const last = fastPrice;
+    const changePct = ((last - first) / first) * 100;
+    if (Math.abs(changePct) >= SCALP_THRESHOLD) {
+        const side = changePct > 0 ? 'BUY' : 'SELL';
+        const profitPct = Math.abs(changePct);
+        const mexcChange = ((history[history.length-1].mexcPrice - history[0].mexcPrice) / history[0].mexcPrice) * 100;
+        if (Math.abs(mexcChange) < Math.abs(changePct) * 0.7) {
+            return { type: 'SCALP', side, profitPct, reason: `${source} moved ${changePct.toFixed(2)}% while MEXC moved only ${mexcChange.toFixed(2)}%` };
+        }
+    }
+    return null;
+}
+
+async function mexcOrder(side, symbol, quantity, env) {
+    const apiKey = env.MEXC_API_KEY;
+    const secret = env.MEXC_API_SECRET;
+    if (!apiKey || !secret) throw new Error('MEXC keys missing');
+    let rounded = roundQuantity(symbol, quantity);
+    if (rounded <= 0) throw new Error('Quantity too small');
+    const timestamp = Date.now();
+    const params = new URLSearchParams({
+        symbol: `${symbol}USDT`,
+        side: side.toUpperCase(),
+        type: 'MARKET',
+        quantity: rounded.toString(),
+        timestamp: timestamp.toString()
+    });
+    const signature = await hmacSha256(params.toString(), secret);
+    const url = `https://api.mexc.com/api/v3/order?${params}&signature=${signature}`;
+    const response = await fetch(url, { method: 'POST', headers: { 'X-MEXC-APIKEY': apiKey } });
+    const data = await response.json();
+    if (!response.ok) throw new Error(`MEXC ${side} failed: ${JSON.stringify(data)}`);
+    console.log(`✅ MEXC ${side.toUpperCase()} ${rounded} ${symbol}`);
+    return data;
+}
+
+// ========== إدارة المراكز مع إغلاق إجباري بعد 60 ثانية ==========
+async function openPosition(asset, price, quantity, env) {
+    botState.positions[asset] = { quantity, entryPrice: price, timestamp: Date.now() };
+    await env.BOT_STATE.put('bot_state', JSON.stringify(botState));
+    console.log(`📈 Opened LONG position on ${asset} at ${price} with ${quantity}`);
+}
+
+async function closePosition(asset, exitPrice, env) {
+    const pos = botState.positions[asset];
+    if (!pos) {
+        console.log(`⚠️ No open position for ${asset} to close`);
+        return null;
+    }
+    const profit = (exitPrice - pos.entryPrice) * pos.quantity;
+    delete botState.positions[asset];
+    await env.BOT_STATE.put('bot_state', JSON.stringify(botState));
+    console.log(`📉 Closed LONG position on ${asset} at ${exitPrice}, profit: $${profit.toFixed(2)}`);
+    return profit;
+}
+
+async function forceCloseOldPositions(env) {
+    const now = Date.now();
+    for (const [asset, pos] of Object.entries(botState.positions)) {
+        if (now - pos.timestamp > 60000) { // 60 ثانية
+            const currentPrice = await getMEXC(asset);
+            if (currentPrice) {
+                console.log(`⏰ Force closing position on ${asset} (held >60s) at ${currentPrice}`);
+                await mexcOrder('sell', asset, pos.quantity, env);
+                const profit = await closePosition(asset, currentPrice, env);
+                if (profit !== null) {
+                    await updateState(profit, asset, 'FORCE_CLOSE', env);
+                }
+            }
+        }
+    }
+}
+
+async function updateState(profit, asset, strategy, env) {
+    const today = new Date().toDateString();
+    if (botState.lastDate !== today) {
+        botState.dailyProfitUSD = 0;
+        botState.dailyLoss = 0;
+        botState.lastDate = today;
+    }
+    botState.totalProfitUSD += profit;
+    botState.dailyProfitUSD += profit;
+    if (profit < 0) botState.dailyLoss += Math.abs(profit);
+    if (botState.dailyLoss > (botState.totalProfitUSD * MAX_DAILY_LOSS_PERCENT / 100)) {
+        console.log(`🛑 Daily stop loss reached: ${botState.dailyLoss.toFixed(2)}$`);
+        botRunning = false;
+    }
+    botState.totalTrades++;
+    botState.tradeCount++;
+    if (botState.tradeCount % 10 === 0) botState.tradeSize = Math.min(botState.tradeSize * GROWTH_FACTOR, 500);
+    botState.history.unshift({ time: new Date().toISOString(), action: `${strategy} ${asset}`, profit: profit.toFixed(2) });
+    if (botState.history.length > 50) botState.history.pop();
+    await env.BOT_STATE.put('bot_state', JSON.stringify(botState));
+    console.log(`💰 Profit: $${profit.toFixed(2)} | Total: $${botState.totalProfitUSD.toFixed(2)}`);
+}
+
+async function executeSignal(signal, asset, env) {
+    const currentPrice = await getMEXC(asset);
+    if (!currentPrice) return;
+    const tradeSize = botState.tradeSize;
+    const quantity = tradeSize / currentPrice;
+    const roundedQty = roundQuantity(asset, quantity);
+    if (roundedQty <= 0) return;
+
+    if (signal.type === 'BUY') {
+        if (!botState.positions[asset]) {
+            await mexcOrder('buy', asset, roundedQty, env);
+            await openPosition(asset, currentPrice, roundedQty, env);
+        } else {
+            console.log(`⚠️ Already have position on ${asset}, skipping BUY`);
+        }
+    } else if (signal.type === 'SELL') {
+        if (botState.positions[asset]) {
+            const pos = botState.positions[asset];
+            await mexcOrder('sell', asset, pos.quantity, env);
+            const profit = await closePosition(asset, currentPrice, env);
+            if (profit !== null) {
+                await updateState(profit, asset, 'SIGNAL', env);
+            }
+        } else {
+            console.log(`⚠️ No position to sell for ${asset}, ignoring SELL signal`);
+        }
+    } else if (signal.type === 'SCALP') {
+        if (signal.side === 'BUY') {
+            await mexcOrder('buy', asset, roundedQty, env);
+            setTimeout(async () => {
+                const newPrice = await getMEXC(asset);
+                if (newPrice && newPrice > currentPrice) {
+                    await mexcOrder('sell', asset, roundedQty, env);
+                    const profit = (newPrice - currentPrice) * roundedQty;
+                    await updateState(profit, asset, 'SCALP', env);
+                } else {
+                    console.log(`⚠️ Scalping no profit, closing at ${newPrice}`);
+                    await mexcOrder('sell', asset, roundedQty, env);
+                }
+            }, 2000);
+        } else if (signal.side === 'SELL') {
+            await mexcOrder('sell', asset, roundedQty, env);
+            setTimeout(async () => {
+                const newPrice = await getMEXC(asset);
+                if (newPrice && newPrice < currentPrice) {
+                    await mexcOrder('buy', asset, roundedQty, env);
+                    const profit = (currentPrice - newPrice) * roundedQty;
+                    await updateState(profit, asset, 'SCALP', env);
+                } else {
+                    console.log(`⚠️ Scalping no profit, buying back at ${newPrice}`);
+                    await mexcOrder('buy', asset, roundedQty, env);
+                }
+            }, 2000);
+        }
+    }
+}
+
+// ========== الدورة الرئيسية ==========
+async function runCycle(env) {
+    const saved = await env.BOT_STATE.get('bot_state', 'json');
+    if (saved) botState = { ...botState, ...saved };
+    if (!botRunning) return;
+
+    // إغلاق المراكز القديمة تلقائياً
+    await forceCloseOldPositions(env);
+
+    for (const asset of assets) {
+        const currentPrice = await getMEXC(asset);
+        if (!currentPrice) continue;
+
+        const signal = await getSignal(asset, env, currentPrice);
+        if (signal) {
+            console.log(`🎯 Signal for ${asset}: ${signal.reason} | Expected profit: ${signal.profitPct.toFixed(3)}%`);
+            await executeSignal(signal, asset, env);
+            continue;
+        }
+        const scalp = await checkScalpingSignal(asset, env);
+        if (scalp) {
+            console.log(`⚡ Scalping ${asset}: ${scalp.reason} | Expected profit: ${scalp.profitPct.toFixed(2)}%`);
+            await executeSignal(scalp, asset, env);
+        }
+    }
+}
+
+// ========== لوحة التحكم ==========
+function renderDashboard(state) {
+    return `<!DOCTYPE html><html lang="ar" dir="rtl"><head><meta charset="UTF-8"><title>البوت الخارق - إغلاق تلقائي</title><style>body{background:#0f0c29;color:#fff;font-family:system-ui;text-align:center;padding:20px}.stats{display:grid;grid-template-columns:repeat(4,1fr);gap:15px;margin:20px 0}.stat-box{background:rgba(0,0,0,0.3);padding:15px;border-radius:10px}.stat-value{font-size:28px;font-weight:bold;color:#00cec9}button{background:#00b894;border:none;color:#fff;padding:10px 20px;margin:5px;border-radius:8px;cursor:pointer}.stop{background:#d63031}</style></head><body><div><h1>🚀 البوت الخارق (إغلاق تلقائي)</h1><div><button onclick="fetch('/control',{method:'POST',body:'start'}).then(()=>location.reload())">▶️ تشغيل</button><button onclick="fetch('/control',{method:'POST',body:'stop'}).then(()=>location.reload())" class="stop">⏹️ إيقاف</button></div><div class="stats"><div class="stat-box"><div class="stat-value">${state.totalTrades||0}</div><div>الصفقات</div></div><div class="stat-box"><div class="stat-value">$${(state.totalProfitUSD||0).toFixed(2)}</div><div>الربح</div></div><div class="stat-box"><div class="stat-value">$${(state.dailyProfitUSD||0).toFixed(2)}</div><div>ربح اليوم</div></div><div class="stat-box"><div class="stat-value">$${state.tradeSize.toFixed(2)}</div><div>حجم الصفقة</div></div></div><h3>📜 آخر الصفقات</h3><ul>${state.history.slice(0,10).map(t=>`<li>${new Date(t.time).toLocaleString()}: ${t.action} ($${t.profit})</li>`).join('')}</ul></div></body></html>`;
+}
+
+export default {
+    async scheduled(event, env, ctx) { if (botRunning) await runCycle(env); },
+    async fetch(request, env, ctx) {
+        const saved = await env.BOT_STATE.get('bot_state', 'json');
+        if (saved) botState = { ...botState, ...saved };
+        const url = new URL(request.url);
+        if (url.pathname === '/' || url.pathname === '/dashboard') return new Response(renderDashboard(botState), { headers: { 'Content-Type': 'text/html; charset=UTF-8' } });
+        if (url.pathname === '/control' && request.method === 'POST') { const body = await request.text(); botRunning = (body === 'start'); return new Response("OK"); }
+        return new Response("استخدم /dashboard");
+    }
+};
