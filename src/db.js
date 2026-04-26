@@ -98,7 +98,10 @@ export async function getPerformanceMetrics(env, fromMs = 0, toMs = Date.now()) 
       if (dd > maxDrawdown) maxDrawdown = dd;
     }
 
-    // Sharpe ratio approximation — annualised assuming one trade per cron minute
+    // Sharpe ratio approximation.
+    // Annualisation factor: sqrt(1440) assumes one trade per minute (cron runs every minute).
+    // In practice trades are less frequent, so the actual annualised Sharpe will be lower.
+    // This figure should be treated as an order-of-magnitude indicator only.
     const variance = pnls.reduce((s, p) => s + (p - avgPnl) ** 2, 0) / total;
     const stdDev   = Math.sqrt(variance);
     const sharpe   = stdDev > 0 ? (avgPnl / stdDev) * Math.sqrt(1440) : 0;

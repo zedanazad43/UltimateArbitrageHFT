@@ -1,7 +1,7 @@
 // nexus/src/dashboard.js — Unified Nexus Hub Dashboard
 
-import { getRecentTrades, getStrategyPnL } from './db.js';
-import { calculateAdaptiveLeverage }        from './risk.js';
+import { getRecentTrades, getStrategyPnL, getPerformanceMetrics } from './db.js';
+import { calculateAdaptiveLeverage }                               from './risk.js';
 
 const DEFAULT_RISK = {
   MAX_DAILY_LOSS_USD:          25,
@@ -13,14 +13,15 @@ const DEFAULT_RISK = {
 // ── Main dashboard ────────────────────────────────────────────────────────────
 
 export async function renderDashboard(env) {
-  const [state, lastScan, trades, stratPnl] = await Promise.all([
+  const [state, lastScan, trades, stratPnl, metrics] = await Promise.all([
     env.BOT_STATE.get('trading_state', 'json').then(s => s || {
       trading_enabled: true, paper_trading: false,
       daily_pnl: 0, daily_trades: 0, total_pnl: 0, total_trades: 0
     }),
     env.BOT_STATE.get('nexus_last_scan', 'json').catch(() => null),
     getRecentTrades(env, 20),
-    getStrategyPnL(env)
+    getStrategyPnL(env),
+    getPerformanceMetrics(env)
   ]);
 
   const initialCapital  = state.initial_capital ?? 1000;
@@ -50,6 +51,13 @@ export async function renderDashboard(env) {
   const cexTrades   = stratPnl.cex?.trades   ?? 0;
   const dexTrades   = stratPnl.dex?.trades   ?? 0;
   const perpsTrades = stratPnl.perps?.trades ?? 0;
+
+  // Performance metrics
+  const winRatePct     = ((metrics.win_rate   || 0) * 100).toFixed(1);
+  const maxDrawdown    = (metrics.max_drawdown_usd || 0).toFixed(2);
+  const bestTrade      = (metrics.best_trade_usd  || 0).toFixed(2);
+  const worstTrade     = (metrics.worst_trade_usd || 0).toFixed(2);
+  const sharpe         = (metrics.sharpe           || 0).toFixed(2);
 
   // Opportunity card HTML helper
   function oppCard(opp) {
@@ -225,6 +233,38 @@ ${autoStopBanner}
   <div class="card"><div class="card-label">DEX — P&amp;L</div><div class="card-value" style="color:#9b59b6">$${dexPnl.toFixed(2)}</div></div>
   <div class="card"><div class="card-label">Perps — P&amp;L</div><div class="card-value" style="color:#e67e22">$${perpsPnl.toFixed(2)}</div></div>
   <div class="card"><div class="card-label">إجمالي الصفقات</div><div class="card-value">${state.total_trades||0}</div></div>
+</div>
+
+<h2>📈 مقاييس الأداء</h2>
+<div class="grid">
+  <div class="card">
+    <div class="card-label">نسبة الربح (Win Rate)</div>
+    <div class="card-value" style="color:${parseFloat(winRatePct)>=50?'#2ecc71':'#e74c3c'}">${winRatePct}%</div>
+    <div style="font-size:.78em;color:#888;margin-top:4px">${metrics.win_trades||0} ربح / ${metrics.loss_trades||0} خسارة</div>
+  </div>
+  <div class="card">
+    <div class="card-label">أقصى تراجع (Max Drawdown)</div>
+    <div class="card-value" style="color:#e74c3c">$${maxDrawdown}</div>
+  </div>
+  <div class="card">
+    <div class="card-label">أفضل صفقة</div>
+    <div class="card-value" style="color:#2ecc71">$${bestTrade}</div>
+  </div>
+  <div class="card">
+    <div class="card-label">أسوأ صفقة</div>
+    <div class="card-value" style="color:#e74c3c">$${worstTrade}</div>
+  </div>
+  <div class="card">
+    <div class="card-label">Sharpe Ratio (تقريبي)</div>
+    <div class="card-value" style="color:${parseFloat(sharpe)>=1?'#2ecc71':parseFloat(sharpe)>=0?'#f0b90b':'#e74c3c'}">${sharpe}</div>
+  </div>
+  <div class="card">
+    <div class="card-label">تصدير البيانات</div>
+    <div style="margin-top:8px">
+      <a href="/api/export" style="color:#f0b90b;font-size:.85em;text-decoration:none">⬇️ تحميل CSV (الكل)</a><br>
+      <a href="/api/report" style="color:#3498db;font-size:.85em;text-decoration:none;margin-top:4px;display:block">📊 تقرير JSON</a>
+    </div>
+  </div>
 </div>
 
 <div class="panel"><canvas id="pnlChart"></canvas></div>

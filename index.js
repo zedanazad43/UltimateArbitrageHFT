@@ -6,7 +6,7 @@ import { Hono } from 'hono';
 import { cors } from 'hono/cors';
 import { renderDashboard, renderChecklist } from './src/dashboard.js';
 import { runScan } from './src/orchestrator.js';
-import { logAdminEvent, logBotEvent, getRecentTrades, getStrategyPnL } from './src/db.js';
+import { logAdminEvent, logBotEvent, getRecentTrades, getStrategyPnL, getPerformanceMetrics, exportTrades } from './src/db.js';
 
 
 // ─── Telegram notification helper ────────────────────────────────────────────
@@ -195,6 +195,44 @@ app.get('/api/pnl', async (c) => {
   return c.json({ success: true, data: pnl });
 });
 
+// ── API: Performance report ───────────────────────────────────────────────────
+app.get('/api/report', async (c) => {
+  const from   = c.req.query('from');
+  const to     = c.req.query('to');
+  const fromMs = from ? new Date(from).getTime() : 0;
+  const toMs   = to   ? new Date(to).getTime()   : Date.now();
+  if (isNaN(fromMs) || isNaN(toMs)) return c.json({ error: 'Invalid date parameters' }, 400);
+  const metrics = await getPerformanceMetrics(c.env, fromMs, toMs);
+  return c.json({ success: true, data: metrics });
+});
+
+// ── API: CSV export ───────────────────────────────────────────────────────────
+app.get('/api/export', async (c) => {
+  const from   = c.req.query('from');
+  const to     = c.req.query('to');
+  const fromMs = from ? new Date(from).getTime() : 0;
+  const toMs   = to   ? new Date(to).getTime()   : Date.now();
+  if (isNaN(fromMs) || isNaN(toMs)) return c.text('Invalid date parameters', 400);
+  const trades = await exportTrades(c.env, fromMs, toMs);
+  const headers = ['id', 'strategy', 'size_usd', 'net_profit_percent', 'mode', 'created_at'];
+  const rows = trades.map(t =>
+    headers.map(h => {
+      const v = t[h] ?? '';
+      // Quote fields that contain commas or quotes
+      const s = String(v);
+      return s.includes(',') || s.includes('"') ? `"${s.replace(/"/g, '""')}"` : s;
+    }).join(',')
+  );
+  const csv = [headers.join(','), ...rows].join('\r\n');
+  const dateStr = new Date().toISOString().slice(0, 10); // YYYY-MM-DD
+  return new Response(csv, {
+    headers: {
+      'Content-Type': 'text/csv; charset=utf-8',
+      'Content-Disposition': `attachment; filename="trades-${dateStr}.csv"`
+    }
+  });
+});
+
 // ── Telegram webhook ──────────────────────────────────────────────────────────
 app.post('/telegram/webhook', async (c) => {
   // Validate the optional webhook secret set via `wrangler secret put TELEGRAM_WEBHOOK_SECRET`
@@ -330,6 +368,9 @@ async function runScheduledCycle(env) {
   // Daily reset (every 24 h)
   const now = Date.now();
   if (now - (state.last_daily_reset || 0) > 86_400_000) {
+    // Send daily summary before resetting counters
+    await sendDailyReport(env, state);
+
     state.daily_pnl = 0;
     state.daily_trades = 0;
     state.last_daily_reset = now;
@@ -366,6 +407,34 @@ async function runScheduledCycle(env) {
   const result = await runScan(env, state, sendTelegramAlert);
   await saveState(env, state);
   return result;
+}
+
+// ─── Daily summary Telegram report ───────────────────────────────────────────
+async function sendDailyReport(env, state) {
+  try {
+    const metrics = await getPerformanceMetrics(
+      env,
+      (state.last_daily_reset || 0),
+      Date.now()
+    );
+    const equity = (state.initial_capital || 1000) + (state.total_pnl || 0);
+    const msg =
+      `📊 *التقرير اليومي — Nexus Hub*\n\n` +
+      `💰 رأس المال الحالي: $${equity.toFixed(2)}\n` +
+      `📈 ربح اليوم: $${(state.daily_pnl || 0).toFixed(2)}\n` +
+      `🎯 صفقات اليوم: ${state.daily_trades || 0}\n` +
+      `──────────────────\n` +
+      `✅ صفقات رابحة: ${metrics.win_trades}\n` +
+      `❌ صفقات خاسرة: ${metrics.loss_trades}\n` +
+      `📊 نسبة الربح: ${(metrics.win_rate * 100).toFixed(1)}%\n` +
+      `🏆 أفضل صفقة: $${metrics.best_trade_usd.toFixed(2)}\n` +
+      `📉 أسوأ صفقة: $${metrics.worst_trade_usd.toFixed(2)}\n` +
+      `📉 أقصى تراجع: $${metrics.max_drawdown_usd.toFixed(2)}\n` +
+      `📈 إجمالي الأرباح الكلية: $${(state.total_pnl || 0).toFixed(2)}`;
+    await sendTelegramAlert(env, msg);
+  } catch (e) {
+    console.error('[daily_report] error:', e.message);
+  }
 }
 
 // ─── Exports ──────────────────────────────────────────────────────────────────

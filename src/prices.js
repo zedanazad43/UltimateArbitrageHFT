@@ -177,7 +177,8 @@ export async function getAlchemyPrice(symbol, apiKey) {
   const resp = await fetchWithRetry(
     `https://api.g.alchemy.com/prices/v1/${key}/tokens/by-symbol?symbols[]=${symbol}`
   );
-  if (!resp || !resp.ok) { await resp?.body?.cancel(); throw new Error(`Alchemy HTTP ${resp?.status}`); }
+  if (!resp) throw new Error('Alchemy fetch failed after retries');
+  if (!resp.ok) { await resp.body?.cancel(); throw new Error(`Alchemy HTTP ${resp.status}`); }
   const data = await resp.json();
   const price = data?.data?.[0]?.prices?.[0]?.value;
   if (!price) throw new Error('Alchemy price missing in response');

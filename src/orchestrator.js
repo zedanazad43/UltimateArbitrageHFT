@@ -79,9 +79,15 @@ async function settleOpenPaperPositions(env, currentPrices) {
   for (const pos of positions) {
     const current = currentPrices[pos.symbol];
     if (!current) continue;
-    // P&L = spread captured: exit at sell price, entry at buy price, minus fees (0.15% round-trip)
-    const feePct  = 0.15 / 100;
-    const pnlUsd  = pos.size_usd * ((current - pos.entry_price) / pos.entry_price - feePct);
+    // Round-trip fee estimate: 0.15% covers typical taker fees on both legs
+    const feePct = 0.15 / 100;
+    // Direction: if the perp is on the sell side (basis trade SHORT), profit when
+    // price falls; otherwise it's a LONG leg and profit when price rises.
+    const isShortPerp = (pos.sell_exchange || '').includes('perp');
+    const priceDelta = isShortPerp
+      ? (pos.entry_price - current) / pos.entry_price  // SHORT: entry higher → profit
+      : (current - pos.entry_price) / pos.entry_price; // LONG : exit higher  → profit
+    const pnlUsd = pos.size_usd * (priceDelta - feePct);
     await closePaperPosition(env, pos.id, current, pnlUsd);
     console.log(
       `[Paper] Closed ${pos.symbol} pos #${pos.id}` +
@@ -108,15 +114,9 @@ export async function runScan(env, state, sendAlert) {
   const allOpportunities = [];
   const lastScan = { timestamp: Date.now(), cex: null, dex: null, perps: null };
 
-  // Load circuit-breaker state from KV once per cycle
+  // Load circuit-breaker state from KV once per cycle and build the open-circuit set
   const cb = await getCircuitBreaker(env);
-  const openCircuits = new Set(
-    Object.entries(cb)
-      .filter(([, ex]) => isCircuitOpen(cb, ex) || (ex.open && isCircuitOpen(cb, Object.keys(cb).find(k => cb[k] === ex))))
-      .map(([name]) => name)
-  );
-  // Build openCircuits set properly
-  openCircuits.clear();
+  const openCircuits = new Set();
   for (const [exchange] of Object.entries(cb)) {
     if (isCircuitOpen(cb, exchange)) openCircuits.add(exchange);
   }
