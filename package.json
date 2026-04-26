@@ -9,6 +9,9 @@
     "dev": "wrangler dev",
     "tail": "wrangler tail",
     "test": "node --test tests/unit.test.js",
+    "test:integration": "node --test tests/exchange.integration.test.js",
+    "test:all": "node --test tests/unit.test.js tests/exchange.integration.test.js",
+    "check:connection": "node scripts/check-connection.js",
     "db:migrate": "wrangler d1 execute ultimate-arbitrage-db --file=./migrations/schema.sql",
     "secret:all": "pwsh -Command \"Get-Content api_keys.txt | ForEach-Object { $line=$_.Trim(); if($line -and -not $line.StartsWith('#')) { $parts=$line -split '=',2; if($parts.Count -eq 2) { $parts[1].Trim() | npx wrangler secret put $parts[0].Trim() } } }\"",
     "setup": "npm install && npm run secret:all && npm run db:migrate && npm run deploy"
