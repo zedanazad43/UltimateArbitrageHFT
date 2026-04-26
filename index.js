@@ -51,9 +51,12 @@ async function saveState(env, state) {
 }
 
 // ─── Admin auth ───────────────────────────────────────────────────────────────
+// ADMIN_TOKEN must be set as a Cloudflare Worker secret (`wrangler secret put ADMIN_TOKEN`).
+// If it is absent the endpoint is denied — this prevents accidental exposure of admin
+// controls on a freshly-deployed worker that has not yet had secrets configured.
 function isAuthorized(env, c) {
   const token = env.ADMIN_TOKEN;
-  if (!token) return true;
+  if (!token) return false;
   return c.req.header('x-admin-token') === token;
 }
 
