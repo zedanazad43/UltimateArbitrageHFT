@@ -9,7 +9,7 @@ import { scanCEX }   from './strategies/cex.js';
 import { scanDEX }   from './strategies/dex.js';
 import { scanPerps } from './strategies/perps.js';
 import { logTrade, openPaperPosition, getOpenPaperPositions, closePaperPosition } from './db.js';
-import { calculateAdaptiveLeverage, calculatePositionSize } from './risk.js';
+import { calculateAdaptiveLeverage, calculatePositionSize, MAX_POSITION_EQUITY_FRACTION } from './risk.js';
 import { placeMarketOrderMEXC, placeMEXCFuturesOrder, hasSufficientUSDT } from './exchange.js';
 
 const SUPPORTED_SYMBOLS = [
@@ -223,8 +223,8 @@ export async function runScan(env, state, sendAlert) {
     state.win_rate          || 0.55,
     state.risk_reward_ratio || 2.0
   );
-  // Hard cap: 20% of equity, respecting risk.js MAX_POSITION_EQUITY_FRACTION
-  const sizeUsd       = Math.min(baseSize * leverage, equity * 0.20);
+  // Hard cap: MAX_POSITION_EQUITY_FRACTION of equity, consistent with risk.js
+  const sizeUsd       = Math.min(baseSize * leverage, equity * MAX_POSITION_EQUITY_FRACTION);
   const mode          = paperMode ? 'paper' : 'live';
   const strategyLabel = `${best.strategy}:${best.direction}`;
   const levStr        = leverage > 1 ? ` | ${leverage}x` : '';

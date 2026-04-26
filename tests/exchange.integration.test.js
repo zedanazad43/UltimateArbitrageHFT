@@ -49,8 +49,11 @@ function makeJsonResponse(body, ok = true) {
   };
 }
 
-// ── Import module under test after globalThis.fetch is in place ───────────────
-// We import lazily inside each test so mock is active on first call.
+// ── Import module under test ───────────────────────────────────────────────────
+// The top-level await import must happen AFTER the global fetch mock is
+// in place.  However, Node.js ESM caches the module on first import, so
+// subsequent installMockFetch() calls in individual tests simply replace
+// globalThis.fetch — the module re-uses the (now mocked) global on every call.
 const { getMEXCBalance, hasSufficientUSDT, placeMarketOrderMEXC, placeMEXCFuturesOrder } =
   await import('../src/exchange.js');
 

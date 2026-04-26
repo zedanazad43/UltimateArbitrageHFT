@@ -41,13 +41,13 @@ async function checkEnvVars() {
   console.log(`\n${BOLD}1. Environment variables${RESET}`);
   let ok = true;
   if (apiKey) {
-    pass(`MEXC_API_KEY is set (${apiKey.slice(0, 4)}${'*'.repeat(Math.max(0, apiKey.length - 4))})`);
+    pass('MEXC_API_KEY is set');
   } else {
     fail('MEXC_API_KEY is NOT set');
     ok = false;
   }
   if (apiSecret) {
-    pass(`MEXC_API_SECRET is set (${'*'.repeat(apiSecret.length)})`);
+    pass('MEXC_API_SECRET is set');
   } else {
     fail('MEXC_API_SECRET is NOT set');
     ok = false;
