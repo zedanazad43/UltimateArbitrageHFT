@@ -25,3 +25,6 @@
 [submodule "UnifiedArbitrageBot"]
   path = UnifiedArbitrageBot
   url = https://github.com/zedanazad43/UnifiedArbitrageBot.git
+[submodule "nexus"]
+  path = nexus
+  url = https://github.com/zedanazad43/nexus.git
