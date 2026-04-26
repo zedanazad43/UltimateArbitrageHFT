@@ -12,6 +12,41 @@ function formatUnits(value, decimals) {
 
 const FETCH_CF = { cf: { cacheTtl: 2, cacheEverything: true } };
 
+// ── Retry / rate-limit helper ─────────────────────────────────────────────────
+
+/**
+ * Fetches a URL with automatic retry on transient errors and 429 rate-limit responses.
+ *
+ * @param {string}  url
+ * @param {object}  options  — standard fetch options
+ * @param {number}  maxRetries  — number of extra attempts after the first (default 2)
+ * @returns {Response|null}  resolved Response, or null when all retries are exhausted
+ */
+async function fetchWithRetry(url, options = {}, maxRetries = 2) {
+  let lastErr;
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    try {
+      const resp = await fetch(url, options);
+      if (resp.status === 429) {
+        await resp.body?.cancel();
+        if (attempt < maxRetries) {
+          // Exponential back-off: 1 s, 2 s, …
+          await new Promise(r => setTimeout(r, 1000 * (attempt + 1)));
+          continue;
+        }
+        return null;
+      }
+      return resp;
+    } catch (e) {
+      lastErr = e;
+      if (attempt < maxRetries) {
+        await new Promise(r => setTimeout(r, 500));
+      }
+    }
+  }
+  throw lastErr || new Error('fetchWithRetry: all attempts failed');
+}
+
 // ── MarketStreamer Durable Object (WebSocket cache) ───────────────────────────
 
 export async function getMarketStreamerPrice(env, symbol) {
@@ -30,11 +65,11 @@ export async function getMarketStreamerPrice(env, symbol) {
 
 export async function getMEXCSpotPrice(symbol) {
   try {
-    const resp = await fetch(
+    const resp = await fetchWithRetry(
       `https://api.mexc.com/api/v3/ticker/price?symbol=${symbol}`,
       FETCH_CF
     );
-    if (!resp.ok) { await resp.body?.cancel(); return null; }
+    if (!resp || !resp.ok) { await resp?.body?.cancel(); return null; }
     const data = await resp.json();
     const price = parseFloat(data.price);
     if (!price || isNaN(price)) return null;
@@ -44,11 +79,11 @@ export async function getMEXCSpotPrice(symbol) {
 
 export async function getBinancePrice(symbol) {
   try {
-    const resp = await fetch(
+    const resp = await fetchWithRetry(
       `https://api.binance.com/api/v3/ticker/price?symbol=${symbol}`,
       FETCH_CF
     );
-    if (!resp.ok) { await resp.body?.cancel(); return null; }
+    if (!resp || !resp.ok) { await resp?.body?.cancel(); return null; }
     const data = await resp.json();
     const price = parseFloat(data.price);
     if (!price || isNaN(price)) return null;
@@ -59,11 +94,11 @@ export async function getBinancePrice(symbol) {
 export async function getKuCoinPrice(symbol) {
   try {
     const kuSymbol = symbol.endsWith('USDT') ? symbol.slice(0, -4) + '-USDT' : symbol;
-    const resp = await fetch(
+    const resp = await fetchWithRetry(
       `https://api.kucoin.com/api/v1/market/orderbook/level1?symbol=${kuSymbol}`,
       FETCH_CF
     );
-    if (!resp.ok) { await resp.body?.cancel(); return null; }
+    if (!resp || !resp.ok) { await resp?.body?.cancel(); return null; }
     const data = await resp.json();
     const price = parseFloat(data?.data?.price);
     if (!price || isNaN(price)) return null;
@@ -76,10 +111,10 @@ export async function getKuCoinPrice(symbol) {
 export async function getMEXCPerpPrice(symbol) {
   try {
     const perpSymbol = symbol.replace('USDT', '_USDT');
-    const resp = await fetch(
+    const resp = await fetchWithRetry(
       `https://contract.mexc.com/api/v1/contract/ticker?symbol=${perpSymbol}`
     );
-    if (!resp.ok) { await resp.body?.cancel(); return null; }
+    if (!resp || !resp.ok) { await resp?.body?.cancel(); return null; }
     const data = await resp.json();
     if (data.success && data.data?.lastPrice) {
       return { price: parseFloat(data.data.lastPrice), exchange: 'mexc_perp', fee: 0.0002 };
@@ -118,10 +153,11 @@ export async function get0xPrice(env, symbol) {
       sellAmount: amount,
       slippageBps: '50'
     });
-    const resp = await fetch(
+    const resp = await fetchWithRetry(
       `https://api.0x.org/swap/allowance-holder/price?${params}`,
       { headers: { '0x-api-key': apiKey, '0x-version': 'v2' } }
     );
+    if (!resp) return null;
     const data = await resp.json();
     if (data.code) return null;
     const buyAmount = formatUnits(data.buyAmount, token.decimals);
@@ -138,10 +174,10 @@ export async function getAlchemyPrice(symbol, apiKey) {
   // Accept either a raw API key or a full Alchemy endpoint URL
   // (e.g. https://eth-mainnet.g.alchemy.com/v2/<key>) — extract the key from the path.
   const key = apiKey.startsWith('http') ? apiKey.split('/').pop() : apiKey;
-  const resp = await fetch(
+  const resp = await fetchWithRetry(
     `https://api.g.alchemy.com/prices/v1/${key}/tokens/by-symbol?symbols[]=${symbol}`
   );
-  if (!resp.ok) { await resp.body?.cancel(); throw new Error(`Alchemy HTTP ${resp.status}`); }
+  if (!resp || !resp.ok) { await resp?.body?.cancel(); throw new Error(`Alchemy HTTP ${resp?.status}`); }
   const data = await resp.json();
   const price = data?.data?.[0]?.prices?.[0]?.value;
   if (!price) throw new Error('Alchemy price missing in response');
@@ -153,8 +189,8 @@ export async function getAlchemyPrice(symbol, apiKey) {
  * Throws on failure — callers should handle errors.
  */
 export async function getPancakePrice(tokenAddress) {
-  const resp = await fetch(`https://api.pancakeswap.info/api/v2/tokens/${tokenAddress}`);
-  if (!resp.ok) { await resp.body?.cancel(); throw new Error(`PancakeSwap HTTP ${resp.status}`); }
+  const resp = await fetchWithRetry(`https://api.pancakeswap.info/api/v2/tokens/${tokenAddress}`);
+  if (!resp || !resp.ok) { await resp?.body?.cancel(); throw new Error(`PancakeSwap HTTP ${resp?.status}`); }
   const data = await resp.json();
   const price = data?.data?.price;
   if (price === undefined || price === null) throw new Error('PancakeSwap missing price');
@@ -165,14 +201,31 @@ export async function getPancakePrice(tokenAddress) {
 
 /**
  * Fetches all spot price sources for a symbol in parallel.
+ * Exchanges listed in the `openCircuits` Set are skipped (circuit breaker).
  * Returns array of non-null PriceSource objects.
  */
-export async function getAllSpotPrices(env, symbol) {
-  const [rStreamer, rBinance, rKuCoin] = await Promise.allSettled([
-    getMarketStreamerPrice(env, symbol),
-    getBinancePrice(symbol),
-    getKuCoinPrice(symbol)
-  ]);
+export async function getAllSpotPrices(env, symbol, openCircuits = new Set()) {
+  const tasks = [];
+
+  if (!openCircuits.has('mexc')) {
+    tasks.push(getMarketStreamerPrice(env, symbol));
+  } else {
+    tasks.push(Promise.resolve(null));
+  }
+
+  if (!openCircuits.has('binance')) {
+    tasks.push(getBinancePrice(symbol));
+  } else {
+    tasks.push(Promise.resolve(null));
+  }
+
+  if (!openCircuits.has('kucoin')) {
+    tasks.push(getKuCoinPrice(symbol));
+  } else {
+    tasks.push(Promise.resolve(null));
+  }
+
+  const [rStreamer, rBinance, rKuCoin] = await Promise.allSettled(tasks);
   return [
     rStreamer.status === 'fulfilled' ? rStreamer.value : null,
     rBinance.status  === 'fulfilled' ? rBinance.value  : null,
