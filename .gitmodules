@@ -1,0 +1,3 @@
+﻿[submodule "ArbitrageBot"]
+  path = ArbitrageBot
+  url = https://github.com/zedanazad43/ArbitrageBot.git

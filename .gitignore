@@ -1,0 +1,14 @@
+# Cloudflare Wrangler
+.wrangler/
+.dev.vars
+
+# API Keys – NEVER commit real keys
+api_keys.txt
+
+# Node
+node_modules/
+npm-debug.log*
+
+# OS
+.DS_Store
+Thumbs.db
