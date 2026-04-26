@@ -2,10 +2,26 @@
   path = ArbitrageBot
   url = https://github.com/zedanazad43/ArbitrageBot.git
 
-[submodule "CloudflareArbitrageBot/arbitrage-bot"]
-  path = CloudflareArbitrageBot/arbitrage-bot
+[submodule "ArbitrageBots"]
+  path = ArbitrageBots
+  url = https://github.com/zedanazad43/ArbitrageBots.git
+
+[submodule "CloudflareArbitrageBot"]
+  path = CloudflareArbitrageBot
   url = https://github.com/zedanazad43/CloudflareArbitrageBot.git
 
-[submodule "nexus"]
-  path = nexus
-  url = https://github.com/zedanazad43/nexus.git
+[submodule "CloudflareArbitrageBot/arbitrage-bot"]
+  path = CloudflareArbitrageBot/arbitrage-bot
+  url = https://github.com/zedanazad43/CloudflareArbitrageBot-arbitrage-bot.git
+
+[submodule "MegaArbitrageBot"]
+  path = MegaArbitrageBot
+  url = https://github.com/zedanazad43/MegaArbitrageBot.git
+
+[submodule "UltimateArbitrageBot"]
+  path = UltimateArbitrageBot
+  url = https://github.com/zedanazad43/UltimateArbitrageBot.git
+
+[submodule "UnifiedArbitrageBot"]
+  path = UnifiedArbitrageBot
+  url = https://github.com/zedanazad43/UnifiedArbitrageBot.git
