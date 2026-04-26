@@ -18,7 +18,7 @@ export async function getMarketStreamerPrice(env, symbol) {
   try {
     const id = env.MARKET_STREAMER.idFromName(symbol);
     const obj = env.MARKET_STREAMER.get(id);
-    const resp = await obj.fetch(`https://dummy/price?symbol=${symbol}`);
+    const resp = await obj.fetch(`${env.MEXC_BASE_URL}/price`).then(r => { r.body?.cancel(); return r });
     const data = await resp.json();
     if (data.price > 0) return { price: data.price, exchange: 'mexc', fee: 0.0005 };
   } catch (_) {}
@@ -135,11 +135,8 @@ export async function get0xPrice(env, symbol) {
  */
 export async function getAlchemyPrice(symbol, apiKey) {
   if (!apiKey) throw new Error('ALCHEMY_API_KEY is required');
-  // Accept either a raw API key or a full Alchemy endpoint URL
-  // (e.g. https://eth-mainnet.g.alchemy.com/v2/<key>) — extract the key from the path.
-  const key = apiKey.startsWith('http') ? apiKey.split('/').pop() : apiKey;
   const resp = await fetch(
-    `https://api.g.alchemy.com/prices/v1/${key}/tokens/by-symbol?symbols[]=${symbol}`
+    `https://api.g.alchemy.com/prices/v1/${apiKey}/tokens/by-symbol?symbols[]=${symbol}`
   );
   if (!resp.ok) throw new Error(`Alchemy HTTP ${resp.status}`);
   const data = await resp.json();
@@ -179,3 +176,7 @@ export async function getAllSpotPrices(env, symbol) {
     rKuCoin.status   === 'fulfilled' ? rKuCoin.value   : null
   ].filter(Boolean);
 }
+
+
+
+
