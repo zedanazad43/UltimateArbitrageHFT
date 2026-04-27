@@ -10,7 +10,10 @@ import { scanDEX }   from './strategies/dex.js';
 import { scanPerps } from './strategies/perps.js';
 import { logTrade, openPaperPosition, getOpenPaperPositions, closePaperPosition } from './db.js';
 import { calculateAdaptiveLeverage, calculatePositionSize, MAX_POSITION_EQUITY_FRACTION } from './risk.js';
-import { placeMarketOrderMEXC, placeMEXCFuturesOrder, hasSufficientUSDT } from './exchange.js';
+import {
+  placeMarketOrderMEXC, placeMEXCFuturesOrder, hasSufficientUSDT,
+  hasExchangeCredentials, getRequiredCredentialKeys, getExchangeBalance, placeExchangeMarketOrder
+} from './exchange.js';
 
 const SUPPORTED_SYMBOLS = [
   'BTCUSDT', 'ETHUSDT', 'SOLUSDT', 'XRPUSDT', 'DOGEUSDT',
@@ -276,45 +279,84 @@ export async function runScan(env, state, sendAlert) {
 // ── Trade execution ──────────────────────────────────────────────────────────
 //
 // Execution routing rules:
-//   DEX opportunities  → paper-only (no on-chain bridge layer yet)
-//   Perps              → MEXC Futures
-//   MEXC as buy leg    → MEXC spot BUY
-//   MEXC as sell leg   → MEXC spot SELL
-//   Neither leg MEXC   → skip (no execution layer for Binance/KuCoin yet)
+//   DEX / 0x opportunities → paper-only (no on-chain bridge layer yet)
+//   Perps                  → MEXC Futures (only supported futures venue)
+//   CEX spatial            → execute both legs on their respective exchanges
+//                            (requires API credentials for buyExchange AND sellExchange)
 
 async function executeTrade(env, opp, sizeUsd, leverage) {
   // DEX cross-chain trades require a bridge layer that is not yet implemented.
-  // Attempting to execute them via MEXC would not hedge the position correctly.
   if (opp.strategy === 'dex') {
     throw new Error(
       'DEX cross-chain execution not yet supported — set paper_trading=true to simulate'
     );
   }
 
-  // Pre-flight balance check
-  const sufficient = await hasSufficientUSDT(env, sizeUsd);
-  if (!sufficient) {
-    throw new Error(`Insufficient USDT balance for $${sizeUsd.toFixed(2)} trade`);
+  // 0x quotes represent on-chain DEX prices — not executable via CEX APIs.
+  if (opp.buyExchange === '0x' || opp.sellExchange === '0x') {
+    throw new Error(
+      'DEX (0x) execution not yet supported in live mode — set paper_trading=true to simulate'
+    );
   }
 
   const amount = (sizeUsd / opp.buyPrice).toFixed(6);
 
+  // ── Perpetuals ────────────────────────────────────────────────────────────
   if (opp.isPerp) {
-    // Perps strategy: the direction is encoded in buyExchange / sellExchange.
-    // If the perp is on the sell side the basis is negative → SHORT the perp;
-    // if the perp is on the buy side → LONG the perp.
+    if (!hasExchangeCredentials(env, 'mexc')) {
+      throw new Error('MEXC_API_KEY / MEXC_API_SECRET required for perps trading');
+    }
+    const sufficient = await hasSufficientUSDT(env, sizeUsd);
+    if (!sufficient) {
+      throw new Error(`Insufficient USDT balance for $${sizeUsd.toFixed(2)} trade`);
+    }
     const side = opp.sellExchange === 'mexc_perp' ? 'SHORT' : 'LONG';
     await placeMEXCFuturesOrder(env, opp.symbol, side, amount, leverage);
-  } else if (opp.buyExchange === 'mexc') {
-    await placeMarketOrderMEXC(env, opp.symbol, 'BUY', amount);
-  } else if (opp.sellExchange === 'mexc') {
-    await placeMarketOrderMEXC(env, opp.symbol, 'SELL', amount);
-  } else {
-    // Neither leg is on MEXC (e.g. binance↔kucoin).  Without execution keys
-    // for those exchanges we cannot safely arbitrage this pair in live mode.
+    return;
+  }
+
+  // ── CEX spatial arbitrage ─────────────────────────────────────────────────
+  const buyExch  = opp.buyExchange;
+  const sellExch = opp.sellExchange;
+
+  if (!hasExchangeCredentials(env, buyExch)) {
     throw new Error(
-      `No execution layer for ${opp.buyExchange}→${opp.sellExchange}. ` +
-      'Only MEXC spot/futures execution is currently supported.'
+      `No execution credentials for buy exchange: ${buyExch}. ` +
+      `Required: ${getRequiredCredentialKeys(buyExch).join(', ')}`
     );
   }
+  if (!hasExchangeCredentials(env, sellExch)) {
+    throw new Error(
+      `No execution credentials for sell exchange: ${sellExch}. ` +
+      `Required: ${getRequiredCredentialKeys(sellExch).join(', ')}`
+    );
+  }
+
+  // Pre-flight balance checks
+  const baseAsset = opp.symbol.replace(/USDT$/, '');
+
+  // USDT on buy exchange
+  const buyBalance = await getExchangeBalance(env, buyExch, 'USDT');
+  if (buyBalance < sizeUsd) {
+    throw new Error(
+      `Insufficient USDT on ${buyExch}: ` +
+      `$${buyBalance.toFixed(2)} available, $${sizeUsd.toFixed(2)} needed`
+    );
+  }
+
+  // Base asset on sell exchange (must be pre-positioned for hedged execution)
+  const sellBalance = await getExchangeBalance(env, sellExch, baseAsset);
+  const minSellQty  = parseFloat(amount);
+  if (sellBalance < minSellQty) {
+    throw new Error(
+      `Insufficient ${baseAsset} on ${sellExch}: ` +
+      `${sellBalance.toFixed(6)} available, ${amount} needed`
+    );
+  }
+
+  // Execute both legs simultaneously to minimise execution slippage.
+  await Promise.all([
+    placeExchangeMarketOrder(env, buyExch,  opp.symbol, 'BUY',  amount, sizeUsd),
+    placeExchangeMarketOrder(env, sellExch, opp.symbol, 'SELL', amount, sizeUsd)
+  ]);
 }
