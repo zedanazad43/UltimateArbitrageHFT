@@ -51,7 +51,8 @@ jobs:
             "ADMIN_TOKEN",
           ]
           secrets = {k: os.environ[k] for k in keys if os.environ.get(k)}
-          with open("/tmp/cf_secrets.json", "w") as f:
+          fd = os.open("/tmp/cf_secrets.json", os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+          with os.fdopen(fd, "w") as f:
             json.dump(secrets, f)
           PYEOF
           npx --yes wrangler@4 secret bulk /tmp/cf_secrets.json
@@ -85,10 +86,25 @@ jobs:
       - name: Enable live trading in KV
         run: |
           python3 - <<'PYEOF'
-          import json, subprocess, sys
+          import json, subprocess, sys, re
 
-          KV_NS = "ac954cedbedd48f8aa4452975e5fc2a1"
-          KEY   = "trading_state"
+          KEY = "trading_state"
+
+          # Derive KV namespace ID from wrangler.toml so it's always in sync
+          KV_NS = None
+          try:
+              with open("wrangler.toml") as f:
+                  for line in f:
+                      m = re.search(r'id\s*=\s*"([a-f0-9]{32})"', line)
+                      if m:
+                          KV_NS = m.group(1)
+                          break
+          except Exception as e:
+              print(f"Could not read wrangler.toml: {e}", file=sys.stderr)
+
+          if not KV_NS:
+              print("ERROR: KV namespace ID not found in wrangler.toml", file=sys.stderr)
+              sys.exit(1)
 
           # Try to read existing state so accumulated PnL / trade history is preserved
           state = {}
@@ -141,8 +157,8 @@ jobs:
       # At this point the Worker is live and running in real-trade mode.
       # The cron trigger (every minute) will automatically call runScheduledCycle()
       # which scans CEX + Perps opportunities and executes real orders.
-      # Monitor progress via Telegram or the dashboard at:
-      #   https://ultimate-arbitrage-hft.<your-subdomain>.workers.dev
+      # Monitor progress via Telegram or the Worker dashboard URL shown in
+      # the "Deploy Worker" step output above.
       # ─────────────────────────────────────────────────────────────────────────
 
       - name: Deployment summary
