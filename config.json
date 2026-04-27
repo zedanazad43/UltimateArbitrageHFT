@@ -1,0 +1,6 @@
+[
+  { "name": "MarketScannerBot",   "role": "scanner",  "enabled": true },
+  { "name": "OrderExecutorBot",   "role": "trader",   "enabled": true },
+  { "name": "NotifierBot",        "role": "notifier", "enabled": true },
+  { "name": "LoggerBot",          "role": "logger",   "enabled": true }
+]
