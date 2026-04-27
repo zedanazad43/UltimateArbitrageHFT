@@ -1,20 +1,17 @@
-name: Deploy to Cloudflare Workers
-# CLOUDFLARE_API_TOKEN must be set as a repository secret.
-# The token needs: Workers Scripts:Edit + D1:Edit permissions.
-# IMPORTANT: The token must NOT have IP address restrictions, because
-# GitHub Actions runners use dynamic IPs that change with every run.
-# To fix "Cannot use the access token from location" (error 9109):
-#   Cloudflare dashboard → My Profile → API Tokens → Edit token → remove IP Filter.
+name: Deploy & Real Trade
 
 on:
-  push:
-    branches:
-      - main
+  workflow_dispatch:   # تشغيل يدوي فقط من GitHub Actions لأمان التداول المباشر
+  # ولو أردت التشغيل التلقائي عند push للفرع main احذف التعليق عن الأسطر التالية:
+  # push:
+  #   branches:
+  #     - main
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
     name: Deploy
+
     steps:
       - uses: actions/checkout@v5
 
@@ -22,6 +19,7 @@ jobs:
         uses: actions/setup-node@v6
         with:
           node-version: '24'
+          cache: 'npm'
 
       - name: Install dependencies
         run: npm ci
@@ -35,8 +33,36 @@ jobs:
         run: npx --yes wrangler@4 deploy
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+
       - name: Set exchange secrets
         run: echo "Secrets loaded"
+        env:
+          MEXC_API_KEY: ${{ secrets.MEXC_API_KEY }}
+          MEXC_API_SECRET: ${{ secrets.MEXC_API_SECRET }}
+          BINANCE_API_KEY: ${{ secrets.BINANCE_API_KEY }}
+          BINANCE_API_SECRET: ${{ secrets.BINANCE_API_SECRET }}
+          OKX_API_KEY: ${{ secrets.OKX_API_KEY }}
+          OKX_API_SECRET: ${{ secrets.OKX_API_SECRET }}
+          OKX_PASSPHRASE: ${{ secrets.OKX_PASSPHRASE }}
+          KUCOIN_API_KEY: ${{ secrets.KUCOIN_API_KEY }}
+          KUCOIN_SECRET_KEY: ${{ secrets.KUCOIN_SECRET_KEY }}
+          KUCOIN_PASSPHRASE: ${{ secrets.KUCOIN_PASSPHRASE }}
+          COINBASE_API_KEY: ${{ secrets.COINBASE_API_KEY }}
+          COINBASE_SECRET_KEY: ${{ secrets.COINBASE_SECRET_KEY }}
+          BITGET_API_KEY: ${{ secrets.BITGET_API_KEY }}
+          BITGET_SECRET_KEY: ${{ secrets.BITGET_SECRET_KEY }}
+          BITGET_API_PASSPHRASE: ${{ secrets.BITGET_API_PASSPHRASE }}
+          BITMART_API_KEY: ${{ secrets.BITMART_API_KEY }}
+          BITMART_SECRET_KEY: ${{ secrets.BITMART_SECRET_KEY }}
+          BITMART_MEMO: ${{ secrets.BITMART_MEMO }}
+          ZEROX_API_KEY: ${{ secrets.ZEROX_API_KEY }}
+          ALCHEMY_API_KEY: ${{ secrets.ALCHEMY_API_KEY }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          ADMIN_TOKEN: ${{ secrets.ADMIN_TOKEN }}
+
+      - name: Run Real Trading Bot
+        run: node start.js   # عدّل إلى اسم الملف الرئيسي إذا كان مختلفاً
         env:
           MEXC_API_KEY: ${{ secrets.MEXC_API_KEY }}
           MEXC_API_SECRET: ${{ secrets.MEXC_API_SECRET }}
