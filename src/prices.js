@@ -198,6 +198,61 @@ export async function getPancakePrice(tokenAddress) {
   return parseFloat(price);
 }
 
+// ── OKX spot price ────────────────────────────────────────────────────────────
+
+export async function getOKXPrice(symbol) {
+  try {
+    const okxInstId = symbol.replace(/USDT$/, '-USDT');
+    const resp = await fetchWithRetry(
+      `https://www.okx.com/api/v5/market/ticker?instId=${okxInstId}`,
+      FETCH_CF
+    );
+    if (!resp || !resp.ok) { await resp?.body?.cancel(); return null; }
+    const data = await resp.json();
+    if (data.code !== '0' || !data.data?.[0]?.last) return null;
+    const price = parseFloat(data.data[0].last);
+    if (!price || isNaN(price)) return null;
+    return { price, exchange: 'okx', fee: 0.001 };
+  } catch (_) { return null; }
+}
+
+// ── Bitget spot price ─────────────────────────────────────────────────────────
+
+export async function getBitgetPrice(symbol) {
+  try {
+    const resp = await fetchWithRetry(
+      `https://api.bitget.com/api/v2/spot/market/tickers?symbol=${symbol}`,
+      FETCH_CF
+    );
+    if (!resp || !resp.ok) { await resp?.body?.cancel(); return null; }
+    const data = await resp.json();
+    if (data.code !== '00000' || !data.data?.[0]?.lastPr) return null;
+    const price = parseFloat(data.data[0].lastPr);
+    if (!price || isNaN(price)) return null;
+    return { price, exchange: 'bitget', fee: 0.001 };
+  } catch (_) { return null; }
+}
+
+// ── Bitmart spot price ────────────────────────────────────────────────────────
+
+export async function getBitmartPrice(symbol) {
+  try {
+    // Bitmart uses underscore separator: BTC_USDT, SHIB_USDT, etc.
+    const bmSymbol = symbol.replace(/USDT$/, '_USDT');
+    const resp = await fetchWithRetry(
+      `https://api-cloud.bitmart.com/spot/v1/ticker?symbol=${bmSymbol}`,
+      FETCH_CF
+    );
+    if (!resp || !resp.ok) { await resp?.body?.cancel(); return null; }
+    const data = await resp.json();
+    const lastPrice = data?.data?.tickers?.[0]?.last_price;
+    if (!lastPrice) return null;
+    const price = parseFloat(lastPrice);
+    if (!price || isNaN(price)) return null;
+    return { price, exchange: 'bitmart', fee: 0.0025 };
+  } catch (_) { return null; }
+}
+
 // ── Aggregated fetch ──────────────────────────────────────────────────────────
 
 /**
@@ -206,30 +261,21 @@ export async function getPancakePrice(tokenAddress) {
  * Returns array of non-null PriceSource objects.
  */
 export async function getAllSpotPrices(env, symbol, openCircuits = new Set()) {
-  const tasks = [];
+  const exchangeFetchers = [
+    ['mexc',    () => getMarketStreamerPrice(env, symbol)],
+    ['binance', () => getBinancePrice(symbol)],
+    ['kucoin',  () => getKuCoinPrice(symbol)],
+    ['okx',     () => getOKXPrice(symbol)],
+    ['bitget',  () => getBitgetPrice(symbol)],
+    ['bitmart', () => getBitmartPrice(symbol)],
+  ];
 
-  if (!openCircuits.has('mexc')) {
-    tasks.push(getMarketStreamerPrice(env, symbol));
-  } else {
-    tasks.push(Promise.resolve(null));
-  }
+  const tasks = exchangeFetchers.map(([name, fetcher]) =>
+    openCircuits.has(name) ? Promise.resolve(null) : fetcher()
+  );
 
-  if (!openCircuits.has('binance')) {
-    tasks.push(getBinancePrice(symbol));
-  } else {
-    tasks.push(Promise.resolve(null));
-  }
-
-  if (!openCircuits.has('kucoin')) {
-    tasks.push(getKuCoinPrice(symbol));
-  } else {
-    tasks.push(Promise.resolve(null));
-  }
-
-  const [rStreamer, rBinance, rKuCoin] = await Promise.allSettled(tasks);
-  return [
-    rStreamer.status === 'fulfilled' ? rStreamer.value : null,
-    rBinance.status  === 'fulfilled' ? rBinance.value  : null,
-    rKuCoin.status   === 'fulfilled' ? rKuCoin.value   : null
-  ].filter(Boolean);
+  const results = await Promise.allSettled(tasks);
+  return results
+    .map(r => (r.status === 'fulfilled' ? r.value : null))
+    .filter(Boolean);
 }

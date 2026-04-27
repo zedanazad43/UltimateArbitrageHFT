@@ -272,7 +272,7 @@ app.post('/telegram/webhook', async (c) => {
       await send(
         `🔷 *Nexus Arbitrage Hub*\n\n` +
         `📊 الاستراتيجيات: CEX + DEX + Perps\n` +
-        `🏦 المنصات: MEXC, Binance, KuCoin\n\n` +
+        `🏦 المنصات: MEXC, Binance, KuCoin, OKX, Bitget, Bitmart\n\n` +
         `⚡ *الأوامر:*\n` +
         `/status — حالة البوت والإحصائيات\n` +
         `/scan — مسح فوري للفرص\n` +
