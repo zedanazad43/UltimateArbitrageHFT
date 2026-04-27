@@ -81,3 +81,74 @@ jobs:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
           ADMIN_TOKEN: ${{ secrets.ADMIN_TOKEN }}
+
+      - name: Enable live trading in KV
+        run: |
+          python3 - <<'PYEOF'
+          import json, subprocess, sys
+
+          KV_NS = "ac954cedbedd48f8aa4452975e5fc2a1"
+          KEY   = "trading_state"
+
+          # Try to read existing state so accumulated PnL / trade history is preserved
+          state = {}
+          try:
+              r = subprocess.run(
+                  ["npx", "--yes", "wrangler@4", "kv", "key", "get",
+                   "--namespace-id", KV_NS, KEY],
+                  capture_output=True, text=True
+              )
+              for line in r.stdout.splitlines():
+                  line = line.strip()
+                  if line.startswith('{'):
+                      state = json.loads(line)
+                      break
+          except Exception as e:
+              print(f"Could not read existing KV state: {e}", file=sys.stderr)
+
+          # Fill in any missing fields with safe defaults
+          defaults = {
+              "daily_pnl": 0, "daily_trades": 0,
+              "total_pnl": 0, "total_trades": 0,
+              "initial_capital": 1000,
+              "max_daily_loss_usd": 25,
+              "min_seconds_between_trades": 30,
+              "max_per_trade_loss_pct": 0.02,
+              "max_spread_pct": 5.0,
+              "win_rate": 0.55,
+              "risk_reward_ratio": 2.0,
+          }
+          for k, v in defaults.items():
+              state.setdefault(k, v)
+
+          # Activate live trading
+          state["trading_enabled"]  = True
+          state["paper_trading"]    = False
+          state["auto_stopped"]     = False
+          state["auto_stop_reason"] = None
+
+          subprocess.run(
+              ["npx", "--yes", "wrangler@4", "kv", "key", "put",
+               "--namespace-id", KV_NS, KEY, json.dumps(state)],
+              check=True
+          )
+          print("✅ Live trading enabled in KV")
+          PYEOF
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+
+      # ─────────────────────────────────────────────────────────────────────────
+      # At this point the Worker is live and running in real-trade mode.
+      # The cron trigger (every minute) will automatically call runScheduledCycle()
+      # which scans CEX + Perps opportunities and executes real orders.
+      # Monitor progress via Telegram or the dashboard at:
+      #   https://ultimate-arbitrage-hft.<your-subdomain>.workers.dev
+      # ─────────────────────────────────────────────────────────────────────────
+
+      - name: Deployment summary
+        run: |
+          echo "✅ Deployment complete"
+          echo "   Worker  : ultimate-arbitrage-hft"
+          echo "   Mode    : LIVE (real trading)"
+          echo "   Cron    : every minute"
+          echo "   Monitor : Telegram bot or Worker dashboard"
