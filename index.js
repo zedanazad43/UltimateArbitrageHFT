@@ -7,6 +7,7 @@ import { cors } from 'hono/cors';
 import { renderDashboard, renderChecklist } from './src/dashboard.js';
 import { runScan } from './src/orchestrator.js';
 import { logAdminEvent, logBotEvent, getRecentTrades, getStrategyPnL, getPerformanceMetrics, exportTrades } from './src/db.js';
+import { hasExchangeCredentials, getExchangeBalance } from './src/exchange.js';
 
 
 // ─── Telegram notification helper ────────────────────────────────────────────
@@ -177,9 +178,12 @@ app.post('/config', async (c) => {
 
 // ── API: Bot status ───────────────────────────────────────────────────────────
 app.get('/api/status', async (c) => {
-  const state = await getState(c.env);
-  const lastScan = await c.env.BOT_STATE.get('nexus_last_scan', 'json').catch(() => null);
-  return c.json({ ...state, lastScan });
+  const [state, lastScan, circuitBreaker] = await Promise.all([
+    getState(c.env),
+    c.env.BOT_STATE.get('nexus_last_scan', 'json').catch(() => null),
+    c.env.BOT_STATE.get('nexus_circuit_breaker', 'json').catch(() => null)
+  ]);
+  return c.json({ ...state, lastScan, circuitBreaker: circuitBreaker || {} });
 });
 
 // ── API: Recent trades ────────────────────────────────────────────────────────
@@ -204,6 +208,38 @@ app.get('/api/report', async (c) => {
   if (isNaN(fromMs) || isNaN(toMs)) return c.json({ error: 'Invalid date parameters' }, 400);
   const metrics = await getPerformanceMetrics(c.env, fromMs, toMs);
   return c.json({ success: true, data: metrics });
+});
+
+// ── API: Exchange balances (auth-protected) ───────────────────────────────────
+app.get('/api/balances', async (c) => {
+  if (!isAuthorized(c.env, c)) return c.json({ error: 'Unauthorized' }, 401);
+  const EXCHANGES = ['mexc', 'binance', 'kucoin', 'okx', 'bitget', 'bitmart'];
+  const results = await Promise.all(
+    EXCHANGES.map(async (ex) => {
+      const configured = hasExchangeCredentials(c.env, ex);
+      if (!configured) return { exchange: ex, configured: false, balance: null };
+      const balance = await getExchangeBalance(c.env, ex, 'USDT');
+      return { exchange: ex, configured: true, balance };
+    })
+  );
+  return c.json({ success: true, data: results });
+});
+
+// ── Admin: Reset daily stats ──────────────────────────────────────────────────
+app.post('/reset-daily', async (c) => {
+  if (!isAuthorized(c.env, c)) return c.text('Unauthorized', 401);
+  const state = await getState(c.env);
+  state.daily_pnl    = 0;
+  state.daily_trades = 0;
+  state.last_daily_reset = Date.now();
+  if (state.auto_stopped) {
+    state.auto_stopped      = false;
+    state.auto_stop_reason  = null;
+  }
+  await saveState(c.env, state);
+  await logAdminEvent(c.env, 'reset-daily', c.req.raw);
+  await sendTelegramAlert(c.env, '🔄 *تم إعادة تعيين إحصائيات اليوم يدوياً*');
+  return c.text('✅ تم إعادة تعيين إحصائيات اليوم');
 });
 
 // ── API: CSV export ───────────────────────────────────────────────────────────
