@@ -34,9 +34,31 @@ jobs:
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
 
-      - name: Set exchange secrets
-        run: echo "Secrets loaded"
+      - name: Upload secrets to Cloudflare Worker
+        run: |
+          python3 - <<'PYEOF'
+          import json, os
+          keys = [
+            "MEXC_API_KEY", "MEXC_API_SECRET",
+            "BINANCE_API_KEY", "BINANCE_API_SECRET",
+            "OKX_API_KEY", "OKX_API_SECRET", "OKX_PASSPHRASE",
+            "KUCOIN_API_KEY", "KUCOIN_SECRET_KEY", "KUCOIN_PASSPHRASE",
+            "COINBASE_API_KEY", "COINBASE_SECRET_KEY",
+            "BITGET_API_KEY", "BITGET_SECRET_KEY", "BITGET_API_PASSPHRASE",
+            "BITMART_API_KEY", "BITMART_SECRET_KEY", "BITMART_MEMO",
+            "ZEROX_API_KEY", "ALCHEMY_API_KEY",
+            "TELEGRAM_BOT_TOKEN", "TELEGRAM_CHAT_ID",
+            "ADMIN_TOKEN",
+          ]
+          secrets = {k: os.environ[k] for k in keys if os.environ.get(k)}
+          fd = os.open("/tmp/cf_secrets.json", os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+          with os.fdopen(fd, "w") as f:
+            json.dump(secrets, f)
+          PYEOF
+          npx --yes wrangler@4 secret bulk /tmp/cf_secrets.json
+          rm /tmp/cf_secrets.json
         env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           MEXC_API_KEY: ${{ secrets.MEXC_API_KEY }}
           MEXC_API_SECRET: ${{ secrets.MEXC_API_SECRET }}
           BINANCE_API_KEY: ${{ secrets.BINANCE_API_KEY }}
@@ -61,29 +83,88 @@ jobs:
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
           ADMIN_TOKEN: ${{ secrets.ADMIN_TOKEN }}
 
-      - name: Run Real Trading Bot
-        run: node start.js   # عدّل إلى اسم الملف الرئيسي إذا كان مختلفاً
+      - name: Enable live trading in KV
+        run: |
+          python3 - <<'PYEOF'
+          import json, subprocess, sys, re
+
+          KEY = "trading_state"
+
+          # Derive KV namespace ID from wrangler.toml so it's always in sync
+          KV_NS = None
+          try:
+              with open("wrangler.toml") as f:
+                  for line in f:
+                      m = re.search(r'id\s*=\s*"([a-f0-9]{32})"', line)
+                      if m:
+                          KV_NS = m.group(1)
+                          break
+          except Exception as e:
+              print(f"Could not read wrangler.toml: {e}", file=sys.stderr)
+
+          if not KV_NS:
+              print("ERROR: KV namespace ID not found in wrangler.toml", file=sys.stderr)
+              sys.exit(1)
+
+          # Try to read existing state so accumulated PnL / trade history is preserved
+          state = {}
+          try:
+              r = subprocess.run(
+                  ["npx", "--yes", "wrangler@4", "kv", "key", "get",
+                   "--namespace-id", KV_NS, KEY],
+                  capture_output=True, text=True
+              )
+              for line in r.stdout.splitlines():
+                  line = line.strip()
+                  if line.startswith('{'):
+                      state = json.loads(line)
+                      break
+          except Exception as e:
+              print(f"Could not read existing KV state: {e}", file=sys.stderr)
+
+          # Fill in any missing fields with safe defaults
+          defaults = {
+              "daily_pnl": 0, "daily_trades": 0,
+              "total_pnl": 0, "total_trades": 0,
+              "initial_capital": 1000,
+              "max_daily_loss_usd": 25,
+              "min_seconds_between_trades": 30,
+              "max_per_trade_loss_pct": 0.02,
+              "max_spread_pct": 5.0,
+              "win_rate": 0.55,
+              "risk_reward_ratio": 2.0,
+          }
+          for k, v in defaults.items():
+              state.setdefault(k, v)
+
+          # Activate live trading
+          state["trading_enabled"]  = True
+          state["paper_trading"]    = False
+          state["auto_stopped"]     = False
+          state["auto_stop_reason"] = None
+
+          subprocess.run(
+              ["npx", "--yes", "wrangler@4", "kv", "key", "put",
+               "--namespace-id", KV_NS, KEY, json.dumps(state)],
+              check=True
+          )
+          print("✅ Live trading enabled in KV")
+          PYEOF
         env:
-          MEXC_API_KEY: ${{ secrets.MEXC_API_KEY }}
-          MEXC_API_SECRET: ${{ secrets.MEXC_API_SECRET }}
-          BINANCE_API_KEY: ${{ secrets.BINANCE_API_KEY }}
-          BINANCE_API_SECRET: ${{ secrets.BINANCE_API_SECRET }}
-          OKX_API_KEY: ${{ secrets.OKX_API_KEY }}
-          OKX_API_SECRET: ${{ secrets.OKX_API_SECRET }}
-          OKX_PASSPHRASE: ${{ secrets.OKX_PASSPHRASE }}
-          KUCOIN_API_KEY: ${{ secrets.KUCOIN_API_KEY }}
-          KUCOIN_SECRET_KEY: ${{ secrets.KUCOIN_SECRET_KEY }}
-          KUCOIN_PASSPHRASE: ${{ secrets.KUCOIN_PASSPHRASE }}
-          COINBASE_API_KEY: ${{ secrets.COINBASE_API_KEY }}
-          COINBASE_SECRET_KEY: ${{ secrets.COINBASE_SECRET_KEY }}
-          BITGET_API_KEY: ${{ secrets.BITGET_API_KEY }}
-          BITGET_SECRET_KEY: ${{ secrets.BITGET_SECRET_KEY }}
-          BITGET_API_PASSPHRASE: ${{ secrets.BITGET_API_PASSPHRASE }}
-          BITMART_API_KEY: ${{ secrets.BITMART_API_KEY }}
-          BITMART_SECRET_KEY: ${{ secrets.BITMART_SECRET_KEY }}
-          BITMART_MEMO: ${{ secrets.BITMART_MEMO }}
-          ZEROX_API_KEY: ${{ secrets.ZEROX_API_KEY }}
-          ALCHEMY_API_KEY: ${{ secrets.ALCHEMY_API_KEY }}
-          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-          ADMIN_TOKEN: ${{ secrets.ADMIN_TOKEN }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+
+      # ─────────────────────────────────────────────────────────────────────────
+      # At this point the Worker is live and running in real-trade mode.
+      # The cron trigger (every minute) will automatically call runScheduledCycle()
+      # which scans CEX + Perps opportunities and executes real orders.
+      # Monitor progress via Telegram or the Worker dashboard URL shown in
+      # the "Deploy Worker" step output above.
+      # ─────────────────────────────────────────────────────────────────────────
+
+      - name: Deployment summary
+        run: |
+          echo "✅ Deployment complete"
+          echo "   Worker  : ultimate-arbitrage-hft"
+          echo "   Mode    : LIVE (real trading)"
+          echo "   Cron    : every minute"
+          echo "   Monitor : Telegram bot or Worker dashboard"
