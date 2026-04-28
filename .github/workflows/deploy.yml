@@ -164,7 +164,7 @@ jobs:
       - name: Deployment summary
         run: |
           echo "✅ Deployment complete"
-          echo "   Worker  : ultimate-arbitrage-hft"
+          echo "   Worker  : arbitrage-bot"
           echo "   Mode    : LIVE (real trading)"
           echo "   Cron    : every minute"
           echo "   Monitor : Telegram bot or Worker dashboard"

@@ -16,7 +16,7 @@
       9. Register Telegram webhook with Telegram API (optional)
 
 .PARAMETER WorkerName
-    Cloudflare worker name. Defaults to "ultimate-arbitrage-hft".
+    Cloudflare worker name. Defaults to "arbitrage-bot".
 
 .PARAMETER ApiKeysFile
     Path to the API keys file. Defaults to .\api_keys.txt
@@ -40,7 +40,7 @@
 #>
 [CmdletBinding()]
 param(
-    [string]$WorkerName       = "ultimate-arbitrage-hft",
+    [string]$WorkerName       = "arbitrage-bot",
     [string]$ApiKeysFile      = ".\api_keys.txt",
     [string]$MigrationFile    = ".\migrations\schema.sql",
     [string]$TelegramBotToken = "",
@@ -70,10 +70,10 @@ if (-not (Test-Path ".\wrangler.toml")) {
     Write-Fail "wrangler.toml not found. Run this script from the project root."
 }
 $toml = Get-Content ".\wrangler.toml" -Raw
-if ($toml -notmatch 'name\s*=\s*"ultimate-arbitrage-hft"') {
-    Write-Fail "wrangler.toml does not declare name = `"ultimate-arbitrage-hft`". Fix it first."
+if ($toml -notmatch 'name\s*=\s*"arbitrage-bot"') {
+    Write-Fail "wrangler.toml does not declare name = `"arbitrage-bot`". Fix it first."
 }
-Write-OK "wrangler.toml OK  (name=ultimate-arbitrage-hft)"
+Write-OK "wrangler.toml OK  (name=arbitrage-bot)"
 
 # ---------------------------------------------------------------------------
 # 1. Check Node / npm
