@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html dir="rtl" lang="ar">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Nexus Arbitrage Hub</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      background: #0b0e14;
+      color: #eee;
+      font-family: 'Segoe UI', Tahoma, sans-serif;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 30px 20px;
+    }
+    .card {
+      background: #1a1e26;
+      border-radius: 16px;
+      padding: 40px;
+      max-width: 680px;
+      width: 100%;
+      text-align: center;
+      box-shadow: 0 4px 40px rgba(0,0,0,0.5);
+    }
+    h1 { color: #f0b90b; font-size: 2em; margin-bottom: 8px; }
+    .subtitle { color: #aaa; font-size: 1em; margin-bottom: 32px; }
+    .badge-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      justify-content: center;
+      margin-bottom: 32px;
+    }
+    .badge {
+      background: #2a2e38;
+      border-radius: 20px;
+      padding: 6px 16px;
+      font-size: .82em;
+      color: #f0b90b;
+      font-weight: bold;
+    }
+    .features {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+      gap: 16px;
+      margin-bottom: 32px;
+      text-align: right;
+    }
+    .feature {
+      background: #12161e;
+      border-radius: 10px;
+      padding: 14px;
+      border-right: 3px solid #f0b90b;
+    }
+    .feature-title { color: #f0b90b; font-weight: bold; margin-bottom: 4px; font-size: .9em; }
+    .feature-desc  { color: #aaa; font-size: .8em; line-height: 1.5; }
+    .cta {
+      background: #f0b90b;
+      color: #000;
+      font-weight: bold;
+      font-size: 1em;
+      padding: 12px 28px;
+      border-radius: 10px;
+      text-decoration: none;
+      display: inline-block;
+      margin: 8px;
+      transition: opacity .2s;
+    }
+    .cta:hover { opacity: .85; }
+    .cta-secondary {
+      background: #2a2e38;
+      color: #f0b90b;
+    }
+    .status-dot {
+      display: inline-block;
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      background: #2ecc71;
+      margin-left: 6px;
+      animation: pulse 2s infinite;
+    }
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50%       { opacity: .4; }
+    }
+    .footer { color: #555; font-size: .75em; margin-top: 24px; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div style="font-size:2.5em;margin-bottom:10px">🔷</div>
+    <h1>Nexus Arbitrage Hub</h1>
+    <p class="subtitle">
+      منظومة تداول آلي موحدة &nbsp;|&nbsp; CEX + Perps + DEX
+      <span class="status-dot" title="مُشغَّل"></span>
+    </p>
+
+    <div class="badge-row">
+      <span class="badge">MEXC</span>
+      <span class="badge">Binance</span>
+      <span class="badge">KuCoin</span>
+      <span class="badge">OKX</span>
+      <span class="badge">Bitget</span>
+      <span class="badge">Bitmart</span>
+      <span class="badge">0x DEX</span>
+    </div>
+
+    <div class="features">
+      <div class="feature">
+        <div class="feature-title">⚡ تداول فوري</div>
+        <div class="feature-desc">أوامر سوق على منصات متعددة في آنٍ واحد</div>
+      </div>
+      <div class="feature">
+        <div class="feature-title">📊 مراقبة لحظية</div>
+        <div class="feature-desc">لوحة تحكم كاملة مع رسوم بيانية للأرباح</div>
+      </div>
+      <div class="feature">
+        <div class="feature-title">🔒 إدارة مخاطر</div>
+        <div class="feature-desc">حد خسارة يومي، إيقاف تلقائي، Kelly sizing</div>
+      </div>
+      <div class="feature">
+        <div class="feature-title">📲 إشعارات Telegram</div>
+        <div class="feature-desc">تنبيهات فورية لكل صفقة عبر بوت تيليجرام</div>
+      </div>
+      <div class="feature">
+        <div class="feature-title">🔄 Cron تلقائي</div>
+        <div class="feature-desc">مسح كل دقيقة عبر Cloudflare Workers</div>
+      </div>
+      <div class="feature">
+        <div class="feature-title">📄 وضع Paper</div>
+        <div class="feature-desc">اختبار الاستراتيجيات بدون مخاطرة حقيقية</div>
+      </div>
+    </div>
+
+    <a class="cta" href="https://arbitrage-bot.zedanazad43.workers.dev/" target="_blank" rel="noopener">
+      🚀 فتح لوحة التحكم
+    </a>
+    <a class="cta cta-secondary" href="https://github.com/zedanazad43/UltimateArbitrageHFT" target="_blank" rel="noopener">
+      📦 GitHub
+    </a>
+
+    <p class="footer">
+      مبني على Cloudflare Workers &nbsp;|&nbsp; نشر تلقائي عبر GitHub Actions
+    </p>
+  </div>
+</body>
+</html>

@@ -2,6 +2,7 @@ name = "arbitrage-bot"
 main = "index.js"
 compatibility_date = "2025-04-18"
 compatibility_flags = ["nodejs_compat"]
+account_id = "652e53f35781522e2745784cc4425d9d"
 
 [[kv_namespaces]]
 binding = "BOT_STATE"
