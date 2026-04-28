@@ -13,4 +13,8 @@ npm-debug.log*
 .DS_Store
 Thumbs.db
 node_modules/
-node_modules/
+.env
+*.env
+*.secret*
+*.bak
+secrets.env
