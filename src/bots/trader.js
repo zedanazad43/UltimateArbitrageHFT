@@ -66,7 +66,8 @@ async function _executeOne(env, opp) {
     if (!sufficient) {
       throw new Error(`Insufficient USDT on MEXC for $${sizeUsd.toFixed(2)} perps trade`);
     }
-    const side = opp.sellExchange === 'mexc_perp' ? 'SHORT' : 'LONG';
+    // buyExchange === 'mexc_perp' → LONG (buying on perps); otherwise SELL leg is on perps → SHORT
+    const side = opp.buyExchange === 'mexc_perp' ? 'LONG' : 'SHORT';
     return placeMEXCFuturesOrder(env, opp.symbol, side, amount, leverage);
   }
 

@@ -17,7 +17,7 @@ export const scanMarkets = async (env, config, state = {}, notify = async () => 
     const opp = result.opportunity;
     console.log(
       `[Scanner] Opportunity found: [${opp.strategy.toUpperCase()}] ${opp.symbol}` +
-      ` ${opp.direction} net ${opp.netPct.toFixed(4)}%  size $${result.sizeUsd.toFixed(2)}`
+      ` ${opp.direction} net ${opp.netPct.toFixed(4)}% size $${result.sizeUsd.toFixed(2)}`
     );
   } else {
     console.log('[Scanner] No profitable opportunities found in this cycle.');
