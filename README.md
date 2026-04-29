@@ -1,7 +1,7 @@
 # UltimateArbitrageHFT
 
-Deployed Cloudflare Worker: `arbitrage-bot`
-Live URL: <https://arbitrage-bot.zedanazad43.workers.dev>
+Deployed Cloudflare Worker: `ultimate-arbitrage-hft`
+Live URL: <https://ultimate-arbitrage-hft.zedanazad43.workers.dev>
 
 ---
 
@@ -62,8 +62,8 @@ npm run dev       # local wrangler dev
 ## Monitoring
 
 - **Telegram**: send `/status` or `/scan` to your bot
-- **Dashboard**: <https://arbitrage-bot.zedanazad43.workers.dev>
-- **Logs**: `npm run tail` or Cloudflare dashboard → Workers → arbitrage-bot → Logs
+- **Dashboard**: <https://ultimate-arbitrage-hft.zedanazad43.workers.dev>
+- **Logs**: `npm run tail` or Cloudflare dashboard → Workers → ultimate-arbitrage-hft → Logs
 
 ## Security
 

@@ -16,7 +16,7 @@
       9. Register Telegram webhook with Telegram API (optional)
 
 .PARAMETER WorkerName
-    Cloudflare worker name. Defaults to "arbitrage-bot".
+    Cloudflare worker name. Defaults to "ultimate-arbitrage-hft".
 
 .PARAMETER ApiKeysFile
     Path to the API keys file. Defaults to .\api_keys.txt
