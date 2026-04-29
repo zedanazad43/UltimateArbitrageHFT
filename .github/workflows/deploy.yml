@@ -13,16 +13,40 @@ jobs:
     name: Deploy
 
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v4
 
       - name: Setup Node.js
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@v4
         with:
-          node-version: '24'
+          node-version: '20'
           cache: 'npm'
 
       - name: Install dependencies
         run: npm ci
+
+      # ── Pre-flight: verify Cloudflare credentials are reachable ──────────────
+      # If this step fails with code 9109 ("Cannot use the access token from
+      # location") your API token has an IP allowlist that blocks GitHub Actions.
+      # Fix: Cloudflare dashboard → My Profile → API Tokens → Edit the token
+      #      → remove or expand the "Client IP Address Filtering" restriction.
+      # If this step fails with code 10000 ("Authentication error") the token
+      # itself is wrong or lacks permissions (needs Workers:Edit, D1:Edit, KV:Edit).
+      - name: Verify Cloudflare credentials
+        run: |
+          HTTP=$(curl -s -o /tmp/cf_verify.json -w "%{http_code}" \
+            -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
+            "https://api.cloudflare.com/client/v4/user/tokens/verify")
+          cat /tmp/cf_verify.json
+          if [ "$HTTP" != "200" ]; then
+            echo "::error::Cloudflare token verification failed (HTTP $HTTP)."
+            echo "::error::Fix: go to Cloudflare dashboard → My Profile → API Tokens"
+            echo "::error::→ Edit your token → remove 'Client IP Address Filtering' restriction"
+            echo "::error::→ Ensure the token has permissions: Workers Scripts:Edit, D1:Edit, KV Storage:Edit"
+            exit 1
+          fi
+          echo "✅ Cloudflare credentials verified"
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
 
       - name: Run D1 migration
         run: npx --yes wrangler@4 d1 execute ultimate-arbitrage-db --file=./migrations/schema.sql --remote
@@ -166,7 +190,7 @@ jobs:
       - name: Deployment summary
         run: |
           echo "✅ Deployment complete"
-          echo "   Worker  : perps-executor"
+          echo "   Worker  : arbitrage-bot"
           echo "   Mode    : LIVE (real trading)"
           echo "   Cron    : every minute"
           echo "   Monitor : Telegram bot or Worker dashboard"
