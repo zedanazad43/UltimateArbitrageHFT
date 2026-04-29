@@ -1,0 +1,51 @@
+# ============================================================
+# Cloudflare Worker — local development secrets template
+# ============================================================
+# Copy this file to .dev.vars and fill in real values.
+# .dev.vars is gitignored and MUST NEVER be committed.
+#
+# Usage:
+#   cp .dev.vars.example .dev.vars
+#   # edit .dev.vars with your credentials
+#   npm run db:migrate:local   # seed local D1 database
+#   npm run dev                # start wrangler dev server
+# ============================================================
+
+# ── Admin ────────────────────────────────────────────────────
+# Arbitrary secret used in the x-admin-token header to protect
+# admin routes (/start, /stop, /scan, /config, etc.).
+ADMIN_TOKEN=change-me-local-dev
+
+# ── Telegram notifications ───────────────────────────────────
+# Bot token from @BotFather and your chat/channel ID.
+# Leave blank to disable Telegram alerts during local dev.
+TELEGRAM_BOT_TOKEN=
+TELEGRAM_CHAT_ID=
+
+# ── MEXC ─────────────────────────────────────────────────────
+MEXC_API_KEY=
+MEXC_API_SECRET=
+
+# ── Binance ──────────────────────────────────────────────────
+BINANCE_API_KEY=
+BINANCE_API_SECRET=
+
+# ── KuCoin ───────────────────────────────────────────────────
+KUCOIN_API_KEY=
+KUCOIN_SECRET_KEY=
+KUCOIN_PASSPHRASE=
+
+# ── OKX ──────────────────────────────────────────────────────
+OKX_API_KEY=
+OKX_API_SECRET=
+OKX_PASSPHRASE=
+
+# ── Bitget ───────────────────────────────────────────────────
+BITGET_API_KEY=
+BITGET_SECRET_KEY=
+BITGET_API_PASSPHRASE=
+
+# ── Bitmart ──────────────────────────────────────────────────
+BITMART_API_KEY=
+BITMART_SECRET_KEY=
+BITMART_MEMO=
