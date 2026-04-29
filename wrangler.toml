@@ -4,6 +4,8 @@ compatibility_date = "2025-04-18"
 compatibility_flags = ["nodejs_compat"]
 account_id = "652e53f35781522e2745784cc4425d9d"
 
+# ── Existing bindings ──────────────────────────────────────────────────────────
+
 [[kv_namespaces]]
 binding = "BOT_STATE"
 id = "ac954cedbedd48f8aa4452975e5fc2a1"
@@ -20,6 +22,62 @@ class_name = "MarketStreamer"
 [[migrations]]
 tag = "v1"
 new_classes = ["MarketStreamer"]
+
+# ── Analytics Engine ───────────────────────────────────────────────────────────
+# Streams trade events, scan results, and errors to Cloudflare Analytics Engine.
+# Dashboard: https://dash.cloudflare.com/ → Workers & Pages → Analytics Engine
+
+[[analytics_engine_datasets]]
+binding = "ANALYTICS"
+dataset = "arbitrage_events"
+
+# ── R2 Bucket — trade log archives ────────────────────────────────────────────
+# Stores CSV trade exports and daily PDF-style reports.
+# Create: `npx wrangler r2 bucket create ultimate-arbitrage-logs`
+
+[[r2_buckets]]
+binding = "TRADE_LOGS"
+bucket_name = "ultimate-arbitrage-logs"
+
+# ── Workers AI ────────────────────────────────────────────────────────────────
+# Runs LLM-powered opportunity analysis and market summaries entirely on
+# Cloudflare's GPU fleet — no external API keys required.
+
+[ai]
+binding = "AI"
+
+# ── Queue — async trade-log pipeline ──────────────────────────────────────────
+# Producers: enqueue trade-log messages immediately after order execution so
+# the hot path is never blocked by slow DB writes.
+# Create: `npx wrangler queues create ultimate-arbitrage-queue`
+
+[[queues.producers]]
+binding = "TRADE_QUEUE"
+queue = "ultimate-arbitrage-queue"
+
+[[queues.consumers]]
+queue = "ultimate-arbitrage-queue"
+max_batch_size = 10
+max_batch_timeout = 30
+
+# ── Rate Limiter — admin endpoint protection ───────────────────────────────────
+# 20 requests per 60 seconds per IP on all admin routes.
+# Uses Cloudflare's built-in rate limiting; no external service needed.
+
+[[unsafe.bindings]]
+type = "ratelimit"
+name = "RATE_LIMITER"
+namespace_id = "1001"
+simple = { limit = 20, period = 60 }
+
+# ── Version Metadata ──────────────────────────────────────────────────────────
+# Exposes the current Worker deployment version ID, tag, and timestamp.
+# Accessible at /api/version.
+
+[version_metadata]
+binding = "VERSION"
+
+# ── Observability ──────────────────────────────────────────────────────────────
 
 [observability]
 enabled = false
