@@ -1,6 +1,34 @@
-// nexus/src/db.js — D1 database helpers
+// nexus/src/db.js — D1 database helpers + Analytics Engine integration
+
+// ── Analytics Engine helper ───────────────────────────────────────────────────
+// Writes a structured data point to the ANALYTICS binding (Analytics Engine).
+// The binding is optional — all callers guard with an existence check so the
+// Worker degrades gracefully when the dataset has not yet been provisioned.
+//
+// Schema:
+//   blobs[0]  = event_type  (e.g. "trade", "scan", "admin", "error")
+//   blobs[1]  = strategy    (e.g. "cex", "dex", "perps")
+//   blobs[2]  = mode        (e.g. "paper", "live")
+//   doubles[0] = size_usd
+//   doubles[1] = net_profit_percent
+//   indexes[0] = event_type (for fast GROUP-BY queries via SQL API)
+export function writeAnalyticsEvent(env, eventType, { strategy = '', mode = '', sizeUsd = 0, netPct = 0 } = {}) {
+  if (!env.ANALYTICS) return;
+  try {
+    env.ANALYTICS.writeDataPoint({
+      blobs:   [eventType, strategy, mode],
+      doubles: [sizeUsd, netPct],
+      indexes: [eventType],
+    });
+  } catch (e) {
+    console.error('[Analytics] writeDataPoint error:', e.message);
+  }
+}
 
 export async function logTrade(env, { strategy, sizeUsd, netPct, mode }) {
+  // Emit to Analytics Engine (non-blocking, fire-and-forget)
+  writeAnalyticsEvent(env, 'trade', { strategy, sizeUsd, netPct, mode });
+
   if (!env.DB) return;
   try {
     await env.DB.prepare(
@@ -41,6 +69,7 @@ export async function getStrategyPnL(env) {
 }
 
 export async function logAdminEvent(env, action, request) {
+  writeAnalyticsEvent(env, 'admin', { strategy: action });
   if (!env.DB) return;
   try {
     const ip = request.headers.get('cf-connecting-ip') ||
@@ -52,6 +81,7 @@ export async function logAdminEvent(env, action, request) {
 }
 
 export async function logBotEvent(env, eventType, details = null) {
+  writeAnalyticsEvent(env, eventType, {});
   if (!env.DB) return;
   try {
     await env.DB.prepare(

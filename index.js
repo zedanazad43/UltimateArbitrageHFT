@@ -61,6 +61,23 @@ function isAuthorized(env, c) {
   return c.req.header('x-admin-token') === token;
 }
 
+// ─── Rate limiter helper ──────────────────────────────────────────────────────
+// Uses the RATE_LIMITER binding (Cloudflare Rate Limiting API).
+// Returns a 429 response if the caller has exceeded the configured threshold;
+// returns null when the request may proceed.
+// Gracefully skips rate limiting when the binding is absent (local dev).
+async function checkRateLimit(env, c) {
+  if (!env.RATE_LIMITER) return null;
+  try {
+    const key = c.req.header('cf-connecting-ip') || c.req.header('x-forwarded-for') || 'unknown';
+    const { success } = await env.RATE_LIMITER.limit({ key });
+    if (!success) return c.text('Too Many Requests', 429);
+  } catch (e) {
+    console.error('[RateLimit] error:', e.message);
+  }
+  return null;
+}
+
 // ─── Durable Object: MarketStreamer ───────────────────────────────────────────
 export class MarketStreamer {
   constructor(state, env) {
@@ -96,6 +113,8 @@ app.get('/checklist', async (c) => renderChecklist(c.env));
 
 // ── Admin: Start ──────────────────────────────────────────────────────────────
 app.get('/start', async (c) => {
+  const limited = await checkRateLimit(c.env, c);
+  if (limited) return limited;
   if (!isAuthorized(c.env, c)) return c.text('Unauthorized', 401);
   const state = await getState(c.env);
   state.trading_enabled = true;
@@ -109,6 +128,8 @@ app.get('/start', async (c) => {
 
 // ── Admin: Stop ───────────────────────────────────────────────────────────────
 app.get('/stop', async (c) => {
+  const limited = await checkRateLimit(c.env, c);
+  if (limited) return limited;
   if (!isAuthorized(c.env, c)) return c.text('Unauthorized', 401);
   const state = await getState(c.env);
   state.trading_enabled = false;
@@ -120,6 +141,8 @@ app.get('/stop', async (c) => {
 
 // ── Admin: Immediate scan ─────────────────────────────────────────────────────
 app.get('/scan', async (c) => {
+  const limited = await checkRateLimit(c.env, c);
+  if (limited) return limited;
   if (!isAuthorized(c.env, c)) return c.text('Unauthorized', 401);
   const state = await getState(c.env);
   const result = await runScan(c.env, state, sendTelegramAlert);
@@ -137,6 +160,8 @@ app.get('/scan', async (c) => {
 
 // ── Admin: Set mode Paper ─────────────────────────────────────────────────────
 app.post('/mode/paper', async (c) => {
+  const limited = await checkRateLimit(c.env, c);
+  if (limited) return limited;
   if (!isAuthorized(c.env, c)) return c.text('Unauthorized', 401);
   const state = await getState(c.env);
   state.paper_trading = true;
@@ -148,6 +173,8 @@ app.post('/mode/paper', async (c) => {
 
 // ── Admin: Set mode Live ──────────────────────────────────────────────────────
 app.post('/mode/live', async (c) => {
+  const limited = await checkRateLimit(c.env, c);
+  if (limited) return limited;
   if (!isAuthorized(c.env, c)) return c.text('Unauthorized', 401);
   const state = await getState(c.env);
   state.paper_trading = false;
@@ -159,6 +186,8 @@ app.post('/mode/live', async (c) => {
 
 // ── Admin: Save config ────────────────────────────────────────────────────────
 app.post('/config', async (c) => {
+  const limited = await checkRateLimit(c.env, c);
+  if (limited) return limited;
   if (!isAuthorized(c.env, c)) return c.text('Unauthorized', 401);
   let body;
   try { body = await c.req.json(); } catch (_) { return c.text('Invalid JSON', 400); }
@@ -227,6 +256,8 @@ app.get('/api/balances', async (c) => {
 
 // ── Admin: Reset daily stats ──────────────────────────────────────────────────
 app.post('/reset-daily', async (c) => {
+  const limited = await checkRateLimit(c.env, c);
+  if (limited) return limited;
   if (!isAuthorized(c.env, c)) return c.text('Unauthorized', 401);
   const state = await getState(c.env);
   state.daily_pnl    = 0;
@@ -242,7 +273,7 @@ app.post('/reset-daily', async (c) => {
   return c.text('✅ تم إعادة تعيين إحصائيات اليوم');
 });
 
-// ── API: CSV export ───────────────────────────────────────────────────────────
+// ── API: CSV export — also archives to R2 ────────────────────────────────────
 app.get('/api/export', async (c) => {
   const from   = c.req.query('from');
   const to     = c.req.query('to');
@@ -261,11 +292,100 @@ app.get('/api/export', async (c) => {
   );
   const csv = [headers.join(','), ...rows].join('\r\n');
   const dateStr = new Date().toISOString().slice(0, 10); // YYYY-MM-DD
+
+  // Archive to R2 (non-blocking — failure does not affect the download)
+  if (c.env.TRADE_LOGS) {
+    try {
+      const key = `exports/${dateStr}-${Date.now()}.csv`;
+      await c.env.TRADE_LOGS.put(key, csv, {
+        httpMetadata: { contentType: 'text/csv; charset=utf-8' },
+        customMetadata: { from: String(fromMs), to: String(toMs), rows: String(trades.length) },
+      });
+    } catch (e) {
+      console.error('[R2] export archive error:', e.message);
+    }
+  }
+
   return new Response(csv, {
     headers: {
       'Content-Type': 'text/csv; charset=utf-8',
       'Content-Disposition': `attachment; filename="trades-${dateStr}.csv"`
     }
+  });
+});
+
+// ── API: R2 log archive listing ───────────────────────────────────────────────
+// Returns a paginated list of CSV archives stored in the TRADE_LOGS R2 bucket.
+// Accepts optional `?prefix=` query parameter (default: "exports/").
+app.get('/api/logs', async (c) => {
+  if (!c.env.TRADE_LOGS) return c.json({ error: 'R2 binding not configured' }, 503);
+  const prefix = c.req.query('prefix') || 'exports/';
+  const cursor = c.req.query('cursor') || undefined;
+  try {
+    const list = await c.env.TRADE_LOGS.list({ prefix, cursor, limit: 50 });
+    return c.json({
+      success: true,
+      objects: list.objects.map(o => ({
+        key: o.key,
+        size: o.size,
+        uploaded: o.uploaded,
+        customMetadata: o.customMetadata,
+      })),
+      truncated: list.truncated,
+      cursor: list.cursor,
+    });
+  } catch (e) {
+    console.error('[R2] list error:', e.message);
+    return c.json({ error: 'Failed to list log archives' }, 500);
+  }
+});
+
+// ── API: Workers AI — opportunity analysis ────────────────────────────────────
+// Accepts a JSON body with an `opportunity` object and returns an AI-generated
+// short analysis and recommendation in Arabic.
+// Body: { opportunity: { symbol, strategy, direction, buyPrice, sellPrice, netPct } }
+app.post('/api/ai-analysis', async (c) => {
+  if (!isAuthorized(c.env, c)) return c.json({ error: 'Unauthorized' }, 401);
+  if (!c.env.AI) return c.json({ error: 'Workers AI binding not configured' }, 503);
+
+  let body;
+  try { body = await c.req.json(); } catch (_) { return c.json({ error: 'Invalid JSON' }, 400); }
+
+  const opp = body?.opportunity;
+  if (!opp) return c.json({ error: 'Missing opportunity field' }, 400);
+
+  const prompt =
+    `You are a professional crypto arbitrage analyst. Analyze this opportunity briefly (2-3 sentences) and give a buy/skip recommendation.\n` +
+    `Pair: ${opp.symbol}\n` +
+    `Strategy: ${opp.strategy?.toUpperCase()}\n` +
+    `Direction: ${opp.direction}\n` +
+    `Buy price: $${Number(opp.buyPrice).toFixed(6)}\n` +
+    `Sell price: $${Number(opp.sellPrice).toFixed(6)}\n` +
+    `Net profit: ${Number(opp.netPct).toFixed(4)}%\n` +
+    `Respond in Arabic only.`;
+
+  try {
+    const result = await c.env.AI.run('@cf/meta/llama-3.1-8b-instruct', {
+      messages: [{ role: 'user', content: prompt }],
+      max_tokens: 256,
+    });
+    const analysis = result?.response ?? result?.text ?? (typeof result === 'string' ? result : JSON.stringify(result));
+    return c.json({ success: true, analysis });
+  } catch (e) {
+    console.error('[AI] run error:', e.message);
+    return c.json({ error: 'AI analysis failed', detail: e.message }, 500);
+  }
+});
+
+// ── API: Version metadata ─────────────────────────────────────────────────────
+// Exposes the current Worker deployment version, tag, and timestamp.
+app.get('/api/version', (c) => {
+  const v = c.env.VERSION;
+  return c.json({
+    id:        v?.id        ?? null,
+    tag:       v?.tag       ?? null,
+    timestamp: v?.timestamp ?? null,
+    worker:    'ultimate-arbitrage-hft',
   });
 });
 
@@ -476,8 +596,38 @@ async function sendDailyReport(env, state) {
 // ─── Exports ──────────────────────────────────────────────────────────────────
 export default {
   fetch: app.fetch.bind(app),
+
   async scheduled(event, env, ctx) {
     ctx.waitUntil(runScheduledCycle(env));
+  },
+
+  // ── Queue consumer ─────────────────────────────────────────────────────────
+  // Processes messages enqueued via env.TRADE_QUEUE.send().
+  // Each message is expected to carry { type, data } where type is one of:
+  //   "trade_log"   — write a deferred trade record to D1 + R2 daily summary
+  //   "alert"       — send a Telegram notification
+  async queue(batch, env) {
+    for (const msg of batch.messages) {
+      try {
+        const { type, data } = msg.body;
+
+        if (type === 'trade_log' && env.DB) {
+          const { strategy, sizeUsd, netPct, mode } = data;
+          await env.DB.prepare(
+            `INSERT INTO trades (strategy, size_usd, net_profit_percent, mode, created_at) VALUES (?, ?, ?, ?, ?)`
+          ).bind(strategy, sizeUsd, netPct, mode, Date.now()).run();
+        }
+
+        if (type === 'alert') {
+          await sendTelegramAlert(env, data.message);
+        }
+
+        msg.ack();
+      } catch (e) {
+        console.error('[Queue] message processing error:', e.message);
+        msg.retry();
+      }
+    }
   },
 };
 
