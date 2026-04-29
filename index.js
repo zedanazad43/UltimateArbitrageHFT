@@ -346,7 +346,7 @@ app.get('/api/logs', async (c) => {
 // Body: { opportunity: { symbol, strategy, direction, buyPrice, sellPrice, netPct } }
 app.post('/api/ai-analysis', async (c) => {
   if (!isAuthorized(c.env, c)) return c.json({ error: 'Unauthorized' }, 401);
-  if (!c.env.AI) return c.json({ error: 'Workers AI binding not configured' }, 503);
+  if (!c.env.AIWORKER) return c.json({ error: 'Workers AI binding not configured' }, 503);
 
   let body;
   try { body = await c.req.json(); } catch (_) { return c.json({ error: 'Invalid JSON' }, 400); }
@@ -365,7 +365,7 @@ app.post('/api/ai-analysis', async (c) => {
     `Respond in Arabic only.`;
 
   try {
-    const result = await c.env.AI.run('@cf/meta/llama-3.1-8b-instruct', {
+    const result = await c.env.AIWORKER.run('@cf/meta/llama-3.1-8b-instruct', {
       messages: [{ role: 'user', content: prompt }],
       max_tokens: 256,
     });
@@ -380,7 +380,7 @@ app.post('/api/ai-analysis', async (c) => {
 // ── API: Version metadata ─────────────────────────────────────────────────────
 // Exposes the current Worker deployment version, tag, and timestamp.
 app.get('/api/version', (c) => {
-  const v = c.env.VERSION;
+  const v = c.env.METADATA;
   return c.json({
     id:        v?.id        ?? null,
     tag:       v?.tag       ?? null,

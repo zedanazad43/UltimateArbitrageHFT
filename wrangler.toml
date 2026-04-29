@@ -10,8 +10,17 @@ account_id = "652e53f35781522e2745784cc4425d9d"
 binding = "BOT_STATE"
 id = "ac954cedbedd48f8aa4452975e5fc2a1"
 
+[[kv_namespaces]]
+binding = "KV_STORAGE"
+id = "ac954cedbedd48f8aa4452975e5fc2a1"
+
 [[d1_databases]]
 binding = "DB"
+database_name = "ultimate-arbitrage-db"
+database_id = "cd726538-9c41-456c-b172-15fcc3a63a0c"
+
+[[d1_databases]]
+binding = "MY_D1"
 database_name = "ultimate-arbitrage-db"
 database_id = "cd726538-9c41-456c-b172-15fcc3a63a0c"
 
@@ -39,12 +48,16 @@ dataset = "arbitrage_events"
 binding = "TRADE_LOGS"
 bucket_name = "ultimate-arbitrage-logs"
 
+[[r2_buckets]]
+binding = "R2"
+bucket_name = "ultimate-arbitrage-logs"
+
 # ── Workers AI ────────────────────────────────────────────────────────────────
 # Runs LLM-powered opportunity analysis and market summaries entirely on
 # Cloudflare's GPU fleet — no external API keys required.
 
 [ai]
-binding = "AI"
+binding = "AIWORKER"
 
 # ── Queue — async trade-log pipeline ──────────────────────────────────────────
 # Producers: enqueue trade-log messages immediately after order execution so
@@ -53,6 +66,10 @@ binding = "AI"
 
 [[queues.producers]]
 binding = "TRADE_QUEUE"
+queue = "ultimate-arbitrage-queue"
+
+[[queues.producers]]
+binding = "ULTIMATEARBITRAGEQUEUE"
 queue = "ultimate-arbitrage-queue"
 
 [[queues.consumers]]
@@ -70,12 +87,27 @@ name = "RATE_LIMITER"
 namespace_id = "1001"
 simple = { limit = 20, period = 60 }
 
+# ── Browser Rendering ─────────────────────────────────────────────────────────
+# Allows the Worker to launch a headless Chromium browser instance.
+# Binding name matches the Cloudflare dashboard entry "MY_BINDING".
+
+[browser]
+binding = "MY_BINDING"
+
+# ── Workflows ─────────────────────────────────────────────────────────────────
+# Durable, resumable multi-step workflow engine running inside Cloudflare.
+# Create: `npx wrangler workflows create my-workflow`
+
+[[workflows]]
+binding = "MY_WORKFLOW"
+name = "my-workflow"
+
 # ── Version Metadata ──────────────────────────────────────────────────────────
 # Exposes the current Worker deployment version ID, tag, and timestamp.
 # Accessible at /api/version.
 
 [version_metadata]
-binding = "VERSION"
+binding = "METADATA"
 
 # ── Observability ──────────────────────────────────────────────────────────────
 
