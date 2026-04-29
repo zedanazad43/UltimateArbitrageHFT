@@ -40,7 +40,7 @@
 #>
 [CmdletBinding()]
 param(
-    [string]$WorkerName       = "arbitrage-bot",
+    [string]$WorkerName       = "ultimate-arbitrage-hft",
     [string]$ApiKeysFile      = ".\api_keys.txt",
     [string]$MigrationFile    = ".\migrations\schema.sql",
     [string]$TelegramBotToken = "",
@@ -70,10 +70,10 @@ if (-not (Test-Path ".\wrangler.toml")) {
     Write-Fail "wrangler.toml not found. Run this script from the project root."
 }
 $toml = Get-Content ".\wrangler.toml" -Raw
-if ($toml -notmatch 'name\s*=\s*"arbitrage-bot"') {
-    Write-Fail "wrangler.toml does not declare name = `"arbitrage-bot`". Fix it first."
+if ($toml -notmatch 'name\s*=\s*"ultimate-arbitrage-hft"') {
+    Write-Fail "wrangler.toml does not declare name = `"ultimate-arbitrage-hft`". Fix it first."
 }
-Write-OK "wrangler.toml OK  (name=arbitrage-bot)"
+Write-OK "wrangler.toml OK  (name=ultimate-arbitrage-hft)"
 
 # ---------------------------------------------------------------------------
 # 1. Check Node / npm
