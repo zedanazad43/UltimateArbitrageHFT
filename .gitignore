@@ -4,6 +4,13 @@
 
 # API Keys – NEVER commit real keys
 api_keys.txt
+upload-secrets.ps1
+
+# Local artifacts / Windows file listings
+local_filelist.txt
+finalize_project.ps1
+*.txt
+!README.md
 
 # Node
 node_modules/
@@ -12,7 +19,6 @@ npm-debug.log*
 # OS
 .DS_Store
 Thumbs.db
-node_modules/
 .env
 *.env
 *.secret*
