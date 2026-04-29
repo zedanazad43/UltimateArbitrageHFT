@@ -9,8 +9,7 @@ upload-secrets.ps1
 # Local artifacts / Windows file listings
 local_filelist.txt
 finalize_project.ps1
-*.txt
-!README.md
+مستند نصي جديد.txt
 
 # Node
 node_modules/
