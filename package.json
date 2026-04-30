@@ -17,7 +17,7 @@
     "test:dex": "node --test tests/dex.test.js",
     "test:all": "node --test tests/unit.test.js tests/exchange.integration.test.js tests/prices.test.js tests/exchange-multi.test.js tests/notifier.test.js tests/dex.test.js",
     "check:connection": "node scripts/check-connection.js",
-    "db:migrate": "wrangler d1 execute ultimate-arbitrage-db --file=./migrations/schema.sql",
+    "db:migrate": "wrangler d1 execute ultimate-arbitrage-db --remote --file=./migrations/schema.sql",
     "db:migrate:local": "wrangler d1 execute ultimate-arbitrage-db --local --file=./migrations/schema.sql",
     "secret:all": "pwsh -NoProfile -File ./scripts/upload-secrets.ps1",
     "secret:dry": "pwsh -NoProfile -File ./scripts/upload-secrets.ps1 -DryRun",

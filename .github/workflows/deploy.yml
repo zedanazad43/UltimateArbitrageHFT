@@ -189,7 +189,7 @@ jobs:
       - name: Deployment summary
         run: |
           echo "✅ Deployment complete"
-          echo "   Worker  : ultimate-arbitrage-hft"
+          echo "   Worker  : ultimatearbitragehft"
           echo "   Mode    : LIVE (real trading)"
           echo "   Cron    : every minute"
           echo "   Monitor : Telegram bot or Worker dashboard"
