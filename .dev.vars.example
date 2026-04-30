@@ -50,6 +50,15 @@ BITMART_API_KEY=
 BITMART_SECRET_KEY=
 BITMART_MEMO=
 
+# ── GitHub Models AI ─────────────────────────────────────────
+# Personal Access Token (classic) or fine-grained PAT used to call
+# https://models.github.ai/inference with openai/gpt-4.1.
+# Grant: read:packages (classic PAT) — no extra scopes needed for GitHub Models.
+# When set, /api/ai-analysis uses GitHub Models; otherwise falls back to
+# Cloudflare Workers AI (AIWORKER binding).
+# Production: `npx wrangler secret put GITHUB_TOKEN`
+GITHUB_TOKEN=
+
 # ── Temporal Cloud ────────────────────────────────────────────
 # Temporal orchestrates durable trading sessions that survive
 # crashes and Cloudflare Worker restarts.
