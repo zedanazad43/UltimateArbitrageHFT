@@ -546,9 +546,12 @@ app.post('/api/temporal/start', async (c) => {
   }
   try {
     const body = await c.req.json().catch(() => ({}));
-    const origin = new URL(c.req.url).origin;
+    const workerUrl = c.env.TEMPORAL_WORKER_URL;
+    if (!workerUrl) {
+      return c.json({ error: 'TEMPORAL_WORKER_URL is not configured — set it via wrangler secret or [vars] in wrangler.toml' }, 503);
+    }
     const result = await startWorkflow(c.env, {
-      workerUrl:            c.env.TEMPORAL_WORKER_URL || origin,
+      workerUrl,
       adminToken:           c.env.ADMIN_TOKEN || '',
       cycleIntervalSeconds: body.cycleIntervalSeconds,
       maxCyclesBeforeReset: body.maxCyclesBeforeReset,

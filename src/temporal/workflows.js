@@ -68,6 +68,9 @@ export async function arbitrageTradingWorkflow({
   let cycles = 0;
   let lastScanResult = null;
   let mode = 'paper';
+  // pendingModeUpdate is set by the setPaperModeSignal handler and consumed
+  // in the main loop, because signal handlers must be synchronous (no await).
+  let pendingModeUpdate = null;
 
   // ── Signal handlers ────────────────────────────────────────────────────────
   setHandler(stopSignal, () => {
@@ -75,14 +78,11 @@ export async function arbitrageTradingWorkflow({
     log.info('Stop signal received — workflow will exit after current cycle');
   });
 
-  setHandler(setPaperModeSignal, async ({ paper }) => {
+  // Signal handlers must be synchronous; schedule the activity for the loop.
+  setHandler(setPaperModeSignal, ({ paper }) => {
     mode = paper ? 'paper' : 'live';
-    try {
-      await updateTradingModeActivity({ workerUrl, adminToken, paper });
-      log.info('Trading mode updated', { mode });
-    } catch (e) {
-      log.error('Failed to update trading mode', { error: e.message });
-    }
+    pendingModeUpdate = paper;
+    log.info('Trading mode signal received', { mode });
   });
 
   // ── Query handler ──────────────────────────────────────────────────────────
@@ -92,6 +92,17 @@ export async function arbitrageTradingWorkflow({
   while (running && cycles < maxCyclesBeforeReset) {
     await sleep(cycleIntervalSeconds * 1000);
     if (!running) break;
+
+    // Apply any pending mode change inside the loop where await is safe.
+    if (pendingModeUpdate !== null) {
+      try {
+        await updateTradingModeActivity({ workerUrl, adminToken, paper: pendingModeUpdate });
+        log.info('Trading mode updated on CF Worker', { mode });
+      } catch (e) {
+        log.error('Failed to update trading mode', { error: e.message });
+      }
+      pendingModeUpdate = null;
+    }
 
     try {
       lastScanResult = await runScanActivity({ workerUrl, adminToken });

@@ -130,5 +130,8 @@ crons = ["* * * * *"]
 
 [vars]
 TEMPORAL_NAMESPACE  = "default"
+# Set to your Cloud namespace gRPC endpoint, e.g. default.abc123.tmprl.cloud:7233
+# Leave blank to connect to a local dev server (localhost:7233)
 TEMPORAL_ADDRESS    = ""
+# Set to your deployed Worker URL, e.g. https://ultimatearbitragehft.workers.dev
 TEMPORAL_WORKER_URL = ""

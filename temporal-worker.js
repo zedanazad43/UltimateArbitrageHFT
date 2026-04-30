@@ -75,7 +75,7 @@ async function main() {
   // Build connection options
   const connectionOptions = { address: TEMPORAL_ADDRESS };
   if (isCloud) {
-    connectionOptions.tls    = {};          // use TLS (required for Temporal Cloud)
+    connectionOptions.tls    = {};          // empty object = enable TLS with default system CA roots (required for Temporal Cloud)
     connectionOptions.apiKey = TEMPORAL_API_KEY;
   }
 

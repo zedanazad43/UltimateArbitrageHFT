@@ -113,7 +113,7 @@ export async function startWorkflow(env, params = {}) {
         ],
       },
       workflowExecutionTimeout: '86400s',
-      workflowRunTimeout:       '3600s',
+      workflowRunTimeout:       '7200s',
       workflowTaskTimeout:      '10s',
       workflowIdReusePolicy:    'WORKFLOW_ID_REUSE_POLICY_TERMINATE_IF_RUNNING',
     }),
