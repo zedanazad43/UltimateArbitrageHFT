@@ -55,6 +55,7 @@ export function ensureSchema(env) {
   `).catch(e => {
     _schemaInitPromise = null; // allow retry on the next request
     console.error('[DB] ensureSchema error:', e.message);
+    throw e; // propagate so the middleware can log / handle
   });
   return _schemaInitPromise;
 }
