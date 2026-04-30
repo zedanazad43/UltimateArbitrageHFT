@@ -31,7 +31,8 @@
     "@temporalio/client": "^1.16.1",
     "@temporalio/worker": "^1.16.1",
     "@temporalio/workflow": "^1.16.1",
-    "hono": "^4.0.0"
+    "hono": "^4.0.0",
+    "openai": "^6.35.0"
   },
   "devDependencies": {
     "wrangler": "^4.0.0"
