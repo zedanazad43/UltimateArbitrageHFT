@@ -1,0 +1,24 @@
+name: Designite Java Analysis
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  designite:
+    runs-on: ubuntu-latest
+    name: Run Designite Java
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run Designite Java
+        uses: DesigniteTools/DJAction@v2.4.1
+        with:
+          PAT: ${{ secrets.PAT }}
+          D_KEY: ${{ secrets.D_KEY }}
+          API_KEY: ${{ secrets.DCODE_API_KEY }}
+          PROJECT_ID: ${{ secrets.DCODE_PROJECT_ID }}
