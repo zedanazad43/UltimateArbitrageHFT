@@ -121,7 +121,7 @@ npm run deploy
 ```
 
 The Worker will be available at:
-`https://ultimate-arbitrage-hft.<your-subdomain>.workers.dev`
+`https://ultimatearbitragehft.<your-subdomain>.workers.dev`
 
 ---
 
@@ -179,10 +179,38 @@ migrations/
 
 ---
 
+## Troubleshooting
+
+### ❌ Worker URL returns "Unauthorized"
+
+This means no worker is deployed under that name on Cloudflare.
+The most common cause is an **invalid or missing `CLOUDFLARE_API_TOKEN`** secret.
+
+Check your Actions run (repository → **Actions** → **Deploy & Real Trade**) for this error:
+```json
+{"success":false,"errors":[{"code":1000,"message":"Invalid API Token"}]}
+```
+
+**Fix:**
+1. Go to [https://dash.cloudflare.com/profile/api-tokens](https://dash.cloudflare.com/profile/api-tokens)
+2. Click **Create Token** → **Edit Cloudflare Workers** template
+3. Confirm permissions include: **Workers Scripts:Edit**, **D1:Edit**, **KV Storage:Edit**
+4. **Remove any "Client IP Address Filtering"** (GitHub Actions uses dynamic IPs)
+5. Copy the new token
+6. In GitHub: **Settings → Secrets and variables → Actions** → update `CLOUDFLARE_API_TOKEN`
+7. Re-run the **Deploy & Real Trade** workflow
+
+### ❌ Deploy fails with "Authentication error" (code 9109)
+
+Your token has an IP allowlist that blocks GitHub Actions runners.
+Fix: Cloudflare dashboard → My Profile → API Tokens → Edit token → remove **Client IP Address Filtering**.
+
+---
+
 ## Monitoring
 
-- **Dashboard**: `https://ultimate-arbitrage-hft.<subdomain>.workers.dev/`
+- **Dashboard**: `https://ultimatearbitragehft.<subdomain>.workers.dev/`
 - **Status API**: `/api/status`
 - **Trades API**: `/api/trades`
-- **Cron logs**: Cloudflare dashboard → Workers → ultimate-arbitrage-hft → Logs
+- **Cron logs**: Cloudflare dashboard → Workers → ultimatearbitragehft → Logs
 - **Telegram**: Configure `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID` for alerts
