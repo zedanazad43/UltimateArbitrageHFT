@@ -37,6 +37,6 @@ public final class BasicChatSample {
 
         ChatCompletions completions = client.complete(chatCompletionsOptions);
 
-        System.out.printf("%s.%n", completions.getChoice().getMessage().getContent());
+        System.out.printf("%s.%n", completions.getChoices().get(0).getMessage().getContent());
     }
 }
