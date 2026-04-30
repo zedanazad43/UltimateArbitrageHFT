@@ -1,5 +1,64 @@
 // nexus/src/db.js — D1 database helpers + Analytics Engine integration
 
+// ── Auto-schema initialisation ────────────────────────────────────────────────
+// Creates all D1 tables and indexes on first use so the Worker is self-healing:
+// the schema is applied automatically even when the manual migration step was
+// skipped.  The promise is memoised per Worker instance — subsequent requests
+// within the same isolate are no-ops.
+let _schemaInitPromise = null;
+
+export function ensureSchema(env) {
+  if (!env.DB) return Promise.resolve();
+  if (_schemaInitPromise) return _schemaInitPromise;
+  _schemaInitPromise = env.DB.exec(`
+    CREATE TABLE IF NOT EXISTS trades (
+      id                 INTEGER PRIMARY KEY AUTOINCREMENT,
+      strategy           TEXT    NOT NULL,
+      size_usd           REAL    NOT NULL,
+      net_profit_percent REAL    NOT NULL,
+      mode               TEXT    NOT NULL DEFAULT 'paper',
+      created_at         INTEGER NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS admin_events (
+      id         INTEGER PRIMARY KEY AUTOINCREMENT,
+      action     TEXT    NOT NULL,
+      source_ip  TEXT,
+      created_at INTEGER NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS bot_events (
+      id         INTEGER PRIMARY KEY AUTOINCREMENT,
+      event_type TEXT    NOT NULL,
+      details    TEXT,
+      created_at INTEGER NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS paper_positions (
+      id            INTEGER PRIMARY KEY AUTOINCREMENT,
+      strategy      TEXT    NOT NULL,
+      symbol        TEXT    NOT NULL,
+      direction     TEXT    NOT NULL,
+      size_usd      REAL    NOT NULL,
+      entry_price   REAL    NOT NULL,
+      buy_exchange  TEXT    NOT NULL,
+      sell_exchange TEXT    NOT NULL,
+      opened_at     INTEGER NOT NULL,
+      closed_at     INTEGER,
+      exit_price    REAL,
+      pnl_usd       REAL
+    );
+    CREATE INDEX IF NOT EXISTS idx_trades_created_at         ON trades(created_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_trades_strategy           ON trades(strategy);
+    CREATE INDEX IF NOT EXISTS idx_trades_mode               ON trades(mode);
+    CREATE INDEX IF NOT EXISTS idx_admin_events_created_at   ON admin_events(created_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_bot_events_created_at     ON bot_events(created_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_paper_positions_opened_at ON paper_positions(opened_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_paper_positions_closed_at ON paper_positions(closed_at);
+  `).catch(e => {
+    _schemaInitPromise = null; // allow retry on the next request
+    console.error('[DB] ensureSchema error:', e.message);
+  });
+  return _schemaInitPromise;
+}
+
 // ── Analytics Engine helper ───────────────────────────────────────────────────
 // Writes a structured data point to the ANALYTICS binding (Analytics Engine).
 // The binding is optional — all callers guard with an existence check so the

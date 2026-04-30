@@ -14,10 +14,15 @@ const DEFAULT_RISK = {
 
 export async function renderDashboard(env) {
   const [state, lastScan, trades, stratPnl, metrics] = await Promise.all([
-    env.BOT_STATE.get('trading_state', 'json').then(s => s || {
-      trading_enabled: true, paper_trading: false,
-      daily_pnl: 0, daily_trades: 0, total_pnl: 0, total_trades: 0
-    }),
+    env.BOT_STATE.get('trading_state', 'json')
+      .then(s => s || {
+        trading_enabled: true, paper_trading: false,
+        daily_pnl: 0, daily_trades: 0, total_pnl: 0, total_trades: 0
+      })
+      .catch(() => ({
+        trading_enabled: true, paper_trading: false,
+        daily_pnl: 0, daily_trades: 0, total_pnl: 0, total_trades: 0
+      })),
     env.BOT_STATE.get('nexus_last_scan', 'json').catch(() => null),
     getRecentTrades(env, 20),
     getStrategyPnL(env),
@@ -449,7 +454,7 @@ ${autoStopBanner}
 // ── Go-Live Checklist ─────────────────────────────────────────────────────────
 
 export async function renderChecklist(env) {
-  const state = await env.BOT_STATE.get('trading_state', 'json') || {};
+  const state = await env.BOT_STATE.get('trading_state', 'json').catch(() => null) || {};
   const checks = [
     { name: 'MEXC API Key',          ok: !!env.MEXC_API_KEY,          critical: true,  note: 'مطلوب للتداول الحقيقي' },
     { name: 'MEXC API Secret',        ok: !!env.MEXC_API_SECRET,       critical: true,  note: 'مطلوب للتداول الحقيقي' },

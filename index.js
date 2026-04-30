@@ -6,7 +6,7 @@ import { Hono } from 'hono';
 import { cors } from 'hono/cors';
 import { renderDashboard, renderChecklist } from './src/dashboard.js';
 import { runScan } from './src/orchestrator.js';
-import { logAdminEvent, logBotEvent, getRecentTrades, getStrategyPnL, getPerformanceMetrics, exportTrades } from './src/db.js';
+import { ensureSchema, logAdminEvent, logBotEvent, getRecentTrades, getStrategyPnL, getPerformanceMetrics, exportTrades } from './src/db.js';
 import { hasExchangeCredentials, getExchangeBalance } from './src/exchange.js';
 
 
@@ -105,6 +105,23 @@ export class MarketStreamer {
 // ─── Hono App ─────────────────────────────────────────────────────────────────
 const app = new Hono();
 app.use('*', cors());
+
+// ── Global error handler ──────────────────────────────────────────────────────
+app.onError((err, c) => {
+  console.error('[Worker] unhandled error:', err?.message, err?.stack);
+  return c.html(
+    `<!DOCTYPE html><html><body style="font-family:sans-serif;padding:40px">` +
+    `<h1>500 — Internal Server Error</h1><pre>${err?.message || 'Unknown error'}</pre>` +
+    `</body></html>`,
+    500
+  );
+});
+
+// ── Auto-schema middleware — ensures D1 tables exist before any route runs ────
+app.use('*', async (c, next) => {
+  await ensureSchema(c.env);
+  return next();
+});
 
 // ── Dashboard routes ──────────────────────────────────────────────────────────
 app.get('/', async (c) => renderDashboard(c.env));
