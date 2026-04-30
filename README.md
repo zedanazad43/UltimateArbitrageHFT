@@ -53,10 +53,35 @@ The workflow will:
 
 ## Local development
 
-```bash
+> **Windows users**: make sure `wrangler dev` is **stopped** before running `git pull`.
+> The dev server locks SQLite files inside `.wrangler/` and Git cannot update them
+> while those files are open.
+
+```powershell
+# 1. Install dependencies
 npm install
-npm test          # unit tests (must all PASS)
-npm run dev       # local wrangler dev
+
+# 2. Create your local secrets file (gitignored — never committed)
+Copy-Item .dev.vars.example .dev.vars
+#    Open .dev.vars and set at minimum:  ADMIN_TOKEN=any-local-secret
+
+# 3. Apply the D1 schema to the local Miniflare database
+npm run db:migrate:local
+
+# 4. Run unit tests (optional but recommended)
+npm test
+
+# 5. Start the local dev server
+npm run dev
+#    Dashboard: http://127.0.0.1:8787
+#    Add  -H "x-admin-token: <your ADMIN_TOKEN>"  to curl calls that need auth
+```
+
+Or use the all-in-one shortcut (steps 1–3 above combined):
+
+```powershell
+npm run setup:local
+# then:  npm run dev
 ```
 
 ## Monitoring
