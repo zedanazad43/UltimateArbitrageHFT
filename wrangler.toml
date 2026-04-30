@@ -91,21 +91,6 @@ name = "RATE_LIMITER"
 namespace_id = "1001"
 simple = { limit = 20, period = 60 }
 
-# ── Browser Rendering ─────────────────────────────────────────────────────────
-# Allows the Worker to launch a headless Chromium browser instance.
-# Binding name matches the Cloudflare dashboard entry "MY_BINDING".
-
-[browser]
-binding = "MY_BINDING"
-
-# ── Workflows ─────────────────────────────────────────────────────────────────
-# Durable, resumable multi-step workflow engine running inside Cloudflare.
-# Create: `npx wrangler workflows create my-workflow`
-
-[[workflows]]
-binding = "MY_WORKFLOW"
-name = "my-workflow"
-
 # ── Version Metadata ──────────────────────────────────────────────────────────
 # Exposes the current Worker deployment version ID, tag, and timestamp.
 # Accessible at /api/version.
