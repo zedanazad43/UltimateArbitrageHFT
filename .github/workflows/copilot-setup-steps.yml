@@ -29,5 +29,11 @@ jobs:
           node-version: "24"
           cache: "npm"
 
+      - name: Set up Java JDK
+        uses: actions/setup-java@v5.2.0
+        with:
+          java-version: '21'
+          distribution: 'temurin'
+
       - name: Install dependencies
         run: npm ci
