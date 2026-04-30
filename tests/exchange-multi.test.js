@@ -800,7 +800,7 @@ describe('placeExchangeMarketOrder', () => {
       'BTCUSDT', 'BUY', '0.001', 100
     );
     assert.equal(result.orderId, 'mx1');
-    assert.ok(capturedRequests[0].url.includes('api.mexc.com'));
+    assert.ok(new URL(capturedRequests[0].url).hostname === 'api.mexc.com');
   });
 
   test('delegates to placeMarketOrderBinance for binance exchange', async () => {
@@ -811,6 +811,6 @@ describe('placeExchangeMarketOrder', () => {
       'BTCUSDT', 'BUY', '0.001', 100
     );
     assert.equal(result.orderId, 'bn1');
-    assert.ok(capturedRequests[0].url.includes('binance.com'));
+    assert.ok(new URL(capturedRequests[0].url).hostname === 'api.binance.com');
   });
 });

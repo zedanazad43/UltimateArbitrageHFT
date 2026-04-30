@@ -53,7 +53,7 @@ describe('getMEXCSpotPrice', () => {
     assert.equal(result.exchange, 'mexc');
     assert.equal(result.fee, 0.0005);
     assert.ok(capturedUrl.includes('BTCUSDT'), 'URL should include the symbol');
-    assert.ok(capturedUrl.includes('mexc.com'), 'URL should target MEXC');
+    assert.ok(new URL(capturedUrl).hostname === 'api.mexc.com', 'URL should target MEXC');
   });
 
   test('returns null when the HTTP response is not ok', async () => {
@@ -85,7 +85,7 @@ describe('getBinancePrice', () => {
     assert.equal(result.price, 45200.0);
     assert.equal(result.exchange, 'binance');
     assert.equal(result.fee, 0.001);
-    assert.ok(capturedUrl.includes('binance.com'), 'URL should target Binance');
+    assert.ok(new URL(capturedUrl).hostname === 'api.binance.com', 'URL should target Binance');
     assert.ok(capturedUrl.includes('BTCUSDT'), 'URL should include the symbol');
   });
 
@@ -210,7 +210,7 @@ describe('getBitgetPrice', () => {
     assert.equal(result.price, 45050.0);
     assert.equal(result.exchange, 'bitget');
     assert.equal(result.fee, 0.001);
-    assert.ok(capturedUrl.includes('bitget.com'), 'URL should target Bitget');
+    assert.ok(new URL(capturedUrl).hostname === 'api.bitget.com', 'URL should target Bitget');
   });
 
   test('returns null when code is not "00000"', async () => {
@@ -388,14 +388,19 @@ describe('getAllSpotPrices', () => {
   test('skips exchanges listed in openCircuits and returns only active ones', async () => {
     // Only binance is NOT in openCircuits
     const openCircuits = new Set(['mexc', 'kucoin', 'okx', 'bitget', 'bitmart']);
-    const fetchedUrls = [];
+    const fetchedHosts = [];
     globalThis.fetch = async (url) => {
-      fetchedUrls.push(url);
-      if (url.includes('binance.com')) return makeResponse({ price: '45000.0' });
+      const host = new URL(url).hostname;
+      fetchedHosts.push(host);
+      if (host === 'api.binance.com') return makeResponse({ price: '45000.0' });
       return makeResponse({}, 500);
     };
     const results = await getAllSpotPrices({}, 'BTCUSDT', openCircuits);
-    assert.ok(fetchedUrls.every(u => !u.includes('mexc.com')), 'mexc should not be fetched');
+    const mexcHosts = ['api.mexc.com', 'contract.mexc.com'];
+    assert.ok(
+      fetchedHosts.every(h => !mexcHosts.includes(h)),
+      'mexc should not be fetched'
+    );
     const binanceResult = results.find(r => r.exchange === 'binance');
     assert.notEqual(binanceResult, undefined, 'binance result should be present');
     assert.equal(binanceResult.price, 45000.0);
@@ -405,7 +410,7 @@ describe('getAllSpotPrices', () => {
     // Only binance is not in openCircuits; others return circuit-breaker null
     const openCircuits = new Set(['mexc', 'kucoin', 'okx', 'bitget', 'bitmart']);
     globalThis.fetch = async (url) => {
-      if (url.includes('binance.com')) return makeResponse({ price: '45000.0' });
+      if (new URL(url).hostname === 'api.binance.com') return makeResponse({ price: '45000.0' });
       return makeResponse({}, 500);
     };
     const results = await getAllSpotPrices({}, 'BTCUSDT', openCircuits);
@@ -416,9 +421,10 @@ describe('getAllSpotPrices', () => {
   test('returns results from multiple non-circuit exchanges', async () => {
     const openCircuits = new Set(['okx', 'bitget', 'bitmart']); // mexc, binance, kucoin active
     globalThis.fetch = async (url) => {
-      if (url.includes('mexc.com') || url.includes('api.mexc')) return makeResponse({ price: '45000.0' });
-      if (url.includes('binance.com')) return makeResponse({ price: '45050.0' });
-      if (url.includes('kucoin.com')) return makeResponse({ data: { price: '45025.0' } });
+      const host = new URL(url).hostname;
+      if (host === 'api.mexc.com')    return makeResponse({ price: '45000.0' });
+      if (host === 'api.binance.com') return makeResponse({ price: '45050.0' });
+      if (host === 'api.kucoin.com')  return makeResponse({ data: { price: '45025.0' } });
       return makeResponse({}, 500);
     };
     const results = await getAllSpotPrices({}, 'BTCUSDT', openCircuits);
@@ -429,7 +435,7 @@ describe('getAllSpotPrices', () => {
 
   test('defaults to an empty openCircuits set (all exchanges active)', async () => {
     globalThis.fetch = async (url) => {
-      if (url.includes('binance.com')) return makeResponse({ price: '45000.0' });
+      if (new URL(url).hostname === 'api.binance.com') return makeResponse({ price: '45000.0' });
       return makeResponse({}, 500);
     };
     // No openCircuits argument — should not throw

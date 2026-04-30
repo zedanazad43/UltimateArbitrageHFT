@@ -25,20 +25,23 @@ function makeResponse(body, status = 200) {
 }
 
 /**
- * Installs a fetch mock that routes requests based on URL substring matches.
+ * Installs a fetch mock that routes requests to Alchemy and PancakeSwap
+ * by comparing the parsed hostname of each request URL.
  *
  * @param {number} ethPrice   - ETH price returned by Alchemy API
  * @param {number} bscPrice   - ETH-on-BSC price returned by PancakeSwap API
  */
 function installPriceMock(ethPrice, bscPrice) {
   globalThis.fetch = async (url) => {
-    if (url.includes('alchemy.com')) {
+    const host = new URL(url).hostname;
+    // Alchemy Prices API can be served from multiple subdomains of alchemy.com
+    if (host === 'api.g.alchemy.com' || host === 'eth-mainnet.g.alchemy.com') {
       return makeResponse({ data: [{ prices: [{ value: String(ethPrice) }] }] });
     }
-    if (url.includes('pancakeswap.info')) {
+    if (host === 'api.pancakeswap.info') {
       return makeResponse({ data: { price: String(bscPrice) } });
     }
-    throw new Error(`Unexpected fetch URL: ${url}`);
+    throw new Error(`Unexpected fetch host: ${host}`);
   };
 }
 
@@ -60,9 +63,14 @@ describe('scanDEX', () => {
     let fetchWasCalled = false;
     globalThis.fetch = async (url) => {
       fetchWasCalled = true;
-      if (url.includes('alchemy.com')) return makeResponse({ data: [{ prices: [{ value: '2000' }] }] });
-      if (url.includes('pancakeswap.info')) return makeResponse({ data: { price: '2002' } }); // 0.1% spread
-      throw new Error(`Unexpected URL: ${url}`);
+      const host = new URL(url).hostname;
+      if (host === 'api.g.alchemy.com' || host === 'eth-mainnet.g.alchemy.com') {
+        return makeResponse({ data: [{ prices: [{ value: '2000' }] }] });
+      }
+      if (host === 'api.pancakeswap.info') {
+        return makeResponse({ data: { price: '2002' } }); // 0.1% spread
+      }
+      throw new Error(`Unexpected fetch host: ${host}`);
     };
     await scanDEX({ ALCHEMY_ETHEREUM_ENDPOINT: 'https://eth-mainnet.g.alchemy.com/v2/testkey' });
     assert.equal(fetchWasCalled, true, 'fetch should have been called (key was accepted)');
@@ -133,9 +141,10 @@ describe('scanDEX', () => {
   test('returns null (does not throw) when Alchemy fetch fails', async () => {
     // Return a bad response that makes getAlchemyPrice throw (missing price field).
     globalThis.fetch = async (url) => {
-      if (url.includes('alchemy.com')) return makeResponse({ data: [] });
-      if (url.includes('pancakeswap.info')) return makeResponse({ data: { price: '2100' } });
-      throw new Error(`Unexpected URL: ${url}`);
+      const host = new URL(url).hostname;
+      if (host === 'api.g.alchemy.com') return makeResponse({ data: [] });
+      if (host === 'api.pancakeswap.info') return makeResponse({ data: { price: '2100' } });
+      throw new Error(`Unexpected fetch host: ${host}`);
     };
     const result = await scanDEX({ ALCHEMY_API_KEY: 'testkey' });
     assert.equal(result, null, 'scanDEX should catch errors and return null');
@@ -144,9 +153,10 @@ describe('scanDEX', () => {
   test('returns null (does not throw) when PancakeSwap fetch fails', async () => {
     // Return a bad response that makes getPancakePrice throw (missing price field).
     globalThis.fetch = async (url) => {
-      if (url.includes('alchemy.com')) return makeResponse({ data: [{ prices: [{ value: '2000' }] }] });
-      if (url.includes('pancakeswap.info')) return makeResponse({ data: {} }); // missing price
-      throw new Error(`Unexpected URL: ${url}`);
+      const host = new URL(url).hostname;
+      if (host === 'api.g.alchemy.com') return makeResponse({ data: [{ prices: [{ value: '2000' }] }] });
+      if (host === 'api.pancakeswap.info') return makeResponse({ data: {} }); // missing price
+      throw new Error(`Unexpected fetch host: ${host}`);
     };
     const result = await scanDEX({ ALCHEMY_API_KEY: 'testkey' });
     assert.equal(result, null, 'scanDEX should catch errors and return null');
@@ -155,7 +165,8 @@ describe('scanDEX', () => {
   test('uses the WETH BSC address when fetching PancakeSwap price', async () => {
     let pancakeUrl;
     globalThis.fetch = async (url) => {
-      if (url.includes('pancakeswap.info')) {
+      const host = new URL(url).hostname;
+      if (host === 'api.pancakeswap.info') {
         pancakeUrl = url;
         return makeResponse({ data: { price: '2100' } });
       }
