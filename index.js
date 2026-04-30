@@ -269,7 +269,7 @@ app.get('/api/report', async (c) => {
 // ── API: Exchange balances (auth-protected) ───────────────────────────────────
 app.get('/api/balances', async (c) => {
   if (!isAuthorized(c.env, c)) return c.json({ error: 'Unauthorized' }, 401);
-  const EXCHANGES = ['mexc', 'binance', 'kucoin', 'okx', 'bitget', 'bitmart'];
+  const EXCHANGES = ['mexc', 'binance', 'kucoin', 'okx', 'bitget', 'bitmart', 'bybit', 'gateio'];
   const results = await Promise.all(
     EXCHANGES.map(async (ex) => {
       const configured = hasExchangeCredentials(c.env, ex);
@@ -454,8 +454,9 @@ app.post('/telegram/webhook', async (c) => {
     if (cmd === '/start' || cmd === '/help') {
       await send(
         `🔷 *Nexus Arbitrage Hub*\n\n` +
-        `📊 الاستراتيجيات: CEX + DEX + Perps\n` +
-        `🏦 المنصات: MEXC, Binance, KuCoin, OKX, Bitget, Bitmart\n\n` +
+        `📊 الاستراتيجيات: CEX + DEX + Perps + Funding Rate\n` +
+        `🏦 المنصات: MEXC, Binance, KuCoin, OKX, Bitget, Bitmart, Bybit, Gate.io\n` +
+        `📈 الأزواج: ${30} زوج من أكبر العملات\n\n` +
         `⚡ *الأوامر:*\n` +
         `/status — حالة البوت والإحصائيات\n` +
         `/scan — مسح فوري للفرص\n` +

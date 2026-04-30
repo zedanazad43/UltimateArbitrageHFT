@@ -543,6 +543,186 @@ export async function placeMarketOrderBitmart(env, symbol, side, quantity, sizeU
   return data;
 }
 
+// ── Bybit ─────────────────────────────────────────────────────────────────────
+
+/**
+ * Fetches the Bybit unified account wallet balance for a given asset (default: USDT).
+ */
+export async function getBybitBalance(env, asset = 'USDT') {
+  const apiKey    = env.BYBIT_API_KEY;
+  const apiSecret = env.BYBIT_API_SECRET;
+  if (!apiKey)    throw new Error('BYBIT_API_KEY is not configured');
+  if (!apiSecret) throw new Error('BYBIT_API_SECRET is not configured');
+
+  const timestamp  = Date.now().toString();
+  const recvWindow = '5000';
+  const params     = `accountType=UNIFIED&coin=${asset}`;
+  const rawSign    = timestamp + apiKey + recvWindow + params;
+  const signature  = await hmacHex(apiSecret, rawSign);
+
+  const resp = await fetch(
+    `https://api.bybit.com/v5/account/wallet-balance?${params}`,
+    {
+      headers: {
+        'X-BAPI-API-KEY':     apiKey,
+        'X-BAPI-TIMESTAMP':   timestamp,
+        'X-BAPI-RECV-WINDOW': recvWindow,
+        'X-BAPI-SIGN':        signature
+      }
+    }
+  );
+  const data = await resp.json();
+  if (data.retCode !== 0) throw new Error(data.retMsg || `Bybit balance error ${data.retCode}`);
+
+  const coins = data?.result?.list?.[0]?.coin || [];
+  const coin  = coins.find(c => c.coin === asset);
+  return {
+    free:   parseFloat(coin?.availableToWithdraw || coin?.walletBalance || '0'),
+    locked: parseFloat(coin?.locked || '0')
+  };
+}
+
+/**
+ * Places a market order on Bybit spot (V5 API).
+ * BUY uses marketUnit=quoteCoin (spend USDT); SELL uses marketUnit=baseCoin.
+ */
+export async function placeMarketOrderBybit(env, symbol, side, quantity, sizeUsd) {
+  const apiKey    = env.BYBIT_API_KEY;
+  const apiSecret = env.BYBIT_API_SECRET;
+  if (!apiKey)    throw new Error('BYBIT_API_KEY is not configured');
+  if (!apiSecret) throw new Error('BYBIT_API_SECRET is not configured');
+
+  const timestamp  = Date.now().toString();
+  const recvWindow = '5000';
+
+  const orderObj = {
+    category:   'spot',
+    symbol,
+    side:       side === 'BUY' ? 'Buy' : 'Sell',
+    orderType:  'Market',
+    qty:        side === 'BUY' ? sizeUsd.toFixed(8) : quantity,
+    marketUnit: side === 'BUY' ? 'quoteCoin'        : 'baseCoin'
+  };
+
+  const bodyStr   = JSON.stringify(orderObj);
+  const rawSign   = timestamp + apiKey + recvWindow + bodyStr;
+  const signature = await hmacHex(apiSecret, rawSign);
+
+  const resp = await fetch('https://api.bybit.com/v5/order/create', {
+    method: 'POST',
+    headers: {
+      'X-BAPI-API-KEY':     apiKey,
+      'X-BAPI-TIMESTAMP':   timestamp,
+      'X-BAPI-RECV-WINDOW': recvWindow,
+      'X-BAPI-SIGN':        signature,
+      'Content-Type':       'application/json'
+    },
+    body: bodyStr
+  });
+  const data = await resp.json();
+  if (data.retCode !== 0) throw new Error(data.retMsg || `Bybit order error ${data.retCode}`);
+  return data;
+}
+
+// ── Gate.io ───────────────────────────────────────────────────────────────────
+
+/** Returns HMAC-SHA512 as a lowercase hex string (used by Gate.io). */
+async function hmacSha512Hex(secret, message) {
+  const encoder = new TextEncoder();
+  const key = await crypto.subtle.importKey(
+    'raw', encoder.encode(secret), { name: 'HMAC', hash: 'SHA-512' }, false, ['sign']
+  );
+  const sig = await crypto.subtle.sign('HMAC', key, encoder.encode(message));
+  return Array.from(new Uint8Array(sig))
+    .map(b => b.toString(16).padStart(2, '0')).join('');
+}
+
+/** Returns SHA-256 hex digest of a string (used by Gate.io request signing). */
+async function sha256Hex(data) {
+  const encoder = new TextEncoder();
+  const hash = await crypto.subtle.digest('SHA-256', encoder.encode(data));
+  return Array.from(new Uint8Array(hash))
+    .map(b => b.toString(16).padStart(2, '0')).join('');
+}
+
+/**
+ * Fetches the Gate.io spot account balance for a given asset (default: USDT).
+ */
+export async function getGateioBalance(env, asset = 'USDT') {
+  const apiKey    = env.GATEIO_API_KEY;
+  const apiSecret = env.GATEIO_API_SECRET;
+  if (!apiKey)    throw new Error('GATEIO_API_KEY is not configured');
+  if (!apiSecret) throw new Error('GATEIO_API_SECRET is not configured');
+
+  const method    = 'GET';
+  const path      = '/api/v4/spot/accounts';
+  const query     = `currency=${asset}`;
+  const bodyHash  = await sha256Hex('');
+  const timestamp = Math.floor(Date.now() / 1000).toString();
+  const rawSign   = `${method}\n${path}\n${query}\n${bodyHash}\n${timestamp}`;
+  const signature = await hmacSha512Hex(apiSecret, rawSign);
+
+  const resp = await fetch(`https://api.gateio.ws${path}?${query}`, {
+    headers: {
+      'KEY':       apiKey,
+      'SIGN':      signature,
+      'Timestamp': timestamp
+    }
+  });
+  const data = await resp.json();
+  if (!Array.isArray(data)) throw new Error(`Gateio balance error: ${JSON.stringify(data)}`);
+
+  const acc = data.find(a => a.currency === asset);
+  return {
+    free:   parseFloat(acc?.available || '0'),
+    locked: parseFloat(acc?.locked    || '0')
+  };
+}
+
+/**
+ * Places a market order on Gate.io spot.
+ * BUY: amount is in quote currency (USDT); SELL: amount is in base currency.
+ */
+export async function placeMarketOrderGateio(env, symbol, side, quantity, sizeUsd) {
+  const apiKey    = env.GATEIO_API_KEY;
+  const apiSecret = env.GATEIO_API_SECRET;
+  if (!apiKey)    throw new Error('GATEIO_API_KEY is not configured');
+  if (!apiSecret) throw new Error('GATEIO_API_SECRET is not configured');
+
+  const gateSymbol = symbol.replace(/USDT$/, '_USDT');
+  const method     = 'POST';
+  const path       = '/api/v4/spot/orders';
+  const query      = '';
+
+  const orderObj = {
+    currency_pair: gateSymbol,
+    type:          'market',
+    side:          side.toLowerCase(),
+    time_in_force: 'ioc',
+    amount:        side === 'BUY' ? sizeUsd.toFixed(8) : quantity
+  };
+
+  const bodyStr   = JSON.stringify(orderObj);
+  const bodyHash  = await sha256Hex(bodyStr);
+  const timestamp = Math.floor(Date.now() / 1000).toString();
+  const rawSign   = `${method}\n${path}\n${query}\n${bodyHash}\n${timestamp}`;
+  const signature = await hmacSha512Hex(apiSecret, rawSign);
+
+  const resp = await fetch(`https://api.gateio.ws${path}`, {
+    method: 'POST',
+    headers: {
+      'KEY':          apiKey,
+      'SIGN':         signature,
+      'Timestamp':    timestamp,
+      'Content-Type': 'application/json'
+    },
+    body: bodyStr
+  });
+  const data = await resp.json();
+  if (data.label) throw new Error(`Gateio order error: ${data.label} — ${data.message || ''}`);
+  return data;
+}
+
 // ── Exchange dispatchers ──────────────────────────────────────────────────────
 
 /**
@@ -555,7 +735,9 @@ const EXCHANGE_CRED_KEYS = {
   kucoin:  ['KUCOIN_API_KEY', 'KUCOIN_SECRET_KEY', 'KUCOIN_PASSPHRASE'],
   okx:     ['OKX_API_KEY', 'OKX_API_SECRET', 'OKX_PASSPHRASE'],
   bitget:  ['BITGET_API_KEY', 'BITGET_SECRET_KEY', 'BITGET_API_PASSPHRASE'],
-  bitmart: ['BITMART_API_KEY', 'BITMART_SECRET_KEY', 'BITMART_MEMO']
+  bitmart: ['BITMART_API_KEY', 'BITMART_SECRET_KEY', 'BITMART_MEMO'],
+  bybit:   ['BYBIT_API_KEY', 'BYBIT_API_SECRET'],
+  gateio:  ['GATEIO_API_KEY', 'GATEIO_API_SECRET']
 };
 
 /**
@@ -587,6 +769,8 @@ export async function getExchangeBalance(env, exchange, asset = 'USDT') {
       case 'okx':     return (await getOKXBalance(env, asset)).free;
       case 'bitget':  return (await getBitgetBalance(env, asset)).free;
       case 'bitmart': return (await getBitmartBalance(env, asset)).free;
+      case 'bybit':   return (await getBybitBalance(env, asset)).free;
+      case 'gateio':  return (await getGateioBalance(env, asset)).free;
       default:        return 0;
     }
   } catch (e) {
@@ -613,6 +797,8 @@ export async function placeExchangeMarketOrder(env, exchange, symbol, side, quan
     case 'okx':     return placeMarketOrderOKX(env, symbol, side, quantity, sizeUsd);
     case 'bitget':  return placeMarketOrderBitget(env, symbol, side, quantity, sizeUsd);
     case 'bitmart': return placeMarketOrderBitmart(env, symbol, side, quantity, sizeUsd);
+    case 'bybit':   return placeMarketOrderBybit(env, symbol, side, quantity, sizeUsd);
+    case 'gateio':  return placeMarketOrderGateio(env, symbol, side, quantity, sizeUsd);
     default:
       throw new Error(`No execution layer for exchange: ${exchange}`);
   }

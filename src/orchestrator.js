@@ -4,10 +4,11 @@
 // symbols, selects the single best opportunity, applies unified risk checks,
 // and executes one trade per scan cycle.
 
-import { getAllSpotPrices, getMEXCPerpPrice, get0xPrice } from './prices.js';
-import { scanCEX }   from './strategies/cex.js';
-import { scanDEX }   from './strategies/dex.js';
-import { scanPerps } from './strategies/perps.js';
+import { getAllSpotPrices, getMEXCPerpPrice, getBybitPerpData, get0xPrice } from './prices.js';
+import { scanCEX }         from './strategies/cex.js';
+import { scanDEX }         from './strategies/dex.js';
+import { scanPerps }       from './strategies/perps.js';
+import { scanFundingRate } from './strategies/funding.js';
 import { logTrade, openPaperPosition, getOpenPaperPositions, closePaperPosition } from './db.js';
 import { calculateAdaptiveLeverage, calculatePositionSize, MAX_POSITION_EQUITY_FRACTION } from './risk.js';
 import {
@@ -16,9 +17,17 @@ import {
 } from './exchange.js';
 
 const SUPPORTED_SYMBOLS = [
-  'BTCUSDT', 'ETHUSDT', 'SOLUSDT', 'XRPUSDT', 'DOGEUSDT',
-  'BNBUSDT', 'AVAXUSDT', 'MATICUSDT', 'LINKUSDT', 'UNIUSDT',
-  'ADAUSDT', 'DOTUSDT', 'LTCUSDT', 'TRXUSDT', 'NEARUSDT'
+  // Top-cap majors
+  'BTCUSDT', 'ETHUSDT', 'BNBUSDT', 'SOLUSDT', 'XRPUSDT',
+  // Mid-cap with good liquidity
+  'DOGEUSDT', 'AVAXUSDT', 'LINKUSDT', 'UNIUSDT', 'ADAUSDT',
+  'DOTUSDT', 'LTCUSDT', 'TRXUSDT', 'NEARUSDT', 'MATICUSDT',
+  // Trending layer-2 / ecosystem tokens
+  'ARBUSDT', 'OPUSDT', 'APTUSDT', 'SUIUSDT', 'TONUSDT',
+  // High-volume meme coins (larger inter-exchange spreads)
+  'SHIBUSDT', 'PEPEUSDT', 'WIFUSDT', 'FLOKIUSDT',
+  // DeFi / infrastructure
+  'INJUSDT', 'TIAUSDT', 'ATOMUSDT', 'FILUSDT', 'HBARUSDT'
 ];
 
 // ── Circuit Breaker (KV-backed, 5-minute window) ──────────────────────────────
@@ -115,7 +124,7 @@ export async function runScan(env, state, sendAlert) {
   const paperMode      = state.paper_trading !== false;
 
   const allOpportunities = [];
-  const lastScan = { timestamp: Date.now(), cex: null, dex: null, perps: null };
+  const lastScan = { timestamp: Date.now(), cex: null, dex: null, perps: null, funding: null };
 
   // Load circuit-breaker state from KV once per cycle and build the open-circuit set
   const cb = await getCircuitBreaker(env);
@@ -130,14 +139,15 @@ export async function runScan(env, state, sendAlert) {
   // Track per-symbol mid prices so we can settle paper positions
   const midPrices = {};
 
-  // ── Scan all symbols (CEX + Perps) and DEX in parallel ──────────────────────
+  // ── Scan all symbols (CEX + Perps + Funding) and DEX in parallel ─────────────
   const [, dexOpp] = await Promise.all([
     Promise.all(
       SUPPORTED_SYMBOLS.map(async symbol => {
         try {
-          const [spotSources, perpSource, zeroXSource] = await Promise.all([
+          const [spotSources, mexcPerp, bybitPerp, zeroXSource] = await Promise.all([
             getAllSpotPrices(env, symbol, openCircuits),
-            (!openCircuits.has('mexc_perp')) ? getMEXCPerpPrice(symbol) : Promise.resolve(null),
+            (!openCircuits.has('mexc_perp'))  ? getMEXCPerpPrice(symbol) : Promise.resolve(null),
+            (!openCircuits.has('bybit_perp')) ? getBybitPerpData(symbol) : Promise.resolve(null),
             get0xPrice(env, symbol)
           ]);
 
@@ -148,15 +158,23 @@ export async function runScan(env, state, sendAlert) {
             // All spot sources failed — record failure for mexc (primary)
             recordCBFailure(cb, 'mexc');
           }
-          if (perpSource) {
+          if (mexcPerp) {
             recordCBSuccess(cb, 'mexc_perp');
           } else {
             recordCBFailure(cb, 'mexc_perp');
+          }
+          if (bybitPerp) {
+            recordCBSuccess(cb, 'bybit_perp');
+          } else {
+            recordCBFailure(cb, 'bybit_perp');
           }
 
           // Record mid price for paper settlement (use MEXC spot as reference)
           const mexcSrc = spotSources.find(s => s.exchange === 'mexc');
           if (mexcSrc) midPrices[symbol] = mexcSrc.price;
+
+          // Prefer MEXC perp for execution; fall back to Bybit perp
+          const perpSource = mexcPerp || bybitPerp;
 
           // CEX: all spot sources + 0x DEX price
           const cexSources = zeroXSource
@@ -165,6 +183,11 @@ export async function runScan(env, state, sendAlert) {
 
           const cexOpp   = scanCEX(symbol, cexSources, maxSpreadPct);
           const perpsOpp = scanPerps(symbol, spotSources, perpSource, maxSpreadPct);
+
+          // Funding rate harvest — uses Bybit perp (includes fundingRate field)
+          const fundingOpp = bybitPerp?.fundingRate !== undefined
+            ? scanFundingRate(symbol, spotSources, bybitPerp, maxSpreadPct)
+            : null;
 
           if (cexOpp) {
             allOpportunities.push(cexOpp);
@@ -175,6 +198,11 @@ export async function runScan(env, state, sendAlert) {
             allOpportunities.push(perpsOpp);
             if (!lastScan.perps || perpsOpp.netPct > lastScan.perps.netPct)
               lastScan.perps = perpsOpp;
+          }
+          if (fundingOpp) {
+            allOpportunities.push(fundingOpp);
+            if (!lastScan.funding || fundingOpp.netPct > lastScan.funding.netPct)
+              lastScan.funding = fundingOpp;
           }
         } catch (e) {
           console.error(`[${symbol}] scan error:`, e.message);
@@ -280,7 +308,8 @@ export async function runScan(env, state, sendAlert) {
 //
 // Execution routing rules:
 //   DEX / 0x opportunities → paper-only (no on-chain bridge layer yet)
-//   Perps                  → MEXC Futures (only supported futures venue)
+//   Funding rate harvest   → paper-only (delta-neutral management not yet automated)
+//   Perps (MEXC/Bybit)    → MEXC Futures (primary), Bybit Linear (fallback)
 //   CEX spatial            → execute both legs on their respective exchanges
 //                            (requires API credentials for buyExchange AND sellExchange)
 
@@ -299,18 +328,29 @@ async function executeTrade(env, opp, sizeUsd, leverage) {
     );
   }
 
+  // Funding rate harvest requires ongoing delta-neutral management; paper-only for now.
+  if (opp.strategy === 'funding') {
+    throw new Error(
+      'Funding rate harvest execution not yet automated — set paper_trading=true to simulate'
+    );
+  }
+
   const amount = (sizeUsd / opp.buyPrice).toFixed(6);
 
   // ── Perpetuals ────────────────────────────────────────────────────────────
   if (opp.isPerp) {
-    if (!hasExchangeCredentials(env, 'mexc')) {
+    // Route to MEXC futures if perp is on MEXC; otherwise try MEXC as the execution venue
+    const hasMEXC = hasExchangeCredentials(env, 'mexc');
+    if (!hasMEXC) {
       throw new Error('MEXC_API_KEY / MEXC_API_SECRET required for perps trading');
     }
     const sufficient = await hasSufficientUSDT(env, sizeUsd);
     if (!sufficient) {
       throw new Error(`Insufficient USDT balance for $${sizeUsd.toFixed(2)} trade`);
     }
-    const side = opp.sellExchange === 'mexc_perp' ? 'SHORT' : 'LONG';
+    const side = opp.sellExchange === 'mexc_perp' || opp.sellExchange === 'bybit_perp'
+      ? 'SHORT'
+      : 'LONG';
     await placeMEXCFuturesOrder(env, opp.symbol, side, amount, leverage);
     return;
   }

@@ -87,6 +87,8 @@ jobs:
             "COINBASE_API_KEY", "COINBASE_SECRET_KEY",
             "BITGET_API_KEY", "BITGET_SECRET_KEY", "BITGET_API_PASSPHRASE",
             "BITMART_API_KEY", "BITMART_SECRET_KEY", "BITMART_MEMO",
+            "BYBIT_API_KEY", "BYBIT_API_SECRET",
+            "GATEIO_API_KEY", "GATEIO_API_SECRET",
             "ZEROX_API_KEY", "ALCHEMY_API_KEY",
             "TELEGRAM_BOT_TOKEN", "TELEGRAM_CHAT_ID",
             "ADMIN_TOKEN",
@@ -119,6 +121,10 @@ jobs:
           BITMART_API_KEY: ${{ secrets.BITMART_API_KEY }}
           BITMART_SECRET_KEY: ${{ secrets.BITMART_SECRET_KEY }}
           BITMART_MEMO: ${{ secrets.BITMART_MEMO }}
+          BYBIT_API_KEY: ${{ secrets.BYBIT_API_KEY }}
+          BYBIT_API_SECRET: ${{ secrets.BYBIT_API_SECRET }}
+          GATEIO_API_KEY: ${{ secrets.GATEIO_API_KEY }}
+          GATEIO_API_SECRET: ${{ secrets.GATEIO_API_SECRET }}
           ZEROX_API_KEY: ${{ secrets.ZEROX_API_KEY }}
           ALCHEMY_API_KEY: ${{ secrets.ALCHEMY_API_KEY }}
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
