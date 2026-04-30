@@ -436,7 +436,7 @@ ${autoStopBanner}
         const open=info&&info.open&&(Date.now()-info.lastFailure)<300000;
         const failures=info?.failures||0;
         const cls=open?'cb-open':'cb-ok';
-        const label=open?\`🔴 مفتوح (${failures} أخطاء)\`:\`✅ سليم\`;
+        const label=open?\`🔴 مفتوح (\${failures} أخطاء)\`:\`✅ سليم\`;
         return \`<div class="cb-card"><div class="name">\${ex.toUpperCase()}</div><div class="\${cls}">\${label}</div></div>\`;
       }).join('');
       el.innerHTML=items;
