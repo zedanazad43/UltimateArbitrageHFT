@@ -1,8 +1,7 @@
 name: Deploy & Real Trade
 
 on:
-  workflow_dispatch:   # تشغيل يدوي من GitHub Actions
-  push:
+ push:
     branches:
       - main
 
