@@ -47,6 +47,19 @@ jobs:
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
 
+      # Add missing columns to existing tables before running the full schema.
+      # These ALTER TABLE statements are intentionally tolerant of failure (|| true)
+      # because they are a no-op on fresh databases where the column already exists
+      # from the CREATE TABLE statement in schema.sql.
+      - name: Apply incremental D1 column migrations
+        run: |
+          npx --yes wrangler@4 d1 execute ultimate-arbitrage-db \
+            --command "ALTER TABLE trades ADD COLUMN mode TEXT NOT NULL DEFAULT 'paper'" \
+            --remote || true
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+
       - name: Run D1 migration
         run: npx --yes wrangler@4 d1 execute ultimate-arbitrage-db --file=./migrations/schema.sql --remote
         env:
