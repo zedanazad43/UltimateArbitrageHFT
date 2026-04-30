@@ -339,7 +339,13 @@ async function executeTrade(env, opp, sizeUsd, leverage) {
 
   // ── Perpetuals ────────────────────────────────────────────────────────────
   if (opp.isPerp) {
-    // Route to MEXC futures if perp is on MEXC; otherwise try MEXC as the execution venue
+    // Bybit perp execution requires Bybit futures API (not yet implemented).
+    // Route only MEXC perp opportunities to live execution.
+    if (opp.sellExchange === 'bybit_perp' || opp.buyExchange === 'bybit_perp') {
+      throw new Error(
+        'Bybit perpetuals live execution not yet supported — set paper_trading=true to simulate'
+      );
+    }
     const hasMEXC = hasExchangeCredentials(env, 'mexc');
     if (!hasMEXC) {
       throw new Error('MEXC_API_KEY / MEXC_API_SECRET required for perps trading');
@@ -348,9 +354,7 @@ async function executeTrade(env, opp, sizeUsd, leverage) {
     if (!sufficient) {
       throw new Error(`Insufficient USDT balance for $${sizeUsd.toFixed(2)} trade`);
     }
-    const side = opp.sellExchange === 'mexc_perp' || opp.sellExchange === 'bybit_perp'
-      ? 'SHORT'
-      : 'LONG';
+    const side = opp.sellExchange === 'mexc_perp' ? 'SHORT' : 'LONG';
     await placeMEXCFuturesOrder(env, opp.symbol, side, amount, leverage);
     return;
   }

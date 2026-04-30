@@ -456,7 +456,7 @@ app.post('/telegram/webhook', async (c) => {
         `🔷 *Nexus Arbitrage Hub*\n\n` +
         `📊 الاستراتيجيات: CEX + DEX + Perps + Funding Rate\n` +
         `🏦 المنصات: MEXC, Binance, KuCoin, OKX, Bitget, Bitmart, Bybit, Gate.io\n` +
-        `📈 الأزواج: ${30} زوج من أكبر العملات\n\n` +
+        `📈 الأزواج: 29 زوج من أكبر العملات\n\n` +
         `⚡ *الأوامر:*\n` +
         `/status — حالة البوت والإحصائيات\n` +
         `/scan — مسح فوري للفرص\n` +

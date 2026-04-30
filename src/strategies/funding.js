@@ -49,6 +49,7 @@ export function scanFundingRate(symbol, spotSources, perpData, maxSpreadPct) {
 
   if (netPct <= 0) return null;
 
+  if (fundingPct === 0) return null;
   const safetyFactor = netPct / fundingPct;
 
   // Positive funding → shorts receive payment → go long spot + short perp
