@@ -17,7 +17,8 @@
     "db:migrate:local": "wrangler d1 execute ultimate-arbitrage-db --local --file=./migrations/schema.sql",
     "secret:all": "pwsh -NoProfile -File ./scripts/upload-secrets.ps1",
     "secret:dry": "pwsh -NoProfile -File ./scripts/upload-secrets.ps1 -DryRun",
-    "setup": "npm install && npm run secret:all && npm run db:migrate && npm run deploy"
+    "setup": "npm install && npm run secret:all && npm run db:migrate && npm run deploy",
+    "setup:local": "npm install && npm run db:migrate:local"
   },
   "dependencies": {
     "hono": "^4.0.0"
