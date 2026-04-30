@@ -10,7 +10,10 @@ import assert from 'node:assert/strict';
 
 import { scanDEX } from '../src/strategies/dex.js';
 
-// Addresses / constants mirrored from dex.js (for URL pattern matching)
+// WETH_BSC_ADDRESS mirrors the private constant in src/strategies/dex.js.
+// It is duplicated here intentionally — the constant is not exported — so the
+// test can assert that PancakeSwap is queried for the correct token address.
+// If the address changes in dex.js, this constant must be updated here too.
 const WETH_BSC_ADDRESS = '0x2170ed0880ac9a755fd29b2688956bd959f933f8';
 
 // ── Mock fetch helpers ────────────────────────────────────────────────────────
