@@ -1,11 +1,10 @@
 name: Deploy & Real Trade
 
 on:
-  workflow_dispatch:   # تشغيل يدوي فقط من GitHub Actions لأمان التداول المباشر
-  # ولو أردت التشغيل التلقائي عند push للفرع main احذف التعليق عن الأسطر التالية:
-  # push:
-  #   branches:
-  #     - main
+  workflow_dispatch:   # تشغيل يدوي من GitHub Actions
+  push:
+    branches:
+      - main
 
 jobs:
   deploy:
