@@ -507,7 +507,9 @@ app.post('/telegram/webhook', async (c) => {
       state.auto_stop_reason = null;
       await saveState(c.env, state);
       await send('▶️ *تم تشغيل التداول التلقائي* ✅');
-     await saveState(c.env, state);
+    } else if (cmd === '/stop_trading') {
+      state.trading_enabled = false;
+      await saveState(c.env, state);
       await send('⏸️ *تم إيقاف التداول التلقائي*');
     } else if (cmd === '/pnl') {
       const pnl = await getStrategyPnL(c.env);
