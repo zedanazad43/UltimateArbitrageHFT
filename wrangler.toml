@@ -117,3 +117,21 @@ head_sampling_rate = 1
 
 [triggers]
 crons = ["* * * * *"]
+
+# ── Temporal Cloud — non-sensitive config vars ────────────────────────────────
+# These are plain (non-secret) configuration values exposed to the Worker.
+# Update TEMPORAL_ADDRESS and TEMPORAL_NAMESPACE to match your Cloud namespace.
+#
+# TEMPORAL_API_KEY must be stored as a secret (never in wrangler.toml):
+#   npx wrangler secret put TEMPORAL_API_KEY
+#
+# TEMPORAL_WORKER_URL should point to this Worker's deployed URL so that
+# the Temporal worker process can call back to /scan, /api/status, etc.
+
+[vars]
+TEMPORAL_NAMESPACE  = "default"
+# Set to your Cloud namespace gRPC endpoint, e.g. default.abc123.tmprl.cloud:7233
+# Leave blank to connect to a local dev server (localhost:7233)
+TEMPORAL_ADDRESS    = ""
+# Set to your deployed Worker URL, e.g. https://ultimatearbitragehft.workers.dev
+TEMPORAL_WORKER_URL = ""
