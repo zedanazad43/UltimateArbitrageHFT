@@ -367,13 +367,23 @@ app.get('/api/logs', async (c) => {
   }
 });
 
-// ── API: Workers AI — opportunity analysis ────────────────────────────────────
+// ── API: AI opportunity analysis ──────────────────────────────────────────────
 // Accepts a JSON body with an `opportunity` object and returns an AI-generated
 // short analysis and recommendation in Arabic.
 // Body: { opportunity: { symbol, strategy, direction, buyPrice, sellPrice, netPct } }
+//
+// Provider priority:
+//   1. GitHub Models (openai/gpt-4.1) — when GITHUB_TOKEN secret is set.
+//   2. Cloudflare Workers AI (llama-3.1-8b-instruct) — fallback when AIWORKER
+//      binding is available but GITHUB_TOKEN is absent.
 app.post('/api/ai-analysis', async (c) => {
   if (!isAuthorized(c.env, c)) return c.json({ error: 'Unauthorized' }, 401);
-  if (!c.env.AIWORKER) return c.json({ error: 'Workers AI binding not configured' }, 503);
+
+  const hasGitHubToken = !!c.env.GITHUB_TOKEN;
+  const hasWorkersAI   = !!c.env.AIWORKER;
+  if (!hasGitHubToken && !hasWorkersAI) {
+    return c.json({ error: 'No AI provider configured (set GITHUB_TOKEN or AIWORKER)' }, 503);
+  }
 
   let body;
   try { body = await c.req.json(); } catch (_) { return c.json({ error: 'Invalid JSON' }, 400); }
@@ -381,8 +391,9 @@ app.post('/api/ai-analysis', async (c) => {
   const opp = body?.opportunity;
   if (!opp) return c.json({ error: 'Missing opportunity field' }, 400);
 
-  const prompt =
-    `You are a professional crypto arbitrage analyst. Analyze this opportunity briefly (2-3 sentences) and give a buy/skip recommendation.\n` +
+  const systemPrompt = 'You are a professional crypto arbitrage analyst.';
+  const userPrompt =
+    `Analyze this opportunity briefly (2-3 sentences) and give a buy/skip recommendation.\n` +
     `Pair: ${opp.symbol}\n` +
     `Strategy: ${opp.strategy?.toUpperCase()}\n` +
     `Direction: ${opp.direction}\n` +
@@ -391,15 +402,53 @@ app.post('/api/ai-analysis', async (c) => {
     `Net profit: ${Number(opp.netPct).toFixed(4)}%\n` +
     `Respond in Arabic only.`;
 
+  // ── Provider 1: GitHub Models (openai/gpt-4.1) ──────────────────────────────
+  if (hasGitHubToken) {
+    try {
+      const res = await fetch('https://models.github.ai/inference/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${c.env.GITHUB_TOKEN}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          model: 'openai/gpt-4.1',
+          messages: [
+            { role: 'system', content: systemPrompt },
+            { role: 'user',   content: userPrompt },
+          ],
+          temperature: 1.0,
+          top_p: 1.0,
+          max_tokens: 256,
+        }),
+      });
+      if (!res.ok) {
+        const errText = await res.text();
+        throw new Error(`GitHub Models API error ${res.status}: ${errText}`);
+      }
+      const data = await res.json();
+      const analysis = data?.choices?.[0]?.message?.content ?? JSON.stringify(data);
+      return c.json({ success: true, analysis, provider: 'github-models' });
+    } catch (e) {
+      console.error('[AI] GitHub Models error:', e.message);
+      // Fall through to Workers AI if available, otherwise return the error.
+      if (!hasWorkersAI) return c.json({ error: 'AI analysis failed', detail: e.message }, 500);
+    }
+  }
+
+  // ── Provider 2: Cloudflare Workers AI (llama-3.1-8b-instruct) ───────────────
   try {
     const result = await c.env.AIWORKER.run('@cf/meta/llama-3.1-8b-instruct', {
-      messages: [{ role: 'user', content: prompt }],
+      messages: [
+        { role: 'system', content: systemPrompt },
+        { role: 'user',   content: userPrompt },
+      ],
       max_tokens: 256,
     });
     const analysis = result?.response ?? result?.text ?? (typeof result === 'string' ? result : JSON.stringify(result));
-    return c.json({ success: true, analysis });
+    return c.json({ success: true, analysis, provider: 'workers-ai' });
   } catch (e) {
-    console.error('[AI] run error:', e.message);
+    console.error('[AI] Workers AI error:', e.message);
     return c.json({ error: 'AI analysis failed', detail: e.message }, 500);
   }
 });
