@@ -21,10 +21,16 @@
     "db:migrate:local": "wrangler d1 execute ultimate-arbitrage-db --local --file=./migrations/schema.sql",
     "secret:all": "pwsh -NoProfile -File ./scripts/upload-secrets.ps1",
     "secret:dry": "pwsh -NoProfile -File ./scripts/upload-secrets.ps1 -DryRun",
+    "temporal:worker": "node temporal-worker.js",
+    "temporal:dev": "TEMPORAL_ADDRESS=localhost:7233 node temporal-worker.js",
     "setup": "npm install && npm run secret:all && npm run db:migrate && npm run deploy",
     "setup:local": "npm install && npm run db:migrate:local"
   },
   "dependencies": {
+    "@temporalio/activity": "^1.16.1",
+    "@temporalio/client": "^1.16.1",
+    "@temporalio/worker": "^1.16.1",
+    "@temporalio/workflow": "^1.16.1",
     "hono": "^4.0.0"
   },
   "devDependencies": {
