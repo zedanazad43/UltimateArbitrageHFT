@@ -35,6 +35,7 @@
     "openai": "^6.35.0"
   },
   "devDependencies": {
+    "eslint": "^10.2.1",
     "wrangler": "^4.0.0"
   }
 }
