@@ -135,6 +135,4 @@ TEMPORAL_NAMESPACE  = "default"
 TEMPORAL_ADDRESS    = ""
 # Set to your deployed Worker URL, e.g. https://ultimatearbitragehft.workers.dev
 TEMPORAL_WORKER_URL = ""
-[[queues.producers]]
-binding = "TRADE_QUEUE"
-queue = "ultimate-arbitrage-queue"
+
