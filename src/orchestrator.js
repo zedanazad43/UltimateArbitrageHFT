@@ -12,7 +12,7 @@ import { scanFundingRate } from './strategies/funding.js';
 import { logTrade, openPaperPosition, getOpenPaperPositions, closePaperPosition } from './db.js';
 import { calculateAdaptiveLeverage, calculatePositionSize, MAX_POSITION_EQUITY_FRACTION } from './risk.js';
 import {
-  placeMarketOrderMEXC, placeMEXCFuturesOrder, hasSufficientUSDT,
+  placeMEXCFuturesOrder, hasSufficientUSDT,
   hasExchangeCredentials, getRequiredCredentialKeys, getExchangeBalance, placeExchangeMarketOrder
 } from './exchange.js';
 
