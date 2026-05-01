@@ -932,4 +932,4 @@ export default {
   },
 };
 
-await env.TRADE_QUEUE.send(payload)
+
