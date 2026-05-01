@@ -84,8 +84,8 @@ jobs:
       - name: Apply incremental D1 column migrations
         run: |
           PRAGMA_OUT=$(npx --yes wrangler@4 d1 execute ultimate-arbitrage-db \
-            --command "PRAGMA table_info(trades);" --remote 2>&1)
-          if echo "$PRAGMA_OUT" | grep -q '"mode"'; then
+            --command "PRAGMA table_info(trades);" --remote --json 2>&1)
+          if echo "$PRAGMA_OUT" | grep -qE '"name"\s*:\s*"mode"'; then
             echo "'mode' column already exists. Skipping ALTER TABLE."
           else
             echo "Adding 'mode' column..."
