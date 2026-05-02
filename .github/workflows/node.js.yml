@@ -1,6 +1,13 @@
-env:
-  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
-  CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+# Node.js CI + Cloudflare Workers Deployment
+#
+# Required GitHub Actions secrets:
+#   CLOUDFLARE_API_TOKEN — a Cloudflare API token with the following permissions:
+#     • Account > Workers Scripts > Edit
+#     • Account > Workers KV Storage > Edit  (if your Worker uses KV)
+#     • Account > D1 > Edit                  (if your Worker uses D1)
+#   Create one at: https://dash.cloudflare.com/profile/api-tokens
+#   Then add it in GitHub: Settings → Secrets and variables → Actions → New repository secret
+
 name: Node.js CI
 
 on:
@@ -33,3 +40,30 @@ jobs:
         npm install
         npm run build --if-present
         npm test
+
+  # Deploy to Cloudflare Workers only on push to main (not on pull requests).
+  # This job runs after all test matrix entries pass.
+  deploy:
+    name: Deploy to Cloudflare Workers
+    needs: test
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    permissions:
+      contents: read
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Use Node.js 24
+      uses: actions/setup-node@v4
+      with:
+        node-version: '24'
+        cache: 'npm'
+
+    - name: Install dependencies
+      run: npm ci
+
+    - name: Publish to Cloudflare Workers
+      uses: cloudflare/wrangler-action@v3
+      with:
+        apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
