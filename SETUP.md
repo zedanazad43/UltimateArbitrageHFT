@@ -211,9 +211,11 @@ This means the `ADMIN_TOKEN` secret has not been uploaded to Cloudflare yet.
 
 **Fix (one-time setup):**
 ```bash
-# 1. Choose any strong random value (example below uses openssl)
+# 1. Generate a strong random token
+openssl rand -base64 32
+
+# 2. Upload the token as a Worker secret (paste the value when prompted)
 npx wrangler secret put ADMIN_TOKEN
-# ↑ paste your chosen token when prompted
 ```
 
 Then open the dashboard, enter the same token in the **🔑 Admin Token** box and click **حفظ**.

@@ -149,13 +149,6 @@ app.get('/', async (c) => renderDashboard(c.env));
 app.get('/dashboard', async (c) => renderDashboard(c.env));
 app.get('/checklist', async (c) => renderChecklist(c.env));
 
-// ── Public: Auth status ───────────────────────────────────────────────────────
-// Returns whether ADMIN_TOKEN is configured (never reveals the token value).
-// Used by the dashboard to show a setup warning on first visit.
-app.get('/api/auth-status', (c) => {
-  return c.json({ configured: !!c.env.ADMIN_TOKEN });
-});
-
 // ── Admin: Start ──────────────────────────────────────────────────────────────
 app.get('/start', async (c) => {
   const limited = await checkRateLimit(c.env, c);
