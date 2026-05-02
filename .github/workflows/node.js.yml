@@ -1,13 +1,3 @@
-# Node.js CI + Cloudflare Workers Deployment
-#
-# Required GitHub Actions secrets:
-#   CLOUDFLARE_API_TOKEN — a Cloudflare API token with the following permissions:
-#     • Account > Workers Scripts > Edit
-#     • Account > Workers KV Storage > Edit  (if your Worker uses KV)
-#     • Account > D1 > Edit                  (if your Worker uses D1)
-#   Create one at: https://dash.cloudflare.com/profile/api-tokens
-#   Then add it in GitHub: Settings → Secrets and variables → Actions → New repository secret
-
 name: Node.js CI
 
 on:
@@ -23,6 +13,8 @@ jobs:
   test:
     name: Test on node ${{ matrix.node_version }} and ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
     strategy:
       matrix:
         node_version: [24]
