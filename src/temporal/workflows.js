@@ -17,7 +17,7 @@ import {
 // ── Activity proxy ────────────────────────────────────────────────────────────
 // Each activity call is durable and retried on failure.
 
-const { runScanActivity, getStatusActivity, updateTradingModeActivity } =
+const { runScanActivity, updateTradingModeActivity } =
   proxyActivities({
     startToCloseTimeout: '2 minutes',
     retry: {

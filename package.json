@@ -5,6 +5,7 @@
   "type": "module",
   "main": "index.js",
   "scripts": {
+    "lint": "eslint . --ext .js,.jsx,.mjs,.cjs",
     "build": "wrangler deploy",
     "deploy": "wrangler deploy",
     "dev": "wrangler dev",
@@ -35,10 +36,8 @@
     "openai": "^6.35.0"
   },
   "devDependencies": {
-    "@eslint/js": "^9.39.4",
-    "eslint": "^9.39.4",
-    "eslint-plugin-react": "^7.37.5",
-    "globals": "^17.5.0",
+    "@eslint/js": "^10.0.1",
+    "eslint": "^10.2.1",
     "wrangler": "^4.0.0"
   }
 }

@@ -1,38 +1,95 @@
-import js from "@eslint/js";
-import globals from "globals";
-import reactPlugin from "eslint-plugin-react";
+import js from '@eslint/js';
 
 export default [
-  // Base recommended rules
-  js.configs.recommended,
-  reactPlugin.configs.flat.recommended,
-
-  // General settings
   {
-    settings: {
-      react: { version: "detect" },
-    },
+    ignores: ['node_modules/**', 'public/**'],
+  },
+  // Base rules for all JS files
+  {
+    files: ['**/*.{js,mjs,cjs}'],
     rules: {
-      // Allow unused variables that start with underscore (common placeholder)
-      "no-unused-vars": ["error", { argsIgnorePattern: "^_" }],
+      ...js.configs.recommended.rules,
+      'no-unused-vars': [
+        'error',
+        {
+          varsIgnorePattern: '^_',
+          argsIgnorePattern: '^_',
+          caughtErrors: 'all',
+          caughtErrorsIgnorePattern: '^_',
+        },
+      ],
+      'no-empty': ['error', { allowEmptyCatch: true }],
     },
-  },
-
-  // Browser / React source (src/*, index.js, etc.)
-  {
-    files: ["src/**/*.{js,jsx,mjs}", "index.js"],
     languageOptions: {
-      globals: globals.browser,
+      ecmaVersion: 2022,
+      sourceType: 'module',
     },
   },
-
-  // Node.js / CommonJS scripts (scripts/*, *.cjs)
+  // Node.js environment for scripts and temporal worker
   {
-    files: ["scripts/**/*.js", "sign.cjs", "*.cjs"],
+    files: [
+      'temporal-worker.js',
+      'scripts/**/*.js',
+      'src/ai-client.js',
+      'tests/**/*.js',
+    ],
     languageOptions: {
       globals: {
-        ...globals.node,
-        process: "readonly",   // explicitly allow global process
+        process: 'readonly',
+        __dirname: 'readonly',
+        __filename: 'readonly',
+        require: 'readonly',
+        module: 'readonly',
+        exports: 'readonly',
+        Buffer: 'readonly',
+        console: 'readonly',
+        URL: 'readonly',
+        URLSearchParams: 'readonly',
+        fetch: 'readonly',
+        TextEncoder: 'readonly',
+        TextDecoder: 'readonly',
+        crypto: 'readonly',
+      },
+    },
+  },
+  // Cloudflare Worker / browser environment for main files
+  {
+    files: ['index.js', 'src/**/*.js'],
+    languageOptions: {
+      globals: {
+        console: 'readonly',
+        fetch: 'readonly',
+        Request: 'readonly',
+        Response: 'readonly',
+        URL: 'readonly',
+        URLSearchParams: 'readonly',
+        TextEncoder: 'readonly',
+        TextDecoder: 'readonly',
+        crypto: 'readonly',
+        btoa: 'readonly',
+        atob: 'readonly',
+        setTimeout: 'readonly',
+        clearTimeout: 'readonly',
+        setInterval: 'readonly',
+        clearInterval: 'readonly',
+        Promise: 'readonly',
+        JSON: 'readonly',
+        Date: 'readonly',
+        Math: 'readonly',
+        parseInt: 'readonly',
+        parseFloat: 'readonly',
+        isNaN: 'readonly',
+        Boolean: 'readonly',
+        Number: 'readonly',
+        String: 'readonly',
+        Array: 'readonly',
+        Object: 'readonly',
+        Error: 'readonly',
+        Map: 'readonly',
+        Set: 'readonly',
+        Symbol: 'readonly',
+        Uint8Array: 'readonly',
+        ArrayBuffer: 'readonly',
       },
     },
   },
