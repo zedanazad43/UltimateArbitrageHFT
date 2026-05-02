@@ -1,0 +1,28 @@
+name: Designite Java Analysis
+
+on:
+  push:
+    branches: ["main"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  designite:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Run Designite Java
+        uses: DesigniteTools/DJAction@v2.4.1
+        with:
+          PAT: ${{ secrets.PAT }}
+          D_KEY: ${{ secrets.D_KEY }}
+          API_KEY: ${{ secrets.DCODE_API_KEY }}
+          PROJECT_ID: ${{ secrets.DCODE_PROJECT_ID }}
+          input: src
+          output: designite-report
