@@ -445,8 +445,8 @@ func main() {
 	eng.notifier.Sendf("🛑 HFT engine stopped — equity=$%.2f dailyPnL=$%.2f trades=%d",
 		eng.equity, eng.dailyPnL, eng.dailyTrades)
 	slog.Info("engine: stopped",
-"equity", fmt.Sprintf("$%.2f", eng.equity),
-"dailyPnL", fmt.Sprintf("$%.2f", eng.dailyPnL),
-"trades", eng.dailyTrades,
-)
+		"equity", fmt.Sprintf("$%.2f", eng.equity),
+		"dailyPnL", fmt.Sprintf("$%.2f", eng.dailyPnL),
+		"trades", eng.dailyTrades,
+	)
 }
