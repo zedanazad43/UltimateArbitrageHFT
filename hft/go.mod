@@ -5,7 +5,7 @@ go 1.25.0
 require (
 	github.com/ethereum/go-ethereum v1.16.9
 	github.com/gorilla/websocket v1.5.3
-	github.com/jackc/pgx/v5 v5.9.0
+	github.com/jackc/pgx/v5 v5.9.2
 	github.com/prometheus/client_golang v1.20.5
 )
 
