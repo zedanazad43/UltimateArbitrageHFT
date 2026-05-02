@@ -27,5 +27,5 @@ jobs:
           D_KEY: ${{ secrets.D_KEY }}
           API_KEY: ${{ secrets.DCODE_API_KEY }}
           PROJECT_ID: ${{ secrets.DCODE_PROJECT_ID }}
-          INPUT: src
-          OUTPUT: analysis
+          Input: ./src
+          Output: ./designite-output
