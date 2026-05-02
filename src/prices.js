@@ -253,6 +253,72 @@ export async function getBitmartPrice(symbol) {
   } catch (_) { return null; }
 }
 
+// ── Bybit spot price ──────────────────────────────────────────────────────────
+
+export async function getBybitSpotPrice(symbol) {
+  try {
+    const resp = await fetchWithRetry(
+      `https://api.bybit.com/v5/market/tickers?category=spot&symbol=${symbol}`,
+      FETCH_CF
+    );
+    if (!resp || !resp.ok) { await resp?.body?.cancel(); return null; }
+    const data = await resp.json();
+    const ticker = data?.result?.list?.[0];
+    if (!ticker?.lastPrice) return null;
+    const price = parseFloat(ticker.lastPrice);
+    if (!price || isNaN(price)) return null;
+    return { price, exchange: 'bybit', fee: 0.001 };
+  } catch (_) { return null; }
+}
+
+// ── Bybit perpetual price + funding rate ──────────────────────────────────────
+
+/**
+ * Returns Bybit linear perpetual price AND the current funding rate.
+ * fundingRate is expressed as a decimal (e.g. 0.0001 = 0.01% per period).
+ */
+export async function getBybitPerpData(symbol) {
+  try {
+    const resp = await fetchWithRetry(
+      `https://api.bybit.com/v5/market/tickers?category=linear&symbol=${symbol}`,
+      FETCH_CF
+    );
+    if (!resp || !resp.ok) { await resp?.body?.cancel(); return null; }
+    const data = await resp.json();
+    const ticker = data?.result?.list?.[0];
+    if (!ticker?.lastPrice) return null;
+    const price = parseFloat(ticker.lastPrice);
+    if (!price || isNaN(price)) return null;
+    return {
+      price,
+      exchange:    'bybit_perp',
+      fee:         0.0006,
+      fundingRate: parseFloat(ticker.fundingRate || '0')
+    };
+  } catch (_) { return null; }
+}
+
+// ── Gate.io spot price ────────────────────────────────────────────────────────
+
+export async function getGateioPrice(symbol) {
+  try {
+    const gateSymbol = symbol.endsWith('USDT')
+      ? symbol.slice(0, -4) + '_USDT'
+      : symbol;
+    const resp = await fetchWithRetry(
+      `https://api.gateio.ws/api/v4/spot/tickers?currency_pair=${gateSymbol}`,
+      FETCH_CF
+    );
+    if (!resp || !resp.ok) { await resp?.body?.cancel(); return null; }
+    const data = await resp.json();
+    const ticker = Array.isArray(data) ? data[0] : data;
+    if (!ticker?.last) return null;
+    const price = parseFloat(ticker.last);
+    if (!price || isNaN(price)) return null;
+    return { price, exchange: 'gateio', fee: 0.002 };
+  } catch (_) { return null; }
+}
+
 // ── Aggregated fetch ──────────────────────────────────────────────────────────
 
 /**
@@ -268,6 +334,8 @@ export async function getAllSpotPrices(env, symbol, openCircuits = new Set()) {
     ['okx',     () => getOKXPrice(symbol)],
     ['bitget',  () => getBitgetPrice(symbol)],
     ['bitmart', () => getBitmartPrice(symbol)],
+    ['bybit',   () => getBybitSpotPrice(symbol)],
+    ['gateio',  () => getGateioPrice(symbol)],
   ];
 
   const tasks = exchangeFetchers.map(([name, fetcher]) =>

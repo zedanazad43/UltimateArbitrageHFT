@@ -1,12 +1,21 @@
 // ===== NEXUS ARBITRAGE HUB — Final Integrated Bot =====
-// Entry point: nexus-hub Cloudflare Worker
+// Entry point: ultimate-arbitrage-hft Cloudflare Worker
 // Integrates: CEX + DEX + Perps strategies, admin dashboard, Telegram bot
 
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';
 import { renderDashboard, renderChecklist } from './src/dashboard.js';
 import { runScan } from './src/orchestrator.js';
-import { logAdminEvent, logBotEvent, getRecentTrades, getStrategyPnL, getPerformanceMetrics, exportTrades } from './src/db.js';
+import { ensureSchema, logAdminEvent, logBotEvent, getRecentTrades, getStrategyPnL, getPerformanceMetrics, exportTrades } from './src/db.js';
+import { hasExchangeCredentials, getExchangeBalance } from './src/exchange.js';
+import {
+  startWorkflow,
+  stopWorkflow,
+  terminateWorkflow,
+  describeWorkflow,
+  queryWorkflowStatus,
+  setTradingModeSignal,
+} from './src/temporal/cf-client.js';
 
 
 // ─── Telegram notification helper ────────────────────────────────────────────
@@ -60,6 +69,23 @@ function isAuthorized(env, c) {
   return c.req.header('x-admin-token') === token;
 }
 
+// ─── Rate limiter helper ──────────────────────────────────────────────────────
+// Uses the RATE_LIMITER binding (Cloudflare Rate Limiting API).
+// Returns a 429 response if the caller has exceeded the configured threshold;
+// returns null when the request may proceed.
+// Gracefully skips rate limiting when the binding is absent (local dev).
+async function checkRateLimit(env, c) {
+  if (!env.RATE_LIMITER) return null;
+  try {
+    const key = c.req.header('cf-connecting-ip') || c.req.header('x-forwarded-for') || 'unknown';
+    const { success } = await env.RATE_LIMITER.limit({ key });
+    if (!success) return c.text('Too Many Requests', 429);
+  } catch (e) {
+    console.error('[RateLimit] error:', e.message);
+  }
+  return null;
+}
+
 // ─── Durable Object: MarketStreamer ───────────────────────────────────────────
 export class MarketStreamer {
   constructor(state, env) {
@@ -88,6 +114,25 @@ export class MarketStreamer {
 const app = new Hono();
 app.use('*', cors());
 
+// ── Global error handler ──────────────────────────────────────────────────────
+app.onError((err, c) => {
+  console.error('[Worker] unhandled error:', err?.message, err?.stack);
+  const safe = (err?.message || 'Unknown error')
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  return c.html(
+    `<!DOCTYPE html><html><body style="font-family:sans-serif;padding:40px">` +
+    `<h1>500 — Internal Server Error</h1><pre>${safe}</pre>` +
+    `</body></html>`,
+    500
+  );
+});
+
+// ── Auto-schema middleware — ensures D1 tables exist before any route runs ────
+app.use('*', async (c, next) => {
+  try { await ensureSchema(c.env); } catch (_) { /* already logged in ensureSchema */ }
+  return next();
+});
+
 // ── Dashboard routes ──────────────────────────────────────────────────────────
 app.get('/', async (c) => renderDashboard(c.env));
 app.get('/dashboard', async (c) => renderDashboard(c.env));
@@ -95,6 +140,8 @@ app.get('/checklist', async (c) => renderChecklist(c.env));
 
 // ── Admin: Start ──────────────────────────────────────────────────────────────
 app.get('/start', async (c) => {
+  const limited = await checkRateLimit(c.env, c);
+  if (limited) return limited;
   if (!isAuthorized(c.env, c)) return c.text('Unauthorized', 401);
   const state = await getState(c.env);
   state.trading_enabled = true;
@@ -108,6 +155,8 @@ app.get('/start', async (c) => {
 
 // ── Admin: Stop ───────────────────────────────────────────────────────────────
 app.get('/stop', async (c) => {
+  const limited = await checkRateLimit(c.env, c);
+  if (limited) return limited;
   if (!isAuthorized(c.env, c)) return c.text('Unauthorized', 401);
   const state = await getState(c.env);
   state.trading_enabled = false;
@@ -119,6 +168,8 @@ app.get('/stop', async (c) => {
 
 // ── Admin: Immediate scan ─────────────────────────────────────────────────────
 app.get('/scan', async (c) => {
+  const limited = await checkRateLimit(c.env, c);
+  if (limited) return limited;
   if (!isAuthorized(c.env, c)) return c.text('Unauthorized', 401);
   const state = await getState(c.env);
   const result = await runScan(c.env, state, sendTelegramAlert);
@@ -136,6 +187,8 @@ app.get('/scan', async (c) => {
 
 // ── Admin: Set mode Paper ─────────────────────────────────────────────────────
 app.post('/mode/paper', async (c) => {
+  const limited = await checkRateLimit(c.env, c);
+  if (limited) return limited;
   if (!isAuthorized(c.env, c)) return c.text('Unauthorized', 401);
   const state = await getState(c.env);
   state.paper_trading = true;
@@ -147,6 +200,8 @@ app.post('/mode/paper', async (c) => {
 
 // ── Admin: Set mode Live ──────────────────────────────────────────────────────
 app.post('/mode/live', async (c) => {
+  const limited = await checkRateLimit(c.env, c);
+  if (limited) return limited;
   if (!isAuthorized(c.env, c)) return c.text('Unauthorized', 401);
   const state = await getState(c.env);
   state.paper_trading = false;
@@ -158,6 +213,8 @@ app.post('/mode/live', async (c) => {
 
 // ── Admin: Save config ────────────────────────────────────────────────────────
 app.post('/config', async (c) => {
+  const limited = await checkRateLimit(c.env, c);
+  if (limited) return limited;
   if (!isAuthorized(c.env, c)) return c.text('Unauthorized', 401);
   let body;
   try { body = await c.req.json(); } catch (_) { return c.text('Invalid JSON', 400); }
@@ -177,9 +234,12 @@ app.post('/config', async (c) => {
 
 // ── API: Bot status ───────────────────────────────────────────────────────────
 app.get('/api/status', async (c) => {
-  const state = await getState(c.env);
-  const lastScan = await c.env.BOT_STATE.get('nexus_last_scan', 'json').catch(() => null);
-  return c.json({ ...state, lastScan });
+  const [state, lastScan, circuitBreaker] = await Promise.all([
+    getState(c.env),
+    c.env.BOT_STATE.get('nexus_last_scan', 'json').catch(() => null),
+    c.env.BOT_STATE.get('nexus_circuit_breaker', 'json').catch(() => null)
+  ]);
+  return c.json({ ...state, lastScan, circuitBreaker: circuitBreaker || {} });
 });
 
 // ── API: Recent trades ────────────────────────────────────────────────────────
@@ -206,7 +266,41 @@ app.get('/api/report', async (c) => {
   return c.json({ success: true, data: metrics });
 });
 
-// ── API: CSV export ───────────────────────────────────────────────────────────
+// ── API: Exchange balances (auth-protected) ───────────────────────────────────
+app.get('/api/balances', async (c) => {
+  if (!isAuthorized(c.env, c)) return c.json({ error: 'Unauthorized' }, 401);
+  const EXCHANGES = ['mexc', 'binance', 'kucoin', 'okx', 'bitget', 'bitmart', 'bybit', 'gateio'];
+  const results = await Promise.all(
+    EXCHANGES.map(async (ex) => {
+      const configured = hasExchangeCredentials(c.env, ex);
+      if (!configured) return { exchange: ex, configured: false, balance: null };
+      const balance = await getExchangeBalance(c.env, ex, 'USDT');
+      return { exchange: ex, configured: true, balance };
+    })
+  );
+  return c.json({ success: true, data: results });
+});
+
+// ── Admin: Reset daily stats ──────────────────────────────────────────────────
+app.post('/reset-daily', async (c) => {
+  const limited = await checkRateLimit(c.env, c);
+  if (limited) return limited;
+  if (!isAuthorized(c.env, c)) return c.text('Unauthorized', 401);
+  const state = await getState(c.env);
+  state.daily_pnl    = 0;
+  state.daily_trades = 0;
+  state.last_daily_reset = Date.now();
+  if (state.auto_stopped) {
+    state.auto_stopped      = false;
+    state.auto_stop_reason  = null;
+  }
+  await saveState(c.env, state);
+  await logAdminEvent(c.env, 'reset-daily', c.req.raw);
+  await sendTelegramAlert(c.env, '🔄 *تم إعادة تعيين إحصائيات اليوم يدوياً*');
+  return c.text('✅ تم إعادة تعيين إحصائيات اليوم');
+});
+
+// ── API: CSV export — also archives to R2 ────────────────────────────────────
 app.get('/api/export', async (c) => {
   const from   = c.req.query('from');
   const to     = c.req.query('to');
@@ -225,11 +319,274 @@ app.get('/api/export', async (c) => {
   );
   const csv = [headers.join(','), ...rows].join('\r\n');
   const dateStr = new Date().toISOString().slice(0, 10); // YYYY-MM-DD
+
+  // Archive to R2 (non-blocking — failure does not affect the download)
+  if (c.env.TRADE_LOGS) {
+    try {
+      const key = `exports/${dateStr}-${Date.now()}.csv`;
+      await c.env.TRADE_LOGS.put(key, csv, {
+        httpMetadata: { contentType: 'text/csv; charset=utf-8' },
+        customMetadata: { from: String(fromMs), to: String(toMs), rows: String(trades.length) },
+      });
+    } catch (e) {
+      console.error('[R2] export archive error:', e.message);
+    }
+  }
+
   return new Response(csv, {
     headers: {
       'Content-Type': 'text/csv; charset=utf-8',
       'Content-Disposition': `attachment; filename="trades-${dateStr}.csv"`
     }
+  });
+});
+
+// ── API: R2 log archive listing ───────────────────────────────────────────────
+// Returns a paginated list of CSV archives stored in the TRADE_LOGS R2 bucket.
+// Accepts optional `?prefix=` query parameter (default: "exports/").
+app.get('/api/logs', async (c) => {
+  if (!c.env.TRADE_LOGS) return c.json({ error: 'R2 binding not configured' }, 503);
+  const prefix = c.req.query('prefix') || 'exports/';
+  const cursor = c.req.query('cursor') || undefined;
+  try {
+    const list = await c.env.TRADE_LOGS.list({ prefix, cursor, limit: 50 });
+    return c.json({
+      success: true,
+      objects: list.objects.map(o => ({
+        key: o.key,
+        size: o.size,
+        uploaded: o.uploaded,
+        customMetadata: o.customMetadata,
+      })),
+      truncated: list.truncated,
+      cursor: list.cursor,
+    });
+  } catch (e) {
+    console.error('[R2] list error:', e.message);
+    return c.json({ error: 'Failed to list log archives' }, 500);
+  }
+});
+
+// ── API: AI opportunity analysis ──────────────────────────────────────────────
+// Accepts a JSON body with an `opportunity` object and returns an AI-generated
+// short analysis and recommendation in Arabic.
+// Body: { opportunity: { symbol, strategy, direction, buyPrice, sellPrice, netPct } }
+//
+// Provider priority:
+//   1. GitHub Models (openai/gpt-4.1) — when GITHUB_TOKEN secret is set.
+//   2. Cloudflare Workers AI (llama-3.1-8b-instruct) — fallback when AIWORKER
+//      binding is available but GITHUB_TOKEN is absent.
+app.post('/api/ai-analysis', async (c) => {
+  if (!isAuthorized(c.env, c)) return c.json({ error: 'Unauthorized' }, 401);
+
+  const hasGitHubToken = !!c.env.GITHUB_TOKEN;
+  const hasWorkersAI   = !!c.env.AIWORKER;
+  if (!hasGitHubToken && !hasWorkersAI) {
+    return c.json({ error: 'No AI provider configured (set GITHUB_TOKEN or AIWORKER)' }, 503);
+  }
+
+  let body;
+  try { body = await c.req.json(); } catch (_) { return c.json({ error: 'Invalid JSON' }, 400); }
+
+  const opp = body?.opportunity;
+  if (!opp) return c.json({ error: 'Missing opportunity field' }, 400);
+
+  const systemPrompt = 'You are a professional crypto arbitrage analyst.';
+  const userPrompt =
+    `Analyze this opportunity briefly (2-3 sentences) and give a buy/skip recommendation.\n` +
+    `Pair: ${opp.symbol}\n` +
+    `Strategy: ${opp.strategy?.toUpperCase()}\n` +
+    `Direction: ${opp.direction}\n` +
+    `Buy price: $${Number(opp.buyPrice).toFixed(6)}\n` +
+    `Sell price: $${Number(opp.sellPrice).toFixed(6)}\n` +
+    `Net profit: ${Number(opp.netPct).toFixed(4)}%\n` +
+    `Respond in Arabic only.`;
+
+  // ── Provider 1: GitHub Models (openai/gpt-4.1) ──────────────────────────────
+  if (hasGitHubToken) {
+    try {
+      const res = await fetch('https://models.github.ai/inference/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${c.env.GITHUB_TOKEN}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          model: 'openai/gpt-4.1',
+          messages: [
+            { role: 'system', content: systemPrompt },
+            { role: 'user',   content: userPrompt },
+          ],
+          temperature: 1.0,
+          top_p: 1.0,
+          max_tokens: 256,
+        }),
+      });
+      if (!res.ok) {
+        const errText = await res.text();
+        throw new Error(`GitHub Models API error ${res.status}: ${errText}`);
+      }
+      const data = await res.json();
+      const analysis = data?.choices?.[0]?.message?.content ?? JSON.stringify(data);
+      return c.json({ success: true, analysis, provider: 'github-models' });
+    } catch (e) {
+      console.error('[AI] GitHub Models error:', e.message);
+      // Fall through to Workers AI if available, otherwise return the error.
+      if (!hasWorkersAI) return c.json({ error: 'AI analysis failed', detail: e.message }, 500);
+    }
+  }
+
+  // ── Provider 2: Cloudflare Workers AI (llama-3.1-8b-instruct) ───────────────
+  try {
+    const result = await c.env.AIWORKER.run('@cf/meta/llama-3.1-8b-instruct', {
+      messages: [
+        { role: 'system', content: systemPrompt },
+        { role: 'user',   content: userPrompt },
+      ],
+      max_tokens: 256,
+    });
+    const analysis = result?.response ?? result?.text ?? (typeof result === 'string' ? result : JSON.stringify(result));
+    return c.json({ success: true, analysis, provider: 'workers-ai' });
+  } catch (e) {
+    console.error('[AI] Workers AI error:', e.message);
+    return c.json({ error: 'AI analysis failed', detail: e.message }, 500);
+  }
+});
+
+// ── API: Generic AI inference (OpenAI Responses API schema) ──────────────────
+// Accepts a JSON body that conforms to the Responses API request schema and
+// returns a response that conforms to the Responses API response schema.
+//
+// Request schema (required: input):
+//   input            – string | array  – user message(s)
+//   instructions     – string          – optional system prompt
+//   temperature      – number 0–2
+//   max_output_tokens– number > 0
+//   top_p            – number 0–1
+//   stream           – boolean         – streaming not yet supported; ignored
+//   tools            – array           – tool definitions (passed to model if supported)
+//   tool_choice      – any             – passed through
+//   text             – object          – text format hints
+//   reasoning        – { effort }      – "none"|"low"|"medium"|"high"
+//
+// Response schema:
+//   id, object:"response", created_at, model, output, output_text, status, usage
+app.post('/api/ai', async (c) => {
+  if (!isAuthorized(c.env, c)) return c.json({ error: 'Unauthorized' }, 401);
+  if (!c.env.AIWORKER) return c.json({ error: 'Workers AI binding not configured' }, 503);
+
+  let body;
+  try { body = await c.req.json(); } catch (_) { return c.json({ error: 'Invalid JSON' }, 400); }
+
+  // Validate required field
+  if (body.input == null) {
+    return c.json({ error: 'Missing required field: input' }, 400);
+  }
+
+  // Build messages array for Workers AI
+  const messages = [];
+
+  // System message from instructions
+  if (typeof body.instructions === 'string' && body.instructions.trim()) {
+    messages.push({ role: 'system', content: body.instructions.trim() });
+  }
+
+  // User content from input
+  if (typeof body.input === 'string') {
+    messages.push({ role: 'user', content: body.input });
+  } else if (Array.isArray(body.input)) {
+    for (const item of body.input) {
+      if (item && typeof item === 'object' && typeof item.role === 'string' && item.role && item.content !== undefined) {
+        messages.push({ role: item.role, content: item.content });
+      } else if (typeof item === 'string') {
+        messages.push({ role: 'user', content: item });
+      }
+    }
+  }
+
+  if (messages.length === 0) {
+    return c.json({ error: 'input produced no messages' }, 400);
+  }
+
+  // Map reasoning effort to max_tokens multiplier (higher effort → longer response)
+  const VALID_EFFORTS = new Set(['none', 'low', 'medium', 'high']);
+  const effortMultiplier = { none: 0.25, low: 0.5, medium: 1, high: 2 };
+  const effort = body.reasoning?.effort ?? 'medium';
+  if (!VALID_EFFORTS.has(effort)) {
+    return c.json({ error: `Invalid reasoning.effort value: "${effort}". Must be one of: none, low, medium, high` }, 400);
+  }
+  const baseMaxTokens = typeof body.max_output_tokens === 'number' && body.max_output_tokens > 0
+    ? body.max_output_tokens
+    : 512;
+  const max_tokens = Math.round(baseMaxTokens * effortMultiplier[effort]);
+
+  const aiParams = { messages, max_tokens };
+  if (typeof body.temperature === 'number') aiParams.temperature = body.temperature;
+  if (typeof body.top_p       === 'number') aiParams.top_p       = body.top_p;
+
+  const MODEL = '@cf/meta/llama-3.1-8b-instruct';
+  const createdAt = Math.floor(Date.now() / 1000);
+  const responseId = `resp_${crypto.randomUUID().replace(/-/g, '')}`;
+
+  try {
+    const result = await c.env.AIWORKER.run(MODEL, aiParams);
+
+    const rawText = result?.response ?? result?.text;
+    const text = rawText !== undefined
+      ? rawText
+      : (typeof result === 'string'
+          ? result
+          : (() => {
+              console.warn('[AI /api/ai] unexpected result format; serialising to JSON:', JSON.stringify(result).slice(0, 200));
+              return JSON.stringify(result);
+            })());
+
+    const outputItem = {
+      type: 'message',
+      role: 'assistant',
+      content: [{ type: 'output_text', text }],
+    };
+
+    const usage = {
+      input_tokens:  result?.usage?.prompt_tokens     ?? 0,
+      output_tokens: result?.usage?.completion_tokens ?? 0,
+      total_tokens:  result?.usage?.total_tokens      ?? 0,
+    };
+
+    return c.json({
+      id:          responseId,
+      object:      'response',
+      created_at:  createdAt,
+      model:       MODEL,
+      output:      [outputItem],
+      output_text: text,
+      status:      'completed',
+      usage,
+    });
+  } catch (e) {
+    console.error('[AI /api/ai] run error:', e.message);
+    return c.json({
+      id:         responseId,
+      object:     'response',
+      created_at: createdAt,
+      model:      MODEL,
+      output:     [],
+      status:     'failed',
+      usage:      { input_tokens: 0, output_tokens: 0, total_tokens: 0 },
+      error:      e.message,
+    }, 500);
+  }
+});
+
+// ── API: Version metadata ─────────────────────────────────────────────────────
+// Exposes the current Worker deployment version, tag, and timestamp.
+app.get('/api/version', (c) => {
+  const v = c.env.METADATA;
+  return c.json({
+    id:        v?.id        ?? null,
+    tag:       v?.tag       ?? null,
+    timestamp: v?.timestamp ?? null,
+    worker:    'ultimate-arbitrage-hft',
   });
 });
 
@@ -271,8 +628,9 @@ app.post('/telegram/webhook', async (c) => {
     if (cmd === '/start' || cmd === '/help') {
       await send(
         `🔷 *Nexus Arbitrage Hub*\n\n` +
-        `📊 الاستراتيجيات: CEX + DEX + Perps\n` +
-        `🏦 المنصات: MEXC, Binance, KuCoin, OKX, Bitget, Bitmart\n\n` +
+        `📊 الاستراتيجيات: CEX + DEX + Perps + Funding Rate\n` +
+        `🏦 المنصات: MEXC, Binance, KuCoin, OKX, Bitget, Bitmart, Bybit, Gate.io\n` +
+        `📈 الأزواج: 29 زوج من أكبر العملات\n\n` +
         `⚡ *الأوامر:*\n` +
         `/status — حالة البوت والإحصائيات\n` +
         `/scan — مسح فوري للفرص\n` +
@@ -348,6 +706,105 @@ app.post('/telegram/webhook', async (c) => {
     await send(`⚠️ خطأ: ${err.message}`).catch(() => {});
   }
   return c.json({ ok: true });
+});
+
+// ── API: Temporal workflow — start ────────────────────────────────────────────
+// Starts (or restarts) the ArbitrageTradingWorkflow on Temporal Cloud.
+// The workflow calls /scan on this Worker at each cycle interval.
+// Body (all optional): { cycleIntervalSeconds, maxCyclesBeforeReset }
+app.post('/api/temporal/start', async (c) => {
+  const limited = await checkRateLimit(c.env, c);
+  if (limited) return limited;
+  if (!isAuthorized(c.env, c)) return c.json({ error: 'Unauthorized' }, 401);
+  if (!c.env.TEMPORAL_API_KEY) {
+    return c.json({ error: 'TEMPORAL_API_KEY is not configured' }, 503);
+  }
+  try {
+    const body = await c.req.json().catch(() => ({}));
+    const workerUrl = c.env.TEMPORAL_WORKER_URL;
+    if (!workerUrl) {
+      return c.json({ error: 'TEMPORAL_WORKER_URL is not configured — set it via wrangler secret or [vars] in wrangler.toml' }, 503);
+    }
+    const result = await startWorkflow(c.env, {
+      workerUrl,
+      adminToken:           c.env.ADMIN_TOKEN || '',
+      cycleIntervalSeconds: body.cycleIntervalSeconds,
+      maxCyclesBeforeReset: body.maxCyclesBeforeReset,
+    });
+    await logAdminEvent(c.env, 'temporal:start', c.req.raw);
+    return c.json({ success: true, workflowId: 'arbitrage-trading-session', result });
+  } catch (e) {
+    console.error('[Temporal] start error:', e.message);
+    return c.json({ error: e.message }, 500);
+  }
+});
+
+// ── API: Temporal workflow — stop ─────────────────────────────────────────────
+// Signals the workflow to stop gracefully, or terminates it immediately.
+// Body (optional): { force: true } for immediate termination.
+app.post('/api/temporal/stop', async (c) => {
+  const limited = await checkRateLimit(c.env, c);
+  if (limited) return limited;
+  if (!isAuthorized(c.env, c)) return c.json({ error: 'Unauthorized' }, 401);
+  if (!c.env.TEMPORAL_API_KEY) {
+    return c.json({ error: 'TEMPORAL_API_KEY is not configured' }, 503);
+  }
+  try {
+    const { force } = await c.req.json().catch(() => ({}));
+    const result = force
+      ? await terminateWorkflow(c.env)
+      : await stopWorkflow(c.env);
+    await logAdminEvent(c.env, force ? 'temporal:terminate' : 'temporal:stop', c.req.raw);
+    return c.json({ success: true, result });
+  } catch (e) {
+    console.error('[Temporal] stop error:', e.message);
+    return c.json({ error: e.message }, 500);
+  }
+});
+
+// ── API: Temporal workflow — status ──────────────────────────────────────────
+// Returns the Temporal workflow description and live status query snapshot.
+app.get('/api/temporal/status', async (c) => {
+  if (!isAuthorized(c.env, c)) return c.json({ error: 'Unauthorized' }, 401);
+  if (!c.env.TEMPORAL_API_KEY) {
+    return c.json({ error: 'TEMPORAL_API_KEY is not configured' }, 503);
+  }
+  try {
+    const [descResult, queryResult] = await Promise.allSettled([
+      describeWorkflow(c.env),
+      queryWorkflowStatus(c.env),
+    ]);
+    return c.json({
+      success:     true,
+      description: descResult.status  === 'fulfilled' ? descResult.value  : { error: descResult.reason?.message },
+      status:      queryResult.status === 'fulfilled' ? queryResult.value : null,
+    });
+  } catch (e) {
+    console.error('[Temporal] status error:', e.message);
+    return c.json({ error: e.message }, 500);
+  }
+});
+
+// ── API: Temporal workflow — set mode ────────────────────────────────────────
+// Signals the running workflow to switch trading modes.
+// Body: { paper: true|false }
+app.post('/api/temporal/mode', async (c) => {
+  const limited = await checkRateLimit(c.env, c);
+  if (limited) return limited;
+  if (!isAuthorized(c.env, c)) return c.json({ error: 'Unauthorized' }, 401);
+  if (!c.env.TEMPORAL_API_KEY) {
+    return c.json({ error: 'TEMPORAL_API_KEY is not configured' }, 503);
+  }
+  try {
+    const { paper } = await c.req.json().catch(() => ({}));
+    if (typeof paper !== 'boolean') return c.json({ error: 'body must include { "paper": true|false }' }, 400);
+    await setTradingModeSignal(c.env, paper);
+    await logAdminEvent(c.env, paper ? 'temporal:mode:paper' : 'temporal:mode:live', c.req.raw);
+    return c.json({ success: true, mode: paper ? 'paper' : 'live' });
+  } catch (e) {
+    console.error('[Temporal] mode error:', e.message);
+    return c.json({ error: e.message }, 500);
+  }
 });
 
 // ── Manual cron trigger ───────────────────────────────────────────────────────
@@ -440,8 +897,39 @@ async function sendDailyReport(env, state) {
 // ─── Exports ──────────────────────────────────────────────────────────────────
 export default {
   fetch: app.fetch.bind(app),
+
   async scheduled(event, env, ctx) {
     ctx.waitUntil(runScheduledCycle(env));
   },
+
+  // ── Queue consumer ─────────────────────────────────────────────────────────
+  // Processes messages enqueued via env.TRADE_QUEUE.send().
+  // Each message is expected to carry { type, data } where type is one of:
+  //   "trade_log"   — write a deferred trade record to D1 + R2 daily summary
+  //   "alert"       — send a Telegram notification
+  async queue(batch, env) {
+    for (const msg of batch.messages) {
+      try {
+        const { type, data } = msg.body;
+
+        if (type === 'trade_log' && env.DB) {
+          const { strategy, sizeUsd, netPct, mode } = data;
+          await env.DB.prepare(
+            `INSERT INTO trades (strategy, size_usd, net_profit_percent, mode, created_at) VALUES (?, ?, ?, ?, ?)`
+          ).bind(strategy, sizeUsd, netPct, mode, Date.now()).run();
+        }
+
+        if (type === 'alert') {
+          await sendTelegramAlert(env, data.message);
+        }
+
+        msg.ack();
+      } catch (e) {
+        console.error('[Queue] message processing error:', e.message);
+        msg.retry();
+      }
+    }
+  },
 };
+
 

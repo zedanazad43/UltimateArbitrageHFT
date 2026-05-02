@@ -1,14 +1,28 @@
-name = "arbitrage-bot"
+name = "ultimatearbitragehft"
 main = "index.js"
 compatibility_date = "2025-04-18"
 compatibility_flags = ["nodejs_compat"]
+account_id = "652e53f35781522e2745784cc4425d9d"
+
+# ── Existing bindings ──────────────────────────────────────────────────────────
 
 [[kv_namespaces]]
 binding = "BOT_STATE"
 id = "ac954cedbedd48f8aa4452975e5fc2a1"
 
+# Dashboard alias for the same KV namespace (name shown in Cloudflare UI).
+[[kv_namespaces]]
+binding = "KV_STORAGE"
+id = "ac954cedbedd48f8aa4452975e5fc2a1"
+
 [[d1_databases]]
 binding = "DB"
+database_name = "ultimate-arbitrage-db"
+database_id = "cd726538-9c41-456c-b172-15fcc3a63a0c"
+
+# Dashboard alias for the same database (binding name shown in Cloudflare UI).
+[[d1_databases]]
+binding = "MY_D1"
 database_name = "ultimate-arbitrage-db"
 database_id = "cd726538-9c41-456c-b172-15fcc3a63a0c"
 
@@ -20,6 +34,72 @@ class_name = "MarketStreamer"
 tag = "v1"
 new_classes = ["MarketStreamer"]
 
+# ── Analytics Engine ───────────────────────────────────────────────────────────
+# Streams trade events, scan results, and errors to Cloudflare Analytics Engine.
+# Dashboard: https://dash.cloudflare.com/ → Workers & Pages → Analytics Engine
+
+[[analytics_engine_datasets]]
+binding = "ANALYTICS"
+dataset = "arbitrage_events"
+
+# ── R2 Bucket — trade log archives ────────────────────────────────────────────
+# Stores CSV trade exports and daily PDF-style reports.
+# Create: `npx wrangler r2 bucket create ultimate-arbitrage-logs`
+
+[[r2_buckets]]
+binding = "TRADE_LOGS"
+bucket_name = "ultimate-arbitrage-logs"
+
+# Dashboard alias for the same bucket (binding name shown in Cloudflare UI).
+[[r2_buckets]]
+binding = "R2"
+bucket_name = "ultimate-arbitrage-logs"
+
+# ── Workers AI ────────────────────────────────────────────────────────────────
+# Runs LLM-powered opportunity analysis and market summaries entirely on
+# Cloudflare's GPU fleet — no external API keys required.
+
+[ai]
+binding = "AIWORKER"
+
+# ── Queue — async trade-log pipeline ──────────────────────────────────────────
+# Producers: enqueue trade-log messages immediately after order execution so
+# the hot path is never blocked by slow DB writes.
+# Create: `npx wrangler queues create ultimate-arbitrage-queue`
+
+[[queues.producers]]
+binding = "TRADE_QUEUE"
+queue = "ultimate-arbitrage-queue"
+
+# Dashboard alias for the same queue (binding name shown in Cloudflare UI).
+[[queues.producers]]
+binding = "ULTIMATEARBITRAGEQUEUE"
+queue = "ultimate-arbitrage-queue"
+
+[[queues.consumers]]
+queue = "ultimate-arbitrage-queue"
+max_batch_size = 10
+max_batch_timeout = 30
+
+# ── Rate Limiter — admin endpoint protection ───────────────────────────────────
+# 20 requests per 60 seconds per IP on all admin routes.
+# Uses Cloudflare's built-in rate limiting; no external service needed.
+
+[[unsafe.bindings]]
+type = "ratelimit"
+name = "RATE_LIMITER"
+namespace_id = "1001"
+simple = { limit = 20, period = 60 }
+
+# ── Version Metadata ──────────────────────────────────────────────────────────
+# Exposes the current Worker deployment version ID, tag, and timestamp.
+# Accessible at /api/version.
+
+[version_metadata]
+binding = "METADATA"
+
+# ── Observability ──────────────────────────────────────────────────────────────
+
 [observability]
 enabled = false
 head_sampling_rate = 1
@@ -30,5 +110,29 @@ head_sampling_rate = 1
 persist = true
 invocation_logs = true
 
+[observability.traces]
+enabled = true
+persist = true
+head_sampling_rate = 1
+
 [triggers]
 crons = ["* * * * *"]
+
+# ── Temporal Cloud — non-sensitive config vars ────────────────────────────────
+# These are plain (non-secret) configuration values exposed to the Worker.
+# Update TEMPORAL_ADDRESS and TEMPORAL_NAMESPACE to match your Cloud namespace.
+#
+# TEMPORAL_API_KEY must be stored as a secret (never in wrangler.toml):
+#   npx wrangler secret put TEMPORAL_API_KEY
+#
+# TEMPORAL_WORKER_URL should point to this Worker's deployed URL so that
+# the Temporal worker process can call back to /scan, /api/status, etc.
+
+[vars]
+TEMPORAL_NAMESPACE  = "default"
+# Set to your Cloud namespace gRPC endpoint, e.g. default.abc123.tmprl.cloud:7233
+# Leave blank to connect to a local dev server (localhost:7233)
+TEMPORAL_ADDRESS    = ""
+# Set to your deployed Worker URL, e.g. https://ultimatearbitragehft.workers.dev
+TEMPORAL_WORKER_URL = ""
+

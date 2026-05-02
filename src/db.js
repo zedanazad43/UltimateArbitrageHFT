@@ -1,6 +1,123 @@
-// nexus/src/db.js — D1 database helpers
+// nexus/src/db.js — D1 database helpers + Analytics Engine integration
+
+// ── Auto-schema initialisation ────────────────────────────────────────────────
+// Creates all D1 tables and indexes on first use so the Worker is self-healing:
+// the schema is applied automatically even when the manual migration step was
+// skipped.  The promise is memoised per Worker instance — subsequent requests
+// within the same isolate are no-ops.
+let _schemaInitPromise = null;
+
+export function ensureSchema(env) {
+  if (!env.DB) return Promise.resolve();
+  if (_schemaInitPromise) return _schemaInitPromise;
+  _schemaInitPromise = env.DB.exec(`
+    CREATE TABLE IF NOT EXISTS trades (
+      id                 INTEGER PRIMARY KEY AUTOINCREMENT,
+      strategy           TEXT    NOT NULL,
+      size_usd           REAL    NOT NULL,
+      net_profit_percent REAL    NOT NULL,
+      mode               TEXT    NOT NULL DEFAULT 'paper',
+      created_at         INTEGER NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS admin_events (
+      id         INTEGER PRIMARY KEY AUTOINCREMENT,
+      action     TEXT    NOT NULL,
+      source_ip  TEXT,
+      created_at INTEGER NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS bot_events (
+      id         INTEGER PRIMARY KEY AUTOINCREMENT,
+      event_type TEXT    NOT NULL,
+      details    TEXT,
+      created_at INTEGER NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS paper_positions (
+      id            INTEGER PRIMARY KEY AUTOINCREMENT,
+      strategy      TEXT    NOT NULL,
+      symbol        TEXT    NOT NULL,
+      direction     TEXT    NOT NULL,
+      size_usd      REAL    NOT NULL,
+      entry_price   REAL    NOT NULL,
+      buy_exchange  TEXT    NOT NULL,
+      sell_exchange TEXT    NOT NULL,
+      opened_at     INTEGER NOT NULL,
+      closed_at     INTEGER,
+      exit_price    REAL,
+      pnl_usd       REAL
+    );
+    CREATE TABLE IF NOT EXISTS profits (
+      id         INTEGER PRIMARY KEY AUTOINCREMENT,
+      trade_id   INTEGER,
+      amount     REAL    NOT NULL,
+      currency   TEXT    DEFAULT 'USDT',
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (trade_id) REFERENCES trades(id) ON DELETE SET NULL
+    );
+    CREATE TABLE IF NOT EXISTS logs (
+      id         INTEGER PRIMARY KEY AUTOINCREMENT,
+      level      TEXT    NOT NULL,
+      message    TEXT    NOT NULL,
+      metadata   TEXT,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+    CREATE TABLE IF NOT EXISTS settings (
+      key        TEXT PRIMARY KEY,
+      value      TEXT    NOT NULL,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+    /* settings values are stored as TEXT; callers must cast to the target type.
+       updated_at is INSERT-only — supply a new value in UPDATE statements. */
+    INSERT OR IGNORE INTO settings (key, value) VALUES ('min_spread',       '0.1');
+    INSERT OR IGNORE INTO settings (key, value) VALUES ('max_trade_amount', '100');
+    INSERT OR IGNORE INTO settings (key, value) VALUES ('auto_trade',       'false');
+    INSERT OR IGNORE INTO settings (key, value) VALUES ('telegram_alerts',  'true');
+    CREATE INDEX IF NOT EXISTS idx_trades_created_at         ON trades(created_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_trades_strategy           ON trades(strategy);
+    CREATE INDEX IF NOT EXISTS idx_trades_mode               ON trades(mode);
+    CREATE INDEX IF NOT EXISTS idx_admin_events_created_at   ON admin_events(created_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_bot_events_created_at     ON bot_events(created_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_paper_positions_opened_at ON paper_positions(opened_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_paper_positions_closed_at ON paper_positions(closed_at);
+    CREATE INDEX IF NOT EXISTS idx_profits_trade_id          ON profits(trade_id);
+    CREATE INDEX IF NOT EXISTS idx_logs_level                ON logs(level);
+    CREATE INDEX IF NOT EXISTS idx_logs_created_at           ON logs(created_at DESC);
+  `).catch(e => {
+    _schemaInitPromise = null; // allow retry on the next request
+    console.error('[DB] ensureSchema error:', e.message);
+    throw e; // propagate so the middleware can log / handle
+  });
+  return _schemaInitPromise;
+}
+
+// ── Analytics Engine helper ───────────────────────────────────────────────────
+// Writes a structured data point to the ANALYTICS binding (Analytics Engine).
+// The binding is optional — all callers guard with an existence check so the
+// Worker degrades gracefully when the dataset has not yet been provisioned.
+//
+// Schema:
+//   blobs[0]  = event_type  (e.g. "trade", "scan", "admin", "error")
+//   blobs[1]  = strategy    (e.g. "cex", "dex", "perps")
+//   blobs[2]  = mode        (e.g. "paper", "live")
+//   doubles[0] = size_usd
+//   doubles[1] = net_profit_percent
+//   indexes[0] = event_type (for fast GROUP-BY queries via SQL API)
+export function writeAnalyticsEvent(env, eventType, { strategy = '', mode = '', sizeUsd = 0, netPct = 0 } = {}) {
+  if (!env.ANALYTICS) return;
+  try {
+    env.ANALYTICS.writeDataPoint({
+      blobs:   [eventType, strategy, mode],
+      doubles: [sizeUsd, netPct],
+      indexes: [eventType],
+    });
+  } catch (e) {
+    console.error('[Analytics] writeDataPoint error:', e.message);
+  }
+}
 
 export async function logTrade(env, { strategy, sizeUsd, netPct, mode }) {
+  // Emit to Analytics Engine (non-blocking, fire-and-forget)
+  writeAnalyticsEvent(env, 'trade', { strategy, sizeUsd, netPct, mode });
+
   if (!env.DB) return;
   try {
     await env.DB.prepare(
@@ -41,6 +158,7 @@ export async function getStrategyPnL(env) {
 }
 
 export async function logAdminEvent(env, action, request) {
+  writeAnalyticsEvent(env, 'admin', { strategy: action });
   if (!env.DB) return;
   try {
     const ip = request.headers.get('cf-connecting-ip') ||
@@ -52,6 +170,7 @@ export async function logAdminEvent(env, action, request) {
 }
 
 export async function logBotEvent(env, eventType, details = null) {
+  writeAnalyticsEvent(env, eventType, {});
   if (!env.DB) return;
   try {
     await env.DB.prepare(

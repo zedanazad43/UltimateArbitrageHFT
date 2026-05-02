@@ -14,10 +14,15 @@ const DEFAULT_RISK = {
 
 export async function renderDashboard(env) {
   const [state, lastScan, trades, stratPnl, metrics] = await Promise.all([
-    env.BOT_STATE.get('trading_state', 'json').then(s => s || {
-      trading_enabled: true, paper_trading: false,
-      daily_pnl: 0, daily_trades: 0, total_pnl: 0, total_trades: 0
-    }),
+    env.BOT_STATE.get('trading_state', 'json')
+      .then(s => s || {
+        trading_enabled: true, paper_trading: false,
+        daily_pnl: 0, daily_trades: 0, total_pnl: 0, total_trades: 0
+      })
+      .catch(() => ({
+        trading_enabled: true, paper_trading: false,
+        daily_pnl: 0, daily_trades: 0, total_pnl: 0, total_trades: 0
+      })),
     env.BOT_STATE.get('nexus_last_scan', 'json').catch(() => null),
     getRecentTrades(env, 20),
     getStrategyPnL(env),
@@ -126,6 +131,7 @@ export async function renderDashboard(env) {
     .btn-red{background:#e74c3c;color:#fff}
     .btn-green{background:#2ecc71;color:#000}
     .btn-blue{background:#3498db;color:#fff}
+    .btn-sm{padding:5px 10px;font-size:.78em}
     .risk-row{display:flex;flex-wrap:wrap;gap:14px;margin-top:14px}
     .risk-item{display:flex;flex-direction:column;gap:4px}
     .risk-item label{color:#888;font-size:.78em}
@@ -134,9 +140,33 @@ export async function renderDashboard(env) {
     th{background:#2a2e38;color:#f0b90b;padding:11px 12px;text-align:right}
     td{padding:9px 12px;border-bottom:1px solid #2a2e38}
     .status-bar{display:flex;flex-wrap:wrap;gap:18px;align-items:center;padding:14px 20px;background:#1a1e26;border-radius:12px;margin-bottom:18px}
+    .token-panel{background:#12161e;border:1px solid #2a2e38;border-radius:10px;padding:12px 18px;margin-bottom:14px;display:flex;flex-wrap:wrap;align-items:center;gap:10px}
+    .token-panel label{color:#888;font-size:.82em;white-space:nowrap}
+    .token-panel input{background:#2a2e38;color:#eee;border:1px solid #444;border-radius:6px;padding:6px 10px;width:220px;font-size:.88em}
+    #refreshBar{display:flex;align-items:center;gap:10px;font-size:.8em;color:#888}
+    .cb-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px}
+    .cb-card{background:#12161e;padding:12px;border-radius:8px;border:1px solid #2a2e38;font-size:.82em}
+    .cb-card .name{color:#aaa;font-size:.85em;margin-bottom:4px}
+    .cb-ok{color:#2ecc71}
+    .cb-open{color:#e74c3c;font-weight:bold}
+    .bal-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px}
+    .bal-card{background:#12161e;padding:12px;border-radius:8px;border:1px solid #2a2e38}
+    .bal-name{color:#aaa;font-size:.82em;margin-bottom:4px}
+    .bal-value{font-size:1.1em;font-weight:bold}
   </style>
 </head>
 <body>
+
+<!-- ── Token panel ─────────────────────────────────────────────────── -->
+<div class="token-panel">
+  <label>🔑 Admin Token:</label>
+  <input id="tokenInput" type="password" placeholder="أدخل رمز الإدارة..." autocomplete="current-password">
+  <button class="btn btn-sm" onclick="saveToken()">حفظ</button>
+  <button class="btn btn-sm btn-red" onclick="clearToken()">مسح</button>
+  <span id="tokenStatus" style="font-size:.82em"></span>
+  <span style="flex:1"></span>
+  <div id="refreshBar"><span id="countdownLabel">تحديث تلقائي:</span> <strong id="countdown">30</strong>ث &nbsp;|&nbsp; <button class="btn btn-sm btn-blue" onclick="location.reload()">🔄 تحديث الآن</button></div>
+</div>
 
 <h1>🔷 Nexus Arbitrage System — Control Center</h1>
 <div class="subtitle">منظومة موحدة: CEX + DEX + Perps &nbsp;|&nbsp; آخر مسح: ${lastScanTime}</div>
@@ -193,6 +223,7 @@ ${autoStopBanner}
   <button class="btn"           data-admin-action="1" onclick="adminAction('scan')">🔍 مسح فوري</button>
   <button class="btn btn-blue"  onclick="location.reload()">🔄 تحديث</button>
   <button class="btn"           onclick="window.open('/checklist','_blank')">✅ قائمة التشغيل</button>
+  <button class="btn btn-red"   data-admin-action="1" onclick="resetDaily()">🔄 إعادة تعيين اليوم</button>
 </div>
 
 <div class="panel">
@@ -269,6 +300,18 @@ ${autoStopBanner}
 
 <div class="panel"><canvas id="pnlChart"></canvas></div>
 
+<!-- ── Exchange Balances panel (loaded dynamically) ───────────────────────── -->
+<div class="panel">
+  <h2 style="margin-top:0">💰 أرصدة المنصات (USDT)</h2>
+  <div id="balancesContent" class="bal-grid"><span style="color:#888">جارٍ التحميل...</span></div>
+</div>
+
+<!-- ── Circuit Breaker panel (loaded dynamically) ────────────────────────── -->
+<div class="panel">
+  <h2 style="margin-top:0">🔌 حالة Circuit Breaker</h2>
+  <div id="cbContent" class="cb-grid"><span style="color:#888">جارٍ التحميل...</span></div>
+</div>
+
 <h2>📊 آخر الصفقات</h2>
 <table>
   <tr><th>الوضع</th><th>الاستراتيجية</th><th>الاتجاه</th><th>الحجم (USD)</th><th>الربح</th><th>الوقت</th></tr>
@@ -276,11 +319,39 @@ ${autoStopBanner}
 </table>
 
 <script>
-  const TOKEN = sessionStorage.getItem('adminToken') || (()=>{
-    const t = prompt('أدخل Admin Token (اتركه فارغاً للعرض فقط)') || '';
-    if(t) sessionStorage.setItem('adminToken',t);
-    return t;
-  })();
+  // ── Token management ────────────────────────────────────────────────────────
+  let TOKEN = sessionStorage.getItem('adminToken') || '';
+  function updateTokenStatus(){
+    const el=document.getElementById('tokenStatus');
+    if(!el) return;
+    el.textContent = TOKEN ? '✅ رمز محفوظ — التحكم مفعّل' : '⚠️ بدون رمز — عرض فقط';
+    el.style.color  = TOKEN ? '#2ecc71' : '#f0b90b';
+  }
+  function saveToken(){
+    const v=(document.getElementById('tokenInput').value||'').trim();
+    if(!v){ alert('❌ أدخل الرمز أولاً'); return; }
+    TOKEN=v; sessionStorage.setItem('adminToken',TOKEN);
+    document.getElementById('tokenInput').value='';
+    updateTokenStatus();
+    loadDynamic();
+  }
+  function clearToken(){
+    TOKEN=''; sessionStorage.removeItem('adminToken');
+    updateTokenStatus();
+    document.getElementById('balancesContent').innerHTML='<span style="color:#888">⚠️ يتطلب رمز الإدارة</span>';
+  }
+  updateTokenStatus();
+
+  // ── Auto-refresh countdown ───────────────────────────────────────────────────
+  let _cd=30;
+  setInterval(()=>{
+    _cd--;
+    const el=document.getElementById('countdown');
+    if(el) el.textContent=_cd;
+    if(_cd<=0) location.reload();
+  },1000);
+
+  // ── Shared API helper ────────────────────────────────────────────────────────
   function setButtonsBusy(b){ document.querySelectorAll('[data-admin-action]').forEach(btn=>btn.disabled=b); }
   async function callAdminApi(path,opts={}){
     let r;
@@ -290,6 +361,8 @@ ${autoStopBanner}
     if(!r.ok) throw new Error(text||('HTTP '+r.status));
     return {text,r};
   }
+
+  // ── Admin actions ────────────────────────────────────────────────────────────
   async function adminAction(a){
     setButtonsBusy(true);
     try{ const res=await callAdminApi('/'+a); alert(res.text||'✅ تم'); location.reload(); }
@@ -297,6 +370,7 @@ ${autoStopBanner}
     finally{ setButtonsBusy(false); }
   }
   async function setMode(m){
+    if(m==='live' && !confirm('⚠️ هل أنت متأكد من التبديل إلى وضع LIVE؟ سيتم تنفيذ أوامر حقيقية!')) return;
     setButtonsBusy(true);
     try{ await callAdminApi('/mode/'+m,{method:'POST'}); location.reload(); }
     catch(e){ alert('❌ '+e.message); }
@@ -319,11 +393,57 @@ ${autoStopBanner}
     }catch(e){ alert('❌ '+e.message); }
     finally{ setButtonsBusy(false); }
   }
+  async function resetDaily(){
+    if(!confirm('⚠️ إعادة تعيين إحصائيات اليوم (PnL + عدد الصفقات)؟')) return;
+    setButtonsBusy(true);
+    try{ const res=await callAdminApi('/reset-daily',{method:'POST'}); alert(res.text||'✅ تم'); location.reload(); }
+    catch(e){ alert('❌ '+e.message); }
+    finally{ setButtonsBusy(false); }
+  }
+
+  // ── P&L Chart ────────────────────────────────────────────────────────────────
+  const pnlLabels = ${JSON.stringify([...trades].reverse().map(t => new Date(t.created_at).toLocaleTimeString('ar-SA', {hour:'2-digit',minute:'2-digit'})))};
   const ctx=document.getElementById('pnlChart').getContext('2d');
   new Chart(ctx,{type:'line',data:{
-    labels:[...Array(${pnlData.length})].map((_,i)=>i+1),
-    datasets:[{label:'الربح المتراكم ($)',data:${JSON.stringify(pnlData)},borderColor:'#f0b90b',backgroundColor:'rgba(240,185,11,0.08)',fill:true,tension:.3}]
-  },options:{responsive:true,plugins:{legend:{labels:{color:'#eee'}}},scales:{x:{ticks:{color:'#888'}},y:{ticks:{color:'#888'}}}}});
+    labels: pnlLabels.length ? pnlLabels : Array.from({length:${pnlData.length}},(_,i)=>i+1),
+    datasets:[{label:'الربح المتراكم ($)',data:${JSON.stringify(pnlData)},borderColor:'#f0b90b',backgroundColor:'rgba(240,185,11,0.08)',fill:true,tension:.3,pointRadius:3}]
+  },options:{responsive:true,plugins:{legend:{labels:{color:'#eee'}}},scales:{x:{ticks:{color:'#888',maxTicksLimit:12}},y:{ticks:{color:'#888'}}}}});
+
+  // ── Load dynamic panels ──────────────────────────────────────────────────────
+  async function loadBalances(){
+    const el=document.getElementById('balancesContent');
+    if(!TOKEN){ el.innerHTML='<span style="color:#888">⚠️ يتطلب رمز الإدارة</span>'; return; }
+    try{
+      const res=await callAdminApi('/api/balances');
+      const json=JSON.parse(res.text);
+      const items=(json.data||[]).map(b=>{
+        if(!b.configured) return \`<div class="bal-card" style="opacity:.45"><div class="bal-name">\${b.exchange.toUpperCase()}</div><div class="bal-value" style="color:#888">غير مُهيأ</div></div>\`;
+        const color=b.balance>0?'#2ecc71':'#888';
+        return \`<div class="bal-card"><div class="bal-name">\${b.exchange.toUpperCase()}</div><div class="bal-value" style="color:\${color}">$\${Number(b.balance).toFixed(2)}</div></div>\`;
+      }).join('');
+      el.innerHTML=items||'<span style="color:#888">لا بيانات</span>';
+    }catch(e){ el.innerHTML='<span style="color:#e74c3c">❌ '+e.message+'</span>'; }
+  }
+  async function loadCircuitBreaker(){
+    const el=document.getElementById('cbContent');
+    try{
+      const r=await fetch('/api/status');
+      const json=await r.json();
+      const cb=json.circuitBreaker||{};
+      const exchanges=['mexc','mexc_perp','binance','kucoin','okx','bitget','bitmart'];
+      const items=exchanges.map(ex=>{
+        const info=cb[ex];
+        const open=info&&info.open&&(Date.now()-info.lastFailure)<300000;
+        const failures=info?.failures||0;
+        const cls=open?'cb-open':'cb-ok';
+        const label=open?\`🔴 مفتوح (\${failures} أخطاء)\`:\`✅ سليم\`;
+        return \`<div class="cb-card"><div class="name">\${ex.toUpperCase()}</div><div class="\${cls}">\${label}</div></div>\`;
+      }).join('');
+      el.innerHTML=items;
+    }catch(e){ el.innerHTML='<span style="color:#e74c3c">❌ '+e.message+'</span>'; }
+  }
+  function loadDynamic(){ loadBalances(); loadCircuitBreaker(); }
+  loadDynamic();
 </script>
 </body>
 </html>`;
@@ -334,7 +454,7 @@ ${autoStopBanner}
 // ── Go-Live Checklist ─────────────────────────────────────────────────────────
 
 export async function renderChecklist(env) {
-  const state = await env.BOT_STATE.get('trading_state', 'json') || {};
+  const state = await env.BOT_STATE.get('trading_state', 'json').catch(() => null) || {};
   const checks = [
     { name: 'MEXC API Key',          ok: !!env.MEXC_API_KEY,          critical: true,  note: 'مطلوب للتداول الحقيقي' },
     { name: 'MEXC API Secret',        ok: !!env.MEXC_API_SECRET,       critical: true,  note: 'مطلوب للتداول الحقيقي' },

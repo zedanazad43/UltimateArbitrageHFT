@@ -1,26 +1,43 @@
 {
-  "name": "nexus-arbitrage-hub",
+  "name": "ultimate-arbitrage-hft",
   "version": "2.0.0",
   "description": "Unified Arbitrage Hub - Real Trading Engine",
   "type": "module",
   "main": "index.js",
   "scripts": {
+    "lint": "eslint . --ext .js,.jsx,.mjs,.cjs",
+    "build": "wrangler deploy",
     "deploy": "wrangler deploy",
     "dev": "wrangler dev",
     "tail": "wrangler tail",
     "test": "node --test tests/unit.test.js",
     "test:integration": "node --test tests/exchange.integration.test.js",
-    "test:all": "node --test tests/unit.test.js tests/exchange.integration.test.js",
+    "test:prices": "node --test tests/prices.test.js",
+    "test:exchange": "node --test tests/exchange-multi.test.js",
+    "test:notifier": "node --test tests/notifier.test.js",
+    "test:dex": "node --test tests/dex.test.js",
+    "test:all": "node --test tests/unit.test.js tests/exchange.integration.test.js tests/prices.test.js tests/exchange-multi.test.js tests/notifier.test.js tests/dex.test.js",
     "check:connection": "node scripts/check-connection.js",
-    "db:migrate": "wrangler d1 execute ultimate-arbitrage-db --file=./migrations/schema.sql",
+    "db:migrate": "wrangler d1 execute ultimate-arbitrage-db --remote --file=./migrations/schema.sql",
+    "db:migrate:local": "wrangler d1 execute ultimate-arbitrage-db --local --file=./migrations/schema.sql",
     "secret:all": "pwsh -NoProfile -File ./scripts/upload-secrets.ps1",
     "secret:dry": "pwsh -NoProfile -File ./scripts/upload-secrets.ps1 -DryRun",
-    "setup": "npm install && npm run secret:all && npm run db:migrate && npm run deploy"
+    "temporal:worker": "node temporal-worker.js",
+    "temporal:dev": "TEMPORAL_ADDRESS=localhost:7233 node temporal-worker.js",
+    "setup": "npm install && npm run secret:all && npm run db:migrate && npm run deploy",
+    "setup:local": "npm install && npm run db:migrate:local"
   },
   "dependencies": {
-    "hono": "^4.0.0"
+    "@temporalio/activity": "^1.16.1",
+    "@temporalio/client": "^1.16.1",
+    "@temporalio/worker": "^1.16.1",
+    "@temporalio/workflow": "^1.16.1",
+    "hono": "^4.0.0",
+    "openai": "^6.35.0"
   },
   "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "eslint": "^10.2.1",
     "wrangler": "^4.0.0"
   }
 }
