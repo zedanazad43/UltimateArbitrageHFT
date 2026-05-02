@@ -49,6 +49,14 @@ export async function renderDashboard(env) {
        </div>`
     : '';
 
+  const adminTokenBanner = !env.ADMIN_TOKEN
+    ? `<div style="background:#e67e22;color:#fff;padding:12px 20px;border-radius:8px;margin-bottom:18px;font-weight:bold">
+        ⚠️ ADMIN_TOKEN غير مُعيَّن — أوامر التحكم معطّلة.
+        شغّل: <code style="background:rgba(0,0,0,.25);padding:2px 6px;border-radius:4px">wrangler secret put ADMIN_TOKEN</code>
+        ثم أعد النشر.
+       </div>`
+    : '';
+
   // Strategy P&L
   const cexPnl    = stratPnl.cex?.pnl    ?? 0;
   const dexPnl    = stratPnl.dex?.pnl    ?? 0;
@@ -171,6 +179,7 @@ export async function renderDashboard(env) {
 <h1>🔷 Nexus Arbitrage System — Control Center</h1>
 <div class="subtitle">منظومة موحدة: CEX + DEX + Perps &nbsp;|&nbsp; آخر مسح: ${lastScanTime}</div>
 
+${adminTokenBanner}
 ${autoStopBanner}
 
 <div class="status-bar">
