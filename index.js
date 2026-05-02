@@ -367,13 +367,23 @@ app.get('/api/logs', async (c) => {
   }
 });
 
-// ── API: Workers AI — opportunity analysis ────────────────────────────────────
+// ── API: AI opportunity analysis ──────────────────────────────────────────────
 // Accepts a JSON body with an `opportunity` object and returns an AI-generated
 // short analysis and recommendation in Arabic.
 // Body: { opportunity: { symbol, strategy, direction, buyPrice, sellPrice, netPct } }
+//
+// Provider priority:
+//   1. GitHub Models (openai/gpt-4.1) — when GITHUB_TOKEN secret is set.
+//   2. Cloudflare Workers AI (llama-3.1-8b-instruct) — fallback when AIWORKER
+//      binding is available but GITHUB_TOKEN is absent.
 app.post('/api/ai-analysis', async (c) => {
   if (!isAuthorized(c.env, c)) return c.json({ error: 'Unauthorized' }, 401);
-  if (!c.env.AIWORKER) return c.json({ error: 'Workers AI binding not configured' }, 503);
+
+  const hasGitHubToken = !!c.env.GITHUB_TOKEN;
+  const hasWorkersAI   = !!c.env.AIWORKER;
+  if (!hasGitHubToken && !hasWorkersAI) {
+    return c.json({ error: 'No AI provider configured (set GITHUB_TOKEN or AIWORKER)' }, 503);
+  }
 
   let body;
   try { body = await c.req.json(); } catch (_) { return c.json({ error: 'Invalid JSON' }, 400); }
@@ -381,8 +391,9 @@ app.post('/api/ai-analysis', async (c) => {
   const opp = body?.opportunity;
   if (!opp) return c.json({ error: 'Missing opportunity field' }, 400);
 
-  const prompt =
-    `You are a professional crypto arbitrage analyst. Analyze this opportunity briefly (2-3 sentences) and give a buy/skip recommendation.\n` +
+  const systemPrompt = 'You are a professional crypto arbitrage analyst.';
+  const userPrompt =
+    `Analyze this opportunity briefly (2-3 sentences) and give a buy/skip recommendation.\n` +
     `Pair: ${opp.symbol}\n` +
     `Strategy: ${opp.strategy?.toUpperCase()}\n` +
     `Direction: ${opp.direction}\n` +
@@ -391,16 +402,179 @@ app.post('/api/ai-analysis', async (c) => {
     `Net profit: ${Number(opp.netPct).toFixed(4)}%\n` +
     `Respond in Arabic only.`;
 
+  // ── Provider 1: GitHub Models (openai/gpt-4.1) ──────────────────────────────
+  if (hasGitHubToken) {
+    try {
+      const res = await fetch('https://models.github.ai/inference/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${c.env.GITHUB_TOKEN}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          model: 'openai/gpt-4.1',
+          messages: [
+            { role: 'system', content: systemPrompt },
+            { role: 'user',   content: userPrompt },
+          ],
+          temperature: 1.0,
+          top_p: 1.0,
+          max_tokens: 256,
+        }),
+      });
+      if (!res.ok) {
+        const errText = await res.text();
+        throw new Error(`GitHub Models API error ${res.status}: ${errText}`);
+      }
+      const data = await res.json();
+      const analysis = data?.choices?.[0]?.message?.content ?? JSON.stringify(data);
+      return c.json({ success: true, analysis, provider: 'github-models' });
+    } catch (e) {
+      console.error('[AI] GitHub Models error:', e.message);
+      // Fall through to Workers AI if available, otherwise return the error.
+      if (!hasWorkersAI) return c.json({ error: 'AI analysis failed', detail: e.message }, 500);
+    }
+  }
+
+  // ── Provider 2: Cloudflare Workers AI (llama-3.1-8b-instruct) ───────────────
   try {
     const result = await c.env.AIWORKER.run('@cf/meta/llama-3.1-8b-instruct', {
-      messages: [{ role: 'user', content: prompt }],
+      messages: [
+        { role: 'system', content: systemPrompt },
+        { role: 'user',   content: userPrompt },
+      ],
       max_tokens: 256,
     });
     const analysis = result?.response ?? result?.text ?? (typeof result === 'string' ? result : JSON.stringify(result));
-    return c.json({ success: true, analysis });
+    return c.json({ success: true, analysis, provider: 'workers-ai' });
   } catch (e) {
-    console.error('[AI] run error:', e.message);
+    console.error('[AI] Workers AI error:', e.message);
     return c.json({ error: 'AI analysis failed', detail: e.message }, 500);
+  }
+});
+
+// ── API: Generic AI inference (OpenAI Responses API schema) ──────────────────
+// Accepts a JSON body that conforms to the Responses API request schema and
+// returns a response that conforms to the Responses API response schema.
+//
+// Request schema (required: input):
+//   input            – string | array  – user message(s)
+//   instructions     – string          – optional system prompt
+//   temperature      – number 0–2
+//   max_output_tokens– number > 0
+//   top_p            – number 0–1
+//   stream           – boolean         – streaming not yet supported; ignored
+//   tools            – array           – tool definitions (passed to model if supported)
+//   tool_choice      – any             – passed through
+//   text             – object          – text format hints
+//   reasoning        – { effort }      – "none"|"low"|"medium"|"high"
+//
+// Response schema:
+//   id, object:"response", created_at, model, output, output_text, status, usage
+app.post('/api/ai', async (c) => {
+  if (!isAuthorized(c.env, c)) return c.json({ error: 'Unauthorized' }, 401);
+  if (!c.env.AIWORKER) return c.json({ error: 'Workers AI binding not configured' }, 503);
+
+  let body;
+  try { body = await c.req.json(); } catch (_) { return c.json({ error: 'Invalid JSON' }, 400); }
+
+  // Validate required field
+  if (body.input == null) {
+    return c.json({ error: 'Missing required field: input' }, 400);
+  }
+
+  // Build messages array for Workers AI
+  const messages = [];
+
+  // System message from instructions
+  if (typeof body.instructions === 'string' && body.instructions.trim()) {
+    messages.push({ role: 'system', content: body.instructions.trim() });
+  }
+
+  // User content from input
+  if (typeof body.input === 'string') {
+    messages.push({ role: 'user', content: body.input });
+  } else if (Array.isArray(body.input)) {
+    for (const item of body.input) {
+      if (item && typeof item === 'object' && typeof item.role === 'string' && item.role && item.content !== undefined) {
+        messages.push({ role: item.role, content: item.content });
+      } else if (typeof item === 'string') {
+        messages.push({ role: 'user', content: item });
+      }
+    }
+  }
+
+  if (messages.length === 0) {
+    return c.json({ error: 'input produced no messages' }, 400);
+  }
+
+  // Map reasoning effort to max_tokens multiplier (higher effort → longer response)
+  const VALID_EFFORTS = new Set(['none', 'low', 'medium', 'high']);
+  const effortMultiplier = { none: 0.25, low: 0.5, medium: 1, high: 2 };
+  const effort = body.reasoning?.effort ?? 'medium';
+  if (!VALID_EFFORTS.has(effort)) {
+    return c.json({ error: `Invalid reasoning.effort value: "${effort}". Must be one of: none, low, medium, high` }, 400);
+  }
+  const baseMaxTokens = typeof body.max_output_tokens === 'number' && body.max_output_tokens > 0
+    ? body.max_output_tokens
+    : 512;
+  const max_tokens = Math.round(baseMaxTokens * effortMultiplier[effort]);
+
+  const aiParams = { messages, max_tokens };
+  if (typeof body.temperature === 'number') aiParams.temperature = body.temperature;
+  if (typeof body.top_p       === 'number') aiParams.top_p       = body.top_p;
+
+  const MODEL = '@cf/meta/llama-3.1-8b-instruct';
+  const createdAt = Math.floor(Date.now() / 1000);
+  const responseId = `resp_${crypto.randomUUID().replace(/-/g, '')}`;
+
+  try {
+    const result = await c.env.AIWORKER.run(MODEL, aiParams);
+
+    const rawText = result?.response ?? result?.text;
+    const text = rawText !== undefined
+      ? rawText
+      : (typeof result === 'string'
+          ? result
+          : (() => {
+              console.warn('[AI /api/ai] unexpected result format; serialising to JSON:', JSON.stringify(result).slice(0, 200));
+              return JSON.stringify(result);
+            })());
+
+    const outputItem = {
+      type: 'message',
+      role: 'assistant',
+      content: [{ type: 'output_text', text }],
+    };
+
+    const usage = {
+      input_tokens:  result?.usage?.prompt_tokens     ?? 0,
+      output_tokens: result?.usage?.completion_tokens ?? 0,
+      total_tokens:  result?.usage?.total_tokens      ?? 0,
+    };
+
+    return c.json({
+      id:          responseId,
+      object:      'response',
+      created_at:  createdAt,
+      model:       MODEL,
+      output:      [outputItem],
+      output_text: text,
+      status:      'completed',
+      usage,
+    });
+  } catch (e) {
+    console.error('[AI /api/ai] run error:', e.message);
+    return c.json({
+      id:         responseId,
+      object:     'response',
+      created_at: createdAt,
+      model:      MODEL,
+      output:     [],
+      status:     'failed',
+      usage:      { input_tokens: 0, output_tokens: 0, total_tokens: 0 },
+      error:      e.message,
+    }, 500);
   }
 });
 
@@ -757,4 +931,5 @@ export default {
     }
   },
 };
+
 

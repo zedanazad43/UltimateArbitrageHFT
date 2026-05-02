@@ -13,7 +13,7 @@
 //
 // Run with: node --test tests/exchange.integration.test.js
 
-import { test, describe, beforeEach, afterEach } from 'node:test';
+import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 
 // ── HMAC helper (inline copy of the private function for test-vector validation) ─

@@ -45,6 +45,32 @@ export function ensureSchema(env) {
       exit_price    REAL,
       pnl_usd       REAL
     );
+    CREATE TABLE IF NOT EXISTS profits (
+      id         INTEGER PRIMARY KEY AUTOINCREMENT,
+      trade_id   INTEGER,
+      amount     REAL    NOT NULL,
+      currency   TEXT    DEFAULT 'USDT',
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (trade_id) REFERENCES trades(id) ON DELETE SET NULL
+    );
+    CREATE TABLE IF NOT EXISTS logs (
+      id         INTEGER PRIMARY KEY AUTOINCREMENT,
+      level      TEXT    NOT NULL,
+      message    TEXT    NOT NULL,
+      metadata   TEXT,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+    CREATE TABLE IF NOT EXISTS settings (
+      key        TEXT PRIMARY KEY,
+      value      TEXT    NOT NULL,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+    /* settings values are stored as TEXT; callers must cast to the target type.
+       updated_at is INSERT-only — supply a new value in UPDATE statements. */
+    INSERT OR IGNORE INTO settings (key, value) VALUES ('min_spread',       '0.1');
+    INSERT OR IGNORE INTO settings (key, value) VALUES ('max_trade_amount', '100');
+    INSERT OR IGNORE INTO settings (key, value) VALUES ('auto_trade',       'false');
+    INSERT OR IGNORE INTO settings (key, value) VALUES ('telegram_alerts',  'true');
     CREATE INDEX IF NOT EXISTS idx_trades_created_at         ON trades(created_at DESC);
     CREATE INDEX IF NOT EXISTS idx_trades_strategy           ON trades(strategy);
     CREATE INDEX IF NOT EXISTS idx_trades_mode               ON trades(mode);
@@ -52,6 +78,9 @@ export function ensureSchema(env) {
     CREATE INDEX IF NOT EXISTS idx_bot_events_created_at     ON bot_events(created_at DESC);
     CREATE INDEX IF NOT EXISTS idx_paper_positions_opened_at ON paper_positions(opened_at DESC);
     CREATE INDEX IF NOT EXISTS idx_paper_positions_closed_at ON paper_positions(closed_at);
+    CREATE INDEX IF NOT EXISTS idx_profits_trade_id          ON profits(trade_id);
+    CREATE INDEX IF NOT EXISTS idx_logs_level                ON logs(level);
+    CREATE INDEX IF NOT EXISTS idx_logs_created_at           ON logs(created_at DESC);
   `).catch(e => {
     _schemaInitPromise = null; // allow retry on the next request
     console.error('[DB] ensureSchema error:', e.message);

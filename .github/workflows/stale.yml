@@ -1,0 +1,32 @@
+name: إغلاق الملفات القديمة
+
+on:
+  schedule:
+    - cron: '0 0 * * *'
+  workflow_dispatch:
+
+permissions:
+  issues: write
+  pull-requests: write
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  stale:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/stale@v10.2.0
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+          stale-issue-message: 'تم تصنيف هذه المشكلة على أنها قديمة بسبب عدم النشاط. سيتم إغلاقها قريبًا إذا لم يكن هناك نشاط إضافي.'
+          stale-pr-message: 'تم تصنيف طلب السحب هذا على أنه قديم بسبب عدم النشاط. سيتم إغلاقه قريبًا إذا لم يكن هناك نشاط إضافي.'
+          close-issue-message: 'تم إغلاق هذه المشكلة بسبب عدم النشاط.'
+          close-pr-message: 'تم إغلاق طلب السحب هذا بسبب عدم النشاط.'
+          days-before-stale: 60
+          days-before-close: 7
+          stale-issue-label: 'Stale'
+          stale-pr-label: 'Stale'
+          close-issue-reason: 'not planned'
+          exempt-draft-pr: true
+          enable-statistics: true

@@ -3,7 +3,6 @@ import {
   hasExchangeCredentials,
   getExchangeBalance,
   placeExchangeMarketOrder,
-  placeMarketOrderMEXC,
   placeMEXCFuturesOrder,
   hasSufficientUSDT,
   getRequiredCredentialKeys

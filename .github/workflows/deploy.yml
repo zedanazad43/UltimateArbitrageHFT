@@ -1,13 +1,13 @@
 name: Deploy & Real Trade
 
 on:
-  workflow_dispatch:   # تشغيل يدوي من GitHub Actions
+  workflow_dispatch:
   push:
     branches:
       - main
 
 env:
-  FORCE_JAVASCRIPT_ACTIONS_TO_NODE20: true
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
   deploy:
@@ -20,14 +20,31 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '24'
           cache: 'npm'
 
       - name: Install dependencies
         run: npm ci
 
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v7.0.1
+        with:
+          name: worker-build
+          path: |
+            index.js
+            src/
+            migrations/
+            wrangler.toml
+            package.json
+          if-no-files-found: error
+          retention-days: 7
+          compression-level: 6
+          overwrite: true
+          include-hidden-files: false
+
       - name: Verify Cloudflare credentials
         run: |
+          # 1. Verify the token itself is valid
           HTTP=$(curl -s -o /tmp/cf_verify.json -w "%{http_code}" \
             -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
             "https://api.cloudflare.com/client/v4/user/tokens/verify")
@@ -39,19 +56,44 @@ jobs:
             echo "::error::→ Ensure the token has permissions: Workers Scripts:Edit, D1:Edit, KV Storage:Edit"
             exit 1
           fi
-          echo "✅ Cloudflare credentials verified"
+          echo "✅ Cloudflare token is valid"
+
+          # 2. Verify the token has Workers Scripts permission (Account level).
+          #    A 403 here is the most common cause of wrangler deploy error code 10500
+          #    ("Internal authentication error") — the token is valid but lacks this scope.
+          WS_HTTP=$(curl -s -o /tmp/cf_workers.json -w "%{http_code}" \
+            -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
+            "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/workers/scripts")
+          if [ "$WS_HTTP" = "403" ] || [ "$WS_HTTP" = "401" ]; then
+            echo "::error::The CLOUDFLARE_API_TOKEN does not have Workers Scripts permission (HTTP $WS_HTTP)."
+            echo "::error::This causes wrangler deploy to fail with error code 10500."
+            echo "::error::Fix: go to Cloudflare dashboard → My Profile → API Tokens"
+            echo "::error::→ Edit token → add permission: Account > Workers Scripts > Edit"
+            echo "::error::→ Also remove any 'Client IP Address Filtering' restriction"
+            cat /tmp/cf_workers.json
+            exit 1
+          fi
+          echo "✅ Cloudflare credentials verified (token has Workers Scripts access)"
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
 
       # Add missing columns to existing tables before running the full schema.
-      # These ALTER TABLE statements are intentionally tolerant of failure (|| true)
-      # because they are a no-op on fresh databases where the column already exists
-      # from the CREATE TABLE statement in schema.sql.
+      # We inspect PRAGMA table_info first so the ALTER TABLE is only issued when
+      # the column is genuinely absent — avoiding the silent-failure footgun of
+      # running ALTER TABLE with "|| true" that would hide unrelated errors.
       - name: Apply incremental D1 column migrations
         run: |
-          npx --yes wrangler@4 d1 execute ultimate-arbitrage-db \
-            --command "ALTER TABLE trades ADD COLUMN mode TEXT NOT NULL DEFAULT 'paper'" \
-            --remote || true
+          PRAGMA_OUT=$(npx --yes wrangler@4 d1 execute ultimate-arbitrage-db \
+            --command "PRAGMA table_info(trades);" --remote --json 2>&1)
+          if echo "$PRAGMA_OUT" | grep -qE '"name"\s*:\s*"mode"'; then
+            echo "'mode' column already exists. Skipping ALTER TABLE."
+          else
+            echo "Adding 'mode' column..."
+            npx --yes wrangler@4 d1 execute ultimate-arbitrage-db \
+              --command "ALTER TABLE trades ADD COLUMN mode TEXT NOT NULL DEFAULT 'paper'" \
+              --remote
+          fi
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
@@ -63,7 +105,26 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
 
       - name: Deploy Worker
-        run: npx --yes wrangler@4 deploy
+        # Retry up to 3 times: Cloudflare's Workers API occasionally returns transient
+        # 10500 errors. If the token correctly has "Account > Workers Scripts > Edit"
+        # permission and retries still fail, check the token permissions/IP filtering
+        # using the guidance printed by the "Verify Cloudflare credentials" step above.
+        run: |
+          for attempt in 1 2 3; do
+            echo "--- Deploy attempt $attempt of 3 ---"
+            if npx --yes wrangler@4 deploy; then
+              echo "✅ Worker deployed successfully on attempt $attempt"
+              exit 0
+            fi
+            if [ $attempt -lt 3 ]; then
+              echo "⚠️ Deploy failed, waiting 15s before retry..."
+              sleep 15
+            fi
+          done
+          echo "::error::Worker deployment failed after 3 attempts."
+          echo "::error::Verify the CLOUDFLARE_API_TOKEN has 'Account > Workers Scripts > Edit' permission"
+          echo "::error::and no 'Client IP Address Filtering' restriction."
+          exit 1
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}

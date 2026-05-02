@@ -11,6 +11,9 @@ on:
     paths:
       - .github/workflows/copilot-setup-steps.yml
 
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
 jobs:
   # Job name MUST be `copilot-setup-steps` — Copilot will not pick it up otherwise.
   copilot-setup-steps:
@@ -28,6 +31,12 @@ jobs:
         with:
           node-version: "24"
           cache: "npm"
+
+      - name: Set up Java JDK
+        uses: actions/setup-java@v5.2.0
+        with:
+          java-version: '21'
+          distribution: 'temurin'
 
       - name: Install dependencies
         run: npm ci

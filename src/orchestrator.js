@@ -12,7 +12,7 @@ import { scanFundingRate } from './strategies/funding.js';
 import { logTrade, openPaperPosition, getOpenPaperPositions, closePaperPosition } from './db.js';
 import { calculateAdaptiveLeverage, calculatePositionSize, MAX_POSITION_EQUITY_FRACTION } from './risk.js';
 import {
-  placeMarketOrderMEXC, placeMEXCFuturesOrder, hasSufficientUSDT,
+  placeMEXCFuturesOrder, hasSufficientUSDT,
   hasExchangeCredentials, getRequiredCredentialKeys, getExchangeBalance, placeExchangeMarketOrder
 } from './exchange.js';
 
@@ -299,7 +299,12 @@ export async function runScan(env, state, sendAlert) {
   state.total_trades       = (state.total_trades || 0) + 1;
   state.last_trade_timestamp = Date.now();
 
-  await logTrade(env, { strategy: strategyLabel, sizeUsd, netPct: best.netPct, mode });
+  // FIXED: ensured inside async function — use queue producer when available, fall back to logTrade()
+  if (env.TRADE_QUEUE) {
+    await env.TRADE_QUEUE.send({ type: 'trade_log', data: { strategy: strategyLabel, sizeUsd, netPct: best.netPct, mode } });
+  } else {
+    await logTrade(env, { strategy: strategyLabel, sizeUsd, netPct: best.netPct, mode });
+  }
 
   return { opportunity: best, sizeUsd, leverage };
 }
