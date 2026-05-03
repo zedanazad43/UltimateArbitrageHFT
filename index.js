@@ -70,6 +70,17 @@ function isAuthorized(env, c) {
   return c.req.header('x-admin-token') === token;
 }
 
+// Returns a descriptive 401 response that distinguishes "secret not configured" from
+// "wrong token supplied", making it easier to diagnose setup problems.
+// Use `asJson` for API routes that speak JSON; leave false for plain-text admin routes.
+function authDenied(env, c, asJson = false) {
+  const hint = !env.ADMIN_TOKEN
+    ? 'ADMIN_TOKEN secret not configured — run: wrangler secret put ADMIN_TOKEN'
+    : 'Invalid admin token';
+  if (asJson) return c.json({ error: 'Unauthorized', hint }, 401);
+  return c.text(`Unauthorized: ${hint}`, 401);
+}
+
 // ─── Rate limiter helper ──────────────────────────────────────────────────────
 // Uses the RATE_LIMITER binding (Cloudflare Rate Limiting API).
 // Returns a 429 response if the caller has exceeded the configured threshold;
@@ -143,7 +154,7 @@ app.get('/checklist', async (c) => renderChecklist(c.env));
 app.get('/start', async (c) => {
   const limited = await checkRateLimit(c.env, c);
   if (limited) return limited;
-  if (!isAuthorized(c.env, c)) return c.text('Unauthorized', 401);
+  if (!isAuthorized(c.env, c)) return authDenied(c.env, c);
   const state = await getState(c.env);
   state.trading_enabled = true;
   state.auto_stopped = false;
@@ -158,7 +169,7 @@ app.get('/start', async (c) => {
 app.get('/stop', async (c) => {
   const limited = await checkRateLimit(c.env, c);
   if (limited) return limited;
-  if (!isAuthorized(c.env, c)) return c.text('Unauthorized', 401);
+  if (!isAuthorized(c.env, c)) return authDenied(c.env, c);
   const state = await getState(c.env);
   state.trading_enabled = false;
   await saveState(c.env, state);
@@ -171,7 +182,7 @@ app.get('/stop', async (c) => {
 app.get('/scan', async (c) => {
   const limited = await checkRateLimit(c.env, c);
   if (limited) return limited;
-  if (!isAuthorized(c.env, c)) return c.text('Unauthorized', 401);
+  if (!isAuthorized(c.env, c)) return authDenied(c.env, c);
   const state = await getState(c.env);
   const result = await runScan(c.env, state, sendTelegramAlert);
   await saveState(c.env, state);
@@ -190,7 +201,7 @@ app.get('/scan', async (c) => {
 app.post('/mode/paper', async (c) => {
   const limited = await checkRateLimit(c.env, c);
   if (limited) return limited;
-  if (!isAuthorized(c.env, c)) return c.text('Unauthorized', 401);
+  if (!isAuthorized(c.env, c)) return authDenied(c.env, c);
   const state = await getState(c.env);
   state.paper_trading = true;
   await saveState(c.env, state);
@@ -203,7 +214,7 @@ app.post('/mode/paper', async (c) => {
 app.post('/mode/live', async (c) => {
   const limited = await checkRateLimit(c.env, c);
   if (limited) return limited;
-  if (!isAuthorized(c.env, c)) return c.text('Unauthorized', 401);
+  if (!isAuthorized(c.env, c)) return authDenied(c.env, c);
   const state = await getState(c.env);
   state.paper_trading = false;
   await saveState(c.env, state);
@@ -216,7 +227,7 @@ app.post('/mode/live', async (c) => {
 app.post('/config', async (c) => {
   const limited = await checkRateLimit(c.env, c);
   if (limited) return limited;
-  if (!isAuthorized(c.env, c)) return c.text('Unauthorized', 401);
+  if (!isAuthorized(c.env, c)) return authDenied(c.env, c);
   let body;
   try { body = await c.req.json(); } catch (_) { return c.text('Invalid JSON', 400); }
   const state = await getState(c.env);
@@ -269,7 +280,8 @@ app.get('/api/report', async (c) => {
 
 // ── API: Exchange balances (auth-protected) ───────────────────────────────────
 app.get('/api/balances', async (c) => {
-  if (!isAuthorized(c.env, c)) return c.json({ error: 'Unauthorized' }, 401);
+  if (!isAuthorized(c.env, c)) return authDenied(c.env, c, true);
+  const EXCHANGES = ['mexc', 'binance', 'kucoin', 'okx', 'bitget', 'bitmart', 'bybit', 'gateio'];
   const results = await Promise.all(
     ACTIVE_EXECUTION_EXCHANGES.map(async (ex) => {
       const configured = hasExchangeCredentials(c.env, ex);
@@ -290,7 +302,7 @@ app.get('/api/balances', async (c) => {
 app.post('/reset-daily', async (c) => {
   const limited = await checkRateLimit(c.env, c);
   if (limited) return limited;
-  if (!isAuthorized(c.env, c)) return c.text('Unauthorized', 401);
+  if (!isAuthorized(c.env, c)) return authDenied(c.env, c);
   const state = await getState(c.env);
   state.daily_pnl    = 0;
   state.daily_trades = 0;
@@ -382,7 +394,7 @@ app.get('/api/logs', async (c) => {
 //   2. Cloudflare Workers AI (llama-3.1-8b-instruct) — fallback when AIWORKER
 //      binding is available but GITHUB_TOKEN is absent.
 app.post('/api/ai-analysis', async (c) => {
-  if (!isAuthorized(c.env, c)) return c.json({ error: 'Unauthorized' }, 401);
+  if (!isAuthorized(c.env, c)) return authDenied(c.env, c, true);
 
   const hasGitHubToken = !!c.env.GITHUB_TOKEN;
   const hasWorkersAI   = !!c.env.AIWORKER;
@@ -477,7 +489,7 @@ app.post('/api/ai-analysis', async (c) => {
 // Response schema:
 //   id, object:"response", created_at, model, output, output_text, status, usage
 app.post('/api/ai', async (c) => {
-  if (!isAuthorized(c.env, c)) return c.json({ error: 'Unauthorized' }, 401);
+  if (!isAuthorized(c.env, c)) return authDenied(c.env, c, true);
   if (!c.env.AIWORKER) return c.json({ error: 'Workers AI binding not configured' }, 503);
 
   let body;
@@ -720,7 +732,7 @@ app.post('/telegram/webhook', async (c) => {
 app.post('/api/temporal/start', async (c) => {
   const limited = await checkRateLimit(c.env, c);
   if (limited) return limited;
-  if (!isAuthorized(c.env, c)) return c.json({ error: 'Unauthorized' }, 401);
+  if (!isAuthorized(c.env, c)) return authDenied(c.env, c, true);
   if (!c.env.TEMPORAL_API_KEY) {
     return c.json({ error: 'TEMPORAL_API_KEY is not configured' }, 503);
   }
@@ -750,7 +762,7 @@ app.post('/api/temporal/start', async (c) => {
 app.post('/api/temporal/stop', async (c) => {
   const limited = await checkRateLimit(c.env, c);
   if (limited) return limited;
-  if (!isAuthorized(c.env, c)) return c.json({ error: 'Unauthorized' }, 401);
+  if (!isAuthorized(c.env, c)) return authDenied(c.env, c, true);
   if (!c.env.TEMPORAL_API_KEY) {
     return c.json({ error: 'TEMPORAL_API_KEY is not configured' }, 503);
   }
@@ -770,7 +782,7 @@ app.post('/api/temporal/stop', async (c) => {
 // ── API: Temporal workflow — status ──────────────────────────────────────────
 // Returns the Temporal workflow description and live status query snapshot.
 app.get('/api/temporal/status', async (c) => {
-  if (!isAuthorized(c.env, c)) return c.json({ error: 'Unauthorized' }, 401);
+  if (!isAuthorized(c.env, c)) return authDenied(c.env, c, true);
   if (!c.env.TEMPORAL_API_KEY) {
     return c.json({ error: 'TEMPORAL_API_KEY is not configured' }, 503);
   }
@@ -796,7 +808,7 @@ app.get('/api/temporal/status', async (c) => {
 app.post('/api/temporal/mode', async (c) => {
   const limited = await checkRateLimit(c.env, c);
   if (limited) return limited;
-  if (!isAuthorized(c.env, c)) return c.json({ error: 'Unauthorized' }, 401);
+  if (!isAuthorized(c.env, c)) return authDenied(c.env, c, true);
   if (!c.env.TEMPORAL_API_KEY) {
     return c.json({ error: 'TEMPORAL_API_KEY is not configured' }, 503);
   }

@@ -181,9 +181,10 @@ migrations/
 
 ## Troubleshooting
 
-### ❌ Worker URL returns "Unauthorized"
+### ❌ Worker URL returns "Unauthorized" — worker not deployed
 
-This means no worker is deployed under that name on Cloudflare.
+When Cloudflare has no worker deployed under the requested name it returns a
+plain **401 Unauthorized** response before your code even runs.
 The most common cause is an **invalid or missing `CLOUDFLARE_API_TOKEN`** secret.
 
 Check your Actions run (repository → **Actions** → **Deploy & Real Trade**) for this error:
@@ -199,6 +200,31 @@ Check your Actions run (repository → **Actions** → **Deploy & Real Trade**) 
 5. Copy the new token
 6. In GitHub: **Settings → Secrets and variables → Actions** → update `CLOUDFLARE_API_TOKEN`
 7. Re-run the **Deploy & Real Trade** workflow
+
+### ❌ Admin controls return "Unauthorized: ADMIN_TOKEN secret not configured"
+
+The worker is deployed and the dashboard loads, but clicking **Start / Stop / Scan**
+shows an "Unauthorized" alert — and the orange banner at the top of the dashboard reads
+*"ADMIN_TOKEN غير مُعيَّن"*.
+
+This means the `ADMIN_TOKEN` secret has not been uploaded to Cloudflare yet.
+
+**Fix (one-time setup):**
+```bash
+# 1. Generate a strong random token
+openssl rand -base64 32
+
+# 2. Upload the token as a Worker secret (paste the value when prompted)
+npx wrangler secret put ADMIN_TOKEN
+```
+
+Then open the dashboard, enter the same token in the **🔑 Admin Token** box and click **حفظ**.
+
+### ❌ Admin controls return "Unauthorized: Invalid admin token"
+
+`ADMIN_TOKEN` is configured but the token you entered in the dashboard doesn't match.
+
+**Fix:** enter the exact same value you passed to `wrangler secret put ADMIN_TOKEN`.
 
 ### ❌ Deploy fails with "Authentication error" (code 9109)
 
