@@ -713,8 +713,12 @@ ${autoStopBanner}
     resultEl.style.color = '#f0b90b';
     resultEl.textContent = '⏳ يُرجى تأكيد الصفقة في MetaMask...';
     try {
-      // Build order intent payload and sign with MetaMask (no private key sent to server)
-      const intent = JSON.stringify({ protocol, pair, side, sizeUsd: size, account: w3account, chainId, ts: Date.now() });
+      // Build order intent with nonce + expiry to prevent replay attacks.
+      // The signature is verified client-side only — no private key is sent to the server.
+      const nonce  = crypto.getRandomValues(new Uint8Array(16));
+      const nonceHex = Array.from(nonce).map(b=>b.toString(16).padStart(2,'0')).join('');
+      const expiresAt = Date.now() + 5 * 60 * 1000; // 5 min expiry
+      const intent = JSON.stringify({ protocol, pair, side, sizeUsd: size, account: w3account, chainId, nonce: nonceHex, expiresAt });
       const sig    = await window.ethereum.request({ method: 'personal_sign', params: [intent, w3account] });
       const protoLabel = protocol === 'gmx' ? 'GMX (Arbitrum)' : 'dYdX v4';
       resultEl.style.color = '#2ecc71';

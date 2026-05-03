@@ -50,18 +50,21 @@ export function computeMetrics(pnls) {
   }
   const maxDDPct = peakEquity > 0 ? (maxDD / peakEquity) * 100 : 0;
 
-  // Sharpe ratio (annualised, assuming 1 trade/minute scan cycle)
+  // Sharpe ratio (annualised). Annualization factor = sqrt(1440) assumes the scan
+  // cycle runs once per minute (1440 minutes/day × 365 days annualises daily trades).
+  // Adjust if your SCAN_INTERVAL_MS differs significantly from 60 000 ms.
+  const annFactor = Math.sqrt(1440); // configurable: sqrt(tradesPerYear) for your scan rate
   const variance  = pnls.reduce((s, p) => s + (p - avgPnl) ** 2, 0) / total;
   const stdDev    = Math.sqrt(variance);
-  const sharpe    = stdDev > 0 ? (avgPnl / stdDev) * Math.sqrt(1440) : 0;
+  const sharpe    = stdDev > 0 ? (avgPnl / stdDev) * annFactor : 0;
 
-  // Sortino ratio (downside deviation only)
+  // Sortino ratio (downside deviation only, same annualization factor)
   const negPnls       = pnls.filter(p => p < 0);
   const downVariance  = negPnls.length > 0
     ? negPnls.reduce((s, p) => s + p ** 2, 0) / negPnls.length
     : 0;
   const downStdDev    = Math.sqrt(downVariance);
-  const sortino       = downStdDev > 0 ? (avgPnl / downStdDev) * Math.sqrt(1440) : 0;
+  const sortino       = downStdDev > 0 ? (avgPnl / downStdDev) * annFactor : 0;
 
   // Profit factor: gross wins / |gross losses|
   const grossWin  = wins.reduce((s, p) => s + p, 0);

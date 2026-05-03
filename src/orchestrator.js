@@ -21,7 +21,7 @@ import {
   placeMEXCFuturesOrder, hasSufficientUSDT,
   hasExchangeCredentials, getRequiredCredentialKeys, getExchangeBalance,
   placeExchangeMarketOrder, getConfiguredExchanges, selectBestExchange,
-  ACTIVE_EXECUTION_EXCHANGES
+  ACTIVE_EXECUTION_EXCHANGES, DATA_ONLY_EXCHANGES
 } from './exchange.js';
 
 const SUPPORTED_SYMBOLS = [
@@ -435,8 +435,7 @@ async function executeTrade(env, opp, sizeUsd, leverage) {
   }
 
   // bybit and gateio are data-only (German regulatory restrictions).
-  const dataOnlyExchanges = new Set(['bybit', 'gateio', 'bybit_perp']);
-  if (dataOnlyExchanges.has(opp.buyExchange) || dataOnlyExchanges.has(opp.sellExchange)) {
+  if (DATA_ONLY_EXCHANGES.has(opp.buyExchange) || DATA_ONLY_EXCHANGES.has(opp.sellExchange)) {
     throw new Error(
       `${opp.buyExchange || opp.sellExchange} is not available for live execution ` +
       `(German regulatory restrictions). Switching to paper mode is recommended.`

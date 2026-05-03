@@ -867,9 +867,10 @@ const EXCHANGE_CRED_KEYS = {
 };
 
 /**
- * Exchanges available for live order execution.
- * bybit and gateio are excluded due to German regulatory restrictions.
+ * Exchanges excluded from live execution (data-only price feeds).
+ * Reason: German regulatory restrictions (BaFin).
  */
+export const DATA_ONLY_EXCHANGES = new Set(['bybit', 'gateio', 'bybit_perp']);
 export const ACTIVE_EXECUTION_EXCHANGES = [
   'mexc', 'binance', 'kucoin', 'okx', 'bitget', 'bitmart', 'htx'
 ];

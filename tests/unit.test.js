@@ -217,6 +217,7 @@ describe('calculatePositionSize', () => {
 
   test('uses logistic growth — does not grow unboundedly', () => {
     const size100k = calculatePositionSize(100_000, 0.55, 2.0);
+    // Should be capped at 20% of equity = $20,000
     assert.ok(size100k <= 20_000 + 0.01, `expected <= $20,000, got $${size100k.toFixed(2)}`);
   });
 });

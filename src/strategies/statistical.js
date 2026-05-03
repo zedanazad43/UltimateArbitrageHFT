@@ -17,7 +17,8 @@ const MIN_HISTORY_LENGTH = 10;
 const MAX_HISTORY_LENGTH = 60;
 
 // Z-score threshold: signal only when |z| exceeds this value.
-// 2.0 ≈ 97.7th percentile of a normal distribution.
+// 2.0σ covers ≈95.4% of observations (two-tailed ±2σ), i.e. only ~4.6% of
+// normal spread fluctuations trigger a signal (false-positive guard).
 const ZSCORE_THRESHOLD = 2.0;
 
 // Maximum z-score: extreme outliers are likely data errors, not arb opportunities.
