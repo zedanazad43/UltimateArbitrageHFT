@@ -175,15 +175,11 @@ export async function renderDashboard(env) {
 </head>
 <body>
 
-<!-- ── Token panel ─────────────────────────────────────────────────── -->
+<!-- ── Top bar ─────────────────────────────────────────────────────── -->
 <div class="token-panel">
-  <label>🔑 Admin Token:</label>
-  <input id="tokenInput" type="password" placeholder="أدخل رمز الإدارة..." autocomplete="current-password">
-  <button class="btn btn-sm" onclick="saveToken()">حفظ</button>
-  <button class="btn btn-sm btn-red" onclick="clearToken()">مسح</button>
-  <span id="tokenStatus" style="font-size:.82em"></span>
   <span style="flex:1"></span>
   <div id="refreshBar"><span id="countdownLabel">تحديث تلقائي:</span> <strong id="countdown">30</strong>ث &nbsp;|&nbsp; <button class="btn btn-sm btn-blue" onclick="location.reload()">🔄 تحديث الآن</button></div>
+  <a class="btn btn-sm btn-red" href="/logout" style="text-decoration:none;margin-right:6px">🔓 خروج</a>
 </div>
 
 <h1>🔷 Nexus Arbitrage System — Control Center</h1>
@@ -458,29 +454,6 @@ ${autoStopBanner}
 </table>
 
 <script>
-  // ── Token management ────────────────────────────────────────────────────────
-  let TOKEN = sessionStorage.getItem('adminToken') || '';
-  function updateTokenStatus(){
-    const el=document.getElementById('tokenStatus');
-    if(!el) return;
-    el.textContent = TOKEN ? '✅ رمز محفوظ — التحكم مفعّل' : '⚠️ بدون رمز — عرض فقط';
-    el.style.color  = TOKEN ? '#2ecc71' : '#f0b90b';
-  }
-  function saveToken(){
-    const v=(document.getElementById('tokenInput').value||'').trim();
-    if(!v){ alert('❌ أدخل الرمز أولاً'); return; }
-    TOKEN=v; sessionStorage.setItem('adminToken',TOKEN);
-    document.getElementById('tokenInput').value='';
-    updateTokenStatus();
-    loadDynamic();
-  }
-  function clearToken(){
-    TOKEN=''; sessionStorage.removeItem('adminToken');
-    updateTokenStatus();
-    document.getElementById('balancesContent').innerHTML='<span style="color:#888">⚠️ يتطلب رمز الإدارة</span>';
-  }
-  updateTokenStatus();
-
   // ── Auto-refresh countdown ───────────────────────────────────────────────────
   let _cd=30;
   setInterval(()=>{
@@ -491,11 +464,14 @@ ${autoStopBanner}
   },1000);
 
   // ── Shared API helper ────────────────────────────────────────────────────────
+  // Auth is handled via the HttpOnly session cookie (set at /login).
+  // Credentials are always included so the browser sends the cookie automatically.
   function setButtonsBusy(b){ document.querySelectorAll('[data-admin-action]').forEach(btn=>btn.disabled=b); }
   async function callAdminApi(path,opts={}){
     let r;
-    try{ r=await fetch(path,{...opts,headers:{...(opts.headers||{}),'x-admin-token':TOKEN}}); }
+    try{ r=await fetch(path,{credentials:'same-origin',...opts}); }
     catch(_){ throw new Error('تعذر الاتصال بالخادم'); }
+    if(r.status===401){ window.location='/login'; return {text:'',r}; }
     const text=await r.text();
     if(!r.ok) throw new Error(text||('HTTP '+r.status));
     return {text,r};
@@ -619,7 +595,6 @@ ${autoStopBanner}
   // ── Load dynamic panels ──────────────────────────────────────────────────────
   async function loadBalances(){
     const el=document.getElementById('balancesContent');
-    if(!TOKEN){ el.innerHTML='<span style="color:#888">⚠️ يتطلب رمز الإدارة</span>'; return; }
     try{
       const res=await callAdminApi('/api/balances');
       const json=JSON.parse(res.text);

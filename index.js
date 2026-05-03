@@ -60,14 +60,31 @@ async function saveState(env, state) {
   await env.BOT_STATE.put('trading_state', JSON.stringify(state));
 }
 
+// ─── Cookie helper ────────────────────────────────────────────────────────────
+// Parses a single named cookie from the Cookie request header.
+// The name is escaped so it's safe to embed in a RegExp literal.
+function getCookieValue(c, name) {
+  const cookieHeader = c.req.header('Cookie') || '';
+  const safeName = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const re = new RegExp(`(?:^|;\\s*)${safeName}=([^;]*)`);
+  const m = cookieHeader.match(re);
+  return m ? decodeURIComponent(m[1]) : null;
+}
+
 // ─── Admin auth ───────────────────────────────────────────────────────────────
 // ADMIN_TOKEN must be set as a Cloudflare Worker secret (`wrangler secret put ADMIN_TOKEN`).
 // If it is absent the endpoint is denied — this prevents accidental exposure of admin
 // controls on a freshly-deployed worker that has not yet had secrets configured.
+//
+// Two auth paths are supported:
+//   1. x-admin-token request header  — for programmatic / script access.
+//   2. nexus_session HttpOnly cookie  — for browser sessions after /login.
 function isAuthorized(env, c) {
   const token = env.ADMIN_TOKEN;
   if (!token) return false;
-  return c.req.header('x-admin-token') === token;
+  if (c.req.header('x-admin-token') === token) return true;
+  const cookie = getCookieValue(c, 'nexus_session');
+  return cookie === token;
 }
 
 // Returns a descriptive 401 response that distinguishes "secret not configured" from
@@ -79,6 +96,51 @@ function authDenied(env, c, asJson = false) {
     : 'Invalid admin token';
   if (asJson) return c.json({ error: 'Unauthorized', hint }, 401);
   return c.text(`Unauthorized: ${hint}`, 401);
+}
+
+// ─── Login page renderer ──────────────────────────────────────────────────────
+function renderLoginPage(showError = false) {
+  const errorBanner = showError
+    ? `<div style="background:#e74c3c;color:#fff;padding:10px 18px;border-radius:8px;margin-bottom:18px;font-weight:bold">❌ رمز الإدارة غير صحيح — حاول مجدداً</div>`
+    : '';
+  return new Response(
+    `<!DOCTYPE html>
+<html dir="rtl" lang="ar">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Nexus Arbitrage Hub — تسجيل الدخول</title>
+  <style>
+    *{box-sizing:border-box;margin:0;padding:0}
+    body{background:#0b0e14;color:#eee;font-family:'Segoe UI',Tahoma,sans-serif;min-height:100vh;display:flex;align-items:center;justify-content:center;padding:20px}
+    .card{background:#1a1e26;border-radius:16px;padding:40px;width:100%;max-width:400px;box-shadow:0 4px 40px rgba(0,0,0,.5);text-align:center}
+    h1{color:#f0b90b;font-size:1.6em;margin-bottom:8px}
+    .subtitle{color:#888;font-size:.9em;margin-bottom:28px}
+    label{display:block;text-align:right;color:#aaa;font-size:.85em;margin-bottom:6px}
+    input[type=password]{width:100%;background:#2a2e38;color:#eee;border:1px solid #444;border-radius:8px;padding:10px 14px;font-size:1em;margin-bottom:18px;outline:none}
+    input[type=password]:focus{border-color:#f0b90b}
+    button{width:100%;background:#f0b90b;color:#000;font-weight:bold;font-size:1em;padding:12px;border:none;border-radius:8px;cursor:pointer;transition:opacity .2s}
+    button:hover{opacity:.85}
+    .footer{color:#555;font-size:.75em;margin-top:24px}
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div style="font-size:2.2em;margin-bottom:12px">🔷</div>
+    <h1>Nexus Arbitrage Hub</h1>
+    <p class="subtitle">أدخل رمز الإدارة للمتابعة</p>
+    ${errorBanner}
+    <form method="POST" action="/login">
+      <label for="token">رمز الإدارة (ADMIN_TOKEN)</label>
+      <input id="token" name="token" type="password" placeholder="••••••••••••" autocomplete="current-password" autofocus required>
+      <button type="submit">🔑 دخول</button>
+    </form>
+    <p class="footer">مبني على Cloudflare Workers</p>
+  </div>
+</body>
+</html>`,
+    { headers: { 'Content-Type': 'text/html; charset=utf-8' } }
+  );
 }
 
 // ─── Rate limiter helper ──────────────────────────────────────────────────────
@@ -145,6 +207,43 @@ app.use('*', async (c, next) => {
   return next();
 });
 
+// ── Login / Logout routes ─────────────────────────────────────────────────────
+// GET /login  — render the login form (public)
+app.get('/login', (c) => {
+  // Already logged in → go to dashboard
+  if (isAuthorized(c.env, c)) return c.redirect('/', 302);
+  return renderLoginPage(false);
+});
+
+// POST /login — validate token, set HttpOnly session cookie, redirect to /
+app.post('/login', async (c) => {
+  const body = await c.req.parseBody().catch(() => ({}));
+  const input = (typeof body.token === 'string' ? body.token : '').trim();
+  if (input && c.env.ADMIN_TOKEN && input === c.env.ADMIN_TOKEN) {
+    const maxAge = 86400; // 24 hours
+    const isHttps = c.req.url.startsWith('https://');
+    return new Response(null, {
+      status: 302,
+      headers: {
+        'Location': '/',
+        'Set-Cookie': `nexus_session=${encodeURIComponent(c.env.ADMIN_TOKEN)}; HttpOnly; SameSite=Lax; Max-Age=${maxAge}; Path=/${isHttps ? '; Secure' : ''}`,
+      },
+    });
+  }
+  return renderLoginPage(true);
+});
+
+// GET /logout — clear session cookie, redirect to /login
+app.get('/logout', (_c) => {
+  return new Response(null, {
+    status: 302,
+    headers: {
+      'Location': '/login',
+      'Set-Cookie': 'nexus_session=; HttpOnly; SameSite=Lax; Max-Age=0; Path=/',
+    },
+  });
+});
+
 // ── Health check (public, no auth) ────────────────────────────────────────────
 // Returns a lightweight system snapshot for uptime monitors and load balancers.
 // Does not expose sensitive state — safe to probe from external services.
@@ -166,9 +265,20 @@ app.get('/health', async (c) => {
 });
 
 // ── Dashboard routes ──────────────────────────────────────────────────────────
-app.get('/', async (c) => renderDashboard(c.env));
-app.get('/dashboard', async (c) => renderDashboard(c.env));
-app.get('/checklist', async (c) => renderChecklist(c.env));
+// Browser access requires a valid session; redirect to /login when absent.
+// API callers that send an x-admin-token header bypass the cookie check.
+app.get('/', async (c) => {
+  if (c.env.ADMIN_TOKEN && !isAuthorized(c.env, c)) return c.redirect('/login', 302);
+  return renderDashboard(c.env);
+});
+app.get('/dashboard', async (c) => {
+  if (c.env.ADMIN_TOKEN && !isAuthorized(c.env, c)) return c.redirect('/login', 302);
+  return renderDashboard(c.env);
+});
+app.get('/checklist', async (c) => {
+  if (c.env.ADMIN_TOKEN && !isAuthorized(c.env, c)) return c.redirect('/login', 302);
+  return renderChecklist(c.env);
+});
 
 // ── Admin: Start ──────────────────────────────────────────────────────────────
 app.get('/start', async (c) => {
