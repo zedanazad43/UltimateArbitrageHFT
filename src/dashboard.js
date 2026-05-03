@@ -56,6 +56,11 @@ export async function renderDashboard(env) {
   const cexTrades   = stratPnl.cex?.trades   ?? 0;
   const dexTrades   = stratPnl.dex?.trades   ?? 0;
   const perpsTrades = stratPnl.perps?.trades ?? 0;
+  // New strategies — parsed from strategy prefix
+  const triPnl    = stratPnl.triangular?.pnl    ?? 0;
+  const statPnl   = stratPnl.statistical?.pnl   ?? 0;
+  const triTrades = stratPnl.triangular?.trades ?? 0;
+  const statTrades= stratPnl.statistical?.trades?? 0;
 
   // Performance metrics
   const winRatePct     = ((metrics.win_rate   || 0) * 100).toFixed(1);
@@ -63,6 +68,11 @@ export async function renderDashboard(env) {
   const bestTrade      = (metrics.best_trade_usd  || 0).toFixed(2);
   const worstTrade     = (metrics.worst_trade_usd || 0).toFixed(2);
   const sharpe         = (metrics.sharpe           || 0).toFixed(2);
+  const sortino        = (metrics.sortino          || 0).toFixed(2);
+  const profitFactor   = metrics.profit_factor
+    ? (isFinite(metrics.profit_factor) ? metrics.profit_factor.toFixed(2) : '∞')
+    : '—';
+  const expectancy     = (metrics.expectancy       || 0).toFixed(3);
 
   // Opportunity card HTML helper
   function oppCard(opp) {
@@ -214,6 +224,24 @@ ${autoStopBanner}
     ${oppCard(lastScan?.perps)}
   </div>
 
+  <div class="strategy-card" style="border-color:#1abc9c">
+    <div class="strat-header" style="color:#1abc9c">
+      🔺 Triangular Arb
+      <span class="badge" style="background:#0a3030;color:#1abc9c">${triTrades} صفقة</span>
+      <span class="badge" style="background:#0a3030;color:${triPnl>=0?'#2ecc71':'#e74c3c'}">$${triPnl.toFixed(2)}</span>
+    </div>
+    ${oppCard(lastScan?.triangular)}
+  </div>
+
+  <div class="strategy-card" style="border-color:#e91e8c">
+    <div class="strat-header" style="color:#e91e8c">
+      📐 Statistical Arb
+      <span class="badge" style="background:#3a0a20;color:#e91e8c">${statTrades} صفقة</span>
+      <span class="badge" style="background:#3a0a20;color:${statPnl>=0?'#2ecc71':'#e74c3c'}">$${statPnl.toFixed(2)}</span>
+    </div>
+    ${oppCard(lastScan?.statistical)}
+  </div>
+
 </div>
 
 <div class="panel">
@@ -263,6 +291,8 @@ ${autoStopBanner}
   <div class="card"><div class="card-label">CEX — P&amp;L</div><div class="card-value" style="color:#3498db">$${cexPnl.toFixed(2)}</div></div>
   <div class="card"><div class="card-label">DEX — P&amp;L</div><div class="card-value" style="color:#9b59b6">$${dexPnl.toFixed(2)}</div></div>
   <div class="card"><div class="card-label">Perps — P&amp;L</div><div class="card-value" style="color:#e67e22">$${perpsPnl.toFixed(2)}</div></div>
+  <div class="card"><div class="card-label">Triangular — P&amp;L</div><div class="card-value" style="color:#1abc9c">$${triPnl.toFixed(2)}</div></div>
+  <div class="card"><div class="card-label">Statistical — P&amp;L</div><div class="card-value" style="color:#e91e8c">$${statPnl.toFixed(2)}</div></div>
   <div class="card"><div class="card-label">إجمالي الصفقات</div><div class="card-value">${state.total_trades||0}</div></div>
 </div>
 
@@ -286,8 +316,20 @@ ${autoStopBanner}
     <div class="card-value" style="color:#e74c3c">$${worstTrade}</div>
   </div>
   <div class="card">
-    <div class="card-label">Sharpe Ratio (تقريبي)</div>
+    <div class="card-label">Sharpe Ratio</div>
     <div class="card-value" style="color:${parseFloat(sharpe)>=1?'#2ecc71':parseFloat(sharpe)>=0?'#f0b90b':'#e74c3c'}">${sharpe}</div>
+  </div>
+  <div class="card">
+    <div class="card-label">Sortino Ratio</div>
+    <div class="card-value" style="color:${parseFloat(sortino)>=1?'#2ecc71':parseFloat(sortino)>=0?'#f0b90b':'#e74c3c'}">${sortino}</div>
+  </div>
+  <div class="card">
+    <div class="card-label">Profit Factor</div>
+    <div class="card-value" style="color:${profitFactor==='∞'||parseFloat(profitFactor)>=2?'#2ecc71':parseFloat(profitFactor)>=1?'#f0b90b':'#e74c3c'}">${profitFactor}</div>
+  </div>
+  <div class="card">
+    <div class="card-label">Expectancy ($)</div>
+    <div class="card-value" style="color:${parseFloat(expectancy)>=0?'#2ecc71':'#e74c3c'}">$${expectancy}</div>
   </div>
   <div class="card">
     <div class="card-label">تصدير البيانات</div>
@@ -298,7 +340,38 @@ ${autoStopBanner}
   </div>
 </div>
 
-<div class="panel"><canvas id="pnlChart"></canvas></div>
+<!-- ── Backtesting Panel ──────────────────────────────────────────────── -->
+<div class="panel">
+  <h2 style="margin-top:0">🔬 اختبار الأداء السابق (Backtest)</h2>
+  <div class="risk-row" style="margin-bottom:14px">
+    <div class="risk-item">
+      <label>رأس المال الابتدائي ($)</label>
+      <input id="bt_capital" type="number" value="1000" min="1" step="100">
+    </div>
+    <div class="risk-item">
+      <label>نسبة الحجم من رأس المال</label>
+      <input id="bt_frac" type="number" value="0.10" min="0.01" max="0.50" step="0.01">
+    </div>
+    <div class="risk-item">
+      <label>الحد الأدنى لصافي الربح (%)</label>
+      <input id="bt_minnet" type="number" value="0" min="0" step="0.01">
+    </div>
+    <div class="risk-item">
+      <label>فترة (أيام)</label>
+      <input id="bt_days" type="number" value="30" min="1" max="365" step="1">
+    </div>
+  </div>
+  <button class="btn btn-blue" data-admin-action="1" onclick="runBacktest()">🔬 تشغيل Backtest</button>
+  <div id="btResults" style="margin-top:16px;display:none">
+    <div class="grid" id="btMetricsGrid"></div>
+    <div style="margin-top:10px;font-size:.82em;color:#888" id="btMC"></div>
+  </div>
+</div>
+
+<div class="panel"><canvas id="pnlChart" height="80"></canvas></div>
+
+<!-- ── Strategy P&L Bar Chart ────────────────────────────────────────── -->
+<div class="panel"><canvas id="stratChart" height="80"></canvas></div>
 
 <!-- ── Exchange Balances panel (loaded dynamically) ───────────────────────── -->
 <div class="panel">
@@ -409,6 +482,74 @@ ${autoStopBanner}
     datasets:[{label:'الربح المتراكم ($)',data:${JSON.stringify(pnlData)},borderColor:'#f0b90b',backgroundColor:'rgba(240,185,11,0.08)',fill:true,tension:.3,pointRadius:3}]
   },options:{responsive:true,plugins:{legend:{labels:{color:'#eee'}}},scales:{x:{ticks:{color:'#888',maxTicksLimit:12}},y:{ticks:{color:'#888'}}}}});
 
+  // ── Strategy P&L Bar Chart ────────────────────────────────────────────────────
+  const stratCtx = document.getElementById('stratChart').getContext('2d');
+  new Chart(stratCtx, {
+    type: 'bar',
+    data: {
+      labels: ['CEX', 'DEX', 'Perps', 'Triangular', 'Statistical'],
+      datasets: [{
+        label: 'P&L بالاستراتيجية ($)',
+        data: [
+          ${(cexPnl).toFixed(4)},
+          ${(dexPnl).toFixed(4)},
+          ${(perpsPnl).toFixed(4)},
+          ${(triPnl).toFixed(4)},
+          ${(statPnl).toFixed(4)}
+        ],
+        backgroundColor: ['#3498db','#9b59b6','#e67e22','#1abc9c','#e91e8c'],
+        borderRadius: 6
+      }]
+    },
+    options: {
+      responsive: true,
+      plugins: { legend: { labels: { color: '#eee' } } },
+      scales: {
+        x: { ticks: { color: '#888' } },
+        y: { ticks: { color: '#888' } }
+      }
+    }
+  });
+
+  // ── Backtesting ──────────────────────────────────────────────────────────────
+  async function runBacktest() {
+    const capital  = parseFloat(document.getElementById('bt_capital').value)  || 1000;
+    const frac     = parseFloat(document.getElementById('bt_frac').value)     || 0.10;
+    const minnet   = parseFloat(document.getElementById('bt_minnet').value)   || 0;
+    const days     = parseInt(document.getElementById('bt_days').value)       || 30;
+    const from_ms  = Date.now() - days * 86400000;
+    const body     = JSON.stringify({ initial_capital: capital, position_frac: frac, min_net_pct: minnet, from_ms, run_monte_carlo: true });
+    const el       = document.getElementById('btResults');
+    const grid     = document.getElementById('btMetricsGrid');
+    const mc       = document.getElementById('btMC');
+    grid.innerHTML = '<span style="color:#888">جارٍ التشغيل…</span>';
+    el.style.display = 'block';
+    mc.textContent   = '';
+    try {
+      const res  = await callAdminApi('/api/backtest', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body });
+      const data = JSON.parse(res.text);
+      const m    = data.metrics || {};
+      const ret  = (data.return_pct || 0).toFixed(2);
+      const retColor = parseFloat(ret) >= 0 ? '#2ecc71' : '#e74c3c';
+      grid.innerHTML = \`
+        <div class="card"><div class="card-label">العائد</div><div class="card-value" style="color:\${retColor}">\${ret}%</div></div>
+        <div class="card"><div class="card-label">رأس المال النهائي</div><div class="card-value">$\${(data.final_equity||0).toFixed(2)}</div></div>
+        <div class="card"><div class="card-label">الصفقات</div><div class="card-value">\${m.total_trades||0}</div></div>
+        <div class="card"><div class="card-label">Win Rate</div><div class="card-value">\${((m.win_rate||0)*100).toFixed(1)}%</div></div>
+        <div class="card"><div class="card-label">Sharpe</div><div class="card-value">\${(m.sharpe||0).toFixed(2)}</div></div>
+        <div class="card"><div class="card-label">Sortino</div><div class="card-value">\${(m.sortino||0).toFixed(2)}</div></div>
+        <div class="card"><div class="card-label">Max Drawdown</div><div class="card-value" style="color:#e74c3c">$\${(m.max_drawdown_usd||0).toFixed(2)}</div></div>
+        <div class="card"><div class="card-label">Profit Factor</div><div class="card-value">\${isFinite(m.profit_factor)?((m.profit_factor||0).toFixed(2)):'∞'}</div></div>
+      \`;
+      if (data.monte_carlo) {
+        const mc_data = data.monte_carlo;
+        mc.innerHTML  = \`🎲 Monte Carlo (500 simulations) — P5: $\${mc_data.p5?.toFixed(2)} | P50: $\${mc_data.p50?.toFixed(2)} | P95: $\${mc_data.p95?.toFixed(2)}\`;
+      }
+    } catch(e) {
+      grid.innerHTML = '<span style="color:#e74c3c">❌ ' + e.message + '</span>';
+    }
+  }
+
   // ── Load dynamic panels ──────────────────────────────────────────────────────
   async function loadBalances(){
     const el=document.getElementById('balancesContent');
@@ -430,7 +571,7 @@ ${autoStopBanner}
       const r=await fetch('/api/status');
       const json=await r.json();
       const cb=json.circuitBreaker||{};
-      const exchanges=['mexc','mexc_perp','binance','kucoin','okx','bitget','bitmart'];
+      const exchanges=['mexc','mexc_perp','binance','kucoin','okx','bitget','bitmart','bybit','gateio','htx'];
       const items=exchanges.map(ex=>{
         const info=cb[ex];
         const open=info&&info.open&&(Date.now()-info.lastFailure)<300000;

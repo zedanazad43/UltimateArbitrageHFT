@@ -4,13 +4,19 @@
 // symbols, selects the single best opportunity, applies unified risk checks,
 // and executes one trade per scan cycle.
 
-import { getAllSpotPrices, getMEXCPerpPrice, getBybitPerpData, get0xPrice } from './prices.js';
+import { getAllSpotPrices, getMEXCPerpPrice, getBybitPerpData, get0xPrice, getCrossPairPrices } from './prices.js';
 import { scanCEX }         from './strategies/cex.js';
 import { scanDEX }         from './strategies/dex.js';
 import { scanPerps }       from './strategies/perps.js';
 import { scanFundingRate } from './strategies/funding.js';
+import { scanTriangular, TRIANGLES } from './strategies/triangular.js';
+import { scanStatistical, CORRELATED_PAIRS } from './strategies/statistical.js';
 import { logTrade, openPaperPosition, getOpenPaperPositions, closePaperPosition } from './db.js';
-import { calculateAdaptiveLeverage, calculatePositionSize, MAX_POSITION_EQUITY_FRACTION } from './risk.js';
+import {
+  calculateAdaptiveLeverage, calculatePositionSize,
+  volatilityAdjustedSize, checkDrawdownGuard, checkExposureLimit,
+  checkMinTimeBetweenTrades, MAX_POSITION_EQUITY_FRACTION
+} from './risk.js';
 import {
   placeMEXCFuturesOrder, hasSufficientUSDT,
   hasExchangeCredentials, getRequiredCredentialKeys, getExchangeBalance, placeExchangeMarketOrder
@@ -123,8 +129,25 @@ export async function runScan(env, state, sendAlert) {
   const equity         = initialCapital + (state.total_pnl || 0);
   const paperMode      = state.paper_trading !== false;
 
+  // ── Enhanced risk pre-flight checks ─────────────────────────────────────────
+  const drawdown = checkDrawdownGuard(state, equity);
+  if (drawdown.halt) {
+    console.warn(`[Risk] Scan halted: ${drawdown.reason}`);
+    if (!state.auto_stopped) {
+      state.auto_stopped    = true;
+      state.auto_stop_reason = drawdown.reason;
+    }
+    return null;
+  }
+
+  const timingCheck = checkMinTimeBetweenTrades(state);
+  if (!timingCheck.allowed) {
+    console.log(`[Risk] Min time between trades: wait ${timingCheck.waitSec}s`);
+    return null;
+  }
+
   const allOpportunities = [];
-  const lastScan = { timestamp: Date.now(), cex: null, dex: null, perps: null, funding: null };
+  const lastScan = { timestamp: Date.now(), cex: null, dex: null, perps: null, funding: null, triangular: null, statistical: null };
 
   // Load circuit-breaker state from KV once per cycle and build the open-circuit set
   const cb = await getCircuitBreaker(env);
@@ -139,8 +162,11 @@ export async function runScan(env, state, sendAlert) {
   // Track per-symbol mid prices so we can settle paper positions
   const midPrices = {};
 
-  // ── Scan all symbols (CEX + Perps + Funding) and DEX in parallel ─────────────
-  const [, dexOpp] = await Promise.all([
+  // ── Scan all symbols (CEX + Perps + Funding) and DEX + Triangular + Statistical in parallel ─────────────
+  // Collect cross-pair prices needed for triangular arbitrage once (shared across exchanges)
+  const crossSymbols = [...new Set(TRIANGLES.map(t => t.b))]; // e.g. ['ETHBTC', 'BNBBTC', 'SOLBTC', 'BNBETH']
+
+  const [, dexOpp, crossPrices] = await Promise.all([
     Promise.all(
       SUPPORTED_SYMBOLS.map(async symbol => {
         try {
@@ -209,8 +235,57 @@ export async function runScan(env, state, sendAlert) {
         }
       })
     ),
-    scanDEX(env)
+    scanDEX(env),
+    getCrossPairPrices(crossSymbols)
   ]);
+
+  // ── Triangular arbitrage (per-exchange, using cross-pair prices) ─────────────
+  // Build per-exchange price maps from the mid-price cache and run triangular scan
+  for (const exchangeName of ['binance', 'mexc']) {
+    try {
+      const priceMap = {};
+      // Add USDT-quoted prices from midPrices (indexed by symbol)
+      for (const sym of SUPPORTED_SYMBOLS) {
+        const src = (await getAllSpotPrices(env, sym, openCircuits))
+          .find(s => s.exchange === exchangeName);
+        if (src) priceMap[sym] = src.price;
+      }
+      // Add cross-pair prices
+      Object.assign(priceMap, crossPrices);
+
+      const fee = exchangeName === 'binance' ? 0.001 : 0.0005;
+      const triOpp = scanTriangular(exchangeName, fee, priceMap);
+      if (triOpp) {
+        allOpportunities.push(triOpp);
+        if (!lastScan.triangular || triOpp.netPct > lastScan.triangular.netPct)
+          lastScan.triangular = triOpp;
+      }
+    } catch (e) {
+      console.error(`[Triangular:${exchangeName}] scan error:`, e.message);
+    }
+  }
+
+  // ── Statistical / pairs arbitrage (cross-exchange z-score) ───────────────────
+  for (const pairDef of CORRELATED_PAIRS) {
+    try {
+      const [sourcesA, sourcesB] = await Promise.all([
+        getAllSpotPrices(env, pairDef.symbolA, openCircuits),
+        getAllSpotPrices(env, pairDef.symbolB, openCircuits)
+      ]);
+      const priceA = midPrices[pairDef.symbolA] ?? sourcesA[0]?.price;
+      const priceB = midPrices[pairDef.symbolB] ?? sourcesB[0]?.price;
+      if (!priceA || !priceB) continue;
+
+      const statOpp = await scanStatistical(env, pairDef, priceA, priceB, sourcesA, sourcesB);
+      if (statOpp) {
+        allOpportunities.push(statOpp);
+        if (!lastScan.statistical || statOpp.netPct > lastScan.statistical.netPct)
+          lastScan.statistical = statOpp;
+      }
+    } catch (e) {
+      console.error(`[Statistical:${pairDef.id}] scan error:`, e.message);
+    }
+  }
 
   // Persist updated circuit-breaker state (fire-and-forget)
   saveCircuitBreaker(env, cb);
@@ -254,8 +329,24 @@ export async function runScan(env, state, sendAlert) {
     state.win_rate          || 0.55,
     state.risk_reward_ratio || 2.0
   );
+
+  // Volatility-adjusted sizing: reduce when spread is elevated
+  const observedSpread = best.grossPct || 0;
+  const volAdjustedSize = volatilityAdjustedSize(baseSize, observedSpread);
+
   // Hard cap: MAX_POSITION_EQUITY_FRACTION of equity, consistent with risk.js
-  const sizeUsd       = Math.min(baseSize * leverage, equity * MAX_POSITION_EQUITY_FRACTION);
+  const rawSizeUsd = Math.min(volAdjustedSize * leverage, equity * MAX_POSITION_EQUITY_FRACTION);
+
+  // Open exposure check: count open paper positions total size
+  const openPositions    = await getOpenPaperPositions(env);
+  const currentExposure  = openPositions.reduce((s, p) => s + (p.size_usd || 0), 0);
+  const exposureCheck    = checkExposureLimit(equity, currentExposure, rawSizeUsd);
+  if (!exposureCheck.allowed) {
+    console.warn(`[Risk] Exposure limit: ${exposureCheck.reason}`);
+    return null;
+  }
+
+  const sizeUsd       = rawSizeUsd;
   const mode          = paperMode ? 'paper' : 'live';
   const strategyLabel = `${best.strategy}:${best.direction}`;
   const levStr        = leverage > 1 ? ` | ${leverage}x` : '';
@@ -293,11 +384,12 @@ export async function runScan(env, state, sendAlert) {
 
   // ── Update state counters (caller saves state to KV) ────────────────────────
   const tradePnl = sizeUsd * best.netPct / 100;
-  state.daily_pnl          = (state.daily_pnl   || 0) + tradePnl;
-  state.total_pnl          = (state.total_pnl   || 0) + tradePnl;
-  state.daily_trades       = (state.daily_trades || 0) + 1;
-  state.total_trades       = (state.total_trades || 0) + 1;
+  state.daily_pnl            = (state.daily_pnl   || 0) + tradePnl;
+  state.total_pnl            = (state.total_pnl   || 0) + tradePnl;
+  state.daily_trades         = (state.daily_trades || 0) + 1;
+  state.total_trades         = (state.total_trades || 0) + 1;
   state.last_trade_timestamp = Date.now();
+  state.last_trade_pnl_usd   = tradePnl;
 
   // FIXED: ensured inside async function — use queue producer when available, fall back to logTrade()
   if (env.TRADE_QUEUE) {

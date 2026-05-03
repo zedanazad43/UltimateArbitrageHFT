@@ -298,6 +298,25 @@ export async function getBybitPerpData(symbol) {
   } catch (_) { return null; }
 }
 
+// ── HTX (Huobi) spot price ────────────────────────────────────────────────────
+
+export async function getHTXPrice(symbol) {
+  try {
+    // HTX uses lowercase symbols: BTCUSDT → btcusdt
+    const htxSymbol = symbol.toLowerCase();
+    const resp = await fetchWithRetry(
+      `https://api.huobi.pro/market/detail/merged?symbol=${htxSymbol}`,
+      FETCH_CF
+    );
+    if (!resp || !resp.ok) { await resp?.body?.cancel(); return null; }
+    const data = await resp.json();
+    if (data.status !== 'ok' || !data.tick?.close) return null;
+    const price = parseFloat(data.tick.close);
+    if (!price || isNaN(price)) return null;
+    return { price, exchange: 'htx', fee: 0.002 };
+  } catch (_) { return null; }
+}
+
 // ── Gate.io spot price ────────────────────────────────────────────────────────
 
 export async function getGateioPrice(symbol) {
@@ -319,6 +338,68 @@ export async function getGateioPrice(symbol) {
   } catch (_) { return null; }
 }
 
+// ── Cross-pair price fetch ────────────────────────────────────────────────────
+// Fetches a cross-pair price (e.g. ETHBTC) needed for triangular arbitrage.
+// Each exchange has its own symbol format for cross pairs.
+
+/**
+ * Fetches a cross-pair price from Binance (e.g. ETHBTC, BNBBTC).
+ * These are the most liquid cross pairs available on Binance.
+ */
+export async function getBinanceCrossPrice(crossSymbol) {
+  try {
+    const resp = await fetchWithRetry(
+      `https://api.binance.com/api/v3/ticker/price?symbol=${crossSymbol}`,
+      FETCH_CF
+    );
+    if (!resp || !resp.ok) { await resp?.body?.cancel(); return null; }
+    const data = await resp.json();
+    const price = parseFloat(data.price);
+    if (!price || isNaN(price)) return null;
+    return price;
+  } catch (_) { return null; }
+}
+
+/**
+ * Fetches a cross-pair price from MEXC.
+ */
+export async function getMEXCCrossPrice(crossSymbol) {
+  try {
+    const resp = await fetchWithRetry(
+      `https://api.mexc.com/api/v3/ticker/price?symbol=${crossSymbol}`,
+      FETCH_CF
+    );
+    if (!resp || !resp.ok) { await resp?.body?.cancel(); return null; }
+    const data = await resp.json();
+    const price = parseFloat(data.price);
+    if (!price || isNaN(price)) return null;
+    return price;
+  } catch (_) { return null; }
+}
+
+/**
+ * Fetches triangular price data for a set of cross symbols from multiple exchanges.
+ * Returns a map of { symbol: price } for each requested cross symbol.
+ *
+ * @param {string[]} crossSymbols  — e.g. ['ETHBTC', 'BNBBTC']
+ * @returns {object}  { ETHBTC: 0.052, BNBBTC: 0.0084, ... }
+ */
+export async function getCrossPairPrices(crossSymbols) {
+  const tasks = crossSymbols.map(async sym => {
+    // Try Binance first (most liquid cross pairs), fall back to MEXC
+    const price = await getBinanceCrossPrice(sym) ?? await getMEXCCrossPrice(sym);
+    return [sym, price];
+  });
+  const entries = await Promise.allSettled(tasks);
+  const result = {};
+  for (const e of entries) {
+    if (e.status === 'fulfilled' && e.value[1]) {
+      result[e.value[0]] = e.value[1];
+    }
+  }
+  return result;
+}
+
 // ── Aggregated fetch ──────────────────────────────────────────────────────────
 
 /**
@@ -336,6 +417,7 @@ export async function getAllSpotPrices(env, symbol, openCircuits = new Set()) {
     ['bitmart', () => getBitmartPrice(symbol)],
     ['bybit',   () => getBybitSpotPrice(symbol)],
     ['gateio',  () => getGateioPrice(symbol)],
+    ['htx',     () => getHTXPrice(symbol)],
   ];
 
   const tasks = exchangeFetchers.map(([name, fetcher]) =>

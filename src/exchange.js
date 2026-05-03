@@ -723,6 +723,132 @@ export async function placeMarketOrderGateio(env, symbol, side, quantity, sizeUs
   return data;
 }
 
+// ── HTX (Huobi) ───────────────────────────────────────────────────────────────
+
+/**
+ * Fetches the HTX spot account balance for a given asset (default: USDT).
+ * Uses HTX REST API v1 with HMAC-SHA256 signature.
+ */
+export async function getHTXBalance(env, asset = 'usdt') {
+  const apiKey    = env.HTX_API_KEY;
+  const apiSecret = env.HTX_API_SECRET;
+  if (!apiKey)    throw new Error('HTX_API_KEY is not configured');
+  if (!apiSecret) throw new Error('HTX_API_SECRET is not configured');
+
+  const method    = 'GET';
+  const host      = 'api.huobi.pro';
+  const path      = '/v1/account/accounts';
+  const timestamp = new Date().toISOString().replace(/\.\d{3}Z$/, '');
+  const params    = new URLSearchParams({
+    AccessKeyId:      apiKey,
+    SignatureMethod:  'HmacSHA256',
+    SignatureVersion: '2',
+    Timestamp:        timestamp
+  });
+  const payload    = `${method}\n${host}\n${path}\n${params.toString()}`;
+  const signature  = await hmacBase64(apiSecret, payload);
+  params.append('Signature', signature);
+
+  const resp = await fetch(`https://${host}${path}?${params}`, { method });
+  const data = await resp.json();
+  if (data.status !== 'ok') throw new Error(data['err-msg'] || `HTX accounts error`);
+
+  // Look up the balance for the specific account ID with 'spot' subtype
+  const spotAccounts = (data.data || []).filter(a => a.type === 'spot');
+  if (spotAccounts.length === 0) return { free: 0, locked: 0 };
+
+  const accountId = spotAccounts[0].id;
+
+  const balPath    = `/v1/account/accounts/${accountId}/balance`;
+  const balParams  = new URLSearchParams({
+    AccessKeyId:      apiKey,
+    SignatureMethod:  'HmacSHA256',
+    SignatureVersion: '2',
+    Timestamp:        timestamp
+  });
+  const balPayload   = `${method}\n${host}\n${balPath}\n${balParams.toString()}`;
+  const balSignature = await hmacBase64(apiSecret, balPayload);
+  balParams.append('Signature', balSignature);
+
+  const balResp = await fetch(`https://${host}${balPath}?${balParams}`);
+  const balData = await balResp.json();
+  if (balData.status !== 'ok') throw new Error(balData['err-msg'] || 'HTX balance error');
+
+  const lowerAsset = asset.toLowerCase();
+  const list       = balData.data?.list || [];
+  let free = 0, locked = 0;
+  for (const entry of list) {
+    if (entry.currency !== lowerAsset) continue;
+    if (entry.type === 'trade')  free   = parseFloat(entry.balance || '0');
+    if (entry.type === 'frozen') locked = parseFloat(entry.balance || '0');
+  }
+  return { free, locked };
+}
+
+/**
+ * Places a market order on HTX spot.
+ * BUY: uses buy-market (USDT amount); SELL: uses sell-market (base asset amount).
+ */
+export async function placeMarketOrderHTX(env, symbol, side, quantity, sizeUsd) {
+  const apiKey    = env.HTX_API_KEY;
+  const apiSecret = env.HTX_API_SECRET;
+  if (!apiKey)    throw new Error('HTX_API_KEY is not configured');
+  if (!apiSecret) throw new Error('HTX_API_SECRET is not configured');
+
+  const method     = 'POST';
+  const host       = 'api.huobi.pro';
+  const timestamp  = new Date().toISOString().replace(/\.\d{3}Z$/, '');
+  const htxSymbol  = symbol.toLowerCase();  // BTCUSDT → btcusdt
+
+  // Determine order type: buy-market or sell-market
+  const orderType  = side.toUpperCase() === 'BUY' ? 'buy-market' : 'sell-market';
+  // buy-market amount is in quote currency (USDT), sell-market in base currency
+  const amount     = side.toUpperCase() === 'BUY' ? sizeUsd.toFixed(2) : quantity;
+
+  // Step 1: get spot account ID (cached in practice; fetched once per request here)
+  const acctPath  = '/v1/account/accounts';
+  const acctQS    = new URLSearchParams({
+    AccessKeyId: apiKey, SignatureMethod: 'HmacSHA256',
+    SignatureVersion: '2', Timestamp: timestamp
+  });
+  const acctSig   = await hmacBase64(apiSecret, `GET\n${host}\n${acctPath}\n${acctQS.toString()}`);
+  acctQS.append('Signature', acctSig);
+  const acctResp  = await fetch(`https://${host}${acctPath}?${acctQS}`);
+  const acctData  = await acctResp.json();
+  if (acctData.status !== 'ok') throw new Error(acctData['err-msg'] || 'HTX account lookup failed');
+  const accountId = (acctData.data || []).find(a => a.type === 'spot')?.id;
+  if (!accountId) throw new Error('HTX: no spot account found');
+
+  // Step 2: place the order
+  const orderPath = '/v1/order/orders/place';
+  const orderQS   = new URLSearchParams({
+    AccessKeyId: apiKey, SignatureMethod: 'HmacSHA256',
+    SignatureVersion: '2', Timestamp: timestamp
+  });
+  const orderBodyObj = {
+    'account-id': accountId,
+    symbol:       htxSymbol,
+    type:         orderType,
+    amount,
+    source:       'spot-api'
+  };
+  const orderBodyStr = JSON.stringify(orderBodyObj);
+  const orderSig     = await hmacBase64(
+    apiSecret,
+    `${method}\n${host}\n${orderPath}\n${orderQS.toString()}`
+  );
+  orderQS.append('Signature', orderSig);
+
+  const resp = await fetch(`https://${host}${orderPath}?${orderQS}`, {
+    method,
+    headers: { 'Content-Type': 'application/json' },
+    body: orderBodyStr
+  });
+  const data = await resp.json();
+  if (data.status !== 'ok') throw new Error(data['err-msg'] || `HTX order error`);
+  return data;
+}
+
 // ── Exchange dispatchers ──────────────────────────────────────────────────────
 
 /**
@@ -737,7 +863,8 @@ const EXCHANGE_CRED_KEYS = {
   bitget:  ['BITGET_API_KEY', 'BITGET_SECRET_KEY', 'BITGET_API_PASSPHRASE'],
   bitmart: ['BITMART_API_KEY', 'BITMART_SECRET_KEY', 'BITMART_MEMO'],
   bybit:   ['BYBIT_API_KEY', 'BYBIT_API_SECRET'],
-  gateio:  ['GATEIO_API_KEY', 'GATEIO_API_SECRET']
+  gateio:  ['GATEIO_API_KEY', 'GATEIO_API_SECRET'],
+  htx:     ['HTX_API_KEY', 'HTX_API_SECRET']
 };
 
 /**
@@ -771,6 +898,7 @@ export async function getExchangeBalance(env, exchange, asset = 'USDT') {
       case 'bitmart': return (await getBitmartBalance(env, asset)).free;
       case 'bybit':   return (await getBybitBalance(env, asset)).free;
       case 'gateio':  return (await getGateioBalance(env, asset)).free;
+      case 'htx':     return (await getHTXBalance(env, asset.toLowerCase())).free;
       default:        return 0;
     }
   } catch (e) {
@@ -799,6 +927,7 @@ export async function placeExchangeMarketOrder(env, exchange, symbol, side, quan
     case 'bitmart': return placeMarketOrderBitmart(env, symbol, side, quantity, sizeUsd);
     case 'bybit':   return placeMarketOrderBybit(env, symbol, side, quantity, sizeUsd);
     case 'gateio':  return placeMarketOrderGateio(env, symbol, side, quantity, sizeUsd);
+    case 'htx':     return placeMarketOrderHTX(env, symbol, side, quantity, sizeUsd);
     default:
       throw new Error(`No execution layer for exchange: ${exchange}`);
   }

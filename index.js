@@ -8,6 +8,7 @@ import { renderDashboard, renderChecklist } from './src/dashboard.js';
 import { runScan } from './src/orchestrator.js';
 import { ensureSchema, logAdminEvent, logBotEvent, getRecentTrades, getStrategyPnL, getPerformanceMetrics, exportTrades } from './src/db.js';
 import { hasExchangeCredentials, getExchangeBalance } from './src/exchange.js';
+import { runBacktest } from './src/backtest.js';
 import {
   startWorkflow,
   stopWorkflow,
@@ -811,6 +812,44 @@ app.post('/api/temporal/mode', async (c) => {
 app.get('/cron', async (c) => {
   const result = await runScheduledCycle(c.env);
   return c.json({ success: true, result: result ? 'trade executed' : 'no trade' });
+});
+
+// ── API: Backtesting ──────────────────────────────────────────────────────────
+// POST /api/backtest — runs a full backtest over stored trade history.
+// Body (all optional):
+//   from_ms:          start timestamp (default: 30d ago)
+//   to_ms:            end timestamp (default: now)
+//   initial_capital:  starting equity (default: 1000)
+//   min_net_pct:      minimum net profit to include a trade (default: 0)
+//   position_frac:    position size as fraction of equity (default: 0.10)
+//   strategies:       array of strategy prefixes to filter ['cex','dex','perps',…]
+//   run_monte_carlo:  boolean (default: true)
+//   run_param_sweep:  boolean (default: false)
+app.post('/api/backtest', async (c) => {
+  const limited = await checkRateLimit(c.env, c);
+  if (limited) return limited;
+  if (!isAuthorized(c.env, c)) return c.json({ error: 'Unauthorized' }, 401);
+  try {
+    const config = await c.req.json().catch(() => ({}));
+    await logAdminEvent(c.env, 'backtest', c.req.raw);
+    const results = await runBacktest(c.env, config);
+    return c.json(results);
+  } catch (e) {
+    console.error('[backtest] error:', e.message);
+    return c.json({ error: e.message }, 500);
+  }
+});
+
+// GET /api/backtest/runs — returns recent stored backtest run summaries
+app.get('/api/backtest/runs', async (c) => {
+  if (!isAuthorized(c.env, c)) return c.json({ error: 'Unauthorized' }, 401);
+  try {
+    const { getRecentBacktestRuns } = await import('./src/db.js');
+    const runs = await getRecentBacktestRuns(c.env, 10);
+    return c.json({ runs });
+  } catch (e) {
+    return c.json({ error: e.message }, 500);
+  }
 });
 
 // ─── Scheduled cron cycle ─────────────────────────────────────────────────────
