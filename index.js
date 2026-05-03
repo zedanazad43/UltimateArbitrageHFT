@@ -145,6 +145,26 @@ app.use('*', async (c, next) => {
   return next();
 });
 
+// ── Health check (public, no auth) ────────────────────────────────────────────
+// Returns a lightweight system snapshot for uptime monitors and load balancers.
+// Does not expose sensitive state — safe to probe from external services.
+app.get('/health', async (c) => {
+  const state = await getState(c.env).catch(() => null);
+  const equity = state
+    ? (state.initial_capital || 1000) + (state.total_pnl || 0)
+    : null;
+  return c.json({
+    status:          'ok',
+    trading_enabled: state?.trading_enabled ?? false,
+    paper_trading:   state?.paper_trading   ?? true,
+    auto_stopped:    state?.auto_stopped    ?? false,
+    equity_usd:      equity !== null ? parseFloat(equity.toFixed(2)) : null,
+    daily_pnl_usd:   state ? parseFloat((state.daily_pnl || 0).toFixed(2)) : null,
+    daily_trades:    state?.daily_trades    ?? 0,
+    timestamp:       Date.now(),
+  });
+});
+
 // ── Dashboard routes ──────────────────────────────────────────────────────────
 app.get('/', async (c) => renderDashboard(c.env));
 app.get('/dashboard', async (c) => renderDashboard(c.env));
@@ -281,7 +301,6 @@ app.get('/api/report', async (c) => {
 // ── API: Exchange balances (auth-protected) ───────────────────────────────────
 app.get('/api/balances', async (c) => {
   if (!isAuthorized(c.env, c)) return authDenied(c.env, c, true);
-  const EXCHANGES = ['mexc', 'binance', 'kucoin', 'okx', 'bitget', 'bitmart', 'bybit', 'gateio'];
   const results = await Promise.all(
     ACTIVE_EXECUTION_EXCHANGES.map(async (ex) => {
       const configured = hasExchangeCredentials(c.env, ex);
@@ -916,9 +935,56 @@ async function runScheduledCycle(env) {
     return null;
   }
 
+  // Drawdown warning alerts (before the scan, so the alert goes out promptly)
+  const equity = (state.initial_capital || 1000) + (state.total_pnl || 0);
+  await sendDrawdownWarning(env, state, equity);
+
   const result = await runScan(env, state, sendTelegramAlert);
   await saveState(env, state);
   return result;
+}
+
+// ─── Drawdown warning alerts ──────────────────────────────────────────────────
+// Sends a Telegram alert when equity drops to a warning or critical threshold.
+// Each threshold fires at most once per hour (tracked in KV) to avoid spam.
+const DRAWDOWN_WARN_KEY      = 'drawdown_warn_sent';
+const DRAWDOWN_WARN_INTERVAL = 60 * 60 * 1000; // 1 hour
+
+async function sendDrawdownWarning(env, state, equity) {
+  try {
+    const initialCapital = state.initial_capital || 1000;
+    const drawdownPct = ((initialCapital - equity) / initialCapital) * 100;
+
+    if (drawdownPct < 5) return; // below warning threshold — nothing to do
+
+    // Read the last-sent timestamps from KV
+    const sentRecord = await env.BOT_STATE.get(DRAWDOWN_WARN_KEY, 'json').catch(() => null) || {};
+    const now        = Date.now();
+
+    const level    = drawdownPct >= 15 ? 'critical' : drawdownPct >= 10 ? 'high' : 'warning';
+    const lastSent = sentRecord[level] || 0;
+
+    if (now - lastSent < DRAWDOWN_WARN_INTERVAL) return; // already alerted recently
+
+    const emoji  = level === 'critical' ? '🚨' : level === 'high' ? '⚠️' : '📉';
+    const arabic = level === 'critical' ? 'حرج' : level === 'high' ? 'عالٍ' : 'تحذير';
+    await sendTelegramAlert(
+      env,
+      `${emoji} *تحذير تراجع رأس المال — مستوى ${arabic}*\n\n` +
+      `💰 رأس المال الأولي: $${initialCapital.toFixed(2)}\n` +
+      `📉 رأس المال الحالي: $${equity.toFixed(2)}\n` +
+      `📊 نسبة التراجع: *${drawdownPct.toFixed(1)}%*\n` +
+      `📅 ربح/خسارة اليوم: $${(state.daily_pnl || 0).toFixed(2)}\n\n` +
+      `${level === 'critical' ? '🛑 يُنصح بإيقاف التداول الآن وإعادة التقييم.' : '⚡ راجع الإعدادات وحدود الخسارة.'}`
+    );
+
+    sentRecord[level] = now;
+    // TTL is 2× the alert interval so the record outlives at least two windows
+    const ttlSeconds = Math.ceil(DRAWDOWN_WARN_INTERVAL / 1000) * 2;
+    await env.BOT_STATE.put(DRAWDOWN_WARN_KEY, JSON.stringify(sentRecord), { expirationTtl: ttlSeconds });
+  } catch (e) {
+    console.error('[drawdown_warning] error:', e.message);
+  }
 }
 
 // ─── Daily summary Telegram report ───────────────────────────────────────────

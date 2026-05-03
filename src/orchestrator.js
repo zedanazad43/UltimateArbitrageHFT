@@ -23,6 +23,8 @@ import {
   placeExchangeMarketOrder, getConfiguredExchanges, selectBestExchange,
   ACTIVE_EXECUTION_EXCHANGES, DATA_ONLY_EXCHANGES
 } from './exchange.js';
+import { isHFTEngineConfigured, scanFromHFT, executeViaHFT } from './hft-client.js';
+import { filterOpportunityWithAI } from './ai-client.js';
 
 const SUPPORTED_SYMBOLS = [
   // Top-cap majors
@@ -297,6 +299,26 @@ export async function runScan(env, state, sendAlert) {
     lastScan.dex = dexOpp;
   }
 
+  // ── Go HFT engine scan (WebSocket-fed, sub-ms latency) ───────────────────────
+  // If HFT_ENGINE_URL is configured, fetch the best opportunity from the Go
+  // engine's live price book and add it to the candidate pool.  The engine
+  // processes Binance/MEXC/Bybit WebSocket feeds in real time, so its prices
+  // may be fresher than the REST-poll results above.
+  if (isHFTEngineConfigured(env)) {
+    try {
+      const hftOpp = await scanFromHFT(env);
+      if (hftOpp) {
+        allOpportunities.push(hftOpp);
+        console.log(
+          `[HFT] engine opportunity: [${hftOpp.strategy.toUpperCase()}] ${hftOpp.symbol} ` +
+          `${hftOpp.direction} net ${hftOpp.netPct.toFixed(4)}%`
+        );
+      }
+    } catch (e) {
+      console.error('[HFT] scanFromHFT error:', e.message);
+    }
+  }
+
   // Settle open paper positions now that we have fresh prices
   await settleOpenPaperPositions(env, midPrices);
 
@@ -314,8 +336,17 @@ export async function runScan(env, state, sendAlert) {
     return null;
   }
 
-  // ── Pick highest net-profit opportunity ──────────────────────────────────────
-  const best = allOpportunities.reduce((a, b) => (a.netPct > b.netPct ? a : b));
+  // ── Pick best opportunity — AI-assisted when AIWORKER is available ────────────
+  // filterOpportunityWithAI ranks candidates by safety factor, net profit,
+  // strategy reliability, and asset liquidity.  Falls back to highest netPct
+  // when AI is unavailable or returns an unrecognised response.
+  const best = await filterOpportunityWithAI(env, allOpportunities);
+  if (!best) {
+    // Defensive guard: filterOpportunityWithAI only returns null for an empty list,
+    // which is already handled above; this branch prevents any future regression.
+    console.log(`🔍 Nexus: AI filter returned no candidate`);
+    return null;
+  }
   console.log(
     `🎯 Best [${best.strategy.toUpperCase()}] ${best.symbol} ${best.direction}` +
     ` net ${best.netPct.toFixed(4)}%  safety ${(best.safetyFactor * 100).toFixed(1)}%`
@@ -413,24 +444,52 @@ export async function runScan(env, state, sendAlert) {
 //                            (requires API credentials for buyExchange AND sellExchange)
 
 async function executeTrade(env, opp, sizeUsd, leverage) {
-  // DEX cross-chain trades require a bridge layer that is not yet implemented.
+  // Opportunities sourced directly from the Go HFT engine are executed there,
+  // since the engine already holds the wallet key and exchange credentials.
+  if (opp.source === 'hft_engine') {
+    await executeViaHFT(env, opp, sizeUsd);
+    return;
+  }
+
+  // DEX cross-chain trades (ETH↔BSC bridge) require on-chain signing.
+  // Route to the Go HFT engine when available; otherwise reject.
   if (opp.strategy === 'dex') {
+    if (isHFTEngineConfigured(env)) {
+      await executeViaHFT(env, opp, sizeUsd);
+      return;
+    }
     throw new Error(
-      'DEX cross-chain execution not yet supported — set paper_trading=true to simulate'
+      'DEX cross-chain execution requires the Go HFT engine. ' +
+      'Deploy the engine and set HFT_ENGINE_URL + HFT_ENGINE_SECRET, ' +
+      'or set paper_trading=true to simulate.'
     );
   }
 
-  // 0x quotes represent on-chain DEX prices — not executable via CEX APIs.
+  // 0x DEX quotes represent on-chain swaps that need wallet signing.
+  // Route to the Go HFT engine when available; otherwise reject.
   if (opp.buyExchange === '0x' || opp.sellExchange === '0x') {
+    if (isHFTEngineConfigured(env)) {
+      await executeViaHFT(env, opp, sizeUsd);
+      return;
+    }
     throw new Error(
-      'DEX (0x) execution not yet supported in live mode — set paper_trading=true to simulate'
+      'DEX (0x) execution requires the Go HFT engine. ' +
+      'Deploy the engine and set HFT_ENGINE_URL + HFT_ENGINE_SECRET, ' +
+      'or set paper_trading=true to simulate.'
     );
   }
 
-  // Funding rate harvest requires ongoing delta-neutral management; paper-only for now.
+  // Funding rate harvest requires ongoing delta-neutral management.
+  // Route to the Go HFT engine when available; otherwise reject.
   if (opp.strategy === 'funding') {
+    if (isHFTEngineConfigured(env)) {
+      await executeViaHFT(env, opp, sizeUsd);
+      return;
+    }
     throw new Error(
-      'Funding rate harvest execution not yet automated — set paper_trading=true to simulate'
+      'Funding rate harvest execution requires the Go HFT engine. ' +
+      'Deploy the engine and set HFT_ENGINE_URL + HFT_ENGINE_SECRET, ' +
+      'or set paper_trading=true to simulate.'
     );
   }
 
