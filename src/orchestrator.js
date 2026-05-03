@@ -341,6 +341,12 @@ export async function runScan(env, state, sendAlert) {
   // strategy reliability, and asset liquidity.  Falls back to highest netPct
   // when AI is unavailable or returns an unrecognised response.
   const best = await filterOpportunityWithAI(env, allOpportunities);
+  if (!best) {
+    // Defensive guard: filterOpportunityWithAI only returns null for an empty list,
+    // which is already handled above; this branch prevents any future regression.
+    console.log(`🔍 Nexus: AI filter returned no candidate`);
+    return null;
+  }
   console.log(
     `🎯 Best [${best.strategy.toUpperCase()}] ${best.symbol} ${best.direction}` +
     ` net ${best.netPct.toFixed(4)}%  safety ${(best.safetyFactor * 100).toFixed(1)}%`

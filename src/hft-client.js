@@ -38,7 +38,10 @@ export function isHFTEngineConfigured(env) {
  * @returns {Promise<Response>}
  */
 async function hftFetch(env, path, opts = {}) {
-  const base = env.HFT_ENGINE_URL.replace(/\/+$/, '');
+  // Strip trailing slashes without a regex to avoid ReDoS on library input
+  let base = env.HFT_ENGINE_URL;
+  while (base.endsWith('/')) base = base.slice(0, -1);
+
   const headers = { 'Content-Type': 'application/json', ...(opts.headers || {}) };
   if (env.HFT_ENGINE_SECRET) {
     headers['Authorization'] = `Bearer ${env.HFT_ENGINE_SECRET}`;

@@ -979,7 +979,9 @@ async function sendDrawdownWarning(env, state, equity) {
     );
 
     sentRecord[level] = now;
-    await env.BOT_STATE.put(DRAWDOWN_WARN_KEY, JSON.stringify(sentRecord), { expirationTtl: 7200 });
+    // TTL is 2× the alert interval so the record outlives at least two windows
+    const ttlSeconds = Math.ceil(DRAWDOWN_WARN_INTERVAL / 1000) * 2;
+    await env.BOT_STATE.put(DRAWDOWN_WARN_KEY, JSON.stringify(sentRecord), { expirationTtl: ttlSeconds });
   } catch (e) {
     console.error('[drawdown_warning] error:', e.message);
   }

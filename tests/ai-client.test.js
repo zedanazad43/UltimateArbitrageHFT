@@ -76,19 +76,21 @@ describe('filterOpportunityWithAI', () => {
   });
 
   test('returns the AI-selected opportunity when model returns a valid index', async () => {
-    // high has the highest netPct, but we want to test that the AI can override it
-    const high    = opp('dex',  'ETHUSDT', 2.0, 2.5, 0.5);   // index 1 after sort
-    const medium  = opp('cex',  'BTCUSDT', 1.0, 1.25, 0.95); // index 2 — AI prefers this
-    const low     = opp('perps', 'SOLUSDT', 0.5);              // index 3
+    // high has the highest netPct but a low safety factor (risky DEX trade)
+    // medium has lower netPct but a high safety factor (reliable CEX trade)
+    // The AI returns "2" (1-based) → selects the 2nd item after sorting by netPct desc
+    const highProfit = opp('dex',  'ETHUSDT', 2.0, 2.5, 0.5);   // 0-based index 0 after sort
+    const reliable   = opp('cex',  'BTCUSDT', 1.0, 1.25, 0.95); // 0-based index 1 — AI picks this
+    const low        = opp('perps', 'SOLUSDT', 0.5);              // 0-based index 2
 
     const env = {
-      // AI returns "2" — selects the second-highest (BTC CEX) over the highest (ETH DEX)
+      // AI returns "2" (1-based) — selects the second-ranked (BTC CEX) over the top-ranked (ETH DEX)
       AIWORKER: { run: async () => ({ response: '2' }) },
     };
 
-    const result = await filterOpportunityWithAI(env, [high, medium, low]);
-    // After sorting by netPct desc: [high=2.0, medium=1.0, low=0.5]
-    // AI picks index 2 → medium (BTCUSDT CEX)
+    const result = await filterOpportunityWithAI(env, [highProfit, reliable, low]);
+    // After sorting by netPct desc: [highProfit(2.0), reliable(1.0), low(0.5)]
+    // AI picks 1-based index 2 → 0-based index 1 → reliable (BTCUSDT CEX)
     assert.equal(result.strategy, 'cex');
     assert.equal(result.symbol,   'BTCUSDT');
   });
@@ -112,14 +114,15 @@ describe('filterOpportunityWithAI', () => {
   });
 
   test('handles AIWORKER returning response in .text field instead of .response', async () => {
-    const high    = opp('dex',  'ETHUSDT', 2.0, 2.5, 0.4);
-    const medium  = opp('cex',  'BTCUSDT', 1.0);
+    const highProfit = opp('dex',  'ETHUSDT', 2.0, 2.5, 0.4); // 0-based index 0 after sort
+    const reliable   = opp('cex',  'BTCUSDT', 1.0);            // 0-based index 1
 
     const env = {
       AIWORKER: { run: async () => ({ text: '2' }) }, // .text instead of .response
     };
 
-    const result = await filterOpportunityWithAI(env, [high, medium]);
+    // AI picks 1-based index 2 → 0-based index 1 → reliable (BTCUSDT)
+    const result = await filterOpportunityWithAI(env, [highProfit, reliable]);
     assert.equal(result.symbol, 'BTCUSDT');
   });
 
