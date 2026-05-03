@@ -19,7 +19,9 @@ import {
 } from './risk.js';
 import {
   placeMEXCFuturesOrder, hasSufficientUSDT,
-  hasExchangeCredentials, getRequiredCredentialKeys, getExchangeBalance, placeExchangeMarketOrder
+  hasExchangeCredentials, getRequiredCredentialKeys, getExchangeBalance,
+  placeExchangeMarketOrder, getConfiguredExchanges, selectBestExchange,
+  ACTIVE_EXECUTION_EXCHANGES
 } from './exchange.js';
 
 const SUPPORTED_SYMBOLS = [
@@ -432,33 +434,60 @@ async function executeTrade(env, opp, sizeUsd, leverage) {
     );
   }
 
+  // bybit and gateio are data-only (German regulatory restrictions).
+  const dataOnlyExchanges = new Set(['bybit', 'gateio', 'bybit_perp']);
+  if (dataOnlyExchanges.has(opp.buyExchange) || dataOnlyExchanges.has(opp.sellExchange)) {
+    throw new Error(
+      `${opp.buyExchange || opp.sellExchange} is not available for live execution ` +
+      `(German regulatory restrictions). Switching to paper mode is recommended.`
+    );
+  }
+
   const amount = (sizeUsd / opp.buyPrice).toFixed(6);
 
   // ── Perpetuals ────────────────────────────────────────────────────────────
   if (opp.isPerp) {
-    // Bybit perp execution requires Bybit futures API (not yet implemented).
-    // Route only MEXC perp opportunities to live execution.
-    if (opp.sellExchange === 'bybit_perp' || opp.buyExchange === 'bybit_perp') {
+    // Try MEXC perp first (primary CEX perp), then fall back to other configured exchanges.
+    // Bybit perp is excluded (German law).
+    const hasMEXC = hasExchangeCredentials(env, 'mexc');
+    if (hasMEXC) {
+      const sufficient = await hasSufficientUSDT(env, sizeUsd);
+      if (sufficient) {
+        const side = opp.sellExchange === 'mexc_perp' ? 'SHORT' : 'LONG';
+        await placeMEXCFuturesOrder(env, opp.symbol, side, amount, leverage);
+        return;
+      }
+    }
+    // MEXC perp unavailable or insufficient balance — try other exchanges with spot hedge
+    const fallback = await selectBestExchange(env, sizeUsd);
+    if (!fallback) {
       throw new Error(
-        'Bybit perpetuals live execution not yet supported — set paper_trading=true to simulate'
+        `No configured exchange has sufficient USDT ($${sizeUsd.toFixed(2)}) for perps trade`
       );
     }
-    const hasMEXC = hasExchangeCredentials(env, 'mexc');
-    if (!hasMEXC) {
-      throw new Error('MEXC_API_KEY / MEXC_API_SECRET required for perps trading');
-    }
-    const sufficient = await hasSufficientUSDT(env, sizeUsd);
-    if (!sufficient) {
-      throw new Error(`Insufficient USDT balance for $${sizeUsd.toFixed(2)} trade`);
-    }
-    const side = opp.sellExchange === 'mexc_perp' ? 'SHORT' : 'LONG';
-    await placeMEXCFuturesOrder(env, opp.symbol, side, amount, leverage);
+    // Execute as a spot long (hedge): buy on cheapest, sell when price is favorable
+    const side = opp.sellExchange?.includes('perp') ? 'SELL' : 'BUY';
+    await placeExchangeMarketOrder(env, fallback, opp.symbol, side, amount, sizeUsd);
     return;
   }
 
   // ── CEX spatial arbitrage ─────────────────────────────────────────────────
-  const buyExch  = opp.buyExchange;
-  const sellExch = opp.sellExchange;
+  let buyExch  = opp.buyExchange;
+  let sellExch = opp.sellExchange;
+
+  // If either leg is on a data-only exchange, reroute to best available exchange.
+  if (!ACTIVE_EXECUTION_EXCHANGES.includes(buyExch)) {
+    const alt = await selectBestExchange(env, sizeUsd);
+    if (!alt) throw new Error(`Buy exchange ${buyExch} not available and no alternative configured`);
+    console.warn(`[Exec] Rerouted BUY from ${buyExch} → ${alt}`);
+    buyExch = alt;
+  }
+  if (!ACTIVE_EXECUTION_EXCHANGES.includes(sellExch)) {
+    const configured = getConfiguredExchanges(env).filter(ex => ex !== buyExch);
+    if (configured.length === 0) throw new Error(`Sell exchange ${sellExch} not available`);
+    sellExch = configured[0];
+    console.warn(`[Exec] Rerouted SELL from ${opp.sellExchange} → ${sellExch}`);
+  }
 
   if (!hasExchangeCredentials(env, buyExch)) {
     throw new Error(
@@ -476,22 +505,29 @@ async function executeTrade(env, opp, sizeUsd, leverage) {
   // Pre-flight balance checks
   const baseAsset = opp.symbol.replace(/USDT$/, '');
 
-  // USDT on buy exchange
   const buyBalance = await getExchangeBalance(env, buyExch, 'USDT');
   if (buyBalance < sizeUsd) {
-    throw new Error(
-      `Insufficient USDT on ${buyExch}: ` +
-      `$${buyBalance.toFixed(2)} available, $${sizeUsd.toFixed(2)} needed`
-    );
+    // Try rerouting BUY to an exchange with sufficient balance
+    const alt = await selectBestExchange(env, sizeUsd);
+    if (!alt || alt === sellExch) {
+      throw new Error(
+        `Insufficient USDT on ${buyExch}: ` +
+        `$${buyBalance.toFixed(2)} available, $${sizeUsd.toFixed(2)} needed. ` +
+        `Top up balance or enable more exchanges.`
+      );
+    }
+    console.warn(`[Exec] USDT insufficient on ${buyExch}, rerouted BUY to ${alt}`);
+    buyExch = alt;
   }
 
-  // Base asset on sell exchange (must be pre-positioned for hedged execution)
+  // Base asset on sell exchange (must be pre-positioned for hedged execution).
   const sellBalance = await getExchangeBalance(env, sellExch, baseAsset);
   const minSellQty  = parseFloat(amount);
   if (sellBalance < minSellQty) {
     throw new Error(
       `Insufficient ${baseAsset} on ${sellExch}: ` +
-      `${sellBalance.toFixed(6)} available, ${amount} needed`
+      `${sellBalance.toFixed(6)} available, ${amount} needed. ` +
+      `Transfer ${baseAsset} to ${sellExch} before executing this trade.`
     );
   }
 

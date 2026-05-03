@@ -11,8 +11,15 @@ import { scanCEX }   from '../src/strategies/cex.js';
 import { scanPerps } from '../src/strategies/perps.js';
 import {
   calculateAdaptiveLeverage,
-  calculatePositionSize
+  calculatePositionSize,
+  volatilityAdjustedSize,
+  checkDrawdownGuard,
+  checkExposureLimit,
+  calculateVaR,
+  checkMinTimeBetweenTrades
 } from '../src/risk.js';
+import { scanTriangular } from '../src/strategies/triangular.js';
+import { computeMetrics, monteCarloSimulation } from '../src/backtest.js';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // scanCEX
@@ -208,16 +215,11 @@ describe('calculatePositionSize', () => {
     assert.ok(sizeLarge > sizeSmall, 'position size should grow with equity');
   });
 
-// ─────────────────────────────────────────────────────────────────────────────
-// New imports: triangular, statistical, backtest, risk extras
-// ─────────────────────────────────────────────────────────────────────────────
-
-import { scanTriangular } from '../src/strategies/triangular.js';
-import { computeMetrics, monteCarloSimulation, parameterSweep } from '../src/backtest.js';
-import {
-  volatilityAdjustedSize, checkDrawdownGuard,
-  checkExposureLimit, calculateVaR, checkMinTimeBetweenTrades
-} from '../src/risk.js';
+  test('uses logistic growth — does not grow unboundedly', () => {
+    const size100k = calculatePositionSize(100_000, 0.55, 2.0);
+    assert.ok(size100k <= 20_000 + 0.01, `expected <= $20,000, got $${size100k.toFixed(2)}`);
+  });
+});
 
 // ─────────────────────────────────────────────────────────────────────────────
 // scanTriangular

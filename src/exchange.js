@@ -862,10 +862,17 @@ const EXCHANGE_CRED_KEYS = {
   okx:     ['OKX_API_KEY', 'OKX_API_SECRET', 'OKX_PASSPHRASE'],
   bitget:  ['BITGET_API_KEY', 'BITGET_SECRET_KEY', 'BITGET_API_PASSPHRASE'],
   bitmart: ['BITMART_API_KEY', 'BITMART_SECRET_KEY', 'BITMART_MEMO'],
-  bybit:   ['BYBIT_API_KEY', 'BYBIT_API_SECRET'],
-  gateio:  ['GATEIO_API_KEY', 'GATEIO_API_SECRET'],
-  htx:     ['HTX_API_KEY', 'HTX_API_SECRET']
+  htx:     ['HTX_API_KEY', 'HTX_API_SECRET'],
+  // bybit and gateio are price-data sources only (German regulatory restrictions)
 };
+
+/**
+ * Exchanges available for live order execution.
+ * bybit and gateio are excluded due to German regulatory restrictions.
+ */
+export const ACTIVE_EXECUTION_EXCHANGES = [
+  'mexc', 'binance', 'kucoin', 'okx', 'bitget', 'bitmart', 'htx'
+];
 
 /**
  * Returns true if all required API credentials for the given exchange are configured.
@@ -884,6 +891,46 @@ export function getRequiredCredentialKeys(exchange) {
 }
 
 /**
+ * Returns the list of exchanges that have valid credentials configured in env.
+ */
+export function getConfiguredExchanges(env) {
+  return ACTIVE_EXECUTION_EXCHANGES.filter(ex => hasExchangeCredentials(env, ex));
+}
+
+/**
+ * Selects the best available exchange for execution based on:
+ * 1. Credential availability
+ * 2. USDT balance (picks highest balance)
+ * Returns null if no exchange has sufficient balance.
+ *
+ * @param {object} env        — Cloudflare Worker env bindings
+ * @param {number} requiredUsd — minimum USDT balance needed
+ * @returns {Promise<string|null>} exchange name or null
+ */
+export async function selectBestExchange(env, requiredUsd) {
+  const configured = getConfiguredExchanges(env);
+  if (configured.length === 0) return null;
+
+  const balances = await Promise.allSettled(
+    configured.map(async ex => ({ ex, bal: await getExchangeBalance(env, ex, 'USDT') }))
+  );
+
+  let bestEx  = null;
+  let bestBal = 0;
+
+  for (const result of balances) {
+    if (result.status !== 'fulfilled') continue;
+    const { ex, bal } = result.value;
+    if (bal >= requiredUsd && bal > bestBal) {
+      bestEx  = ex;
+      bestBal = bal;
+    }
+  }
+
+  return bestEx;
+}
+
+/**
  * Gets the free balance for the specified asset on the given exchange.
  * Returns 0 on any error (safe fallback — callers should handle insufficient balance).
  */
@@ -896,9 +943,8 @@ export async function getExchangeBalance(env, exchange, asset = 'USDT') {
       case 'okx':     return (await getOKXBalance(env, asset)).free;
       case 'bitget':  return (await getBitgetBalance(env, asset)).free;
       case 'bitmart': return (await getBitmartBalance(env, asset)).free;
-      case 'bybit':   return (await getBybitBalance(env, asset)).free;
-      case 'gateio':  return (await getGateioBalance(env, asset)).free;
       case 'htx':     return (await getHTXBalance(env, asset.toLowerCase())).free;
+      // bybit/gateio: data-only, no live execution
       default:        return 0;
     }
   } catch (e) {
@@ -909,13 +955,14 @@ export async function getExchangeBalance(env, exchange, asset = 'USDT') {
 
 /**
  * Places a spot market order on the specified exchange.
+ * bybit and gateio throw — they are data-only (German regulatory restrictions).
  *
  * @param {object} env       — Cloudflare Worker env bindings
- * @param {string} exchange  — exchange identifier (mexc | binance | kucoin | okx | bitget | bitmart)
- * @param {string} symbol    — trading pair in MEXC format, e.g. 'BTCUSDT'
+ * @param {string} exchange  — exchange identifier
+ * @param {string} symbol    — trading pair, e.g. 'BTCUSDT'
  * @param {string} side      — 'BUY' | 'SELL'
- * @param {string} quantity  — base asset amount (used for SELL and for MEXC BUY)
- * @param {number} sizeUsd   — quote amount in USDT (used for BUY on Binance, KuCoin, OKX, Bitget, Bitmart)
+ * @param {string} quantity  — base asset amount (used for SELL)
+ * @param {number} sizeUsd   — quote amount in USDT (used for BUY)
  */
 export async function placeExchangeMarketOrder(env, exchange, symbol, side, quantity, sizeUsd) {
   switch (exchange?.toLowerCase()) {
@@ -925,9 +972,13 @@ export async function placeExchangeMarketOrder(env, exchange, symbol, side, quan
     case 'okx':     return placeMarketOrderOKX(env, symbol, side, quantity, sizeUsd);
     case 'bitget':  return placeMarketOrderBitget(env, symbol, side, quantity, sizeUsd);
     case 'bitmart': return placeMarketOrderBitmart(env, symbol, side, quantity, sizeUsd);
-    case 'bybit':   return placeMarketOrderBybit(env, symbol, side, quantity, sizeUsd);
-    case 'gateio':  return placeMarketOrderGateio(env, symbol, side, quantity, sizeUsd);
     case 'htx':     return placeMarketOrderHTX(env, symbol, side, quantity, sizeUsd);
+    case 'bybit':
+    case 'gateio':
+      throw new Error(
+        `${exchange} is not available for live execution (German regulatory restrictions). ` +
+        `Use paper trading mode or switch to MEXC, Binance, KuCoin, OKX, Bitget, Bitmart, or HTX.`
+      );
     default:
       throw new Error(`No execution layer for exchange: ${exchange}`);
   }

@@ -9,8 +9,8 @@
 // Minimum net profit to report (after 3 legs of taker fees).
 const MIN_NET_PCT = 0.01; // 0.01% — triangular arb margins are tight
 
-// Maximum allowed spread in any single leg (volatility guard).
-const MAX_LEG_SPREAD_PCT = 3.0;
+// Maximum allowed cross-rate deviation (used to reject extreme outliers only).
+const MAX_LEG_SPREAD_PCT = 15.0;
 
 /**
  * Triangular path definition.
@@ -45,33 +45,27 @@ function evalTriangle(tri, pA, pB, pC, exchange, fee) {
   if (pA <= 0 || pB <= 0 || pC <= 0) return null;
 
   // ── Direction 1: USDT → A → C via cross → USDT ────────────────────────────
-  // Step 1: 1 USDT → (1/pA) units of A (buy A/USDT)
-  // Step 2: (1/pA) units of A → (1/pA)/(pB_inverseRatio) units of C
-  //         cross pair is A/B = pB  ⟹  1 unit A = pB units of C if B is USDT? No.
-  //
   // For BTCUSDT, ETHBTC, ETHUSDT:
-  //   pA = BTC/USDT price
-  //   pB = ETH/BTC price  (amount of ETH per 1 BTC)
-  //   pC = ETH/USDT price
+  //   pA = BTC/USDT price (e.g. 65000)
+  //   pB = ETH/BTC price: 1 ETH = pB BTC (e.g. 0.052 means 1 ETH costs 0.052 BTC)
+  //   pC = ETH/USDT price (e.g. 3380)
   //
   // Dir-1: USDT → BTC → ETH → USDT
-  //   q1 = 1 / pA                   (BTC received, after buying BTC/USDT)
-  //   q2 = q1 * pB                  (ETH received, after selling ETH/BTC at pB)
-  //   q3 = q2 * pC                  (USDT received, after selling ETH/USDT)
-  //   gross_1 = q3 - 1 (starting USDT)
-  //   fees deducted 3× as a multiplier: (1-fee)^3
+  //   q1 = 1 / pA                   (BTC received)
+  //   q2 = q1 / pB                  (ETH received: with q1 BTC, get q1/pB ETH since 1 ETH costs pB BTC)
+  //   q3 = q2 * pC                  (USDT received)
   const q1_1 = (1 / pA) * (1 - fee);
-  const q2_1 = q1_1 * pB * (1 - fee);
+  const q2_1 = (q1_1 / pB) * (1 - fee);
   const q3_1 = q2_1 * pC * (1 - fee);
   const netPct1 = (q3_1 - 1) * 100;
 
   // ── Direction 2: USDT → C → A via cross (reverse) → USDT ──────────────────
-  //   USDT → ETH → BTC → USDT
+  // Dir-2: USDT → ETH → BTC → USDT
   //   q1 = 1 / pC                   (ETH received)
-  //   q2 = q1 / pB                  (BTC received, selling ETH/BTC = selling ETH, buying BTC)
+  //   q2 = q1 * pB                  (BTC received: selling ETH gets q1 * pB BTC since 1 ETH = pB BTC)
   //   q3 = q2 * pA                  (USDT received)
   const q1_2 = (1 / pC) * (1 - fee);
-  const q2_2 = (q1_2 / pB) * (1 - fee);
+  const q2_2 = (q1_2 * pB) * (1 - fee);
   const q3_2 = q2_2 * pA * (1 - fee);
   const netPct2 = (q3_2 - 1) * 100;
 

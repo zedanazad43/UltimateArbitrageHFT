@@ -7,7 +7,7 @@ import { cors } from 'hono/cors';
 import { renderDashboard, renderChecklist } from './src/dashboard.js';
 import { runScan } from './src/orchestrator.js';
 import { ensureSchema, logAdminEvent, logBotEvent, getRecentTrades, getStrategyPnL, getPerformanceMetrics, exportTrades } from './src/db.js';
-import { hasExchangeCredentials, getExchangeBalance } from './src/exchange.js';
+import { hasExchangeCredentials, getExchangeBalance, ACTIVE_EXECUTION_EXCHANGES } from './src/exchange.js';
 import { runBacktest } from './src/backtest.js';
 import {
   startWorkflow,
@@ -270,16 +270,20 @@ app.get('/api/report', async (c) => {
 // ── API: Exchange balances (auth-protected) ───────────────────────────────────
 app.get('/api/balances', async (c) => {
   if (!isAuthorized(c.env, c)) return c.json({ error: 'Unauthorized' }, 401);
-  const EXCHANGES = ['mexc', 'binance', 'kucoin', 'okx', 'bitget', 'bitmart', 'bybit', 'gateio'];
   const results = await Promise.all(
-    EXCHANGES.map(async (ex) => {
+    ACTIVE_EXECUTION_EXCHANGES.map(async (ex) => {
       const configured = hasExchangeCredentials(c.env, ex);
       if (!configured) return { exchange: ex, configured: false, balance: null };
       const balance = await getExchangeBalance(c.env, ex, 'USDT');
       return { exchange: ex, configured: true, balance };
     })
   );
-  return c.json({ success: true, data: results });
+  // Also return data-only feeds (no creds needed, always show)
+  const dataOnly = [
+    { exchange: 'bybit',  configured: false, balance: null, dataOnly: true, note: 'German law — data feed only' },
+    { exchange: 'gateio', configured: false, balance: null, dataOnly: true, note: 'German law — data feed only' }
+  ];
+  return c.json({ success: true, data: [...results, ...dataOnly] });
 });
 
 // ── Admin: Reset daily stats ──────────────────────────────────────────────────

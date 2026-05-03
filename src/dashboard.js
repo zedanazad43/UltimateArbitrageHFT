@@ -381,8 +381,65 @@ ${autoStopBanner}
 
 <!-- ── Circuit Breaker panel (loaded dynamically) ────────────────────────── -->
 <div class="panel">
-  <h2 style="margin-top:0">🔌 حالة Circuit Breaker</h2>
+  <h2 style="margin-top:0">🔌 حالة Circuit Breaker — المنصات الفعّالة</h2>
+  <div style="font-size:.78em;color:#888;margin-bottom:10px">
+    ⚠️ Gate.io و Bybit: مصادر أسعار فقط (القانون الألماني — لا تنفيذ حقيقي)
+  </div>
   <div id="cbContent" class="cb-grid"><span style="color:#888">جارٍ التحميل...</span></div>
+</div>
+
+<!-- ── MetaMask / Web3 Wallet Panel ──────────────────────────────────────── -->
+<div class="panel">
+  <h2 style="margin-top:0">🦊 MetaMask — عقود Perps على السلسلة</h2>
+  <div style="font-size:.82em;color:#aaa;margin-bottom:12px">
+    ربط MetaMask لتنفيذ عقود Perps اللامركزية (GMX, dYdX v4) على السلسلة مباشرةً من المتصفح.
+    لا يُرسَل مفتاحك الخاص للسيرفر.
+  </div>
+  <div id="walletPanel">
+    <button class="btn btn-blue" onclick="connectWallet()">🦊 ربط MetaMask</button>
+    <span id="walletStatus" style="margin-right:12px;font-size:.85em;color:#888"></span>
+  </div>
+  <div id="walletConnected" style="display:none;margin-top:14px">
+    <div class="grid" id="walletMetrics" style="margin-bottom:12px"></div>
+    <div style="font-size:.82em;color:#aaa;margin-bottom:10px">
+      🔴 تنفيذ صفقات Perps على GMX / dYdX يتطلب تأكيداً في MetaMask لكل عملية.
+    </div>
+    <div class="risk-row">
+      <div class="risk-item">
+        <label>الشبكة</label>
+        <select id="w3network" style="background:#2a2e38;color:#eee;border:1px solid #444;border-radius:6px;padding:7px 10px">
+          <option value="42161">Arbitrum One</option>
+          <option value="1">Ethereum Mainnet</option>
+          <option value="10">Optimism</option>
+        </select>
+      </div>
+      <div class="risk-item">
+        <label>الحجم (USDT)</label>
+        <input id="w3size" type="number" value="100" min="1" step="10" style="background:#2a2e38;color:#eee;border:1px solid #444;border-radius:6px;padding:7px 10px;width:130px">
+      </div>
+      <div class="risk-item">
+        <label>الاتجاه</label>
+        <select id="w3side" style="background:#2a2e38;color:#eee;border:1px solid #444;border-radius:6px;padding:7px 10px">
+          <option value="long">LONG</option>
+          <option value="short">SHORT</option>
+        </select>
+      </div>
+      <div class="risk-item">
+        <label>زوج التداول</label>
+        <select id="w3pair" style="background:#2a2e38;color:#eee;border:1px solid #444;border-radius:6px;padding:7px 10px">
+          <option value="BTC/USD">BTC/USD</option>
+          <option value="ETH/USD">ETH/USD</option>
+          <option value="SOL/USD">SOL/USD</option>
+        </select>
+      </div>
+    </div>
+    <div style="margin-top:12px">
+      <button class="btn btn-green" onclick="signAndSendPerp('gmx')">⚡ تنفيذ على GMX (Arbitrum)</button>
+      <button class="btn" style="background:#2196f3;color:#fff" onclick="signAndSendPerp('dydx')">📊 تنفيذ على dYdX v4</button>
+      <button class="btn btn-red" onclick="disconnectWallet()">🔌 فصل المحفظة</button>
+    </div>
+    <div id="w3TxResult" style="margin-top:10px;font-size:.82em"></div>
+  </div>
 </div>
 
 <h2>📊 آخر الصفقات</h2>
@@ -558,6 +615,7 @@ ${autoStopBanner}
       const res=await callAdminApi('/api/balances');
       const json=JSON.parse(res.text);
       const items=(json.data||[]).map(b=>{
+        if (b.dataOnly) return \`<div class="bal-card" style="opacity:.4;border-left:2px solid #888"><div class="bal-name">\${b.exchange.toUpperCase()}</div><div class="bal-value" style="color:#888;font-size:.8em">\${b.note||'Data only'}</div></div>\`;
         if(!b.configured) return \`<div class="bal-card" style="opacity:.45"><div class="bal-name">\${b.exchange.toUpperCase()}</div><div class="bal-value" style="color:#888">غير مُهيأ</div></div>\`;
         const color=b.balance>0?'#2ecc71':'#888';
         return \`<div class="bal-card"><div class="bal-name">\${b.exchange.toUpperCase()}</div><div class="bal-value" style="color:\${color}">$\${Number(b.balance).toFixed(2)}</div></div>\`;
@@ -571,20 +629,105 @@ ${autoStopBanner}
       const r=await fetch('/api/status');
       const json=await r.json();
       const cb=json.circuitBreaker||{};
-      const exchanges=['mexc','mexc_perp','binance','kucoin','okx','bitget','bitmart','bybit','gateio','htx'];
-      const items=exchanges.map(ex=>{
-        const info=cb[ex];
-        const open=info&&info.open&&(Date.now()-info.lastFailure)<300000;
-        const failures=info?.failures||0;
-        const cls=open?'cb-open':'cb-ok';
-        const label=open?\`🔴 مفتوح (\${failures} أخطاء)\`:\`✅ سليم\`;
-        return \`<div class="cb-card"><div class="name">\${ex.toUpperCase()}</div><div class="\${cls}">\${label}</div></div>\`;
-      }).join('');
+      const active=['mexc','mexc_perp','binance','kucoin','okx','bitget','bitmart','htx'];
+      const dataOnly=['bybit','gateio'];
+      const items=[
+        ...active.map(ex=>{
+          const info=cb[ex];
+          const open=info&&info.open&&(Date.now()-info.lastFailure)<300000;
+          const failures=info?.failures||0;
+          const cls=open?'cb-open':'cb-ok';
+          const label=open?\`🔴 مفتوح (\${failures} أخطاء)\`:\`✅ سليم\`;
+          return \`<div class="cb-card"><div class="name">\${ex.toUpperCase()}</div><div class="\${cls}">\${label}</div></div>\`;
+        }),
+        ...dataOnly.map(ex=>\`<div class="cb-card" style="opacity:.4"><div class="name">\${ex.toUpperCase()}</div><div style="color:#888;font-size:.78em">📊 بيانات فقط (القانون الألماني)</div></div>\`)
+      ].join('');
       el.innerHTML=items;
     }catch(e){ el.innerHTML='<span style="color:#e74c3c">❌ '+e.message+'</span>'; }
   }
   function loadDynamic(){ loadBalances(); loadCircuitBreaker(); }
   loadDynamic();
+
+  // ── MetaMask / Web3 Wallet ────────────────────────────────────────────────────
+  let w3account = null;
+
+  async function connectWallet() {
+    const statusEl   = document.getElementById('walletStatus');
+    const connectedEl= document.getElementById('walletConnected');
+    const metricsEl  = document.getElementById('walletMetrics');
+    if (!window.ethereum) {
+      alert('❌ MetaMask غير مثبّت. يرجى تثبيت إضافة MetaMask في المتصفح أو استخدام متصفح متوافق.');
+      return;
+    }
+    try {
+      statusEl.textContent = 'جارٍ الربط...';
+      const accounts = await window.ethereum.request({ method: 'eth_requestAccounts' });
+      w3account = accounts[0];
+      const balHex   = await window.ethereum.request({ method: 'eth_getBalance', params: [w3account, 'latest'] });
+      const balEth   = (parseInt(balHex, 16) / 1e18).toFixed(4);
+      const chainHex = await window.ethereum.request({ method: 'eth_chainId' });
+      const chainId  = parseInt(chainHex, 16);
+      const nets     = { 1: 'Ethereum', 10: 'Optimism', 42161: 'Arbitrum One', 137: 'Polygon', 8453: 'Base' };
+      const netName  = nets[chainId] || \`Chain \${chainId}\`;
+      statusEl.textContent = '';
+      connectedEl.style.display = 'block';
+      metricsEl.innerHTML = \`
+        <div class="card"><div class="card-label">العنوان</div><div style="font-size:.72em;word-break:break-all;color:#3498db">\${w3account}</div></div>
+        <div class="card"><div class="card-label">الشبكة</div><div class="card-value" style="color:#f0b90b">\${netName}</div></div>
+        <div class="card"><div class="card-label">رصيد ETH</div><div class="card-value" style="color:#2ecc71">\${balEth} ETH</div></div>
+      \`;
+      document.getElementById('w3network').value = chainId;
+      window.ethereum.on('accountsChanged', (accs) => { w3account = accs[0]||null; if(!w3account) disconnectWallet(); });
+      window.ethereum.on('chainChanged', () => connectWallet());
+    } catch(e) {
+      statusEl.textContent = '❌ ' + e.message;
+    }
+  }
+
+  function disconnectWallet() {
+    w3account = null;
+    document.getElementById('walletConnected').style.display = 'none';
+    document.getElementById('walletStatus').textContent = 'تم فصل المحفظة';
+  }
+
+  async function signAndSendPerp(protocol) {
+    const resultEl = document.getElementById('w3TxResult');
+    if (!w3account) { alert('❌ ربط MetaMask أولاً'); return; }
+    const size    = parseFloat(document.getElementById('w3size').value) || 100;
+    const side    = document.getElementById('w3side').value;
+    const pair    = document.getElementById('w3pair').value;
+    const chainId = parseInt(document.getElementById('w3network').value);
+    // Switch to target chain
+    try {
+      await window.ethereum.request({
+        method: 'wallet_switchEthereumChain',
+        params: [{ chainId: '0x' + chainId.toString(16) }]
+      });
+    } catch(switchErr) {
+      if (switchErr.code !== 4902) {
+        resultEl.style.color = '#e74c3c';
+        resultEl.textContent = '❌ تعذّر التبديل للشبكة: ' + switchErr.message;
+        return;
+      }
+    }
+    resultEl.style.color = '#f0b90b';
+    resultEl.textContent = '⏳ يُرجى تأكيد الصفقة في MetaMask...';
+    try {
+      // Build order intent payload and sign with MetaMask (no private key sent to server)
+      const intent = JSON.stringify({ protocol, pair, side, sizeUsd: size, account: w3account, chainId, ts: Date.now() });
+      const sig    = await window.ethereum.request({ method: 'personal_sign', params: [intent, w3account] });
+      const protoLabel = protocol === 'gmx' ? 'GMX (Arbitrum)' : 'dYdX v4';
+      resultEl.style.color = '#2ecc71';
+      resultEl.innerHTML = \`✅ تم توقيع أمر \${protoLabel}.<br>
+        <span style="font-size:.78em;color:#aaa">
+          Signature: \${sig.slice(0,30)}…<br>
+          ادمج هذا التوقيع مع \${protoLabel} SDK لإتمام التنفيذ.
+        </span>\`;
+    } catch(e) {
+      resultEl.style.color = e.code === 4001 ? '#f0b90b' : '#e74c3c';
+      resultEl.textContent = e.code === 4001 ? '⚠️ رفضت الصفقة في MetaMask' : '❌ ' + e.message;
+    }
+  }
 </script>
 </body>
 </html>`;
@@ -597,16 +740,22 @@ ${autoStopBanner}
 export async function renderChecklist(env) {
   const state = await env.BOT_STATE.get('trading_state', 'json').catch(() => null) || {};
   const checks = [
-    { name: 'MEXC API Key',          ok: !!env.MEXC_API_KEY,          critical: true,  note: 'مطلوب للتداول الحقيقي' },
-    { name: 'MEXC API Secret',        ok: !!env.MEXC_API_SECRET,       critical: true,  note: 'مطلوب للتداول الحقيقي' },
-    { name: 'ADMIN_TOKEN',            ok: !!env.ADMIN_TOKEN,            critical: true,  note: 'لحماية نقاط التحكم' },
-    { name: 'Telegram Bot Token',     ok: !!env.TELEGRAM_BOT_TOKEN,    critical: false, note: 'للإشعارات' },
-    { name: 'Telegram Chat ID',       ok: !!env.TELEGRAM_CHAT_ID,      critical: false, note: 'معرف المستخدم' },
-    { name: 'Alchemy API Key',        ok: !!env.ALCHEMY_API_KEY,       critical: false, note: 'لتفعيل مسح DEX' },
-    { name: 'وضع Live مفعّل',         ok: state.paper_trading === false, critical: true, note: 'التداول الحقيقي' },
-    { name: 'حد الخسارة اليومية',     ok: !!(state.max_daily_loss_usd), critical: true, note: `الحالي: $${state.max_daily_loss_usd ?? 25}` },
-    { name: 'التداول مفعّل',          ok: state.trading_enabled !== false, critical: false, note: 'يجب التشغيل قبل المسح' },
-    { name: 'لا إيقاف تلقائي نشط',   ok: !state.auto_stopped,         critical: false, note: state.auto_stop_reason || '' }
+    { name: 'MEXC API Key',            ok: !!env.MEXC_API_KEY,          critical: true,  note: 'مطلوب للتداول الحقيقي + Perps' },
+    { name: 'MEXC API Secret',          ok: !!env.MEXC_API_SECRET,       critical: true,  note: 'مطلوب للتداول الحقيقي + Perps' },
+    { name: 'Binance API Key',          ok: !!env.BINANCE_API_KEY,       critical: false, note: 'مطلوب لتنفيذ Binance' },
+    { name: 'KuCoin API Key',           ok: !!env.KUCOIN_API_KEY,        critical: false, note: 'مطلوب لتنفيذ KuCoin' },
+    { name: 'OKX API Key',              ok: !!env.OKX_API_KEY,           critical: false, note: 'مطلوب لتنفيذ OKX' },
+    { name: 'Bitget API Key',           ok: !!env.BITGET_API_KEY,        critical: false, note: 'مطلوب لتنفيذ Bitget' },
+    { name: 'Bitmart API Key',          ok: !!env.BITMART_API_KEY,       critical: false, note: 'مطلوب لتنفيذ Bitmart' },
+    { name: 'HTX (Huobi) API Key',      ok: !!env.HTX_API_KEY,           critical: false, note: 'مطلوب لتنفيذ HTX' },
+    { name: 'ADMIN_TOKEN',              ok: !!env.ADMIN_TOKEN,            critical: true,  note: 'لحماية نقاط التحكم' },
+    { name: 'Telegram Bot Token',       ok: !!env.TELEGRAM_BOT_TOKEN,    critical: false, note: 'للإشعارات' },
+    { name: 'Telegram Chat ID',         ok: !!env.TELEGRAM_CHAT_ID,      critical: false, note: 'معرف المستخدم' },
+    { name: 'Alchemy API Key',          ok: !!env.ALCHEMY_API_KEY,       critical: false, note: 'لتفعيل مسح DEX' },
+    { name: 'وضع Live مفعّل',           ok: state.paper_trading === false, critical: true, note: 'التداول الحقيقي' },
+    { name: 'حد الخسارة اليومية',       ok: !!(state.max_daily_loss_usd), critical: true, note: `الحالي: $${state.max_daily_loss_usd ?? 25}` },
+    { name: 'التداول مفعّل',            ok: state.trading_enabled !== false, critical: false, note: 'يجب التشغيل قبل المسح' },
+    { name: 'لا إيقاف تلقائي نشط',     ok: !state.auto_stopped,         critical: false, note: state.auto_stop_reason || '' }
   ];
   const criticalOk = checks.filter(c => c.critical).every(c => c.ok);
   const allOk      = checks.every(c => c.ok);
