@@ -81,6 +81,13 @@ export function ensureSchema(env) {
     CREATE INDEX IF NOT EXISTS idx_profits_trade_id          ON profits(trade_id);
     CREATE INDEX IF NOT EXISTS idx_logs_level                ON logs(level);
     CREATE INDEX IF NOT EXISTS idx_logs_created_at           ON logs(created_at DESC);
+    CREATE TABLE IF NOT EXISTS backtest_runs (
+      id         INTEGER PRIMARY KEY AUTOINCREMENT,
+      config     TEXT    NOT NULL,
+      results    TEXT    NOT NULL,
+      created_at INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_backtest_runs_created_at ON backtest_runs(created_at DESC);
   `).catch(e => {
     _schemaInitPromise = null; // allow retry on the next request
     console.error('[DB] ensureSchema error:', e.message);
@@ -307,3 +314,24 @@ export async function closePaperPosition(env, id, exitPrice, pnlUsd) {
     ).bind(Date.now(), exitPrice, pnlUsd, id).run();
   } catch (e) { console.error('[DB] closePaperPosition error:', e.message); }
 }
+
+/**
+ * Returns the most recent backtest run results (for the dashboard).
+ */
+export async function getRecentBacktestRuns(env, limit = 5) {
+  if (!env.DB) return [];
+  try {
+    const { results } = await env.DB.prepare(
+      `SELECT id, config, results, created_at FROM backtest_runs ORDER BY created_at DESC LIMIT ?`
+    ).bind(limit).all();
+    return (results || []).map(r => ({
+      ...r,
+      config:  JSON.parse(r.config  || '{}'),
+      results: JSON.parse(r.results || '{}')
+    }));
+  } catch (e) {
+    console.error('[DB] getRecentBacktestRuns error:', e.message);
+    return [];
+  }
+}
+

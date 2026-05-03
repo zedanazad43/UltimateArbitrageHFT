@@ -7,7 +7,8 @@ import { cors } from 'hono/cors';
 import { renderDashboard, renderChecklist } from './src/dashboard.js';
 import { runScan } from './src/orchestrator.js';
 import { ensureSchema, logAdminEvent, logBotEvent, getRecentTrades, getStrategyPnL, getPerformanceMetrics, exportTrades } from './src/db.js';
-import { hasExchangeCredentials, getExchangeBalance } from './src/exchange.js';
+import { hasExchangeCredentials, getExchangeBalance, ACTIVE_EXECUTION_EXCHANGES } from './src/exchange.js';
+import { runBacktest } from './src/backtest.js';
 import {
   startWorkflow,
   stopWorkflow,
@@ -67,6 +68,17 @@ function isAuthorized(env, c) {
   const token = env.ADMIN_TOKEN;
   if (!token) return false;
   return c.req.header('x-admin-token') === token;
+}
+
+// Returns a descriptive 401 response that distinguishes "secret not configured" from
+// "wrong token supplied", making it easier to diagnose setup problems.
+// Use `asJson` for API routes that speak JSON; leave false for plain-text admin routes.
+function authDenied(env, c, asJson = false) {
+  const hint = !env.ADMIN_TOKEN
+    ? 'ADMIN_TOKEN secret not configured — run: wrangler secret put ADMIN_TOKEN'
+    : 'Invalid admin token';
+  if (asJson) return c.json({ error: 'Unauthorized', hint }, 401);
+  return c.text(`Unauthorized: ${hint}`, 401);
 }
 
 // ─── Rate limiter helper ──────────────────────────────────────────────────────
@@ -133,6 +145,26 @@ app.use('*', async (c, next) => {
   return next();
 });
 
+// ── Health check (public, no auth) ────────────────────────────────────────────
+// Returns a lightweight system snapshot for uptime monitors and load balancers.
+// Does not expose sensitive state — safe to probe from external services.
+app.get('/health', async (c) => {
+  const state = await getState(c.env).catch(() => null);
+  const equity = state
+    ? (state.initial_capital || 1000) + (state.total_pnl || 0)
+    : null;
+  return c.json({
+    status:          'ok',
+    trading_enabled: state?.trading_enabled ?? false,
+    paper_trading:   state?.paper_trading   ?? true,
+    auto_stopped:    state?.auto_stopped    ?? false,
+    equity_usd:      equity !== null ? parseFloat(equity.toFixed(2)) : null,
+    daily_pnl_usd:   state ? parseFloat((state.daily_pnl || 0).toFixed(2)) : null,
+    daily_trades:    state?.daily_trades    ?? 0,
+    timestamp:       Date.now(),
+  });
+});
+
 // ── Dashboard routes ──────────────────────────────────────────────────────────
 app.get('/', async (c) => renderDashboard(c.env));
 app.get('/dashboard', async (c) => renderDashboard(c.env));
@@ -142,7 +174,7 @@ app.get('/checklist', async (c) => renderChecklist(c.env));
 app.get('/start', async (c) => {
   const limited = await checkRateLimit(c.env, c);
   if (limited) return limited;
-  if (!isAuthorized(c.env, c)) return c.text('Unauthorized', 401);
+  if (!isAuthorized(c.env, c)) return authDenied(c.env, c);
   const state = await getState(c.env);
   state.trading_enabled = true;
   state.auto_stopped = false;
@@ -157,7 +189,7 @@ app.get('/start', async (c) => {
 app.get('/stop', async (c) => {
   const limited = await checkRateLimit(c.env, c);
   if (limited) return limited;
-  if (!isAuthorized(c.env, c)) return c.text('Unauthorized', 401);
+  if (!isAuthorized(c.env, c)) return authDenied(c.env, c);
   const state = await getState(c.env);
   state.trading_enabled = false;
   await saveState(c.env, state);
@@ -170,7 +202,7 @@ app.get('/stop', async (c) => {
 app.get('/scan', async (c) => {
   const limited = await checkRateLimit(c.env, c);
   if (limited) return limited;
-  if (!isAuthorized(c.env, c)) return c.text('Unauthorized', 401);
+  if (!isAuthorized(c.env, c)) return authDenied(c.env, c);
   const state = await getState(c.env);
   const result = await runScan(c.env, state, sendTelegramAlert);
   await saveState(c.env, state);
@@ -189,7 +221,7 @@ app.get('/scan', async (c) => {
 app.post('/mode/paper', async (c) => {
   const limited = await checkRateLimit(c.env, c);
   if (limited) return limited;
-  if (!isAuthorized(c.env, c)) return c.text('Unauthorized', 401);
+  if (!isAuthorized(c.env, c)) return authDenied(c.env, c);
   const state = await getState(c.env);
   state.paper_trading = true;
   await saveState(c.env, state);
@@ -202,7 +234,7 @@ app.post('/mode/paper', async (c) => {
 app.post('/mode/live', async (c) => {
   const limited = await checkRateLimit(c.env, c);
   if (limited) return limited;
-  if (!isAuthorized(c.env, c)) return c.text('Unauthorized', 401);
+  if (!isAuthorized(c.env, c)) return authDenied(c.env, c);
   const state = await getState(c.env);
   state.paper_trading = false;
   await saveState(c.env, state);
@@ -215,7 +247,7 @@ app.post('/mode/live', async (c) => {
 app.post('/config', async (c) => {
   const limited = await checkRateLimit(c.env, c);
   if (limited) return limited;
-  if (!isAuthorized(c.env, c)) return c.text('Unauthorized', 401);
+  if (!isAuthorized(c.env, c)) return authDenied(c.env, c);
   let body;
   try { body = await c.req.json(); } catch (_) { return c.text('Invalid JSON', 400); }
   const state = await getState(c.env);
@@ -268,24 +300,28 @@ app.get('/api/report', async (c) => {
 
 // ── API: Exchange balances (auth-protected) ───────────────────────────────────
 app.get('/api/balances', async (c) => {
-  if (!isAuthorized(c.env, c)) return c.json({ error: 'Unauthorized' }, 401);
-  const EXCHANGES = ['mexc', 'binance', 'kucoin', 'okx', 'bitget', 'bitmart', 'bybit', 'gateio'];
+  if (!isAuthorized(c.env, c)) return authDenied(c.env, c, true);
   const results = await Promise.all(
-    EXCHANGES.map(async (ex) => {
+    ACTIVE_EXECUTION_EXCHANGES.map(async (ex) => {
       const configured = hasExchangeCredentials(c.env, ex);
       if (!configured) return { exchange: ex, configured: false, balance: null };
       const balance = await getExchangeBalance(c.env, ex, 'USDT');
       return { exchange: ex, configured: true, balance };
     })
   );
-  return c.json({ success: true, data: results });
+  // Also return data-only feeds (no creds needed, always show)
+  const dataOnly = [
+    { exchange: 'bybit',  configured: false, balance: null, dataOnly: true, note: 'German law — data feed only' },
+    { exchange: 'gateio', configured: false, balance: null, dataOnly: true, note: 'German law — data feed only' }
+  ];
+  return c.json({ success: true, data: [...results, ...dataOnly] });
 });
 
 // ── Admin: Reset daily stats ──────────────────────────────────────────────────
 app.post('/reset-daily', async (c) => {
   const limited = await checkRateLimit(c.env, c);
   if (limited) return limited;
-  if (!isAuthorized(c.env, c)) return c.text('Unauthorized', 401);
+  if (!isAuthorized(c.env, c)) return authDenied(c.env, c);
   const state = await getState(c.env);
   state.daily_pnl    = 0;
   state.daily_trades = 0;
@@ -377,7 +413,7 @@ app.get('/api/logs', async (c) => {
 //   2. Cloudflare Workers AI (llama-3.1-8b-instruct) — fallback when AIWORKER
 //      binding is available but GITHUB_TOKEN is absent.
 app.post('/api/ai-analysis', async (c) => {
-  if (!isAuthorized(c.env, c)) return c.json({ error: 'Unauthorized' }, 401);
+  if (!isAuthorized(c.env, c)) return authDenied(c.env, c, true);
 
   const hasGitHubToken = !!c.env.GITHUB_TOKEN;
   const hasWorkersAI   = !!c.env.AIWORKER;
@@ -472,7 +508,7 @@ app.post('/api/ai-analysis', async (c) => {
 // Response schema:
 //   id, object:"response", created_at, model, output, output_text, status, usage
 app.post('/api/ai', async (c) => {
-  if (!isAuthorized(c.env, c)) return c.json({ error: 'Unauthorized' }, 401);
+  if (!isAuthorized(c.env, c)) return authDenied(c.env, c, true);
   if (!c.env.AIWORKER) return c.json({ error: 'Workers AI binding not configured' }, 503);
 
   let body;
@@ -715,7 +751,7 @@ app.post('/telegram/webhook', async (c) => {
 app.post('/api/temporal/start', async (c) => {
   const limited = await checkRateLimit(c.env, c);
   if (limited) return limited;
-  if (!isAuthorized(c.env, c)) return c.json({ error: 'Unauthorized' }, 401);
+  if (!isAuthorized(c.env, c)) return authDenied(c.env, c, true);
   if (!c.env.TEMPORAL_API_KEY) {
     return c.json({ error: 'TEMPORAL_API_KEY is not configured' }, 503);
   }
@@ -745,7 +781,7 @@ app.post('/api/temporal/start', async (c) => {
 app.post('/api/temporal/stop', async (c) => {
   const limited = await checkRateLimit(c.env, c);
   if (limited) return limited;
-  if (!isAuthorized(c.env, c)) return c.json({ error: 'Unauthorized' }, 401);
+  if (!isAuthorized(c.env, c)) return authDenied(c.env, c, true);
   if (!c.env.TEMPORAL_API_KEY) {
     return c.json({ error: 'TEMPORAL_API_KEY is not configured' }, 503);
   }
@@ -765,7 +801,7 @@ app.post('/api/temporal/stop', async (c) => {
 // ── API: Temporal workflow — status ──────────────────────────────────────────
 // Returns the Temporal workflow description and live status query snapshot.
 app.get('/api/temporal/status', async (c) => {
-  if (!isAuthorized(c.env, c)) return c.json({ error: 'Unauthorized' }, 401);
+  if (!isAuthorized(c.env, c)) return authDenied(c.env, c, true);
   if (!c.env.TEMPORAL_API_KEY) {
     return c.json({ error: 'TEMPORAL_API_KEY is not configured' }, 503);
   }
@@ -791,7 +827,7 @@ app.get('/api/temporal/status', async (c) => {
 app.post('/api/temporal/mode', async (c) => {
   const limited = await checkRateLimit(c.env, c);
   if (limited) return limited;
-  if (!isAuthorized(c.env, c)) return c.json({ error: 'Unauthorized' }, 401);
+  if (!isAuthorized(c.env, c)) return authDenied(c.env, c, true);
   if (!c.env.TEMPORAL_API_KEY) {
     return c.json({ error: 'TEMPORAL_API_KEY is not configured' }, 503);
   }
@@ -811,6 +847,44 @@ app.post('/api/temporal/mode', async (c) => {
 app.get('/cron', async (c) => {
   const result = await runScheduledCycle(c.env);
   return c.json({ success: true, result: result ? 'trade executed' : 'no trade' });
+});
+
+// ── API: Backtesting ──────────────────────────────────────────────────────────
+// POST /api/backtest — runs a full backtest over stored trade history.
+// Body (all optional):
+//   from_ms:          start timestamp (default: 30d ago)
+//   to_ms:            end timestamp (default: now)
+//   initial_capital:  starting equity (default: 1000)
+//   min_net_pct:      minimum net profit to include a trade (default: 0)
+//   position_frac:    position size as fraction of equity (default: 0.10)
+//   strategies:       array of strategy prefixes to filter ['cex','dex','perps',…]
+//   run_monte_carlo:  boolean (default: true)
+//   run_param_sweep:  boolean (default: false)
+app.post('/api/backtest', async (c) => {
+  const limited = await checkRateLimit(c.env, c);
+  if (limited) return limited;
+  if (!isAuthorized(c.env, c)) return c.json({ error: 'Unauthorized' }, 401);
+  try {
+    const config = await c.req.json().catch(() => ({}));
+    await logAdminEvent(c.env, 'backtest', c.req.raw);
+    const results = await runBacktest(c.env, config);
+    return c.json(results);
+  } catch (e) {
+    console.error('[backtest] error:', e.message);
+    return c.json({ error: e.message }, 500);
+  }
+});
+
+// GET /api/backtest/runs — returns recent stored backtest run summaries
+app.get('/api/backtest/runs', async (c) => {
+  if (!isAuthorized(c.env, c)) return c.json({ error: 'Unauthorized' }, 401);
+  try {
+    const { getRecentBacktestRuns } = await import('./src/db.js');
+    const runs = await getRecentBacktestRuns(c.env, 10);
+    return c.json({ runs });
+  } catch (e) {
+    return c.json({ error: e.message }, 500);
+  }
 });
 
 // ─── Scheduled cron cycle ─────────────────────────────────────────────────────
@@ -861,9 +935,56 @@ async function runScheduledCycle(env) {
     return null;
   }
 
+  // Drawdown warning alerts (before the scan, so the alert goes out promptly)
+  const equity = (state.initial_capital || 1000) + (state.total_pnl || 0);
+  await sendDrawdownWarning(env, state, equity);
+
   const result = await runScan(env, state, sendTelegramAlert);
   await saveState(env, state);
   return result;
+}
+
+// ─── Drawdown warning alerts ──────────────────────────────────────────────────
+// Sends a Telegram alert when equity drops to a warning or critical threshold.
+// Each threshold fires at most once per hour (tracked in KV) to avoid spam.
+const DRAWDOWN_WARN_KEY      = 'drawdown_warn_sent';
+const DRAWDOWN_WARN_INTERVAL = 60 * 60 * 1000; // 1 hour
+
+async function sendDrawdownWarning(env, state, equity) {
+  try {
+    const initialCapital = state.initial_capital || 1000;
+    const drawdownPct = ((initialCapital - equity) / initialCapital) * 100;
+
+    if (drawdownPct < 5) return; // below warning threshold — nothing to do
+
+    // Read the last-sent timestamps from KV
+    const sentRecord = await env.BOT_STATE.get(DRAWDOWN_WARN_KEY, 'json').catch(() => null) || {};
+    const now        = Date.now();
+
+    const level    = drawdownPct >= 15 ? 'critical' : drawdownPct >= 10 ? 'high' : 'warning';
+    const lastSent = sentRecord[level] || 0;
+
+    if (now - lastSent < DRAWDOWN_WARN_INTERVAL) return; // already alerted recently
+
+    const emoji  = level === 'critical' ? '🚨' : level === 'high' ? '⚠️' : '📉';
+    const arabic = level === 'critical' ? 'حرج' : level === 'high' ? 'عالٍ' : 'تحذير';
+    await sendTelegramAlert(
+      env,
+      `${emoji} *تحذير تراجع رأس المال — مستوى ${arabic}*\n\n` +
+      `💰 رأس المال الأولي: $${initialCapital.toFixed(2)}\n` +
+      `📉 رأس المال الحالي: $${equity.toFixed(2)}\n` +
+      `📊 نسبة التراجع: *${drawdownPct.toFixed(1)}%*\n` +
+      `📅 ربح/خسارة اليوم: $${(state.daily_pnl || 0).toFixed(2)}\n\n` +
+      `${level === 'critical' ? '🛑 يُنصح بإيقاف التداول الآن وإعادة التقييم.' : '⚡ راجع الإعدادات وحدود الخسارة.'}`
+    );
+
+    sentRecord[level] = now;
+    // TTL is 2× the alert interval so the record outlives at least two windows
+    const ttlSeconds = Math.ceil(DRAWDOWN_WARN_INTERVAL / 1000) * 2;
+    await env.BOT_STATE.put(DRAWDOWN_WARN_KEY, JSON.stringify(sentRecord), { expirationTtl: ttlSeconds });
+  } catch (e) {
+    console.error('[drawdown_warning] error:', e.message);
+  }
 }
 
 // ─── Daily summary Telegram report ───────────────────────────────────────────

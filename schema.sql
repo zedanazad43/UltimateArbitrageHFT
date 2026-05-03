@@ -41,3 +41,12 @@ CREATE TABLE IF NOT EXISTS paper_positions (
 );
 
 -- إذا أردت جداول إضافية (مثل profits, logs, settings) يمكنك إضافتها هنا
+
+-- جدول نتائج الاختبارات السابقة (Backtesting)
+CREATE TABLE IF NOT EXISTS backtest_runs (
+  id         INTEGER PRIMARY KEY AUTOINCREMENT,
+  config     TEXT    NOT NULL,
+  results    TEXT    NOT NULL,
+  created_at INTEGER NOT NULL
+);
+

@@ -723,6 +723,132 @@ export async function placeMarketOrderGateio(env, symbol, side, quantity, sizeUs
   return data;
 }
 
+// ── HTX (Huobi) ───────────────────────────────────────────────────────────────
+
+/**
+ * Fetches the HTX spot account balance for a given asset (default: USDT).
+ * Uses HTX REST API v1 with HMAC-SHA256 signature.
+ */
+export async function getHTXBalance(env, asset = 'usdt') {
+  const apiKey    = env.HTX_API_KEY;
+  const apiSecret = env.HTX_API_SECRET;
+  if (!apiKey)    throw new Error('HTX_API_KEY is not configured');
+  if (!apiSecret) throw new Error('HTX_API_SECRET is not configured');
+
+  const method    = 'GET';
+  const host      = 'api.huobi.pro';
+  const path      = '/v1/account/accounts';
+  const timestamp = new Date().toISOString().replace(/\.\d{3}Z$/, '');
+  const params    = new URLSearchParams({
+    AccessKeyId:      apiKey,
+    SignatureMethod:  'HmacSHA256',
+    SignatureVersion: '2',
+    Timestamp:        timestamp
+  });
+  const payload    = `${method}\n${host}\n${path}\n${params.toString()}`;
+  const signature  = await hmacBase64(apiSecret, payload);
+  params.append('Signature', signature);
+
+  const resp = await fetch(`https://${host}${path}?${params}`, { method });
+  const data = await resp.json();
+  if (data.status !== 'ok') throw new Error(data['err-msg'] || `HTX accounts error`);
+
+  // Look up the balance for the specific account ID with 'spot' subtype
+  const spotAccounts = (data.data || []).filter(a => a.type === 'spot');
+  if (spotAccounts.length === 0) return { free: 0, locked: 0 };
+
+  const accountId = spotAccounts[0].id;
+
+  const balPath    = `/v1/account/accounts/${accountId}/balance`;
+  const balParams  = new URLSearchParams({
+    AccessKeyId:      apiKey,
+    SignatureMethod:  'HmacSHA256',
+    SignatureVersion: '2',
+    Timestamp:        timestamp
+  });
+  const balPayload   = `${method}\n${host}\n${balPath}\n${balParams.toString()}`;
+  const balSignature = await hmacBase64(apiSecret, balPayload);
+  balParams.append('Signature', balSignature);
+
+  const balResp = await fetch(`https://${host}${balPath}?${balParams}`);
+  const balData = await balResp.json();
+  if (balData.status !== 'ok') throw new Error(balData['err-msg'] || 'HTX balance error');
+
+  const lowerAsset = asset.toLowerCase();
+  const list       = balData.data?.list || [];
+  let free = 0, locked = 0;
+  for (const entry of list) {
+    if (entry.currency !== lowerAsset) continue;
+    if (entry.type === 'trade')  free   = parseFloat(entry.balance || '0');
+    if (entry.type === 'frozen') locked = parseFloat(entry.balance || '0');
+  }
+  return { free, locked };
+}
+
+/**
+ * Places a market order on HTX spot.
+ * BUY: uses buy-market (USDT amount); SELL: uses sell-market (base asset amount).
+ */
+export async function placeMarketOrderHTX(env, symbol, side, quantity, sizeUsd) {
+  const apiKey    = env.HTX_API_KEY;
+  const apiSecret = env.HTX_API_SECRET;
+  if (!apiKey)    throw new Error('HTX_API_KEY is not configured');
+  if (!apiSecret) throw new Error('HTX_API_SECRET is not configured');
+
+  const method     = 'POST';
+  const host       = 'api.huobi.pro';
+  const timestamp  = new Date().toISOString().replace(/\.\d{3}Z$/, '');
+  const htxSymbol  = symbol.toLowerCase();  // BTCUSDT → btcusdt
+
+  // Determine order type: buy-market or sell-market
+  const orderType  = side.toUpperCase() === 'BUY' ? 'buy-market' : 'sell-market';
+  // buy-market amount is in quote currency (USDT), sell-market in base currency
+  const amount     = side.toUpperCase() === 'BUY' ? sizeUsd.toFixed(2) : quantity;
+
+  // Step 1: get spot account ID (cached in practice; fetched once per request here)
+  const acctPath  = '/v1/account/accounts';
+  const acctQS    = new URLSearchParams({
+    AccessKeyId: apiKey, SignatureMethod: 'HmacSHA256',
+    SignatureVersion: '2', Timestamp: timestamp
+  });
+  const acctSig   = await hmacBase64(apiSecret, `GET\n${host}\n${acctPath}\n${acctQS.toString()}`);
+  acctQS.append('Signature', acctSig);
+  const acctResp  = await fetch(`https://${host}${acctPath}?${acctQS}`);
+  const acctData  = await acctResp.json();
+  if (acctData.status !== 'ok') throw new Error(acctData['err-msg'] || 'HTX account lookup failed');
+  const accountId = (acctData.data || []).find(a => a.type === 'spot')?.id;
+  if (!accountId) throw new Error('HTX: no spot account found');
+
+  // Step 2: place the order
+  const orderPath = '/v1/order/orders/place';
+  const orderQS   = new URLSearchParams({
+    AccessKeyId: apiKey, SignatureMethod: 'HmacSHA256',
+    SignatureVersion: '2', Timestamp: timestamp
+  });
+  const orderBodyObj = {
+    'account-id': accountId,
+    symbol:       htxSymbol,
+    type:         orderType,
+    amount,
+    source:       'spot-api'
+  };
+  const orderBodyStr = JSON.stringify(orderBodyObj);
+  const orderSig     = await hmacBase64(
+    apiSecret,
+    `${method}\n${host}\n${orderPath}\n${orderQS.toString()}`
+  );
+  orderQS.append('Signature', orderSig);
+
+  const resp = await fetch(`https://${host}${orderPath}?${orderQS}`, {
+    method,
+    headers: { 'Content-Type': 'application/json' },
+    body: orderBodyStr
+  });
+  const data = await resp.json();
+  if (data.status !== 'ok') throw new Error(data['err-msg'] || `HTX order error`);
+  return data;
+}
+
 // ── Exchange dispatchers ──────────────────────────────────────────────────────
 
 /**
@@ -736,9 +862,18 @@ const EXCHANGE_CRED_KEYS = {
   okx:     ['OKX_API_KEY', 'OKX_API_SECRET', 'OKX_PASSPHRASE'],
   bitget:  ['BITGET_API_KEY', 'BITGET_SECRET_KEY', 'BITGET_API_PASSPHRASE'],
   bitmart: ['BITMART_API_KEY', 'BITMART_SECRET_KEY', 'BITMART_MEMO'],
-  bybit:   ['BYBIT_API_KEY', 'BYBIT_API_SECRET'],
-  gateio:  ['GATEIO_API_KEY', 'GATEIO_API_SECRET']
+  htx:     ['HTX_API_KEY', 'HTX_API_SECRET'],
+  // bybit and gateio are price-data sources only (German regulatory restrictions)
 };
+
+/**
+ * Exchanges excluded from live execution (data-only price feeds).
+ * Reason: German regulatory restrictions (BaFin).
+ */
+export const DATA_ONLY_EXCHANGES = new Set(['bybit', 'gateio', 'bybit_perp']);
+export const ACTIVE_EXECUTION_EXCHANGES = [
+  'mexc', 'binance', 'kucoin', 'okx', 'bitget', 'bitmart', 'htx'
+];
 
 /**
  * Returns true if all required API credentials for the given exchange are configured.
@@ -757,6 +892,46 @@ export function getRequiredCredentialKeys(exchange) {
 }
 
 /**
+ * Returns the list of exchanges that have valid credentials configured in env.
+ */
+export function getConfiguredExchanges(env) {
+  return ACTIVE_EXECUTION_EXCHANGES.filter(ex => hasExchangeCredentials(env, ex));
+}
+
+/**
+ * Selects the best available exchange for execution based on:
+ * 1. Credential availability
+ * 2. USDT balance (picks highest balance)
+ * Returns null if no exchange has sufficient balance.
+ *
+ * @param {object} env        — Cloudflare Worker env bindings
+ * @param {number} requiredUsd — minimum USDT balance needed
+ * @returns {Promise<string|null>} exchange name or null
+ */
+export async function selectBestExchange(env, requiredUsd) {
+  const configured = getConfiguredExchanges(env);
+  if (configured.length === 0) return null;
+
+  const balances = await Promise.allSettled(
+    configured.map(async ex => ({ ex, bal: await getExchangeBalance(env, ex, 'USDT') }))
+  );
+
+  let bestEx  = null;
+  let bestBal = 0;
+
+  for (const result of balances) {
+    if (result.status !== 'fulfilled') continue;
+    const { ex, bal } = result.value;
+    if (bal >= requiredUsd && bal > bestBal) {
+      bestEx  = ex;
+      bestBal = bal;
+    }
+  }
+
+  return bestEx;
+}
+
+/**
  * Gets the free balance for the specified asset on the given exchange.
  * Returns 0 on any error (safe fallback — callers should handle insufficient balance).
  */
@@ -769,8 +944,8 @@ export async function getExchangeBalance(env, exchange, asset = 'USDT') {
       case 'okx':     return (await getOKXBalance(env, asset)).free;
       case 'bitget':  return (await getBitgetBalance(env, asset)).free;
       case 'bitmart': return (await getBitmartBalance(env, asset)).free;
-      case 'bybit':   return (await getBybitBalance(env, asset)).free;
-      case 'gateio':  return (await getGateioBalance(env, asset)).free;
+      case 'htx':     return (await getHTXBalance(env, asset.toLowerCase())).free;
+      // bybit/gateio: data-only, no live execution
       default:        return 0;
     }
   } catch (e) {
@@ -781,13 +956,14 @@ export async function getExchangeBalance(env, exchange, asset = 'USDT') {
 
 /**
  * Places a spot market order on the specified exchange.
+ * bybit and gateio throw — they are data-only (German regulatory restrictions).
  *
  * @param {object} env       — Cloudflare Worker env bindings
- * @param {string} exchange  — exchange identifier (mexc | binance | kucoin | okx | bitget | bitmart)
- * @param {string} symbol    — trading pair in MEXC format, e.g. 'BTCUSDT'
+ * @param {string} exchange  — exchange identifier
+ * @param {string} symbol    — trading pair, e.g. 'BTCUSDT'
  * @param {string} side      — 'BUY' | 'SELL'
- * @param {string} quantity  — base asset amount (used for SELL and for MEXC BUY)
- * @param {number} sizeUsd   — quote amount in USDT (used for BUY on Binance, KuCoin, OKX, Bitget, Bitmart)
+ * @param {string} quantity  — base asset amount (used for SELL)
+ * @param {number} sizeUsd   — quote amount in USDT (used for BUY)
  */
 export async function placeExchangeMarketOrder(env, exchange, symbol, side, quantity, sizeUsd) {
   switch (exchange?.toLowerCase()) {
@@ -797,8 +973,13 @@ export async function placeExchangeMarketOrder(env, exchange, symbol, side, quan
     case 'okx':     return placeMarketOrderOKX(env, symbol, side, quantity, sizeUsd);
     case 'bitget':  return placeMarketOrderBitget(env, symbol, side, quantity, sizeUsd);
     case 'bitmart': return placeMarketOrderBitmart(env, symbol, side, quantity, sizeUsd);
-    case 'bybit':   return placeMarketOrderBybit(env, symbol, side, quantity, sizeUsd);
-    case 'gateio':  return placeMarketOrderGateio(env, symbol, side, quantity, sizeUsd);
+    case 'htx':     return placeMarketOrderHTX(env, symbol, side, quantity, sizeUsd);
+    case 'bybit':
+    case 'gateio':
+      throw new Error(
+        `${exchange} is not available for live execution (German regulatory restrictions). ` +
+        `Use paper trading mode or switch to MEXC, Binance, KuCoin, OKX, Bitget, Bitmart, or HTX.`
+      );
     default:
       throw new Error(`No execution layer for exchange: ${exchange}`);
   }
