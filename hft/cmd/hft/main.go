@@ -14,6 +14,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -376,6 +377,143 @@ func (e *engine) run(ctx context.Context) {
 	}
 }
 
+// ─── API server ───────────────────────────────────────────────────────────────
+//
+// The HTTP API allows the Cloudflare Worker (and other clients) to:
+//   GET  /api/health  — liveness / readiness check (no auth required)
+//   GET  /api/scan    — returns the best current opportunity from the price book
+//   POST /api/execute — executes a trade (paper or live, per engine config)
+//
+// All /api/scan and /api/execute requests must include:
+//   Authorization: Bearer <HFT_ENGINE_SECRET>
+// (when HFT_ENGINE_SECRET is set; leave blank to disable auth in dev).
+
+type apiOpportunity struct {
+	Strategy     string  `json:"Strategy"`
+	Symbol       string  `json:"Symbol"`
+	BuyExchange  string  `json:"BuyExchange"`
+	SellExchange string  `json:"SellExchange"`
+	BuyPrice     float64 `json:"BuyPrice"`
+	SellPrice    float64 `json:"SellPrice"`
+	GrossPct     float64 `json:"GrossPct"`
+	NetPct       float64 `json:"NetPct"`
+	SafetyFactor float64 `json:"SafetyFactor"`
+	Direction    string  `json:"Direction"`
+	IsPerp       bool    `json:"IsPerp"`
+}
+
+type executeRequest struct {
+	Opportunity *apiOpportunity `json:"opportunity"`
+	SizeUSD     float64         `json:"size_usd"`
+}
+
+// newAPIServer builds the HTTP mux for the engine REST API.
+func newAPIServer(eng *engine, secret string) *http.Server {
+	mux := http.NewServeMux()
+
+	// ── Auth middleware ───────────────────────────────────────────────────────
+	requireAuth := func(next http.HandlerFunc) http.HandlerFunc {
+		return func(w http.ResponseWriter, r *http.Request) {
+			if secret != "" {
+				got := r.Header.Get("Authorization")
+				if got != "Bearer "+secret {
+					w.Header().Set("Content-Type", "application/json")
+					w.WriteHeader(http.StatusUnauthorized)
+					fmt.Fprintln(w, `{"error":"Unauthorized"}`)
+					return
+				}
+			}
+			next(w, r)
+		}
+	}
+
+	writeJSON := func(w http.ResponseWriter, code int, v any) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(code)
+		if err := json.NewEncoder(w).Encode(v); err != nil {
+			slog.Error("api: json encode error", "err", err)
+		}
+	}
+
+	// ── GET /api/health ───────────────────────────────────────────────────────
+	mux.HandleFunc("/api/health", func(w http.ResponseWriter, _ *http.Request) {
+		writeJSON(w, http.StatusOK, map[string]any{
+			"status":       "ok",
+			"paper":        eng.cfg.PaperTrading,
+			"trading":      eng.cfg.TradingEnabled,
+			"equity_usd":   eng.equity,
+			"daily_pnl":    eng.dailyPnL,
+			"daily_trades": eng.dailyTrades,
+			"timestamp_ms": time.Now().UnixMilli(),
+		})
+	})
+
+	// ── GET /api/scan ─────────────────────────────────────────────────────────
+	mux.HandleFunc("/api/scan", requireAuth(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+			return
+		}
+		opps := eng.scan()
+		b := best(opps)
+		if b == nil {
+			writeJSON(w, http.StatusOK, map[string]any{"opportunity": nil})
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{
+			"opportunity": apiOpportunity{
+				Strategy:     b.Strategy,
+				Symbol:       b.Symbol,
+				BuyExchange:  b.BuyExchange,
+				SellExchange: b.SellExchange,
+				BuyPrice:     b.BuyPrice,
+				SellPrice:    b.SellPrice,
+				GrossPct:     b.GrossPct,
+				NetPct:       b.NetPct,
+				SafetyFactor: b.SafetyFactor,
+				Direction:    b.Direction,
+				IsPerp:       b.IsPerp,
+			},
+		})
+	}))
+
+	// ── POST /api/execute ─────────────────────────────────────────────────────
+	mux.HandleFunc("/api/execute", requireAuth(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+			return
+		}
+		var req executeRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Opportunity == nil {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid request body"})
+			return
+		}
+		o := req.Opportunity
+		opp := &cex.Opportunity{
+			Strategy:     o.Strategy,
+			Symbol:       o.Symbol,
+			BuyExchange:  o.BuyExchange,
+			SellExchange: o.SellExchange,
+			BuyPrice:     o.BuyPrice,
+			SellPrice:    o.SellPrice,
+			GrossPct:     o.GrossPct,
+			NetPct:       o.NetPct,
+			SafetyFactor: o.SafetyFactor,
+			Direction:    o.Direction,
+			IsPerp:       o.IsPerp,
+		}
+		eng.execute(r.Context(), opp)
+		writeJSON(w, http.StatusOK, map[string]bool{"success": true})
+	}))
+
+	return &http.Server{
+		Addr:         eng.cfg.APIAddr,
+		Handler:      mux,
+		ReadTimeout:  10 * time.Second,
+		WriteTimeout: 30 * time.Second,
+	}
+}
+
 // ─── main ─────────────────────────────────────────────────────────────────────
 
 func main() {
@@ -426,6 +564,15 @@ func main() {
 		slog.Info("metrics server", "addr", cfg.MetricsAddr)
 		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			slog.Error("metrics server error", "err", err)
+		}
+	}()
+
+	// ── Engine API server (used by the CF Worker for scan + execute) ──────
+	go func() {
+		apiSrv := newAPIServer(eng, cfg.EngineSecret)
+		slog.Info("engine API server", "addr", cfg.APIAddr, "auth", cfg.EngineSecret != "")
+		if err := apiSrv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			slog.Error("engine API server error", "err", err)
 		}
 	}()
 

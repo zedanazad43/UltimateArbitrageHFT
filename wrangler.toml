@@ -136,6 +136,19 @@ TEMPORAL_ADDRESS    = ""
 # Set to your deployed Worker URL, e.g. https://ultimatearbitragehft.workers.dev
 TEMPORAL_WORKER_URL = ""
 
+# ── Go HFT engine — non-sensitive connection config ───────────────────────────
+# The Go engine exposes a REST API (GET /api/scan, POST /api/execute) that the
+# Worker calls for WebSocket-fed price data and on-chain DEX execution.
+#
+# HFT_ENGINE_URL:    Base URL of the running Go HFT engine API server.
+#                    Leave blank to disable HFT engine integration.
+#                    Example: https://hft.example.com  or  http://1.2.3.4:8080
+#
+# HFT_ENGINE_SECRET: Must be stored as a secret (never in wrangler.toml):
+#                      npx wrangler secret put HFT_ENGINE_SECRET
+#                    Set the same value as HFT_ENGINE_SECRET env var on the engine.
+HFT_ENGINE_URL = ""
+
 # ── Exchange feature flags ─────────────────────────────────────────────────────
 # bybit and gateio are excluded from live execution (German regulatory law).
 # They remain active as price-data sources only.

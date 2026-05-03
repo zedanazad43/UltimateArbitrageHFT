@@ -83,6 +83,16 @@ type Config struct {
 	// MinNetProfitPct: floor below which no trade is executed (default 0.05%).
 	MinNetProfitPct float64
 
+	// ── Engine API server ─────────────────────────────────────────────────────
+	// APIAddr is the HTTP listen address for the engine's REST API.
+	// The CF Worker can call /api/scan and /api/execute on this address.
+	// Default: :8080
+	APIAddr string
+
+	// EngineSecret is the Bearer token that clients must supply in the
+	// Authorization header to call the engine API.  Leave blank to disable auth.
+	EngineSecret string
+
 	// Prometheus metrics HTTP listen address.
 	MetricsAddr string
 }
@@ -140,6 +150,10 @@ func Load() (*Config, error) {
 		MaxGasCostPct:   envFloat("MAX_GAS_COST_PCT", 0.30),
 		MinNetProfitPct: envFloat("MIN_NET_PROFIT_PCT", 0.05),
 		MetricsAddr:     envOr("METRICS_ADDR", ":9090"),
+
+		// API server
+		APIAddr:      envOr("API_ADDR", ":8080"),
+		EngineSecret: os.Getenv("HFT_ENGINE_SECRET"),
 	}
 
 	var missing []string
