@@ -30,7 +30,7 @@ jobs:
     - name: npm install and test
       run: |
         npm install
-        npm test
+        npm run test:all
 
   # Deploy to Cloudflare Workers only on push to main (not on pull requests).
   # This job runs after all test matrix entries pass.
