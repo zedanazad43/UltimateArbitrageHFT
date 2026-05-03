@@ -11,8 +11,15 @@ import { scanCEX }   from '../src/strategies/cex.js';
 import { scanPerps } from '../src/strategies/perps.js';
 import {
   calculateAdaptiveLeverage,
-  calculatePositionSize
+  calculatePositionSize,
+  volatilityAdjustedSize,
+  checkDrawdownGuard,
+  checkExposureLimit,
+  calculateVaR,
+  checkMinTimeBetweenTrades
 } from '../src/risk.js';
+import { scanTriangular } from '../src/strategies/triangular.js';
+import { computeMetrics, monteCarloSimulation } from '../src/backtest.js';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // scanCEX
@@ -212,5 +219,250 @@ describe('calculatePositionSize', () => {
     const size100k = calculatePositionSize(100_000, 0.55, 2.0);
     // Should be capped at 20% of equity = $20,000
     assert.ok(size100k <= 20_000 + 0.01, `expected <= $20,000, got $${size100k.toFixed(2)}`);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// scanTriangular
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('scanTriangular', () => {
+  test('returns null when prices object is empty', () => {
+    assert.equal(scanTriangular('binance', 0.001, {}), null);
+  });
+
+  test('returns null when one leg price is missing', () => {
+    const prices = { BTCUSDT: 65000, ETHUSDT: 3380 }; // ETHBTC missing
+    assert.equal(scanTriangular('binance', 0.001, prices), null);
+  });
+
+  test('returns null when net profit is below threshold', () => {
+    // Perfectly aligned prices → no arbitrage
+    const pA = 65000;  // BTC/USDT
+    const pB = 0.052;  // ETH/BTC  (ETH = 65000 * 0.052 = 3380)
+    const pC = 3380;   // ETH/USDT
+    const prices = { BTCUSDT: pA, ETHBTC: pB, ETHUSDT: pC };
+    // Perfectly aligned → after 3× 0.001 fee there's no profit
+    assert.equal(scanTriangular('binance', 0.001, prices), null);
+  });
+
+  test('returns opportunity when triangle is mispriced', () => {
+    // Force a profitable triangle: ETH/BTC is underpriced (implies more ETH per BTC)
+    const pA = 65000;   // BTC/USDT
+    const pB = 0.0600;  // ETH/BTC — overpriced → 1 BTC buys only 16.67 ETH
+    const pC = 4200;    // ETH/USDT — ETH is worth more in USDT than pB implies
+    // Dir-1: USDT→BTC→ETH→USDT: 1/65000 * 0.0600 * 4200 ≈ 3.88‰ net after fees
+    const prices = { BTCUSDT: pA, ETHBTC: pB, ETHUSDT: pC };
+    const opp = scanTriangular('binance', 0.0005, prices);
+    assert.notEqual(opp, null);
+    assert.equal(opp.strategy, 'triangular');
+    assert.equal(opp.buyExchange, 'binance');
+    assert.ok(opp.netPct > 0);
+  });
+
+  test('result has required fields', () => {
+    const prices = { BTCUSDT: 65000, ETHBTC: 0.06, ETHUSDT: 4200 };
+    const opp = scanTriangular('mexc', 0.0005, prices);
+    if (!opp) return; // may be below threshold — skip field check
+    assert.ok(typeof opp.netPct === 'number');
+    assert.ok(typeof opp.grossPct === 'number');
+    assert.ok(typeof opp.direction === 'string');
+    assert.ok(Array.isArray(opp.legs));
+    assert.equal(opp.legs.length, 3);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// computeMetrics (backtest engine)
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('computeMetrics', () => {
+  test('returns zero metrics for empty array', () => {
+    const m = computeMetrics([]);
+    assert.equal(m.total_trades, 0);
+    assert.equal(m.sharpe, 0);
+  });
+
+  test('computes correct win rate', () => {
+    const m = computeMetrics([10, -5, 8, -3, 6]);
+    assert.equal(m.win_trades, 3);
+    assert.equal(m.loss_trades, 2);
+    assert.ok(Math.abs(m.win_rate - 0.6) < 0.001);
+  });
+
+  test('computes correct total P&L', () => {
+    const pnls = [10, -5, 8, -3, 6];
+    const m = computeMetrics(pnls);
+    assert.ok(Math.abs(m.total_pnl_usd - 16) < 0.001);
+  });
+
+  test('max drawdown is non-negative', () => {
+    const m = computeMetrics([10, -20, 5, -8, 2]);
+    assert.ok(m.max_drawdown_usd >= 0);
+  });
+
+  test('profit factor > 1 for net-profitable sequence', () => {
+    const m = computeMetrics([10, 15, 20, -2, -1]);
+    assert.ok(m.profit_factor > 1);
+  });
+
+  test('Sharpe is finite and numeric', () => {
+    const m = computeMetrics([10, -5, 8, -3, 6]);
+    assert.ok(isFinite(m.sharpe));
+    assert.ok(typeof m.sharpe === 'number');
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// monteCarloSimulation
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('monteCarloSimulation', () => {
+  test('returns zeros for empty input', () => {
+    const r = monteCarloSimulation([], 1000, 100);
+    assert.equal(r.p50, 0);
+  });
+
+  test('p5 <= p50 <= p95', () => {
+    const pnls = Array.from({length: 50}, (_, i) => (i % 3 === 0 ? -2 : 3));
+    const r = monteCarloSimulation(pnls, 1000, 200);
+    assert.ok(r.p5 <= r.p50 + 0.01, 'p5 should be <= p50');
+    assert.ok(r.p50 <= r.p95 + 0.01, 'p50 should be <= p95');
+    assert.ok(r.worst <= r.p5 + 0.01, 'worst should be <= p5');
+    assert.ok(r.best  >= r.p95 - 0.01, 'best should be >= p95');
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// volatilityAdjustedSize
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('volatilityAdjustedSize', () => {
+  test('returns base size when spread is below threshold', () => {
+    const result = volatilityAdjustedSize(100, 1.0); // threshold = 2.5
+    assert.equal(result, 100);
+  });
+
+  test('returns reduced size when spread exceeds threshold', () => {
+    const result = volatilityAdjustedSize(100, 5.0); // 2× threshold
+    assert.ok(result < 100);
+    assert.ok(result >= 100 * 0.20); // min 20% floor
+  });
+
+  test('never returns less than 20% of base size', () => {
+    const result = volatilityAdjustedSize(100, 100); // extreme spread
+    assert.ok(result >= 20);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// checkDrawdownGuard
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('checkDrawdownGuard', () => {
+  test('returns halt=false when daily loss is zero', () => {
+    const state = { daily_pnl: 0, max_daily_loss_usd: 25, initial_capital: 1000 };
+    const result = checkDrawdownGuard(state, 1000);
+    assert.equal(result.halt, false);
+  });
+
+  test('returns halt=true when daily loss exceeds limit', () => {
+    const state = { daily_pnl: -30, max_daily_loss_usd: 25, initial_capital: 1000 };
+    const result = checkDrawdownGuard(state, 970);
+    assert.equal(result.halt, true);
+    assert.ok(typeof result.reason === 'string');
+  });
+
+  test('returns halt=true when equity drawdown exceeds 15% watermark', () => {
+    const state = { daily_pnl: -5, max_daily_loss_usd: 100, initial_capital: 1000 };
+    const result = checkDrawdownGuard(state, 800); // 20% drawdown
+    assert.equal(result.halt, true);
+  });
+
+  test('returns halt=false within acceptable losses', () => {
+    const state = { daily_pnl: -10, max_daily_loss_usd: 25, initial_capital: 1000 };
+    const result = checkDrawdownGuard(state, 990);
+    assert.equal(result.halt, false);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// checkExposureLimit
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('checkExposureLimit', () => {
+  test('allows trade when no current exposure', () => {
+    const result = checkExposureLimit(1000, 0, 50);
+    assert.equal(result.allowed, true);
+  });
+
+  test('blocks trade when total exposure would exceed 60% of equity', () => {
+    // current 400 + new 300 = 700 > 60% of 1000 = 600
+    const result = checkExposureLimit(1000, 400, 300);
+    assert.equal(result.allowed, false);
+    assert.ok(typeof result.reason === 'string');
+  });
+
+  test('allows trade up to limit boundary', () => {
+    // 550 + 50 = 600 = exactly 60% of 1000
+    const result = checkExposureLimit(1000, 550, 50);
+    assert.equal(result.allowed, true);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// calculateVaR
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('calculateVaR', () => {
+  test('returns 0 for empty array', () => {
+    assert.equal(calculateVaR([]), 0);
+  });
+
+  test('returns 0 for fewer than 5 observations', () => {
+    assert.equal(calculateVaR([1, 2, 3]), 0);
+  });
+
+  test('VaR is non-negative', () => {
+    const pnls = [10, -5, 8, -12, 6, -3, 15, -7, 4, -9];
+    const var95 = calculateVaR(pnls, 0.95);
+    assert.ok(var95 >= 0);
+  });
+
+  test('VaR95 >= VaR90 for same series', () => {
+    const pnls = [10, -5, 8, -12, 6, -3, 15, -7, 4, -9, 2, -18, 5, -2, 11];
+    const var90 = calculateVaR(pnls, 0.90);
+    const var95 = calculateVaR(pnls, 0.95);
+    // Higher confidence → larger VaR (or equal in small samples)
+    assert.ok(var95 >= var90 - 0.001, `VaR95 ${var95} should be >= VaR90 ${var90}`);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// checkMinTimeBetweenTrades
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('checkMinTimeBetweenTrades', () => {
+  test('allows trade when no last timestamp', () => {
+    const state = { min_seconds_between_trades: 30 };
+    assert.equal(checkMinTimeBetweenTrades(state).allowed, true);
+  });
+
+  test('blocks trade within cooldown window', () => {
+    const state = {
+      min_seconds_between_trades: 60,
+      last_trade_timestamp: Date.now() - 20000  // 20s ago, need 60s
+    };
+    const result = checkMinTimeBetweenTrades(state);
+    assert.equal(result.allowed, false);
+    assert.ok(result.waitSec > 0);
+  });
+
+  test('allows trade after cooldown window elapses', () => {
+    const state = {
+      min_seconds_between_trades: 30,
+      last_trade_timestamp: Date.now() - 35000  // 35s ago, need 30s
+    };
+    assert.equal(checkMinTimeBetweenTrades(state).allowed, true);
   });
 });

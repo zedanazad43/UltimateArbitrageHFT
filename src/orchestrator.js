@@ -4,16 +4,24 @@
 // symbols, selects the single best opportunity, applies unified risk checks,
 // and executes one trade per scan cycle.
 
-import { getAllSpotPrices, getMEXCPerpPrice, getBybitPerpData, get0xPrice } from './prices.js';
+import { getAllSpotPrices, getMEXCPerpPrice, getBybitPerpData, get0xPrice, getCrossPairPrices } from './prices.js';
 import { scanCEX }         from './strategies/cex.js';
 import { scanDEX }         from './strategies/dex.js';
 import { scanPerps }       from './strategies/perps.js';
 import { scanFundingRate } from './strategies/funding.js';
+import { scanTriangular, TRIANGLES } from './strategies/triangular.js';
+import { scanStatistical, CORRELATED_PAIRS } from './strategies/statistical.js';
 import { logTrade, openPaperPosition, getOpenPaperPositions, closePaperPosition } from './db.js';
-import { calculateAdaptiveLeverage, calculatePositionSize, MAX_POSITION_EQUITY_FRACTION } from './risk.js';
+import {
+  calculateAdaptiveLeverage, calculatePositionSize,
+  volatilityAdjustedSize, checkDrawdownGuard, checkExposureLimit,
+  checkMinTimeBetweenTrades, MAX_POSITION_EQUITY_FRACTION
+} from './risk.js';
 import {
   placeMEXCFuturesOrder, hasSufficientUSDT,
-  hasExchangeCredentials, getRequiredCredentialKeys, getExchangeBalance, placeExchangeMarketOrder
+  hasExchangeCredentials, getRequiredCredentialKeys, getExchangeBalance,
+  placeExchangeMarketOrder, getConfiguredExchanges, selectBestExchange,
+  ACTIVE_EXECUTION_EXCHANGES, DATA_ONLY_EXCHANGES
 } from './exchange.js';
 
 const SUPPORTED_SYMBOLS = [
@@ -123,8 +131,25 @@ export async function runScan(env, state, sendAlert) {
   const equity         = initialCapital + (state.total_pnl || 0);
   const paperMode      = state.paper_trading !== false;
 
+  // ── Enhanced risk pre-flight checks ─────────────────────────────────────────
+  const drawdown = checkDrawdownGuard(state, equity);
+  if (drawdown.halt) {
+    console.warn(`[Risk] Scan halted: ${drawdown.reason}`);
+    if (!state.auto_stopped) {
+      state.auto_stopped    = true;
+      state.auto_stop_reason = drawdown.reason;
+    }
+    return null;
+  }
+
+  const timingCheck = checkMinTimeBetweenTrades(state);
+  if (!timingCheck.allowed) {
+    console.log(`[Risk] Min time between trades: wait ${timingCheck.waitSec}s`);
+    return null;
+  }
+
   const allOpportunities = [];
-  const lastScan = { timestamp: Date.now(), cex: null, dex: null, perps: null, funding: null };
+  const lastScan = { timestamp: Date.now(), cex: null, dex: null, perps: null, funding: null, triangular: null, statistical: null };
 
   // Load circuit-breaker state from KV once per cycle and build the open-circuit set
   const cb = await getCircuitBreaker(env);
@@ -139,8 +164,11 @@ export async function runScan(env, state, sendAlert) {
   // Track per-symbol mid prices so we can settle paper positions
   const midPrices = {};
 
-  // ── Scan all symbols (CEX + Perps + Funding) and DEX in parallel ─────────────
-  const [, dexOpp] = await Promise.all([
+  // ── Scan all symbols (CEX + Perps + Funding) and DEX + Triangular + Statistical in parallel ─────────────
+  // Collect cross-pair prices needed for triangular arbitrage once (shared across exchanges)
+  const crossSymbols = [...new Set(TRIANGLES.map(t => t.b))]; // e.g. ['ETHBTC', 'BNBBTC', 'SOLBTC', 'BNBETH']
+
+  const [, dexOpp, crossPrices] = await Promise.all([
     Promise.all(
       SUPPORTED_SYMBOLS.map(async symbol => {
         try {
@@ -209,8 +237,57 @@ export async function runScan(env, state, sendAlert) {
         }
       })
     ),
-    scanDEX(env)
+    scanDEX(env),
+    getCrossPairPrices(crossSymbols)
   ]);
+
+  // ── Triangular arbitrage (per-exchange, using cross-pair prices) ─────────────
+  // Build per-exchange price maps from the mid-price cache and run triangular scan
+  for (const exchangeName of ['binance', 'mexc']) {
+    try {
+      const priceMap = {};
+      // Add USDT-quoted prices from midPrices (indexed by symbol)
+      for (const sym of SUPPORTED_SYMBOLS) {
+        const src = (await getAllSpotPrices(env, sym, openCircuits))
+          .find(s => s.exchange === exchangeName);
+        if (src) priceMap[sym] = src.price;
+      }
+      // Add cross-pair prices
+      Object.assign(priceMap, crossPrices);
+
+      const fee = exchangeName === 'binance' ? 0.001 : 0.0005;
+      const triOpp = scanTriangular(exchangeName, fee, priceMap);
+      if (triOpp) {
+        allOpportunities.push(triOpp);
+        if (!lastScan.triangular || triOpp.netPct > lastScan.triangular.netPct)
+          lastScan.triangular = triOpp;
+      }
+    } catch (e) {
+      console.error(`[Triangular:${exchangeName}] scan error:`, e.message);
+    }
+  }
+
+  // ── Statistical / pairs arbitrage (cross-exchange z-score) ───────────────────
+  for (const pairDef of CORRELATED_PAIRS) {
+    try {
+      const [sourcesA, sourcesB] = await Promise.all([
+        getAllSpotPrices(env, pairDef.symbolA, openCircuits),
+        getAllSpotPrices(env, pairDef.symbolB, openCircuits)
+      ]);
+      const priceA = midPrices[pairDef.symbolA] ?? sourcesA[0]?.price;
+      const priceB = midPrices[pairDef.symbolB] ?? sourcesB[0]?.price;
+      if (!priceA || !priceB) continue;
+
+      const statOpp = await scanStatistical(env, pairDef, priceA, priceB, sourcesA, sourcesB);
+      if (statOpp) {
+        allOpportunities.push(statOpp);
+        if (!lastScan.statistical || statOpp.netPct > lastScan.statistical.netPct)
+          lastScan.statistical = statOpp;
+      }
+    } catch (e) {
+      console.error(`[Statistical:${pairDef.id}] scan error:`, e.message);
+    }
+  }
 
   // Persist updated circuit-breaker state (fire-and-forget)
   saveCircuitBreaker(env, cb);
@@ -254,8 +331,24 @@ export async function runScan(env, state, sendAlert) {
     state.win_rate          || 0.55,
     state.risk_reward_ratio || 2.0
   );
+
+  // Volatility-adjusted sizing: reduce when spread is elevated
+  const observedSpread = best.grossPct || 0;
+  const volAdjustedSize = volatilityAdjustedSize(baseSize, observedSpread);
+
   // Hard cap: MAX_POSITION_EQUITY_FRACTION of equity, consistent with risk.js
-  const sizeUsd       = Math.min(baseSize * leverage, equity * MAX_POSITION_EQUITY_FRACTION);
+  const rawSizeUsd = Math.min(volAdjustedSize * leverage, equity * MAX_POSITION_EQUITY_FRACTION);
+
+  // Open exposure check: count open paper positions total size
+  const openPositions    = await getOpenPaperPositions(env);
+  const currentExposure  = openPositions.reduce((s, p) => s + (p.size_usd || 0), 0);
+  const exposureCheck    = checkExposureLimit(equity, currentExposure, rawSizeUsd);
+  if (!exposureCheck.allowed) {
+    console.warn(`[Risk] Exposure limit: ${exposureCheck.reason}`);
+    return null;
+  }
+
+  const sizeUsd       = rawSizeUsd;
   const mode          = paperMode ? 'paper' : 'live';
   const strategyLabel = `${best.strategy}:${best.direction}`;
   const levStr        = leverage > 1 ? ` | ${leverage}x` : '';
@@ -293,11 +386,12 @@ export async function runScan(env, state, sendAlert) {
 
   // ── Update state counters (caller saves state to KV) ────────────────────────
   const tradePnl = sizeUsd * best.netPct / 100;
-  state.daily_pnl          = (state.daily_pnl   || 0) + tradePnl;
-  state.total_pnl          = (state.total_pnl   || 0) + tradePnl;
-  state.daily_trades       = (state.daily_trades || 0) + 1;
-  state.total_trades       = (state.total_trades || 0) + 1;
+  state.daily_pnl            = (state.daily_pnl   || 0) + tradePnl;
+  state.total_pnl            = (state.total_pnl   || 0) + tradePnl;
+  state.daily_trades         = (state.daily_trades || 0) + 1;
+  state.total_trades         = (state.total_trades || 0) + 1;
   state.last_trade_timestamp = Date.now();
+  state.last_trade_pnl_usd   = tradePnl;
 
   // FIXED: ensured inside async function — use queue producer when available, fall back to logTrade()
   if (env.TRADE_QUEUE) {
@@ -340,33 +434,59 @@ async function executeTrade(env, opp, sizeUsd, leverage) {
     );
   }
 
+  // bybit and gateio are data-only (German regulatory restrictions).
+  if (DATA_ONLY_EXCHANGES.has(opp.buyExchange) || DATA_ONLY_EXCHANGES.has(opp.sellExchange)) {
+    throw new Error(
+      `${opp.buyExchange || opp.sellExchange} is not available for live execution ` +
+      `(German regulatory restrictions). Switching to paper mode is recommended.`
+    );
+  }
+
   const amount = (sizeUsd / opp.buyPrice).toFixed(6);
 
   // ── Perpetuals ────────────────────────────────────────────────────────────
   if (opp.isPerp) {
-    // Bybit perp execution requires Bybit futures API (not yet implemented).
-    // Route only MEXC perp opportunities to live execution.
-    if (opp.sellExchange === 'bybit_perp' || opp.buyExchange === 'bybit_perp') {
+    // Try MEXC perp first (primary CEX perp), then fall back to other configured exchanges.
+    // Bybit perp is excluded (German law).
+    const hasMEXC = hasExchangeCredentials(env, 'mexc');
+    if (hasMEXC) {
+      const sufficient = await hasSufficientUSDT(env, sizeUsd);
+      if (sufficient) {
+        const side = opp.sellExchange === 'mexc_perp' ? 'SHORT' : 'LONG';
+        await placeMEXCFuturesOrder(env, opp.symbol, side, amount, leverage);
+        return;
+      }
+    }
+    // MEXC perp unavailable or insufficient balance — try other exchanges with spot hedge
+    const fallback = await selectBestExchange(env, sizeUsd);
+    if (!fallback) {
       throw new Error(
-        'Bybit perpetuals live execution not yet supported — set paper_trading=true to simulate'
+        `No configured exchange has sufficient USDT ($${sizeUsd.toFixed(2)}) for perps trade`
       );
     }
-    const hasMEXC = hasExchangeCredentials(env, 'mexc');
-    if (!hasMEXC) {
-      throw new Error('MEXC_API_KEY / MEXC_API_SECRET required for perps trading');
-    }
-    const sufficient = await hasSufficientUSDT(env, sizeUsd);
-    if (!sufficient) {
-      throw new Error(`Insufficient USDT balance for $${sizeUsd.toFixed(2)} trade`);
-    }
-    const side = opp.sellExchange === 'mexc_perp' ? 'SHORT' : 'LONG';
-    await placeMEXCFuturesOrder(env, opp.symbol, side, amount, leverage);
+    // Execute as a spot long (hedge): buy on cheapest, sell when price is favorable
+    const side = opp.sellExchange?.includes('perp') ? 'SELL' : 'BUY';
+    await placeExchangeMarketOrder(env, fallback, opp.symbol, side, amount, sizeUsd);
     return;
   }
 
   // ── CEX spatial arbitrage ─────────────────────────────────────────────────
-  const buyExch  = opp.buyExchange;
-  const sellExch = opp.sellExchange;
+  let buyExch  = opp.buyExchange;
+  let sellExch = opp.sellExchange;
+
+  // If either leg is on a data-only exchange, reroute to best available exchange.
+  if (!ACTIVE_EXECUTION_EXCHANGES.includes(buyExch)) {
+    const alt = await selectBestExchange(env, sizeUsd);
+    if (!alt) throw new Error(`Buy exchange ${buyExch} not available and no alternative configured`);
+    console.warn(`[Exec] Rerouted BUY from ${buyExch} → ${alt}`);
+    buyExch = alt;
+  }
+  if (!ACTIVE_EXECUTION_EXCHANGES.includes(sellExch)) {
+    const configured = getConfiguredExchanges(env).filter(ex => ex !== buyExch);
+    if (configured.length === 0) throw new Error(`Sell exchange ${sellExch} not available`);
+    sellExch = configured[0];
+    console.warn(`[Exec] Rerouted SELL from ${opp.sellExchange} → ${sellExch}`);
+  }
 
   if (!hasExchangeCredentials(env, buyExch)) {
     throw new Error(
@@ -384,22 +504,29 @@ async function executeTrade(env, opp, sizeUsd, leverage) {
   // Pre-flight balance checks
   const baseAsset = opp.symbol.replace(/USDT$/, '');
 
-  // USDT on buy exchange
   const buyBalance = await getExchangeBalance(env, buyExch, 'USDT');
   if (buyBalance < sizeUsd) {
-    throw new Error(
-      `Insufficient USDT on ${buyExch}: ` +
-      `$${buyBalance.toFixed(2)} available, $${sizeUsd.toFixed(2)} needed`
-    );
+    // Try rerouting BUY to an exchange with sufficient balance
+    const alt = await selectBestExchange(env, sizeUsd);
+    if (!alt || alt === sellExch) {
+      throw new Error(
+        `Insufficient USDT on ${buyExch}: ` +
+        `$${buyBalance.toFixed(2)} available, $${sizeUsd.toFixed(2)} needed. ` +
+        `Top up balance or enable more exchanges.`
+      );
+    }
+    console.warn(`[Exec] USDT insufficient on ${buyExch}, rerouted BUY to ${alt}`);
+    buyExch = alt;
   }
 
-  // Base asset on sell exchange (must be pre-positioned for hedged execution)
+  // Base asset on sell exchange (must be pre-positioned for hedged execution).
   const sellBalance = await getExchangeBalance(env, sellExch, baseAsset);
   const minSellQty  = parseFloat(amount);
   if (sellBalance < minSellQty) {
     throw new Error(
       `Insufficient ${baseAsset} on ${sellExch}: ` +
-      `${sellBalance.toFixed(6)} available, ${amount} needed`
+      `${sellBalance.toFixed(6)} available, ${amount} needed. ` +
+      `Transfer ${baseAsset} to ${sellExch} before executing this trade.`
     );
   }
 
