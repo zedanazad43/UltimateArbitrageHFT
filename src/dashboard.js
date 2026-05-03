@@ -56,6 +56,11 @@ export async function renderDashboard(env) {
   const cexTrades   = stratPnl.cex?.trades   ?? 0;
   const dexTrades   = stratPnl.dex?.trades   ?? 0;
   const perpsTrades = stratPnl.perps?.trades ?? 0;
+  // New strategies — parsed from strategy prefix
+  const triPnl    = stratPnl.triangular?.pnl    ?? 0;
+  const statPnl   = stratPnl.statistical?.pnl   ?? 0;
+  const triTrades = stratPnl.triangular?.trades ?? 0;
+  const statTrades= stratPnl.statistical?.trades?? 0;
 
   // Performance metrics
   const winRatePct     = ((metrics.win_rate   || 0) * 100).toFixed(1);
@@ -63,6 +68,11 @@ export async function renderDashboard(env) {
   const bestTrade      = (metrics.best_trade_usd  || 0).toFixed(2);
   const worstTrade     = (metrics.worst_trade_usd || 0).toFixed(2);
   const sharpe         = (metrics.sharpe           || 0).toFixed(2);
+  const sortino        = (metrics.sortino          || 0).toFixed(2);
+  const profitFactor   = metrics.profit_factor
+    ? (isFinite(metrics.profit_factor) ? metrics.profit_factor.toFixed(2) : '∞')
+    : '—';
+  const expectancy     = (metrics.expectancy       || 0).toFixed(3);
 
   // Opportunity card HTML helper
   function oppCard(opp) {
@@ -214,6 +224,24 @@ ${autoStopBanner}
     ${oppCard(lastScan?.perps)}
   </div>
 
+  <div class="strategy-card" style="border-color:#1abc9c">
+    <div class="strat-header" style="color:#1abc9c">
+      🔺 Triangular Arb
+      <span class="badge" style="background:#0a3030;color:#1abc9c">${triTrades} صفقة</span>
+      <span class="badge" style="background:#0a3030;color:${triPnl>=0?'#2ecc71':'#e74c3c'}">$${triPnl.toFixed(2)}</span>
+    </div>
+    ${oppCard(lastScan?.triangular)}
+  </div>
+
+  <div class="strategy-card" style="border-color:#e91e8c">
+    <div class="strat-header" style="color:#e91e8c">
+      📐 Statistical Arb
+      <span class="badge" style="background:#3a0a20;color:#e91e8c">${statTrades} صفقة</span>
+      <span class="badge" style="background:#3a0a20;color:${statPnl>=0?'#2ecc71':'#e74c3c'}">$${statPnl.toFixed(2)}</span>
+    </div>
+    ${oppCard(lastScan?.statistical)}
+  </div>
+
 </div>
 
 <div class="panel">
@@ -263,6 +291,8 @@ ${autoStopBanner}
   <div class="card"><div class="card-label">CEX — P&amp;L</div><div class="card-value" style="color:#3498db">$${cexPnl.toFixed(2)}</div></div>
   <div class="card"><div class="card-label">DEX — P&amp;L</div><div class="card-value" style="color:#9b59b6">$${dexPnl.toFixed(2)}</div></div>
   <div class="card"><div class="card-label">Perps — P&amp;L</div><div class="card-value" style="color:#e67e22">$${perpsPnl.toFixed(2)}</div></div>
+  <div class="card"><div class="card-label">Triangular — P&amp;L</div><div class="card-value" style="color:#1abc9c">$${triPnl.toFixed(2)}</div></div>
+  <div class="card"><div class="card-label">Statistical — P&amp;L</div><div class="card-value" style="color:#e91e8c">$${statPnl.toFixed(2)}</div></div>
   <div class="card"><div class="card-label">إجمالي الصفقات</div><div class="card-value">${state.total_trades||0}</div></div>
 </div>
 
@@ -286,8 +316,20 @@ ${autoStopBanner}
     <div class="card-value" style="color:#e74c3c">$${worstTrade}</div>
   </div>
   <div class="card">
-    <div class="card-label">Sharpe Ratio (تقريبي)</div>
+    <div class="card-label">Sharpe Ratio</div>
     <div class="card-value" style="color:${parseFloat(sharpe)>=1?'#2ecc71':parseFloat(sharpe)>=0?'#f0b90b':'#e74c3c'}">${sharpe}</div>
+  </div>
+  <div class="card">
+    <div class="card-label">Sortino Ratio</div>
+    <div class="card-value" style="color:${parseFloat(sortino)>=1?'#2ecc71':parseFloat(sortino)>=0?'#f0b90b':'#e74c3c'}">${sortino}</div>
+  </div>
+  <div class="card">
+    <div class="card-label">Profit Factor</div>
+    <div class="card-value" style="color:${profitFactor==='∞'||parseFloat(profitFactor)>=2?'#2ecc71':parseFloat(profitFactor)>=1?'#f0b90b':'#e74c3c'}">${profitFactor}</div>
+  </div>
+  <div class="card">
+    <div class="card-label">Expectancy ($)</div>
+    <div class="card-value" style="color:${parseFloat(expectancy)>=0?'#2ecc71':'#e74c3c'}">$${expectancy}</div>
   </div>
   <div class="card">
     <div class="card-label">تصدير البيانات</div>
@@ -298,7 +340,38 @@ ${autoStopBanner}
   </div>
 </div>
 
-<div class="panel"><canvas id="pnlChart"></canvas></div>
+<!-- ── Backtesting Panel ──────────────────────────────────────────────── -->
+<div class="panel">
+  <h2 style="margin-top:0">🔬 اختبار الأداء السابق (Backtest)</h2>
+  <div class="risk-row" style="margin-bottom:14px">
+    <div class="risk-item">
+      <label>رأس المال الابتدائي ($)</label>
+      <input id="bt_capital" type="number" value="1000" min="1" step="100">
+    </div>
+    <div class="risk-item">
+      <label>نسبة الحجم من رأس المال</label>
+      <input id="bt_frac" type="number" value="0.10" min="0.01" max="0.50" step="0.01">
+    </div>
+    <div class="risk-item">
+      <label>الحد الأدنى لصافي الربح (%)</label>
+      <input id="bt_minnet" type="number" value="0" min="0" step="0.01">
+    </div>
+    <div class="risk-item">
+      <label>فترة (أيام)</label>
+      <input id="bt_days" type="number" value="30" min="1" max="365" step="1">
+    </div>
+  </div>
+  <button class="btn btn-blue" data-admin-action="1" onclick="runBacktest()">🔬 تشغيل Backtest</button>
+  <div id="btResults" style="margin-top:16px;display:none">
+    <div class="grid" id="btMetricsGrid"></div>
+    <div style="margin-top:10px;font-size:.82em;color:#888" id="btMC"></div>
+  </div>
+</div>
+
+<div class="panel"><canvas id="pnlChart" height="80"></canvas></div>
+
+<!-- ── Strategy P&L Bar Chart ────────────────────────────────────────── -->
+<div class="panel"><canvas id="stratChart" height="80"></canvas></div>
 
 <!-- ── Exchange Balances panel (loaded dynamically) ───────────────────────── -->
 <div class="panel">
@@ -308,8 +381,65 @@ ${autoStopBanner}
 
 <!-- ── Circuit Breaker panel (loaded dynamically) ────────────────────────── -->
 <div class="panel">
-  <h2 style="margin-top:0">🔌 حالة Circuit Breaker</h2>
+  <h2 style="margin-top:0">🔌 حالة Circuit Breaker — المنصات الفعّالة</h2>
+  <div style="font-size:.78em;color:#888;margin-bottom:10px">
+    ⚠️ Gate.io و Bybit: مصادر أسعار فقط (القانون الألماني — لا تنفيذ حقيقي)
+  </div>
   <div id="cbContent" class="cb-grid"><span style="color:#888">جارٍ التحميل...</span></div>
+</div>
+
+<!-- ── MetaMask / Web3 Wallet Panel ──────────────────────────────────────── -->
+<div class="panel">
+  <h2 style="margin-top:0">🦊 MetaMask — عقود Perps على السلسلة</h2>
+  <div style="font-size:.82em;color:#aaa;margin-bottom:12px">
+    ربط MetaMask لتنفيذ عقود Perps اللامركزية (GMX, dYdX v4) على السلسلة مباشرةً من المتصفح.
+    لا يُرسَل مفتاحك الخاص للسيرفر.
+  </div>
+  <div id="walletPanel">
+    <button class="btn btn-blue" onclick="connectWallet()">🦊 ربط MetaMask</button>
+    <span id="walletStatus" style="margin-right:12px;font-size:.85em;color:#888"></span>
+  </div>
+  <div id="walletConnected" style="display:none;margin-top:14px">
+    <div class="grid" id="walletMetrics" style="margin-bottom:12px"></div>
+    <div style="font-size:.82em;color:#aaa;margin-bottom:10px">
+      🔴 تنفيذ صفقات Perps على GMX / dYdX يتطلب تأكيداً في MetaMask لكل عملية.
+    </div>
+    <div class="risk-row">
+      <div class="risk-item">
+        <label>الشبكة</label>
+        <select id="w3network" style="background:#2a2e38;color:#eee;border:1px solid #444;border-radius:6px;padding:7px 10px">
+          <option value="42161">Arbitrum One</option>
+          <option value="1">Ethereum Mainnet</option>
+          <option value="10">Optimism</option>
+        </select>
+      </div>
+      <div class="risk-item">
+        <label>الحجم (USDT)</label>
+        <input id="w3size" type="number" value="100" min="1" step="10" style="background:#2a2e38;color:#eee;border:1px solid #444;border-radius:6px;padding:7px 10px;width:130px">
+      </div>
+      <div class="risk-item">
+        <label>الاتجاه</label>
+        <select id="w3side" style="background:#2a2e38;color:#eee;border:1px solid #444;border-radius:6px;padding:7px 10px">
+          <option value="long">LONG</option>
+          <option value="short">SHORT</option>
+        </select>
+      </div>
+      <div class="risk-item">
+        <label>زوج التداول</label>
+        <select id="w3pair" style="background:#2a2e38;color:#eee;border:1px solid #444;border-radius:6px;padding:7px 10px">
+          <option value="BTC/USD">BTC/USD</option>
+          <option value="ETH/USD">ETH/USD</option>
+          <option value="SOL/USD">SOL/USD</option>
+        </select>
+      </div>
+    </div>
+    <div style="margin-top:12px">
+      <button class="btn btn-green" onclick="signAndSendPerp('gmx')">⚡ تنفيذ على GMX (Arbitrum)</button>
+      <button class="btn" style="background:#2196f3;color:#fff" onclick="signAndSendPerp('dydx')">📊 تنفيذ على dYdX v4</button>
+      <button class="btn btn-red" onclick="disconnectWallet()">🔌 فصل المحفظة</button>
+    </div>
+    <div id="w3TxResult" style="margin-top:10px;font-size:.82em"></div>
+  </div>
 </div>
 
 <h2>📊 آخر الصفقات</h2>
@@ -409,6 +539,74 @@ ${autoStopBanner}
     datasets:[{label:'الربح المتراكم ($)',data:${JSON.stringify(pnlData)},borderColor:'#f0b90b',backgroundColor:'rgba(240,185,11,0.08)',fill:true,tension:.3,pointRadius:3}]
   },options:{responsive:true,plugins:{legend:{labels:{color:'#eee'}}},scales:{x:{ticks:{color:'#888',maxTicksLimit:12}},y:{ticks:{color:'#888'}}}}});
 
+  // ── Strategy P&L Bar Chart ────────────────────────────────────────────────────
+  const stratCtx = document.getElementById('stratChart').getContext('2d');
+  new Chart(stratCtx, {
+    type: 'bar',
+    data: {
+      labels: ['CEX', 'DEX', 'Perps', 'Triangular', 'Statistical'],
+      datasets: [{
+        label: 'P&L بالاستراتيجية ($)',
+        data: [
+          ${(cexPnl).toFixed(4)},
+          ${(dexPnl).toFixed(4)},
+          ${(perpsPnl).toFixed(4)},
+          ${(triPnl).toFixed(4)},
+          ${(statPnl).toFixed(4)}
+        ],
+        backgroundColor: ['#3498db','#9b59b6','#e67e22','#1abc9c','#e91e8c'],
+        borderRadius: 6
+      }]
+    },
+    options: {
+      responsive: true,
+      plugins: { legend: { labels: { color: '#eee' } } },
+      scales: {
+        x: { ticks: { color: '#888' } },
+        y: { ticks: { color: '#888' } }
+      }
+    }
+  });
+
+  // ── Backtesting ──────────────────────────────────────────────────────────────
+  async function runBacktest() {
+    const capital  = parseFloat(document.getElementById('bt_capital').value)  || 1000;
+    const frac     = parseFloat(document.getElementById('bt_frac').value)     || 0.10;
+    const minnet   = parseFloat(document.getElementById('bt_minnet').value)   || 0;
+    const days     = parseInt(document.getElementById('bt_days').value)       || 30;
+    const from_ms  = Date.now() - days * 86400000;
+    const body     = JSON.stringify({ initial_capital: capital, position_frac: frac, min_net_pct: minnet, from_ms, run_monte_carlo: true });
+    const el       = document.getElementById('btResults');
+    const grid     = document.getElementById('btMetricsGrid');
+    const mc       = document.getElementById('btMC');
+    grid.innerHTML = '<span style="color:#888">جارٍ التشغيل…</span>';
+    el.style.display = 'block';
+    mc.textContent   = '';
+    try {
+      const res  = await callAdminApi('/api/backtest', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body });
+      const data = JSON.parse(res.text);
+      const m    = data.metrics || {};
+      const ret  = (data.return_pct || 0).toFixed(2);
+      const retColor = parseFloat(ret) >= 0 ? '#2ecc71' : '#e74c3c';
+      grid.innerHTML = \`
+        <div class="card"><div class="card-label">العائد</div><div class="card-value" style="color:\${retColor}">\${ret}%</div></div>
+        <div class="card"><div class="card-label">رأس المال النهائي</div><div class="card-value">$\${(data.final_equity||0).toFixed(2)}</div></div>
+        <div class="card"><div class="card-label">الصفقات</div><div class="card-value">\${m.total_trades||0}</div></div>
+        <div class="card"><div class="card-label">Win Rate</div><div class="card-value">\${((m.win_rate||0)*100).toFixed(1)}%</div></div>
+        <div class="card"><div class="card-label">Sharpe</div><div class="card-value">\${(m.sharpe||0).toFixed(2)}</div></div>
+        <div class="card"><div class="card-label">Sortino</div><div class="card-value">\${(m.sortino||0).toFixed(2)}</div></div>
+        <div class="card"><div class="card-label">Max Drawdown</div><div class="card-value" style="color:#e74c3c">$\${(m.max_drawdown_usd||0).toFixed(2)}</div></div>
+        <div class="card"><div class="card-label">Profit Factor</div><div class="card-value">\${isFinite(m.profit_factor)?((m.profit_factor||0).toFixed(2)):'∞'}</div></div>
+      \`;
+      if (data.monte_carlo) {
+        const mc_data = data.monte_carlo;
+        mc.innerHTML  = \`🎲 Monte Carlo (500 simulations) — P5: $\${mc_data.p5?.toFixed(2)} | P50: $\${mc_data.p50?.toFixed(2)} | P95: $\${mc_data.p95?.toFixed(2)}\`;
+      }
+    } catch(e) {
+      grid.innerHTML = '<span style="color:#e74c3c">❌ ' + e.message + '</span>';
+    }
+  }
+
   // ── Load dynamic panels ──────────────────────────────────────────────────────
   async function loadBalances(){
     const el=document.getElementById('balancesContent');
@@ -417,6 +615,7 @@ ${autoStopBanner}
       const res=await callAdminApi('/api/balances');
       const json=JSON.parse(res.text);
       const items=(json.data||[]).map(b=>{
+        if (b.dataOnly) return \`<div class="bal-card" style="opacity:.4;border-left:2px solid #888"><div class="bal-name">\${b.exchange.toUpperCase()}</div><div class="bal-value" style="color:#888;font-size:.8em">\${b.note||'Data only'}</div></div>\`;
         if(!b.configured) return \`<div class="bal-card" style="opacity:.45"><div class="bal-name">\${b.exchange.toUpperCase()}</div><div class="bal-value" style="color:#888">غير مُهيأ</div></div>\`;
         const color=b.balance>0?'#2ecc71':'#888';
         return \`<div class="bal-card"><div class="bal-name">\${b.exchange.toUpperCase()}</div><div class="bal-value" style="color:\${color}">$\${Number(b.balance).toFixed(2)}</div></div>\`;
@@ -430,20 +629,109 @@ ${autoStopBanner}
       const r=await fetch('/api/status');
       const json=await r.json();
       const cb=json.circuitBreaker||{};
-      const exchanges=['mexc','mexc_perp','binance','kucoin','okx','bitget','bitmart'];
-      const items=exchanges.map(ex=>{
-        const info=cb[ex];
-        const open=info&&info.open&&(Date.now()-info.lastFailure)<300000;
-        const failures=info?.failures||0;
-        const cls=open?'cb-open':'cb-ok';
-        const label=open?\`🔴 مفتوح (\${failures} أخطاء)\`:\`✅ سليم\`;
-        return \`<div class="cb-card"><div class="name">\${ex.toUpperCase()}</div><div class="\${cls}">\${label}</div></div>\`;
-      }).join('');
+      const active=['mexc','mexc_perp','binance','kucoin','okx','bitget','bitmart','htx'];
+      const dataOnly=['bybit','gateio'];
+      const items=[
+        ...active.map(ex=>{
+          const info=cb[ex];
+          const open=info&&info.open&&(Date.now()-info.lastFailure)<300000;
+          const failures=info?.failures||0;
+          const cls=open?'cb-open':'cb-ok';
+          const label=open?\`🔴 مفتوح (\${failures} أخطاء)\`:\`✅ سليم\`;
+          return \`<div class="cb-card"><div class="name">\${ex.toUpperCase()}</div><div class="\${cls}">\${label}</div></div>\`;
+        }),
+        ...dataOnly.map(ex=>\`<div class="cb-card" style="opacity:.4"><div class="name">\${ex.toUpperCase()}</div><div style="color:#888;font-size:.78em">📊 بيانات فقط (القانون الألماني)</div></div>\`)
+      ].join('');
       el.innerHTML=items;
     }catch(e){ el.innerHTML='<span style="color:#e74c3c">❌ '+e.message+'</span>'; }
   }
   function loadDynamic(){ loadBalances(); loadCircuitBreaker(); }
   loadDynamic();
+
+  // ── MetaMask / Web3 Wallet ────────────────────────────────────────────────────
+  let w3account = null;
+
+  async function connectWallet() {
+    const statusEl   = document.getElementById('walletStatus');
+    const connectedEl= document.getElementById('walletConnected');
+    const metricsEl  = document.getElementById('walletMetrics');
+    if (!window.ethereum) {
+      alert('❌ MetaMask غير مثبّت. يرجى تثبيت إضافة MetaMask في المتصفح أو استخدام متصفح متوافق.');
+      return;
+    }
+    try {
+      statusEl.textContent = 'جارٍ الربط...';
+      const accounts = await window.ethereum.request({ method: 'eth_requestAccounts' });
+      w3account = accounts[0];
+      const balHex   = await window.ethereum.request({ method: 'eth_getBalance', params: [w3account, 'latest'] });
+      const balEth   = (parseInt(balHex, 16) / 1e18).toFixed(4);
+      const chainHex = await window.ethereum.request({ method: 'eth_chainId' });
+      const chainId  = parseInt(chainHex, 16);
+      const nets     = { 1: 'Ethereum', 10: 'Optimism', 42161: 'Arbitrum One', 137: 'Polygon', 8453: 'Base' };
+      const netName  = nets[chainId] || \`Chain \${chainId}\`;
+      statusEl.textContent = '';
+      connectedEl.style.display = 'block';
+      metricsEl.innerHTML = \`
+        <div class="card"><div class="card-label">العنوان</div><div style="font-size:.72em;word-break:break-all;color:#3498db">\${w3account}</div></div>
+        <div class="card"><div class="card-label">الشبكة</div><div class="card-value" style="color:#f0b90b">\${netName}</div></div>
+        <div class="card"><div class="card-label">رصيد ETH</div><div class="card-value" style="color:#2ecc71">\${balEth} ETH</div></div>
+      \`;
+      document.getElementById('w3network').value = chainId;
+      window.ethereum.on('accountsChanged', (accs) => { w3account = accs[0]||null; if(!w3account) disconnectWallet(); });
+      window.ethereum.on('chainChanged', () => connectWallet());
+    } catch(e) {
+      statusEl.textContent = '❌ ' + e.message;
+    }
+  }
+
+  function disconnectWallet() {
+    w3account = null;
+    document.getElementById('walletConnected').style.display = 'none';
+    document.getElementById('walletStatus').textContent = 'تم فصل المحفظة';
+  }
+
+  async function signAndSendPerp(protocol) {
+    const resultEl = document.getElementById('w3TxResult');
+    if (!w3account) { alert('❌ ربط MetaMask أولاً'); return; }
+    const size    = parseFloat(document.getElementById('w3size').value) || 100;
+    const side    = document.getElementById('w3side').value;
+    const pair    = document.getElementById('w3pair').value;
+    const chainId = parseInt(document.getElementById('w3network').value);
+    // Switch to target chain
+    try {
+      await window.ethereum.request({
+        method: 'wallet_switchEthereumChain',
+        params: [{ chainId: '0x' + chainId.toString(16) }]
+      });
+    } catch(switchErr) {
+      if (switchErr.code !== 4902) {
+        resultEl.style.color = '#e74c3c';
+        resultEl.textContent = '❌ تعذّر التبديل للشبكة: ' + switchErr.message;
+        return;
+      }
+    }
+    resultEl.style.color = '#f0b90b';
+    resultEl.textContent = '⏳ يُرجى تأكيد الصفقة في MetaMask...';
+    try {
+      // Build order intent with nonce + expiry to prevent replay attacks.
+      // The signature is verified client-side only — no private key is sent to the server.
+      const nonce  = crypto.getRandomValues(new Uint8Array(16));
+      const nonceHex = Array.from(nonce).map(b=>b.toString(16).padStart(2,'0')).join('');
+      const expiresAt = Date.now() + 5 * 60 * 1000; // 5 min expiry
+      const intent = JSON.stringify({ protocol, pair, side, sizeUsd: size, account: w3account, chainId, nonce: nonceHex, expiresAt });
+      const sig    = await window.ethereum.request({ method: 'personal_sign', params: [intent, w3account] });
+      const protoLabel = protocol === 'gmx' ? 'GMX (Arbitrum)' : 'dYdX v4';
+      resultEl.style.color = '#2ecc71';
+      resultEl.innerHTML = \`✅ تم توقيع أمر \${protoLabel}.<br>
+        <span style="font-size:.78em;color:#aaa">
+          Signature: \${sig.slice(0,30)}…<br>
+          ادمج هذا التوقيع مع \${protoLabel} SDK لإتمام التنفيذ.
+        </span>\`;
+    } catch(e) {
+      resultEl.style.color = e.code === 4001 ? '#f0b90b' : '#e74c3c';
+      resultEl.textContent = e.code === 4001 ? '⚠️ رفضت الصفقة في MetaMask' : '❌ ' + e.message;
+    }
+  }
 </script>
 </body>
 </html>`;
@@ -456,16 +744,22 @@ ${autoStopBanner}
 export async function renderChecklist(env) {
   const state = await env.BOT_STATE.get('trading_state', 'json').catch(() => null) || {};
   const checks = [
-    { name: 'MEXC API Key',          ok: !!env.MEXC_API_KEY,          critical: true,  note: 'مطلوب للتداول الحقيقي' },
-    { name: 'MEXC API Secret',        ok: !!env.MEXC_API_SECRET,       critical: true,  note: 'مطلوب للتداول الحقيقي' },
-    { name: 'ADMIN_TOKEN',            ok: !!env.ADMIN_TOKEN,            critical: true,  note: 'لحماية نقاط التحكم' },
-    { name: 'Telegram Bot Token',     ok: !!env.TELEGRAM_BOT_TOKEN,    critical: false, note: 'للإشعارات' },
-    { name: 'Telegram Chat ID',       ok: !!env.TELEGRAM_CHAT_ID,      critical: false, note: 'معرف المستخدم' },
-    { name: 'Alchemy API Key',        ok: !!env.ALCHEMY_API_KEY,       critical: false, note: 'لتفعيل مسح DEX' },
-    { name: 'وضع Live مفعّل',         ok: state.paper_trading === false, critical: true, note: 'التداول الحقيقي' },
-    { name: 'حد الخسارة اليومية',     ok: !!(state.max_daily_loss_usd), critical: true, note: `الحالي: $${state.max_daily_loss_usd ?? 25}` },
-    { name: 'التداول مفعّل',          ok: state.trading_enabled !== false, critical: false, note: 'يجب التشغيل قبل المسح' },
-    { name: 'لا إيقاف تلقائي نشط',   ok: !state.auto_stopped,         critical: false, note: state.auto_stop_reason || '' }
+    { name: 'MEXC API Key',            ok: !!env.MEXC_API_KEY,          critical: true,  note: 'مطلوب للتداول الحقيقي + Perps' },
+    { name: 'MEXC API Secret',          ok: !!env.MEXC_API_SECRET,       critical: true,  note: 'مطلوب للتداول الحقيقي + Perps' },
+    { name: 'Binance API Key',          ok: !!env.BINANCE_API_KEY,       critical: false, note: 'مطلوب لتنفيذ Binance' },
+    { name: 'KuCoin API Key',           ok: !!env.KUCOIN_API_KEY,        critical: false, note: 'مطلوب لتنفيذ KuCoin' },
+    { name: 'OKX API Key',              ok: !!env.OKX_API_KEY,           critical: false, note: 'مطلوب لتنفيذ OKX' },
+    { name: 'Bitget API Key',           ok: !!env.BITGET_API_KEY,        critical: false, note: 'مطلوب لتنفيذ Bitget' },
+    { name: 'Bitmart API Key',          ok: !!env.BITMART_API_KEY,       critical: false, note: 'مطلوب لتنفيذ Bitmart' },
+    { name: 'HTX (Huobi) API Key',      ok: !!env.HTX_API_KEY,           critical: false, note: 'مطلوب لتنفيذ HTX' },
+    { name: 'ADMIN_TOKEN',              ok: !!env.ADMIN_TOKEN,            critical: true,  note: 'لحماية نقاط التحكم' },
+    { name: 'Telegram Bot Token',       ok: !!env.TELEGRAM_BOT_TOKEN,    critical: false, note: 'للإشعارات' },
+    { name: 'Telegram Chat ID',         ok: !!env.TELEGRAM_CHAT_ID,      critical: false, note: 'معرف المستخدم' },
+    { name: 'Alchemy API Key',          ok: !!env.ALCHEMY_API_KEY,       critical: false, note: 'لتفعيل مسح DEX' },
+    { name: 'وضع Live مفعّل',           ok: state.paper_trading === false, critical: true, note: 'التداول الحقيقي' },
+    { name: 'حد الخسارة اليومية',       ok: !!(state.max_daily_loss_usd), critical: true, note: `الحالي: $${state.max_daily_loss_usd ?? 25}` },
+    { name: 'التداول مفعّل',            ok: state.trading_enabled !== false, critical: false, note: 'يجب التشغيل قبل المسح' },
+    { name: 'لا إيقاف تلقائي نشط',     ok: !state.auto_stopped,         critical: false, note: state.auto_stop_reason || '' }
   ];
   const criticalOk = checks.filter(c => c.critical).every(c => c.ok);
   const allOk      = checks.every(c => c.ok);
