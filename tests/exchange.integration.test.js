@@ -367,6 +367,7 @@ describe('placeMEXCFuturesOrder', () => {
     );
 
     const body = JSON.parse(capturedRequests[0].body);
+    // MEXC Futures: 1=open long, 2=close short, 3=open short, 4=close long
     assert.equal(body.side, 3);
   });
 
