@@ -544,16 +544,25 @@ async function executeTrade(env, opp, sizeUsd, leverage) {
         return;
       }
     }
-    // MEXC perp unavailable or insufficient balance — fall back to spot hedge
+    // MEXC perp unavailable or insufficient balance — fall back to spot hedge.
+    // LONG perp (buy perp, sell spot) requires pre-existing base inventory which
+    // the account typically won't hold; executing a blind SELL would fail.
+    // For SHORT perp (sell perp, buy spot) we can safely BUY spot as the hedge.
+    if (!isSellPerp) {
+      throw new Error(
+        `LONG perp live execution requires MEXC Futures (MEXC_API_KEY + MEXC_API_SECRET); ` +
+        `spot-only fallback is unsafe without pre-existing base inventory. ` +
+        `Configure MEXC Futures credentials or set paper_trading=true to simulate.`
+      );
+    }
     const fallback = await selectBestExchange(env, sizeUsd);
     if (!fallback) {
       throw new Error(
-        `No configured exchange has sufficient USDT ($${sizeUsd.toFixed(2)}) for perps trade`
+        `No configured exchange has sufficient USDT ($${sizeUsd.toFixed(2)}) for perps hedge trade`
       );
     }
-    // Execute as a spot hedge: buy the cheaper leg, sell when price reverts
-    const spotSide = isSellPerp ? 'BUY' : 'SELL';
-    await placeExchangeMarketOrder(env, fallback, opp.symbol, spotSide, amount, sizeUsd);
+    // SHORT perp fallback: buy spot as a partial hedge on the cheapest leg
+    await placeExchangeMarketOrder(env, fallback, opp.symbol, 'BUY', amount, sizeUsd);
     return;
   }
 

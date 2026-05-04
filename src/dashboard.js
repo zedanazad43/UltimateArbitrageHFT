@@ -633,7 +633,7 @@ ${autoStopBanner}
           const cls=open?'cb-open':'cb-ok';
           const label=open?\`🔴 مفتوح (\${failures} أخطاء)\`:\`✅ سليم\`;
           const isDataOnly=['binance_perp','okx_perp'].includes(ex);
-          return \`<div class="cb-card\${isDataOnly?' style="opacity:.75"':''}"><div class="name">\${ex.toUpperCase()}</div><div class="\${cls}">\${label}\${isDataOnly?' <span style="font-size:.72em;color:#888">(feed)</span>':''}</div></div>\`;
+          return \`<div class="cb-card"\${isDataOnly?' style="opacity:.75"':''}><div class="name">\${ex.toUpperCase()}</div><div class="\${cls}">\${label}\${isDataOnly?' <span style="font-size:.72em;color:#888">(feed)</span>':''}</div></div>\`;
         }),
         ...dataOnly.map(ex=>\`<div class="cb-card" style="opacity:.4"><div class="name">\${ex.toUpperCase()}</div><div style="color:#888;font-size:.78em">📊 بيانات فقط</div></div>\`)
       ].join('');

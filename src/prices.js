@@ -142,73 +142,99 @@ export async function getMEXCPerpPrice(symbol) {
 
 /**
  * Fetches Binance USDM Futures price and latest funding rate.
+ * - Throws on 5xx server errors so the circuit breaker can detect outages.
+ * - Returns null when the symbol has no futures contract (4xx/API errors).
+ * - Transport-level errors throw naturally (fetchWithRetry re-throws lastErr).
  * fundingRate is expressed as a decimal (e.g. 0.0001 = 0.01% per 8-hour period).
  */
 export async function getBinancePerpData(symbol) {
-  try {
-    const [tickerResp, fundingResp] = await Promise.all([
-      fetchWithRetry(
-        `https://fapi.binance.com/fapi/v1/ticker/price?symbol=${symbol}`,
-        FETCH_CF
-      ),
-      fetchWithRetry(
-        `https://fapi.binance.com/fapi/v1/fundingRate?symbol=${symbol}&limit=1`,
-        FETCH_CF
-      )
-    ]);
-    if (!tickerResp || !tickerResp.ok) { await tickerResp?.body?.cancel(); return null; }
-    const tickerData = await tickerResp.json();
-    const price = parseFloat(tickerData.price);
-    if (!price || isNaN(price)) return null;
+  const [tickerResp, fundingResp] = await Promise.all([
+    fetchWithRetry(
+      `https://fapi.binance.com/fapi/v1/ticker/price?symbol=${symbol}`,
+      FETCH_CF
+    ),
+    fetchWithRetry(
+      `https://fapi.binance.com/fapi/v1/fundingRate?symbol=${symbol}&limit=1`,
+      FETCH_CF
+    )
+  ]);
 
-    let fundingRate = DEFAULT_FUNDING_RATE;
-    if (fundingResp && fundingResp.ok) {
-      const fundingData = await fundingResp.json();
-      if (Array.isArray(fundingData) && fundingData.length > 0) {
-        fundingRate = parseFloat(fundingData[0].fundingRate || '0');
-      }
-    } else {
-      await fundingResp?.body?.cancel();
+  if (!tickerResp) return null;
+  if (tickerResp.status >= 500) {
+    await tickerResp.body?.cancel();
+    await fundingResp?.body?.cancel();
+    throw new Error(`Binance USDM HTTP ${tickerResp.status} for ${symbol}`);
+  }
+  if (!tickerResp.ok) {
+    await tickerResp.body?.cancel();
+    await fundingResp?.body?.cancel();
+    return null;
+  }
+
+  const tickerData = await tickerResp.json();
+  const price = parseFloat(tickerData.price);
+  if (!price || isNaN(price)) return null;
+
+  let fundingRate = DEFAULT_FUNDING_RATE;
+  if (fundingResp && fundingResp.ok) {
+    const fundingData = await fundingResp.json();
+    if (Array.isArray(fundingData) && fundingData.length > 0) {
+      fundingRate = parseFloat(fundingData[0].fundingRate || '0');
     }
-    return { price, exchange: 'binance_perp', fee: 0.0004, fundingRate };
-  } catch (_) { return null; }
+  } else {
+    await fundingResp?.body?.cancel();
+  }
+  return { price, exchange: 'binance_perp', fee: 0.0004, fundingRate };
 }
 
 /**
  * Fetches OKX Swap (perpetuals) price and current funding rate.
+ * - Throws on 5xx server errors so the circuit breaker can detect outages.
+ * - Returns null when the symbol has no swap contract (OKX code !== '0').
+ * - Transport-level errors throw naturally.
  * instId format: BTC-USDT-SWAP
  */
 export async function getOKXPerpData(symbol) {
-  try {
-    const baseAsset = symbol.replace(/USDT$/, '');
-    const instId    = `${baseAsset}-USDT-SWAP`;
-    const [tickerResp, fundingResp] = await Promise.all([
-      fetchWithRetry(
-        `https://www.okx.com/api/v5/market/ticker?instId=${instId}`,
-        FETCH_CF
-      ),
-      fetchWithRetry(
-        `https://www.okx.com/api/v5/public/funding-rate?instId=${instId}`,
-        FETCH_CF
-      )
-    ]);
-    if (!tickerResp || !tickerResp.ok) { await tickerResp?.body?.cancel(); return null; }
-    const tickerData = await tickerResp.json();
-    if (tickerData.code !== '0' || !tickerData.data?.[0]?.last) return null;
-    const price = parseFloat(tickerData.data[0].last);
-    if (!price || isNaN(price)) return null;
+  const baseAsset = symbol.replace(/USDT$/, '');
+  const instId    = `${baseAsset}-USDT-SWAP`;
+  const [tickerResp, fundingResp] = await Promise.all([
+    fetchWithRetry(
+      `https://www.okx.com/api/v5/market/ticker?instId=${instId}`,
+      FETCH_CF
+    ),
+    fetchWithRetry(
+      `https://www.okx.com/api/v5/public/funding-rate?instId=${instId}`,
+      FETCH_CF
+    )
+  ]);
 
-    let fundingRate = DEFAULT_FUNDING_RATE;
-    if (fundingResp && fundingResp.ok) {
-      const fundingData = await fundingResp.json();
-      if (fundingData.code === '0' && fundingData.data?.[0]?.fundingRate) {
-        fundingRate = parseFloat(fundingData.data[0].fundingRate);
-      }
-    } else {
-      await fundingResp?.body?.cancel();
+  if (!tickerResp) return null;
+  if (tickerResp.status >= 500) {
+    await tickerResp.body?.cancel();
+    await fundingResp?.body?.cancel();
+    throw new Error(`OKX Swap HTTP ${tickerResp.status} for ${instId}`);
+  }
+  if (!tickerResp.ok) {
+    await tickerResp.body?.cancel();
+    await fundingResp?.body?.cancel();
+    return null;
+  }
+
+  const tickerData = await tickerResp.json();
+  if (tickerData.code !== '0' || !tickerData.data?.[0]?.last) return null;
+  const price = parseFloat(tickerData.data[0].last);
+  if (!price || isNaN(price)) return null;
+
+  let fundingRate = DEFAULT_FUNDING_RATE;
+  if (fundingResp && fundingResp.ok) {
+    const fundingData = await fundingResp.json();
+    if (fundingData.code === '0' && fundingData.data?.[0]?.fundingRate) {
+      fundingRate = parseFloat(fundingData.data[0].fundingRate);
     }
-    return { price, exchange: 'okx_perp', fee: 0.0005, fundingRate };
-  } catch (_) { return null; }
+  } else {
+    await fundingResp?.body?.cancel();
+  }
+  return { price, exchange: 'okx_perp', fee: 0.0005, fundingRate };
 }
 
 // ── DEX prices ────────────────────────────────────────────────────────────────
