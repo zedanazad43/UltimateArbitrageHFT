@@ -524,11 +524,15 @@ app.post('/api/exchange/:exchange/order', async (c) => {
   try { body = await c.req.json(); } catch (_) { return c.json({ error: 'Invalid JSON body' }, 400); }
 
   const { symbol, side, quantity, sizeUsd } = body || {};
-  if (!symbol || !side || !quantity || !sizeUsd) {
+  if (symbol == null || side == null || quantity == null || sizeUsd == null) {
     return c.json({ error: 'Required fields: symbol, side, quantity, sizeUsd' }, 400);
   }
   if (!['BUY', 'SELL'].includes(side?.toUpperCase())) {
     return c.json({ error: 'side must be BUY or SELL' }, 400);
+  }
+  const parsedSizeUsd = parseFloat(sizeUsd);
+  if (isNaN(parsedSizeUsd) || parsedSizeUsd <= 0) {
+    return c.json({ error: 'sizeUsd must be a positive number' }, 400);
   }
 
   const state = await getState(c.env);
@@ -546,7 +550,7 @@ app.post('/api/exchange/:exchange/order', async (c) => {
   }
 
   try {
-    const result = await placeExchangeMarketOrder(c.env, exchange, symbol, side.toUpperCase(), quantity, parseFloat(sizeUsd));
+    const result = await placeExchangeMarketOrder(c.env, exchange, symbol, side.toUpperCase(), quantity, parsedSizeUsd);
     await logAdminEvent(c.env, 'manual-order', c.req.raw);
     return c.json({ success: true, paper: false, exchange, symbol, side: side.toUpperCase(), result });
   } catch (e) {
@@ -567,9 +571,7 @@ app.get('/api/dex', async (c) => {
 
   const alchemyConfigured = !!(c.env.ALCHEMY_API_KEY || c.env.ALCHEMY_ETHEREUM_ENDPOINT);
   const hftConfigured = isHFTEngineConfigured(c.env);
-  const [lastScan] = await Promise.all([
-    c.env.BOT_STATE.get('nexus_last_scan', 'json').catch(() => null)
-  ]);
+  const lastScan = await c.env.BOT_STATE.get('nexus_last_scan', 'json').catch(() => null);
 
   let currentOpportunity = null;
   if (alchemyConfigured) {
