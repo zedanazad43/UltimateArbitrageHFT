@@ -254,6 +254,34 @@ describe('placeMarketOrderMEXC', () => {
     assert.match(body.get('signature'), /^[0-9a-f]{64}$/);
   });
 
+  test('BUY uses quoteOrderQty (USDT amount) instead of quantity', async () => {
+    installMockFetch(() => makeJsonResponse({ orderId: 'buy123' }));
+
+    await placeMarketOrderMEXC(
+      { MEXC_API_KEY: 'k', MEXC_API_SECRET: 's' },
+      'BTCUSDT', 'BUY', '0.001', 250.00
+    );
+
+    const body = new URLSearchParams(capturedRequests[0].body);
+    assert.equal(body.get('side'),           'BUY');
+    assert.equal(body.get('quoteOrderQty'),  '250.00', 'BUY should use quoteOrderQty (USDT amount)');
+    assert.equal(body.get('quantity'),       null,      'BUY should NOT include quantity');
+  });
+
+  test('SELL uses quantity (base asset) instead of quoteOrderQty', async () => {
+    installMockFetch(() => makeJsonResponse({ orderId: 'sell123' }));
+
+    await placeMarketOrderMEXC(
+      { MEXC_API_KEY: 'k', MEXC_API_SECRET: 's' },
+      'BTCUSDT', 'SELL', '0.005', 250.00
+    );
+
+    const body = new URLSearchParams(capturedRequests[0].body);
+    assert.equal(body.get('side'),           'SELL');
+    assert.equal(body.get('quantity'),       '0.005',  'SELL should use quantity (base asset)');
+    assert.equal(body.get('quoteOrderQty'),  null,      'SELL should NOT include quoteOrderQty');
+  });
+
   test('throws when API returns an error code', async () => {
     installMockFetch(() => makeJsonResponse({
       code: -1121,
@@ -330,7 +358,7 @@ describe('placeMEXCFuturesOrder', () => {
     assert.equal(body.side, 1);
   });
 
-  test('SHORT side maps to sideCode 2', async () => {
+  test('SHORT side maps to sideCode 3', async () => {
     installMockFetch(() => makeJsonResponse({ success: true }));
 
     await placeMEXCFuturesOrder(
@@ -339,7 +367,8 @@ describe('placeMEXCFuturesOrder', () => {
     );
 
     const body = JSON.parse(capturedRequests[0].body);
-    assert.equal(body.side, 2);
+    // MEXC Futures: 1=open long, 2=close short, 3=open short, 4=close long
+    assert.equal(body.side, 3);
   });
 
   test('leverage value is included in the request body', async () => {

@@ -10,6 +10,8 @@ import {
   getBinancePrice,
   getKuCoinPrice,
   getMEXCPerpPrice,
+  getBinancePerpData,
+  getOKXPerpData,
   getOKXPrice,
   getBitgetPrice,
   getBitmartPrice,
@@ -161,14 +163,171 @@ describe('getMEXCPerpPrice', () => {
     assert.equal(await getMEXCPerpPrice('BTCUSDT'), null);
   });
 
-  test('returns null when HTTP response is not ok', async () => {
+  test('throws when HTTP response is a server error (5xx)', async () => {
     installMockFetch(() => makeResponse({}, 500));
+    await assert.rejects(
+      () => getMEXCPerpPrice('BTCUSDT'),
+      /MEXC perp API request failed.*HTTP 500/
+    );
+  });
+
+  test('returns null when HTTP response is a client error (4xx — symbol not listed)', async () => {
+    installMockFetch(() => makeResponse({}, 400));
     assert.equal(await getMEXCPerpPrice('BTCUSDT'), null);
   });
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// getOKXPrice
+// getBinancePerpData
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('getBinancePerpData', () => {
+  test('returns perp data with fundingRate on success', async () => {
+    let callCount = 0;
+    globalThis.fetch = async (url) => {
+      callCount++;
+      if (url.includes('ticker/price')) {
+        return makeResponse({ price: '45500.0' });
+      }
+      // fundingRate endpoint
+      return makeResponse([{ fundingRate: '0.0001', fundingTime: '1234567890000' }]);
+    };
+    const result = await getBinancePerpData('BTCUSDT');
+    assert.notEqual(result, null);
+    assert.equal(result.price, 45500.0);
+    assert.equal(result.exchange, 'binance_perp');
+    assert.equal(result.fee, 0.0004);
+    assert.equal(result.fundingRate, 0.0001);
+    assert.equal(callCount, 2, 'should call both ticker and fundingRate endpoints');
+  });
+
+  test('uses fapi.binance.com for futures endpoints', async () => {
+    const hosts = new Set();
+    globalThis.fetch = async (url) => {
+      hosts.add(new URL(url).hostname);
+      if (url.includes('ticker/price')) return makeResponse({ price: '45500.0' });
+      return makeResponse([{ fundingRate: '0.0001' }]);
+    };
+    await getBinancePerpData('BTCUSDT');
+    assert.ok(hosts.has('fapi.binance.com'), 'should use USDM futures API host');
+  });
+
+  test('uses XXXUSDT symbol format directly without conversion (unlike OKX)', async () => {
+    let capturedTickerUrl = '';
+    globalThis.fetch = async (url) => {
+      if (url.includes('ticker/price')) { capturedTickerUrl = url; return makeResponse({ price: '45500.0' }); }
+      return makeResponse([]);
+    };
+    await getBinancePerpData('ETHUSDT');
+    assert.ok(capturedTickerUrl.includes('ETHUSDT'), 'Binance should use XXXUSDT symbol directly');
+    assert.ok(!capturedTickerUrl.includes('ETH-USDT'), 'Binance should NOT use hyphenated instId format');
+  });
+
+  test('defaults fundingRate to 0 when funding endpoint returns empty', async () => {
+    globalThis.fetch = async (url) => {
+      if (url.includes('ticker/price')) return makeResponse({ price: '45500.0' });
+      return makeResponse([]);
+    };
+    const result = await getBinancePerpData('BTCUSDT');
+    assert.notEqual(result, null);
+    assert.equal(result.fundingRate, 0);
+  });
+
+  test('returns null when ticker price is missing', async () => {
+    globalThis.fetch = async (url) => {
+      if (url.includes('ticker/price')) return makeResponse({});
+      return makeResponse([]);
+    };
+    assert.equal(await getBinancePerpData('BTCUSDT'), null);
+  });
+
+  test('returns null when HTTP 4xx (symbol not in futures)', async () => {
+    globalThis.fetch = async (url) => {
+      if (url.includes('ticker/price')) return makeResponse({}, 400);
+      return makeResponse([], 400);
+    };
+    assert.equal(await getBinancePerpData('BTCUSDT'), null);
+  });
+
+  test('throws on HTTP 5xx server error', async () => {
+    globalThis.fetch = async (url) => {
+      if (url.includes('ticker/price')) return makeResponse({}, 500);
+      return makeResponse([], 500);
+    };
+    await assert.rejects(
+      () => getBinancePerpData('BTCUSDT'),
+      /Binance USDM HTTP 500/
+    );
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// getOKXPerpData
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('getOKXPerpData', () => {
+  test('converts XXXUSDT symbol to BTC-USDT-SWAP OKX Swap instId format', async () => {
+    let capturedTickerUrl = '';
+    globalThis.fetch = async (url) => {
+      if (url.includes('market/ticker')) {
+        capturedTickerUrl = url;
+        return makeResponse({ code: '0', data: [{ last: '45300.0' }] });
+      }
+      return makeResponse({ code: '0', data: [{ fundingRate: '0.0002' }] });
+    };
+    await getOKXPerpData('BTCUSDT');
+    assert.ok(capturedTickerUrl.includes('BTC-USDT-SWAP'), 'URL should contain BTC-USDT-SWAP instId');
+    assert.ok(!capturedTickerUrl.includes('BTCUSDT'), 'URL should NOT contain unformatted BTCUSDT');
+  });
+
+  test('returns perp data with fundingRate on success', async () => {
+    globalThis.fetch = async (url) => {
+      if (url.includes('market/ticker'))
+        return makeResponse({ code: '0', data: [{ last: '45300.0' }] });
+      return makeResponse({ code: '0', data: [{ fundingRate: '0.0002' }] });
+    };
+    const result = await getOKXPerpData('BTCUSDT');
+    assert.notEqual(result, null);
+    assert.equal(result.price, 45300.0);
+    assert.equal(result.exchange, 'okx_perp');
+    assert.equal(result.fee, 0.0005);
+    assert.equal(result.fundingRate, 0.0002);
+  });
+
+  test('returns null when OKX ticker code is not "0" (symbol not listed)', async () => {
+    globalThis.fetch = async (url) => {
+      if (url.includes('market/ticker'))
+        return makeResponse({ code: '51001', msg: 'Instrument not found' });
+      return makeResponse({ code: '0', data: [] });
+    };
+    assert.equal(await getOKXPerpData('BTCUSDT'), null);
+  });
+
+  test('defaults fundingRate to 0 when funding data is absent', async () => {
+    globalThis.fetch = async (url) => {
+      if (url.includes('market/ticker'))
+        return makeResponse({ code: '0', data: [{ last: '45300.0' }] });
+      return makeResponse({ code: '0', data: [] });
+    };
+    const result = await getOKXPerpData('BTCUSDT');
+    assert.notEqual(result, null);
+    assert.equal(result.fundingRate, 0);
+  });
+
+  test('returns null when HTTP 4xx (symbol not in swap)', async () => {
+    globalThis.fetch = async () => makeResponse({}, 404);
+    assert.equal(await getOKXPerpData('BTCUSDT'), null);
+  });
+
+  test('throws on HTTP 5xx server error', async () => {
+    globalThis.fetch = async () => makeResponse({}, 503);
+    await assert.rejects(
+      () => getOKXPerpData('BTCUSDT'),
+      /OKX Swap HTTP 503/
+    );
+  });
+});
+
 // ─────────────────────────────────────────────────────────────────────────────
 
 describe('getOKXPrice', () => {
