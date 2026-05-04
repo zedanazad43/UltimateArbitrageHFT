@@ -35,7 +35,7 @@ export default [
   // Node.js environment for scripts and temporal worker
   {
     files: [
-      '*.cjs',
+      '**/*.cjs',
       'temporal-worker.js',
       'scripts/**/*.js',
       'src/ai-client.js',
