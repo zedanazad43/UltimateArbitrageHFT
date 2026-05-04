@@ -23,3 +23,12 @@ Thumbs.db
 *.secret*
 *.bak
 secrets.env
+node_modules
+.vscode
+UltimateArbitrageHFT
+money-transfer-project-template-java
+*.log
+coverage
+*.local
+*.cache
+*.secret
