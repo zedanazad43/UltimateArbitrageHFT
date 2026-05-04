@@ -330,7 +330,7 @@ describe('placeMEXCFuturesOrder', () => {
     assert.equal(body.side, 1);
   });
 
-  test('SHORT side maps to sideCode 2', async () => {
+  test('SHORT side maps to sideCode 3', async () => {
     installMockFetch(() => makeJsonResponse({ success: true }));
 
     await placeMEXCFuturesOrder(
@@ -339,7 +339,8 @@ describe('placeMEXCFuturesOrder', () => {
     );
 
     const body = JSON.parse(capturedRequests[0].body);
-    assert.equal(body.side, 2);
+    // MEXC Futures: 1=open long, 2=close short, 3=open short, 4=close long
+    assert.equal(body.side, 3);
   });
 
   test('leverage value is included in the request body', async () => {
