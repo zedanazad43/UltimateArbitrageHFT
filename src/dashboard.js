@@ -82,6 +82,9 @@ export async function renderDashboard(env) {
     : '—';
   const expectancy     = (metrics.expectancy       || 0).toFixed(3);
 
+  // HTML attribute escaper — prevents XSS in server-interpolated input value="…"
+  const esc = (v) => String(v ?? '').replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+
   // Opportunity card HTML helper
   function oppCard(opp) {
     if (!opp) return `<div style="color:#888;font-size:.85em">لا توجد فرصة في آخر مسح</div>`;
@@ -367,9 +370,16 @@ ${autoStopBanner}
     </div>
   </div>
   <button class="btn btn-blue" data-admin-action="1" onclick="runBacktest()">🔬 تشغيل Backtest</button>
+  <button class="btn" onclick="loadBacktestRuns()" style="margin-right:4px">📋 تاريخ الاختبارات</button>
   <div id="btResults" style="margin-top:16px;display:none">
     <div class="grid" id="btMetricsGrid"></div>
     <div style="margin-top:10px;font-size:.82em;color:#888" id="btMC"></div>
+  </div>
+  <div id="btRunsPanel" style="margin-top:14px;display:none">
+    <table style="margin-top:0;font-size:.82em">
+      <thead><tr><th>التاريخ</th><th>الصفقات</th><th>العائد %</th><th>Sharpe</th><th>Max DD</th></tr></thead>
+      <tbody id="btRunsBody"></tbody>
+    </table>
   </div>
 </div>
 
@@ -444,6 +454,79 @@ ${autoStopBanner}
       <button class="btn btn-red" onclick="disconnectWallet()">🔌 فصل المحفظة</button>
     </div>
     <div id="w3TxResult" style="margin-top:10px;font-size:.82em"></div>
+  </div>
+</div>
+
+<!-- ── AI Analysis Panel ─────────────────────────────────────────────────── -->
+<div class="panel">
+  <h2 style="margin-top:0">🤖 تحليل الفرصة بالذكاء الاصطناعي</h2>
+  <div style="font-size:.82em;color:#aaa;margin-bottom:12px">
+    أدخل بيانات الفرصة وسيحللها نموذج الذكاء الاصطناعي ويعطيك توصية فورية.
+  </div>
+  <div class="risk-row" style="margin-bottom:12px">
+    <div class="risk-item">
+      <label>الزوج (Symbol)</label>
+      <input id="ai_symbol" type="text" value="${esc(lastScan?.cex?.symbol || lastScan?.dex?.symbol)}" placeholder="BTC/USDT" style="background:#2a2e38;color:#eee;border:1px solid #444;border-radius:6px;padding:7px 10px;width:140px">
+    </div>
+    <div class="risk-item">
+      <label>الاستراتيجية</label>
+      <select id="ai_strategy" style="background:#2a2e38;color:#eee;border:1px solid #444;border-radius:6px;padding:7px 10px">
+        <option value="cex">CEX</option>
+        <option value="dex">DEX</option>
+        <option value="perps">Perps</option>
+        <option value="triangular">Triangular</option>
+        <option value="statistical">Statistical</option>
+      </select>
+    </div>
+    <div class="risk-item">
+      <label>الاتجاه</label>
+      <input id="ai_direction" type="text" value="${esc(lastScan?.cex?.direction)}" placeholder="buy_mexc_sell_binance" style="background:#2a2e38;color:#eee;border:1px solid #444;border-radius:6px;padding:7px 10px;width:190px">
+    </div>
+    <div class="risk-item">
+      <label>سعر الشراء ($)</label>
+      <input id="ai_buyPrice" type="number" value="${esc(lastScan?.cex?.buyPrice)}" step="0.000001" placeholder="0.0" style="background:#2a2e38;color:#eee;border:1px solid #444;border-radius:6px;padding:7px 10px;width:130px">
+    </div>
+    <div class="risk-item">
+      <label>سعر البيع ($)</label>
+      <input id="ai_sellPrice" type="number" value="${esc(lastScan?.cex?.sellPrice)}" step="0.000001" placeholder="0.0" style="background:#2a2e38;color:#eee;border:1px solid #444;border-radius:6px;padding:7px 10px;width:130px">
+    </div>
+    <div class="risk-item">
+      <label>صافي الربح (%)</label>
+      <input id="ai_netPct" type="number" value="${esc(lastScan?.cex?.netPct)}" step="0.0001" placeholder="0.05" style="background:#2a2e38;color:#eee;border:1px solid #444;border-radius:6px;padding:7px 10px;width:120px">
+    </div>
+  </div>
+  <button class="btn btn-blue" data-admin-action="1" onclick="runAiAnalysis()">🤖 تحليل بالذكاء الاصطناعي</button>
+  <div id="aiResult" style="margin-top:14px;font-size:.88em;line-height:1.7;display:none;background:#12161e;border-radius:8px;padding:14px;border-right:3px solid #3498db"></div>
+</div>
+
+<!-- ── Temporal Workflow Panel ──────────────────────────────────────────── -->
+<div class="panel">
+  <h2 style="margin-top:0">⏱️ Temporal — جلسة التداول المستدامة</h2>
+  <div style="font-size:.82em;color:#aaa;margin-bottom:12px">
+    Temporal يضمن استمرار جلسة التداول حتى في حالة إعادة تشغيل الـ Worker.
+    يتطلب تهيئة <code style="background:#2a2e38;padding:2px 6px;border-radius:4px">TEMPORAL_API_KEY</code>.
+  </div>
+  <div style="margin-bottom:12px;display:flex;flex-wrap:wrap;gap:8px;align-items:center">
+    <button class="btn btn-green" data-admin-action="1" onclick="temporalStart()">▶️ تشغيل Temporal</button>
+    <button class="btn btn-red"   data-admin-action="1" onclick="temporalStop(false)">⏸️ إيقاف ناعم</button>
+    <button class="btn btn-red"   data-admin-action="1" onclick="temporalStop(true)" style="opacity:.8">🛑 إنهاء فوري</button>
+    <button class="btn btn-blue"  onclick="temporalStatus()">📊 الحالة</button>
+    <button class="btn"           data-admin-action="1" onclick="temporalMode(true)">📄 Paper</button>
+    <button class="btn btn-red"   data-admin-action="1" onclick="temporalMode(false)">🔴 Live</button>
+  </div>
+  <div id="temporalResult" style="font-size:.82em;color:#888;background:#12161e;border-radius:8px;padding:12px;white-space:pre-wrap;display:none"></div>
+</div>
+
+<!-- ── R2 Log Archives Panel ────────────────────────────────────────────── -->
+<div class="panel">
+  <h2 style="margin-top:0">🗄️ أرشيف ملفات السجلات (R2)</h2>
+  <button class="btn btn-blue" onclick="loadLogArchives()">📂 تحميل قائمة الأرشيف</button>
+  <div id="logsContent" style="margin-top:12px;font-size:.82em;display:none">
+    <table style="margin-top:0">
+      <thead><tr><th>اسم الملف</th><th>الحجم (KB)</th><th>تاريخ الرفع</th><th>عدد الصفوف</th></tr></thead>
+      <tbody id="logsTableBody"></tbody>
+    </table>
+    <div id="logsMore" style="margin-top:8px;font-size:.8em;color:#888"></div>
   </div>
 </div>
 
@@ -592,6 +675,34 @@ ${autoStopBanner}
     }
   }
 
+  async function loadBacktestRuns() {
+    const panel = document.getElementById('btRunsPanel');
+    const tbody = document.getElementById('btRunsBody');
+    panel.style.display = 'block';
+    tbody.innerHTML = '<tr><td colspan="5" style="color:#888;text-align:center">جارٍ التحميل…</td></tr>';
+    try {
+      const res  = await callAdminApi('/api/backtest/runs');
+      const data = JSON.parse(res.text);
+      const runs = data.runs || [];
+      if (!runs.length) { tbody.innerHTML = '<tr><td colspan="5" style="color:#888;text-align:center">لا يوجد تاريخ اختبارات</td></tr>'; return; }
+      tbody.innerHTML = runs.map(r => {
+        const m    = r.metrics || {};
+        const ret  = (r.return_pct || 0).toFixed(2);
+        const date = r.created_at ? new Date(r.created_at).toLocaleString('ar') : '—';
+        const retColor = parseFloat(ret) >= 0 ? '#2ecc71' : '#e74c3c';
+        return \`<tr>
+          <td style="font-size:.82em">\${date}</td>
+          <td>\${m.total_trades||0}</td>
+          <td style="color:\${retColor}">\${ret}%</td>
+          <td>\${(m.sharpe||0).toFixed(2)}</td>
+          <td style="color:#e74c3c">$\${(m.max_drawdown_usd||0).toFixed(2)}</td>
+        </tr>\`;
+      }).join('');
+    } catch(e) {
+      tbody.innerHTML = \`<tr><td colspan="5" style="color:#e74c3c">❌ \${e.message}</td></tr>\`;
+    }
+  }
+
   // ── Load dynamic panels ──────────────────────────────────────────────────────
   async function loadBalances(){
     const el=document.getElementById('balancesContent');
@@ -714,6 +825,120 @@ ${autoStopBanner}
     } catch(e) {
       resultEl.style.color = e.code === 4001 ? '#f0b90b' : '#e74c3c';
       resultEl.textContent = e.code === 4001 ? '⚠️ رفضت الصفقة في MetaMask' : '❌ ' + e.message;
+    }
+  }
+
+  // ── AI Analysis ──────────────────────────────────────────────────────────────
+  async function runAiAnalysis() {
+    const el = document.getElementById('aiResult');
+    const opportunity = {
+      symbol:    document.getElementById('ai_symbol').value.trim(),
+      strategy:  document.getElementById('ai_strategy').value,
+      direction: document.getElementById('ai_direction').value.trim(),
+      buyPrice:  parseFloat(document.getElementById('ai_buyPrice').value) || 0,
+      sellPrice: parseFloat(document.getElementById('ai_sellPrice').value) || 0,
+      netPct:    parseFloat(document.getElementById('ai_netPct').value)   || 0,
+    };
+    if (!opportunity.symbol) { alert('❌ أدخل رمز الزوج أولاً'); return; }
+    el.style.display = 'block';
+    el.style.color = '#888';
+    el.textContent = '⏳ جارٍ التحليل...';
+    setButtonsBusy(true);
+    try {
+      const res  = await callAdminApi('/api/ai-analysis', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ opportunity }),
+      });
+      const data = JSON.parse(res.text);
+      el.style.color = '#eee';
+      el.innerHTML = \`<strong style="color:#3498db">🤖 \${data.provider === 'github-models' ? 'GitHub Models (GPT-4.1)' : 'Cloudflare Workers AI'}:</strong><br><br>\${(data.analysis || data.error || JSON.stringify(data)).replace(/\\n/g,'<br>')}\`;
+    } catch(e) {
+      el.style.color = '#e74c3c';
+      el.textContent = '❌ ' + e.message;
+    } finally { setButtonsBusy(false); }
+  }
+
+  // ── Temporal Workflow ────────────────────────────────────────────────────────
+  async function temporalStart() {
+    const el = document.getElementById('temporalResult');
+    el.style.display = 'block'; el.style.color = '#888'; el.textContent = '⏳ جارٍ التشغيل...';
+    setButtonsBusy(true);
+    try {
+      const res  = await callAdminApi('/api/temporal/start', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
+      const data = JSON.parse(res.text);
+      el.style.color = '#2ecc71';
+      el.textContent = \`✅ تم تشغيل Temporal\\nWorkflow ID: \${data.workflowId || '—'}\`;
+    } catch(e) { el.style.color='#e74c3c'; el.textContent='❌ '+e.message; }
+    finally { setButtonsBusy(false); }
+  }
+  async function temporalStop(force) {
+    const el = document.getElementById('temporalResult');
+    if (force && !confirm('⚠️ إنهاء فوري للجلسة؟')) return;
+    el.style.display = 'block'; el.style.color = '#888'; el.textContent = '⏳ جارٍ الإيقاف...';
+    setButtonsBusy(true);
+    try {
+      const res  = await callAdminApi('/api/temporal/stop', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ force }) });
+      const data = JSON.parse(res.text);
+      el.style.color = '#f0b90b';
+      el.textContent = \`✅ \${force ? 'تم الإنهاء الفوري' : 'تم الإيقاف الناعم'}\\n\${JSON.stringify(data.result || '', null, 2)}\`;
+    } catch(e) { el.style.color='#e74c3c'; el.textContent='❌ '+e.message; }
+    finally { setButtonsBusy(false); }
+  }
+  async function temporalStatus() {
+    const el = document.getElementById('temporalResult');
+    el.style.display = 'block'; el.style.color = '#888'; el.textContent = '⏳ جارٍ الجلب...';
+    try {
+      const res  = await callAdminApi('/api/temporal/status');
+      const data = JSON.parse(res.text);
+      const st   = data.status || {};
+      el.style.color = '#eee';
+      el.textContent =
+        \`📊 الحالة: \${st.trading_enabled ? '▶️ مفعّل' : '⏸️ متوقف'} | وضع: \${st.paper_trading !== false ? 'Paper' : 'Live'}\\n\` +
+        \`الدورة: \${st.cycle_count ?? '—'} | آخر مسح: \${st.last_scan_at ? new Date(st.last_scan_at).toLocaleString('ar') : '—'}\\n\` +
+        \`Workflow: \${data.description?.workflowId ?? '—'} [\${data.description?.status?.name ?? '—'}]\`;
+    } catch(e) { el.style.color='#e74c3c'; el.textContent='❌ '+e.message; }
+  }
+  async function temporalMode(paper) {
+    const el = document.getElementById('temporalResult');
+    el.style.display = 'block'; el.style.color = '#888'; el.textContent = '⏳ جارٍ التغيير...';
+    setButtonsBusy(true);
+    try {
+      const res  = await callAdminApi('/api/temporal/mode', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ paper }) });
+      const data = JSON.parse(res.text);
+      el.style.color = '#2ecc71';
+      el.textContent = \`✅ تم التبديل إلى \${data.mode === 'paper' ? 'Paper' : 'Live'}\`;
+    } catch(e) { el.style.color='#e74c3c'; el.textContent='❌ '+e.message; }
+    finally { setButtonsBusy(false); }
+  }
+
+  // ── R2 Log Archives ──────────────────────────────────────────────────────────
+  async function loadLogArchives() {
+    const panel  = document.getElementById('logsContent');
+    const tbody  = document.getElementById('logsTableBody');
+    const moreEl = document.getElementById('logsMore');
+    panel.style.display = 'block';
+    tbody.innerHTML = '<tr><td colspan="4" style="color:#888;text-align:center">جارٍ التحميل…</td></tr>';
+    try {
+      const res  = await callAdminApi('/api/logs');
+      const data = JSON.parse(res.text);
+      const objs = data.objects || [];
+      if (!objs.length) { tbody.innerHTML = '<tr><td colspan="4" style="color:#888;text-align:center">لا يوجد أرشيف</td></tr>'; return; }
+      tbody.innerHTML = objs.map(o => {
+        const kb   = (o.size / 1024).toFixed(1);
+        const date = o.uploaded ? new Date(o.uploaded).toLocaleString('ar') : '—';
+        const rows = o.customMetadata?.rows ?? '—';
+        const key  = o.key || '';
+        return \`<tr>
+          <td style="font-size:.8em;word-break:break-all">\${key}</td>
+          <td>\${kb}</td>
+          <td style="font-size:.82em">\${date}</td>
+          <td>\${rows}</td>
+        </tr>\`;
+      }).join('');
+      moreEl.textContent = data.truncated ? \`عرض أول 50 ملف — يوجد المزيد\` : \`إجمالي: \${objs.length} ملف\`;
+    } catch(e) {
+      tbody.innerHTML = \`<tr><td colspan="4" style="color:#e74c3c">❌ \${e.message}</td></tr>\`;
     }
   }
 </script>
