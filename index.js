@@ -7,7 +7,9 @@ import { cors } from 'hono/cors';
 import { renderDashboard, renderChecklist } from './src/dashboard.js';
 import { runScan } from './src/orchestrator.js';
 import { ensureSchema, logAdminEvent, logBotEvent, getRecentTrades, getStrategyPnL, getPerformanceMetrics, exportTrades } from './src/db.js';
-import { hasExchangeCredentials, getExchangeBalance, ACTIVE_EXECUTION_EXCHANGES } from './src/exchange.js';
+import { hasExchangeCredentials, getExchangeBalance, placeExchangeMarketOrder, ACTIVE_EXECUTION_EXCHANGES, DATA_ONLY_EXCHANGES } from './src/exchange.js';
+import { scanDEX } from './src/strategies/dex.js';
+import { isHFTEngineConfigured } from './src/hft-client.js';
 import { runBacktest } from './src/backtest.js';
 import {
   startWorkflow,
@@ -425,6 +427,171 @@ app.get('/api/balances', async (c) => {
     { exchange: 'gateio', configured: false, balance: null, dataOnly: true, note: 'German law — data feed only' }
   ];
   return c.json({ success: true, data: [...results, ...dataOnly] });
+});
+
+// ── API: Perps status ─────────────────────────────────────────────────────────
+// Returns the current perpetuals scan state, active perp exchanges (price feeds),
+// and MEXC Futures execution readiness.  Auth-protected.
+app.get('/api/perps', async (c) => {
+  if (!isAuthorized(c.env, c)) return authDenied(c.env, c, true);
+  const [lastScan, cb] = await Promise.all([
+    c.env.BOT_STATE.get('nexus_last_scan', 'json').catch(() => null),
+    c.env.BOT_STATE.get('nexus_circuit_breaker', 'json').catch(() => null)
+  ]);
+  const cbState = cb || {};
+
+  const perpExchanges = ['mexc_perp', 'binance_perp', 'okx_perp', 'bybit_perp'];
+  const exchangeStatus = perpExchanges.map(ex => {
+    const info = cbState[ex];
+    const now = Date.now();
+    const open = info?.open && (now - (info?.lastFailure || 0)) < 300000;
+    // mexc_perp is the only executable perp feed; others are data-only feeds
+    const isExecutable = ex === 'mexc_perp';
+    return {
+      exchange: ex,
+      status: open ? 'open' : 'ok',
+      failures: info?.failures || 0,
+      dataOnly: !isExecutable,
+      executionVia: isExecutable ? 'mexc_futures' : 'spot_hedge'
+    };
+  });
+
+  const mexcReady = hasExchangeCredentials(c.env, 'mexc');
+
+  return c.json({
+    success: true,
+    perpsEnabled: true,
+    mexcFuturesConfigured: mexcReady,
+    lastPerpsOpp: lastScan?.perps || null,
+    lastFundingOpp: lastScan?.funding || null,
+    exchangeStatus,
+    executionNote: mexcReady
+      ? 'MEXC Futures active — perps orders placed via contract.mexc.com'
+      : 'MEXC credentials missing — perps will run as spot hedge on best available exchange'
+  });
+});
+
+// ── API: Per-exchange status & balance ────────────────────────────────────────
+// GET /api/exchange/:exchange — returns connection status and USDT balance for
+// a single exchange.  Auth-protected.
+app.get('/api/exchange/:exchange', async (c) => {
+  if (!isAuthorized(c.env, c)) return authDenied(c.env, c, true);
+  const exchange = c.req.param('exchange').toLowerCase();
+  const isActive  = ACTIVE_EXECUTION_EXCHANGES.includes(exchange);
+  const isDataOnly = DATA_ONLY_EXCHANGES.has(exchange);
+  if (!isActive && !isDataOnly) {
+    return c.json({ error: `Unknown exchange: ${exchange}` }, 404);
+  }
+  if (isDataOnly) {
+    return c.json({
+      exchange,
+      configured: false,
+      balance: null,
+      dataOnly: true,
+      note: 'German regulatory restriction — price feed only, no live execution'
+    });
+  }
+  const configured = hasExchangeCredentials(c.env, exchange);
+  if (!configured) {
+    return c.json({ exchange, configured: false, balance: null });
+  }
+  try {
+    const balance = await getExchangeBalance(c.env, exchange, 'USDT');
+    return c.json({ exchange, configured: true, balance });
+  } catch (e) {
+    return c.json({ exchange, configured: true, balance: null, error: e.message }, 502);
+  }
+});
+
+// ── API: Manual order placement on a specific exchange ────────────────────────
+// POST /api/exchange/:exchange/order — places a market order on the named
+// exchange.  Auth-protected.  Respects paper_trading mode.
+// Body: { symbol, side, quantity, sizeUsd }
+app.post('/api/exchange/:exchange/order', async (c) => {
+  const limited = await checkRateLimit(c.env, c);
+  if (limited) return limited;
+  if (!isAuthorized(c.env, c)) return authDenied(c.env, c, true);
+
+  const exchange = c.req.param('exchange').toLowerCase();
+  if (!ACTIVE_EXECUTION_EXCHANGES.includes(exchange)) {
+    return c.json({ error: `Exchange not available for execution: ${exchange}` }, 400);
+  }
+  if (!hasExchangeCredentials(c.env, exchange)) {
+    return c.json({ error: `${exchange} API credentials not configured` }, 503);
+  }
+
+  let body;
+  try { body = await c.req.json(); } catch (_) { return c.json({ error: 'Invalid JSON body' }, 400); }
+
+  const { symbol, side, quantity, sizeUsd } = body || {};
+  if (symbol == null || side == null || quantity == null || sizeUsd == null) {
+    return c.json({ error: 'Required fields: symbol, side, quantity, sizeUsd' }, 400);
+  }
+  if (!['BUY', 'SELL'].includes(side?.toUpperCase())) {
+    return c.json({ error: 'side must be BUY or SELL' }, 400);
+  }
+  const parsedSizeUsd = parseFloat(sizeUsd);
+  if (isNaN(parsedSizeUsd) || parsedSizeUsd <= 0) {
+    return c.json({ error: 'sizeUsd must be a positive number' }, 400);
+  }
+
+  const state = await getState(c.env);
+  if (state.paper_trading) {
+    return c.json({
+      success: true,
+      paper: true,
+      exchange,
+      symbol,
+      side: side.toUpperCase(),
+      quantity,
+      sizeUsd,
+      note: 'Paper trading mode — no real order placed'
+    });
+  }
+
+  try {
+    const result = await placeExchangeMarketOrder(c.env, exchange, symbol, side.toUpperCase(), quantity, parsedSizeUsd);
+    await logAdminEvent(c.env, 'manual-order', c.req.raw);
+    return c.json({ success: true, paper: false, exchange, symbol, side: side.toUpperCase(), result });
+  } catch (e) {
+    return c.json({ success: false, error: e.message }, 502);
+  }
+});
+
+// ── API: DEX / MetaMask status ────────────────────────────────────────────────
+// GET /api/dex — returns on-chain/DEX trading configuration status:
+//   - whether Alchemy API key is configured (needed for ETH price feeds)
+//   - whether the Go HFT engine is configured (needed for DEX execution)
+//   - last DEX scan result from KV state
+// DEX execution requires the Go HFT engine + a funded wallet.
+// MetaMask integration is handled client-side; this endpoint exposes the
+// server-side readiness.  Auth-protected.
+app.get('/api/dex', async (c) => {
+  if (!isAuthorized(c.env, c)) return authDenied(c.env, c, true);
+
+  const alchemyConfigured = !!(c.env.ALCHEMY_API_KEY || c.env.ALCHEMY_ETHEREUM_ENDPOINT);
+  const hftConfigured = isHFTEngineConfigured(c.env);
+  const lastScan = await c.env.BOT_STATE.get('nexus_last_scan', 'json').catch(() => null);
+
+  let currentOpportunity = null;
+  if (alchemyConfigured) {
+    try {
+      currentOpportunity = await scanDEX(c.env);
+    } catch (_) {}
+  }
+
+  return c.json({
+    success: true,
+    alchemyConfigured,
+    hftEngineConfigured: hftConfigured,
+    executionReady: alchemyConfigured && hftConfigured,
+    lastDexOpp: lastScan?.dex ?? null,
+    currentOpportunity,
+    executionNote: hftConfigured
+      ? 'Go HFT engine active — DEX orders executed via engine wallet'
+      : 'Go HFT engine not configured — set HFT_ENGINE_URL + HFT_ENGINE_SECRET to enable DEX execution',
+    metamaskNote: 'MetaMask wallet connect is handled client-side; server executes via HFT engine private key'
+  });
 });
 
 // ── Admin: Reset daily stats ──────────────────────────────────────────────────

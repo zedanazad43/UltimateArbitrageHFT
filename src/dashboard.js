@@ -403,6 +403,16 @@ ${autoStopBanner}
   <div id="cbContent" class="cb-grid"><span style="color:#888">جارٍ التحميل...</span></div>
 </div>
 
+<!-- ── Perps Status Panel (loaded dynamically) ───────────────────────────── -->
+<div class="panel">
+  <h2 style="margin-top:0">⚡ حالة Perps — العقود الدائمة</h2>
+  <div style="font-size:.78em;color:#888;margin-bottom:10px">
+    مصادر أسعار Perps: MEXC Futures (تنفيذ) + Binance USDM + OKX Swap + Bybit (بيانات فقط).
+    يتم التنفيذ الحقيقي عبر MEXC Futures أو Spot Hedge في حالة عدم توفر MEXC Futures.
+  </div>
+  <div id="perpsStatusContent" class="bal-grid"><span style="color:#888">جارٍ التحميل...</span></div>
+</div>
+
 <!-- ── MetaMask / Web3 Wallet Panel ──────────────────────────────────────── -->
 <div class="panel">
   <h2 style="margin-top:0">🦊 MetaMask — عقود Perps على السلسلة</h2>
@@ -724,8 +734,8 @@ ${autoStopBanner}
       const r=await fetch('/api/status');
       const json=await r.json();
       const cb=json.circuitBreaker||{};
-      const active=['mexc','mexc_perp','binance','kucoin','okx','bitget','bitmart','htx'];
-      const dataOnly=['bybit','gateio'];
+      const active=['mexc','mexc_perp','binance_perp','okx_perp','binance','kucoin','okx','bitget','bitmart','htx'];
+      const dataOnly=['bybit','gateio','bybit_perp'];
       const items=[
         ...active.map(ex=>{
           const info=cb[ex];
@@ -733,14 +743,36 @@ ${autoStopBanner}
           const failures=info?.failures||0;
           const cls=open?'cb-open':'cb-ok';
           const label=open?\`🔴 مفتوح (\${failures} أخطاء)\`:\`✅ سليم\`;
-          return \`<div class="cb-card"><div class="name">\${ex.toUpperCase()}</div><div class="\${cls}">\${label}</div></div>\`;
+          const isDataOnly=['binance_perp','okx_perp'].includes(ex);
+          return \`<div class="cb-card"\${isDataOnly?' style="opacity:.75"':''}><div class="name">\${ex.toUpperCase()}</div><div class="\${cls}">\${label}\${isDataOnly?' <span style="font-size:.72em;color:#888">(feed)</span>':''}</div></div>\`;
         }),
-        ...dataOnly.map(ex=>\`<div class="cb-card" style="opacity:.4"><div class="name">\${ex.toUpperCase()}</div><div style="color:#888;font-size:.78em">📊 بيانات فقط (القانون الألماني)</div></div>\`)
+        ...dataOnly.map(ex=>\`<div class="cb-card" style="opacity:.4"><div class="name">\${ex.toUpperCase()}</div><div style="color:#888;font-size:.78em">📊 بيانات فقط</div></div>\`)
       ].join('');
       el.innerHTML=items;
     }catch(e){ el.innerHTML='<span style="color:#e74c3c">❌ '+e.message+'</span>'; }
   }
-  function loadDynamic(){ loadBalances(); loadCircuitBreaker(); }
+  async function loadPerpsStatus(){
+    const el=document.getElementById('perpsStatusContent');
+    if(!el) return;
+    try{
+      const res=await callAdminApi('/api/perps');
+      const json=JSON.parse(res.text);
+      const exList=(json.exchangeStatus||[]).map(ex=>{
+        const statusColor=ex.status==='ok'?'#2ecc71':'#e74c3c';
+        const statusLabel=ex.status==='ok'?'✅ نشط':'🔴 مفتوح';
+        return \`<div class="bal-card"><div class="bal-name">\${ex.exchange.toUpperCase()}</div><div style="color:\${statusColor};font-size:.85em">\${statusLabel}</div></div>\`;
+      }).join('');
+      const mexcBadge=json.mexcFuturesConfigured
+        ?'<span style="color:#2ecc71;font-weight:bold">✅ MEXC Futures مُهيأ</span>'
+        :'<span style="color:#e74c3c;font-weight:bold">⚠️ MEXC Futures: أضف MEXC_API_KEY و MEXC_API_SECRET</span>';
+      const perpOpp=json.lastPerpsOpp;
+      const perpCard=perpOpp
+        ?\`<div style="margin-top:8px;font-size:.82em;color:#aaa">\${perpOpp.symbol} |\${perpOpp.direction} | صافي: <strong style="color:#2ecc71">\${perpOpp.netPct.toFixed(4)}%</strong></div>\`
+        :'<div style="font-size:.82em;color:#888;margin-top:8px">لا توجد فرصة perp في آخر مسح</div>';
+      el.innerHTML=\`<div style="margin-bottom:10px">\${mexcBadge}</div><div style="font-size:.78em;color:#888;margin-bottom:10px">\${json.executionNote||''}</div><div class="bal-grid">\${exList}</div>\${perpCard}\`;
+    }catch(e){ el.innerHTML='<span style="color:#e74c3c">❌ '+e.message+'</span>'; }
+  }
+  function loadDynamic(){ loadBalances(); loadCircuitBreaker(); loadPerpsStatus(); }
   loadDynamic();
 
   // ── MetaMask / Web3 Wallet ────────────────────────────────────────────────────
@@ -953,11 +985,11 @@ ${autoStopBanner}
 export async function renderChecklist(env) {
   const state = await env.BOT_STATE.get('trading_state', 'json').catch(() => null) || {};
   const checks = [
-    { name: 'MEXC API Key',            ok: !!env.MEXC_API_KEY,          critical: true,  note: 'مطلوب للتداول الحقيقي + Perps' },
-    { name: 'MEXC API Secret',          ok: !!env.MEXC_API_SECRET,       critical: true,  note: 'مطلوب للتداول الحقيقي + Perps' },
-    { name: 'Binance API Key',          ok: !!env.BINANCE_API_KEY,       critical: false, note: 'مطلوب لتنفيذ Binance' },
+    { name: 'MEXC API Key',            ok: !!env.MEXC_API_KEY,          critical: true,  note: 'مطلوب للتداول الحقيقي + MEXC Futures Perps' },
+    { name: 'MEXC API Secret',          ok: !!env.MEXC_API_SECRET,       critical: true,  note: 'مطلوب للتداول الحقيقي + MEXC Futures Perps' },
+    { name: 'Binance API Key',          ok: !!env.BINANCE_API_KEY,       critical: false, note: 'مطلوب لتنفيذ Binance Spot' },
     { name: 'KuCoin API Key',           ok: !!env.KUCOIN_API_KEY,        critical: false, note: 'مطلوب لتنفيذ KuCoin' },
-    { name: 'OKX API Key',              ok: !!env.OKX_API_KEY,           critical: false, note: 'مطلوب لتنفيذ OKX' },
+    { name: 'OKX API Key',              ok: !!env.OKX_API_KEY,           critical: false, note: 'مطلوب لتنفيذ OKX Spot' },
     { name: 'Bitget API Key',           ok: !!env.BITGET_API_KEY,        critical: false, note: 'مطلوب لتنفيذ Bitget' },
     { name: 'Bitmart API Key',          ok: !!env.BITMART_API_KEY,       critical: false, note: 'مطلوب لتنفيذ Bitmart' },
     { name: 'HTX (Huobi) API Key',      ok: !!env.HTX_API_KEY,           critical: false, note: 'مطلوب لتنفيذ HTX' },
@@ -965,6 +997,9 @@ export async function renderChecklist(env) {
     { name: 'Telegram Bot Token',       ok: !!env.TELEGRAM_BOT_TOKEN,    critical: false, note: 'للإشعارات' },
     { name: 'Telegram Chat ID',         ok: !!env.TELEGRAM_CHAT_ID,      critical: false, note: 'معرف المستخدم' },
     { name: 'Alchemy API Key',          ok: !!env.ALCHEMY_API_KEY,       critical: false, note: 'لتفعيل مسح DEX' },
+    { name: 'Perps — MEXC Futures',     ok: !!(env.MEXC_API_KEY && env.MEXC_API_SECRET), critical: true,  note: 'تنفيذ MEXC Futures للعقود الدائمة' },
+    { name: 'Perps — Binance USDM Feed',ok: true,                        critical: false, note: 'بيانات أسعار Binance Futures (مجاني، لا مفتاح مطلوب)' },
+    { name: 'Perps — OKX Swap Feed',    ok: true,                        critical: false, note: 'بيانات أسعار OKX Perpetuals (مجاني، لا مفتاح مطلوب)' },
     { name: 'وضع Live مفعّل',           ok: state.paper_trading === false, critical: true, note: 'التداول الحقيقي' },
     { name: 'حد الخسارة اليومية',       ok: !!(state.max_daily_loss_usd), critical: true, note: `الحالي: $${state.max_daily_loss_usd ?? 25}` },
     { name: 'التداول مفعّل',            ok: state.trading_enabled !== false, critical: false, note: 'يجب التشغيل قبل المسح' },
