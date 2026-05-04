@@ -329,9 +329,9 @@ jobs:
           }
           for k, v in defaults.items():
               state.setdefault(k, v)
-          state["trading_enabled"]  = True
-          state["paper_trading"]    = False
-          state["auto_stopped"]     = False
+          state["trading_enabled"] = True
+          state["paper_trading"] = False
+          state["auto_stopped"] = False
           state["auto_stop_reason"] = None
           subprocess.run(
               ["npx", "--yes", "wrangler@4", "kv", "key", "put",
