@@ -121,9 +121,16 @@ export async function getMEXCPerpPrice(symbol) {
   const resp = await fetchWithRetry(
     `https://contract.mexc.com/api/v1/contract/ticker?symbol=${perpSymbol}`
   );
-  if (!resp || !resp.ok) {
-    await resp?.body?.cancel();
-    // Non-2xx means API error or symbol not found — not a circuit-break-worthy failure
+  if (!resp) {
+    throw new Error(`MEXC perp API request failed for ${perpSymbol}: no response after retries`);
+  }
+  if (!resp.ok) {
+    const status = resp.status;
+    await resp.body?.cancel();
+    if (status === 429 || status >= 500) {
+      throw new Error(`MEXC perp API request failed for ${perpSymbol}: HTTP ${status}`);
+    }
+    // Treat client/API-level errors (for example, an unlisted symbol) as absence.
     return null;
   }
   const data = await resp.json();
