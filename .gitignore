@@ -31,3 +31,4 @@ money-transfer-project-template-java
 coverage
 *.local
 *.cache
+*.secret
