@@ -4,7 +4,7 @@
 // symbols, selects the single best opportunity, applies unified risk checks,
 // and executes one trade per scan cycle.
 
-import { getAllSpotPrices, getMEXCPerpPrice, getBybitPerpData, get0xPrice, getCrossPairPrices } from './prices.js';
+import { getAllSpotPrices, getMEXCPerpPrice, getBybitPerpData, getBinancePerpData, getOKXPerpData, get0xPrice, getCrossPairPrices } from './prices.js';
 import { scanCEX }         from './strategies/cex.js';
 import { scanDEX }         from './strategies/dex.js';
 import { scanPerps }       from './strategies/perps.js';
@@ -174,37 +174,62 @@ export async function runScan(env, state, sendAlert) {
     Promise.all(
       SUPPORTED_SYMBOLS.map(async symbol => {
         try {
-          const [spotSources, mexcPerp, bybitPerp, zeroXSource] = await Promise.all([
+          // Fetch perp prices with per-source error tracking so the circuit breaker
+          // only trips on genuine connectivity failures, not on "symbol not listed".
+          const [spotSources, zeroXSource, mexcPerpResult, bybitPerpResult, binancePerpResult, okxPerpResult] = await Promise.all([
             getAllSpotPrices(env, symbol, openCircuits),
-            (!openCircuits.has('mexc_perp'))  ? getMEXCPerpPrice(symbol) : Promise.resolve(null),
-            (!openCircuits.has('bybit_perp')) ? getBybitPerpData(symbol) : Promise.resolve(null),
-            get0xPrice(env, symbol)
+            get0xPrice(env, symbol),
+            (!openCircuits.has('mexc_perp'))
+              ? getMEXCPerpPrice(symbol).then(d => ({ data: d, error: null })).catch(e => ({ data: null, error: e }))
+              : Promise.resolve({ data: null, error: null }),
+            (!openCircuits.has('bybit_perp'))
+              ? getBybitPerpData(symbol).then(d => ({ data: d, error: null })).catch(e => ({ data: null, error: e }))
+              : Promise.resolve({ data: null, error: null }),
+            (!openCircuits.has('binance_perp'))
+              ? getBinancePerpData(symbol).then(d => ({ data: d, error: null })).catch(e => ({ data: null, error: e }))
+              : Promise.resolve({ data: null, error: null }),
+            (!openCircuits.has('okx_perp'))
+              ? getOKXPerpData(symbol).then(d => ({ data: d, error: null })).catch(e => ({ data: null, error: e }))
+              : Promise.resolve({ data: null, error: null }),
           ]);
 
-          // Update circuit breaker based on fetch results
+          const mexcPerp    = mexcPerpResult.data;
+          const bybitPerp   = bybitPerpResult.data;
+          const binancePerp = binancePerpResult.data;
+          const okxPerp     = okxPerpResult.data;
+
+          // Update circuit breaker based on fetch results.
+          // Only record failure on genuine errors (exceptions), NOT on null returns
+          // (null means the symbol simply has no perp contract on that exchange).
           if (spotSources.length > 0) {
             for (const src of spotSources) recordCBSuccess(cb, src.exchange);
           } else {
-            // All spot sources failed — record failure for mexc (primary)
             recordCBFailure(cb, 'mexc');
           }
-          if (mexcPerp) {
-            recordCBSuccess(cb, 'mexc_perp');
-          } else {
-            recordCBFailure(cb, 'mexc_perp');
-          }
-          if (bybitPerp) {
-            recordCBSuccess(cb, 'bybit_perp');
-          } else {
-            recordCBFailure(cb, 'bybit_perp');
-          }
+
+          if (mexcPerpResult.error)   recordCBFailure(cb, 'mexc_perp');
+          else if (mexcPerp)          recordCBSuccess(cb, 'mexc_perp');
+          // null without error = symbol not listed — do not trip the circuit
+
+          if (bybitPerpResult.error)  recordCBFailure(cb, 'bybit_perp');
+          else if (bybitPerp)         recordCBSuccess(cb, 'bybit_perp');
+
+          if (binancePerpResult.error) recordCBFailure(cb, 'binance_perp');
+          else if (binancePerp)        recordCBSuccess(cb, 'binance_perp');
+
+          if (okxPerpResult.error)    recordCBFailure(cb, 'okx_perp');
+          else if (okxPerp)           recordCBSuccess(cb, 'okx_perp');
 
           // Record mid price for paper settlement (use MEXC spot as reference)
           const mexcSrc = spotSources.find(s => s.exchange === 'mexc');
           if (mexcSrc) midPrices[symbol] = mexcSrc.price;
 
-          // Prefer MEXC perp for execution; fall back to Bybit perp
-          const perpSource = mexcPerp || bybitPerp;
+          // Perp source priority: MEXC (executable) → Binance → OKX → Bybit (data-only)
+          const perpSource = mexcPerp || binancePerp || okxPerp || bybitPerp;
+
+          // Best perp source with funding rate for harvest strategy
+          // Prefer sources that carry a fundingRate field
+          const fundingPerp = bybitPerp || binancePerp || okxPerp || mexcPerp;
 
           // CEX: all spot sources + 0x DEX price
           const cexSources = zeroXSource
@@ -214,9 +239,9 @@ export async function runScan(env, state, sendAlert) {
           const cexOpp   = scanCEX(symbol, cexSources, maxSpreadPct);
           const perpsOpp = scanPerps(symbol, spotSources, perpSource, maxSpreadPct);
 
-          // Funding rate harvest — uses Bybit perp (includes fundingRate field)
-          const fundingOpp = bybitPerp?.fundingRate !== undefined
-            ? scanFundingRate(symbol, spotSources, bybitPerp, maxSpreadPct)
+          // Funding rate harvest — use whichever perp source has a funding rate
+          const fundingOpp = fundingPerp?.fundingRate !== undefined
+            ? scanFundingRate(symbol, spotSources, fundingPerp, maxSpreadPct)
             : null;
 
           if (cexOpp) {
@@ -505,27 +530,30 @@ async function executeTrade(env, opp, sizeUsd, leverage) {
 
   // ── Perpetuals ────────────────────────────────────────────────────────────
   if (opp.isPerp) {
-    // Try MEXC perp first (primary CEX perp), then fall back to other configured exchanges.
-    // Bybit perp is excluded (German law).
+    // Determine if this is a SHORT (sell on perp exchange) or LONG (buy on perp)
+    const perpExchanges = new Set(['mexc_perp', 'binance_perp', 'okx_perp', 'bybit_perp']);
+    const isSellPerp = perpExchanges.has(opp.sellExchange);
+    const side = isSellPerp ? 'SHORT' : 'LONG';
+
+    // Primary: MEXC Futures (executable perp)
     const hasMEXC = hasExchangeCredentials(env, 'mexc');
     if (hasMEXC) {
       const sufficient = await hasSufficientUSDT(env, sizeUsd);
       if (sufficient) {
-        const side = opp.sellExchange === 'mexc_perp' ? 'SHORT' : 'LONG';
         await placeMEXCFuturesOrder(env, opp.symbol, side, amount, leverage);
         return;
       }
     }
-    // MEXC perp unavailable or insufficient balance — try other exchanges with spot hedge
+    // MEXC perp unavailable or insufficient balance — fall back to spot hedge
     const fallback = await selectBestExchange(env, sizeUsd);
     if (!fallback) {
       throw new Error(
         `No configured exchange has sufficient USDT ($${sizeUsd.toFixed(2)}) for perps trade`
       );
     }
-    // Execute as a spot long (hedge): buy on cheapest, sell when price is favorable
-    const side = opp.sellExchange?.includes('perp') ? 'SELL' : 'BUY';
-    await placeExchangeMarketOrder(env, fallback, opp.symbol, side, amount, sizeUsd);
+    // Execute as a spot hedge: buy the cheaper leg, sell when price reverts
+    const spotSide = isSellPerp ? 'BUY' : 'SELL';
+    await placeExchangeMarketOrder(env, fallback, opp.symbol, spotSide, amount, sizeUsd);
     return;
   }
 

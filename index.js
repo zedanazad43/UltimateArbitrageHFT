@@ -427,6 +427,48 @@ app.get('/api/balances', async (c) => {
   return c.json({ success: true, data: [...results, ...dataOnly] });
 });
 
+// ── API: Perps status ─────────────────────────────────────────────────────────
+// Returns the current perpetuals scan state, active perp exchanges (price feeds),
+// and MEXC Futures execution readiness.  Auth-protected.
+app.get('/api/perps', async (c) => {
+  if (!isAuthorized(c.env, c)) return authDenied(c.env, c, true);
+  const [lastScan, cb] = await Promise.all([
+    c.env.BOT_STATE.get('nexus_last_scan', 'json').catch(() => null),
+    c.env.BOT_STATE.get('nexus_circuit_breaker', 'json').catch(() => null)
+  ]);
+  const cbState = cb || {};
+
+  const perpExchanges = ['mexc_perp', 'binance_perp', 'okx_perp', 'bybit_perp'];
+  const exchangeStatus = perpExchanges.map(ex => {
+    const info = cbState[ex];
+    const now = Date.now();
+    const open = info?.open && (now - (info?.lastFailure || 0)) < 300000;
+    // mexc_perp is the only executable perp feed; others are data-only feeds
+    const isExecutable = ex === 'mexc_perp';
+    return {
+      exchange: ex,
+      status: open ? 'open' : 'ok',
+      failures: info?.failures || 0,
+      dataOnly: !isExecutable,
+      executionVia: isExecutable ? 'mexc_futures' : 'spot_hedge'
+    };
+  });
+
+  const mexcReady = hasExchangeCredentials(c.env, 'mexc');
+
+  return c.json({
+    success: true,
+    perpsEnabled: true,
+    mexcFuturesConfigured: mexcReady,
+    lastPerpsOpp: lastScan?.perps || null,
+    lastFundingOpp: lastScan?.funding || null,
+    exchangeStatus,
+    executionNote: mexcReady
+      ? 'MEXC Futures active — perps orders placed via contract.mexc.com'
+      : 'MEXC credentials missing — perps will run as spot hedge on best available exchange'
+  });
+});
+
 // ── Admin: Reset daily stats ──────────────────────────────────────────────────
 app.post('/reset-daily', async (c) => {
   const limited = await checkRateLimit(c.env, c);

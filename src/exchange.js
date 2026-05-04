@@ -68,15 +68,24 @@ export async function hasSufficientUSDT(env, requiredUsd) {
 /**
  * Places a market order on MEXC spot.
  * side: 'BUY' | 'SELL'
+ * BUY uses quoteOrderQty (USDT amount); SELL uses quantity (base asset).
  */
-export async function placeMarketOrderMEXC(env, symbol, side, quantity) {
+export async function placeMarketOrderMEXC(env, symbol, side, quantity, sizeUsd) {
   const apiKey    = env.MEXC_API_KEY;
   const apiSecret = env.MEXC_API_SECRET;
   if (!apiKey)    throw new Error('MEXC_API_KEY is not configured');
   if (!apiSecret) throw new Error('MEXC_API_SECRET is not configured');
 
   const timestamp = Date.now().toString();
-  const params = { symbol, side: side.toUpperCase(), type: 'MARKET', quantity, timestamp };
+  const params = { symbol, side: side.toUpperCase(), type: 'MARKET', timestamp };
+
+  if (side.toUpperCase() === 'BUY') {
+    // MEXC spot market buy: specify USDT amount via quoteOrderQty
+    params.quoteOrderQty = (sizeUsd || 0).toFixed(2);
+  } else {
+    params.quantity = quantity;
+  }
+
   const sorted = Object.keys(params).sort().map(k => `${k}=${params[k]}`).join('&');
   params.signature = await hmacHex(apiSecret, sorted);
 
@@ -107,8 +116,8 @@ export async function placeMEXCFuturesOrder(env, symbol, side, quantity, leverag
   const perpSymbol = symbol.replace('USDT', '_USDT');
   const recvWindow = 5000;
   const timestamp  = Date.now();
-  // sideCode: 1=open long, 2=open short
-  const sideCode = side === 'LONG' ? 1 : 2;
+  // MEXC Futures side codes: 1=open long, 2=close short (buy), 3=open short, 4=close long
+  const sideCode = side === 'LONG' ? 1 : 3;
 
   const orderBody = JSON.stringify({
     symbol: perpSymbol,
@@ -868,9 +877,11 @@ const EXCHANGE_CRED_KEYS = {
 
 /**
  * Exchanges excluded from live execution (data-only price feeds).
- * Reason: German regulatory restrictions (BaFin).
+ * bybit/gateio: German regulatory restrictions (BaFin).
+ * bybit_perp, binance_perp, okx_perp: perp price feeds used for scanning only;
+ *   execution is via the underlying spot exchange or MEXC Futures.
  */
-export const DATA_ONLY_EXCHANGES = new Set(['bybit', 'gateio', 'bybit_perp']);
+export const DATA_ONLY_EXCHANGES = new Set(['bybit', 'gateio', 'bybit_perp', 'binance_perp', 'okx_perp']);
 export const ACTIVE_EXECUTION_EXCHANGES = [
   'mexc', 'binance', 'kucoin', 'okx', 'bitget', 'bitmart', 'htx'
 ];
@@ -967,7 +978,7 @@ export async function getExchangeBalance(env, exchange, asset = 'USDT') {
  */
 export async function placeExchangeMarketOrder(env, exchange, symbol, side, quantity, sizeUsd) {
   switch (exchange?.toLowerCase()) {
-    case 'mexc':    return placeMarketOrderMEXC(env, symbol, side, quantity);
+    case 'mexc':    return placeMarketOrderMEXC(env, symbol, side, quantity, sizeUsd);
     case 'binance': return placeMarketOrderBinance(env, symbol, side, quantity, sizeUsd);
     case 'kucoin':  return placeMarketOrderKuCoin(env, symbol, side, quantity, sizeUsd);
     case 'okx':     return placeMarketOrderOKX(env, symbol, side, quantity, sizeUsd);

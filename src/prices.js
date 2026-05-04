@@ -108,19 +108,100 @@ export async function getKuCoinPrice(symbol) {
 
 // ── Perpetuals price ──────────────────────────────────────────────────────────
 
+// Default funding rate when none is available from the exchange API.
+const DEFAULT_FUNDING_RATE = 0;
+
+/**
+ * Fetches the MEXC perpetuals (contract) ticker price.
+ * Lets network/HTTP errors bubble so the circuit breaker can distinguish
+ * genuine connectivity failures from "symbol not listed" (null return).
+ */
 export async function getMEXCPerpPrice(symbol) {
-  try {
-    const perpSymbol = symbol.replace('USDT', '_USDT');
-    const resp = await fetchWithRetry(
-      `https://contract.mexc.com/api/v1/contract/ticker?symbol=${perpSymbol}`
-    );
-    if (!resp || !resp.ok) { await resp?.body?.cancel(); return null; }
-    const data = await resp.json();
-    if (data.success && data.data?.lastPrice) {
-      return { price: parseFloat(data.data.lastPrice), exchange: 'mexc_perp', fee: 0.0002 };
-    }
-  } catch (_) {}
+  const perpSymbol = symbol.replace('USDT', '_USDT');
+  const resp = await fetchWithRetry(
+    `https://contract.mexc.com/api/v1/contract/ticker?symbol=${perpSymbol}`
+  );
+  if (!resp || !resp.ok) {
+    await resp?.body?.cancel();
+    // Non-2xx means API error or symbol not found — not a circuit-break-worthy failure
+    return null;
+  }
+  const data = await resp.json();
+  if (data.success && data.data?.lastPrice) {
+    return { price: parseFloat(data.data.lastPrice), exchange: 'mexc_perp', fee: 0.0002 };
+  }
   return null;
+}
+
+/**
+ * Fetches Binance USDM Futures price and latest funding rate.
+ * fundingRate is expressed as a decimal (e.g. 0.0001 = 0.01% per 8-hour period).
+ */
+export async function getBinancePerpData(symbol) {
+  try {
+    const [tickerResp, fundingResp] = await Promise.all([
+      fetchWithRetry(
+        `https://fapi.binance.com/fapi/v1/ticker/price?symbol=${symbol}`,
+        FETCH_CF
+      ),
+      fetchWithRetry(
+        `https://fapi.binance.com/fapi/v1/fundingRate?symbol=${symbol}&limit=1`,
+        FETCH_CF
+      )
+    ]);
+    if (!tickerResp || !tickerResp.ok) { await tickerResp?.body?.cancel(); return null; }
+    const tickerData = await tickerResp.json();
+    const price = parseFloat(tickerData.price);
+    if (!price || isNaN(price)) return null;
+
+    let fundingRate = DEFAULT_FUNDING_RATE;
+    if (fundingResp && fundingResp.ok) {
+      const fundingData = await fundingResp.json();
+      if (Array.isArray(fundingData) && fundingData.length > 0) {
+        fundingRate = parseFloat(fundingData[0].fundingRate || '0');
+      }
+    } else {
+      await fundingResp?.body?.cancel();
+    }
+    return { price, exchange: 'binance_perp', fee: 0.0004, fundingRate };
+  } catch (_) { return null; }
+}
+
+/**
+ * Fetches OKX Swap (perpetuals) price and current funding rate.
+ * instId format: BTC-USDT-SWAP
+ */
+export async function getOKXPerpData(symbol) {
+  try {
+    const baseAsset = symbol.replace(/USDT$/, '');
+    const instId    = `${baseAsset}-USDT-SWAP`;
+    const [tickerResp, fundingResp] = await Promise.all([
+      fetchWithRetry(
+        `https://www.okx.com/api/v5/market/ticker?instId=${instId}`,
+        FETCH_CF
+      ),
+      fetchWithRetry(
+        `https://www.okx.com/api/v5/public/funding-rate?instId=${instId}`,
+        FETCH_CF
+      )
+    ]);
+    if (!tickerResp || !tickerResp.ok) { await tickerResp?.body?.cancel(); return null; }
+    const tickerData = await tickerResp.json();
+    if (tickerData.code !== '0' || !tickerData.data?.[0]?.last) return null;
+    const price = parseFloat(tickerData.data[0].last);
+    if (!price || isNaN(price)) return null;
+
+    let fundingRate = DEFAULT_FUNDING_RATE;
+    if (fundingResp && fundingResp.ok) {
+      const fundingData = await fundingResp.json();
+      if (fundingData.code === '0' && fundingData.data?.[0]?.fundingRate) {
+        fundingRate = parseFloat(fundingData.data[0].fundingRate);
+      }
+    } else {
+      await fundingResp?.body?.cancel();
+    }
+    return { price, exchange: 'okx_perp', fee: 0.0005, fundingRate };
+  } catch (_) { return null; }
 }
 
 // ── DEX prices ────────────────────────────────────────────────────────────────
