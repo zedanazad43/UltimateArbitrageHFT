@@ -1,0 +1,377 @@
+name: World-class CI/CD Bot
+
+on:
+  push:
+    branches: [main, develop, staging, "release/**"]
+  pull_request:
+    branches: [main, staging, "release/**"]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  id-token: write
+  pull-requests: write
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+  NODE_VERSION: '24'
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 1. LINT
+# ─────────────────────────────────────────────────────────────────────────────
+jobs:
+  lint:
+    name: Lint & Format check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run ESLint
+        run: npm run lint
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 2. SECURITY AUDIT
+# ─────────────────────────────────────────────────────────────────────────────
+  audit:
+    name: Security audit (npm audit)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Audit dependencies (high/critical only)
+        run: npm audit --audit-level=high
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 3. UNIT + INTEGRATION TESTS
+# ─────────────────────────────────────────────────────────────────────────────
+  test:
+    name: Tests (Node ${{ matrix.node }})
+    runs-on: ubuntu-latest
+    needs: [lint, audit]
+    strategy:
+      matrix:
+        node: ['24']
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Setup Node.js ${{ matrix.node }}
+        uses: actions/setup-node@v6
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run all tests
+        run: npm run test:all
+
+      - name: Upload test artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results-node${{ matrix.node }}
+          path: coverage/
+          if-no-files-found: ignore
+          retention-days: 14
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 4. BUILD (validate bundle compiles)
+# ─────────────────────────────────────────────────────────────────────────────
+  build:
+    name: Build (dry-run wrangler)
+    runs-on: ubuntu-latest
+    needs: test
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Dry-run bundle check
+        # `wrangler deploy --dry-run` validates the Worker bundle without deploying
+        run: npx --yes wrangler@4 deploy --dry-run
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: worker-bundle
+          path: |
+            index.js
+            src/
+            migrations/
+            wrangler.toml
+            package.json
+          if-no-files-found: error
+          retention-days: 7
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 5. DEPLOY — STAGING  (push to staging branch only)
+# ─────────────────────────────────────────────────────────────────────────────
+  deploy-staging:
+    name: Deploy → Staging
+    runs-on: ubuntu-latest
+    needs: build
+    if: github.ref == 'refs/heads/staging' && github.event_name == 'push'
+    environment:
+      name: staging
+      url: https://ultimatearbitragehft-staging.zedanazad43.workers.dev
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Deploy to staging Worker
+        run: |
+          for attempt in 1 2 3; do
+            echo "--- Staging deploy attempt $attempt/3 ---"
+            if npx --yes wrangler@4 deploy --env staging; then
+              echo "✅ Staging deployed on attempt $attempt"
+              exit 0
+            fi
+            [ $attempt -lt 3 ] && sleep 15
+          done
+          echo "::error::Staging deployment failed after 3 attempts."
+          exit 1
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+
+      - name: Notify on staging failure
+        if: failure()
+        uses: rtCamp/action-slack-notify@v2
+        env:
+          SLACK_WEBHOOK: ${{ secrets.SLACK_WEBHOOK }}
+          SLACK_COLOR: danger
+          SLACK_MESSAGE: "❌ Staging deploy FAILED — ${{ github.repository }}@${{ github.sha }}"
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 6. DEPLOY — PRODUCTION  (push to main, with environment approval gate)
+# ─────────────────────────────────────────────────────────────────────────────
+  deploy-production:
+    name: Deploy → Production (with approval)
+    runs-on: ubuntu-latest
+    needs: build
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    environment:
+      name: production
+      url: https://ultimatearbitragehft.zedanazad43.workers.dev
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Deploy Worker (production, 3 retries)
+        run: |
+          for attempt in 1 2 3; do
+            echo "--- Production deploy attempt $attempt/3 ---"
+            if npx --yes wrangler@4 deploy; then
+              echo "✅ Production deployed on attempt $attempt"
+              exit 0
+            fi
+            [ $attempt -lt 3 ] && sleep 15
+          done
+          echo "::error::Production deployment failed after 3 attempts."
+          exit 1
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+
+      - name: Upload secrets to Cloudflare Worker
+        run: |
+          python3 - <<'PYEOF'
+          import json, os
+          keys = [
+            "MEXC_API_KEY", "MEXC_API_SECRET",
+            "BINANCE_API_KEY", "BINANCE_API_SECRET",
+            "OKX_API_KEY", "OKX_API_SECRET", "OKX_PASSPHRASE",
+            "KUCOIN_API_KEY", "KUCOIN_SECRET_KEY", "KUCOIN_PASSPHRASE",
+            "COINBASE_API_KEY", "COINBASE_SECRET_KEY",
+            "BITGET_API_KEY", "BITGET_SECRET_KEY", "BITGET_API_PASSPHRASE",
+            "BITMART_API_KEY", "BITMART_SECRET_KEY", "BITMART_MEMO",
+            "BYBIT_API_KEY", "BYBIT_API_SECRET",
+            "GATEIO_API_KEY", "GATEIO_API_SECRET",
+            "HTX_API_KEY", "HTX_API_SECRET",
+            "ZEROX_API_KEY", "ALCHEMY_API_KEY",
+            "TELEGRAM_BOT_TOKEN", "TELEGRAM_CHAT_ID",
+            "ADMIN_TOKEN",
+            "HFT_ENGINE_SECRET",
+            "TEMPORAL_API_KEY",
+          ]
+          secrets = {k: os.environ[k] for k in keys if os.environ.get(k)}
+          fd = os.open("/tmp/cf_secrets.json", os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+          with os.fdopen(fd, "w") as f:
+            json.dump(secrets, f)
+          PYEOF
+          npx --yes wrangler@4 secret bulk /tmp/cf_secrets.json
+          rm -f /tmp/cf_secrets.json
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          MEXC_API_KEY: ${{ secrets.MEXC_API_KEY }}
+          MEXC_API_SECRET: ${{ secrets.MEXC_API_SECRET }}
+          BINANCE_API_KEY: ${{ secrets.BINANCE_API_KEY }}
+          BINANCE_API_SECRET: ${{ secrets.BINANCE_API_SECRET }}
+          OKX_API_KEY: ${{ secrets.OKX_API_KEY }}
+          OKX_API_SECRET: ${{ secrets.OKX_API_SECRET }}
+          OKX_PASSPHRASE: ${{ secrets.OKX_PASSPHRASE }}
+          KUCOIN_API_KEY: ${{ secrets.KUCOIN_API_KEY }}
+          KUCOIN_SECRET_KEY: ${{ secrets.KUCOIN_SECRET_KEY }}
+          KUCOIN_PASSPHRASE: ${{ secrets.KUCOIN_PASSPHRASE }}
+          COINBASE_API_KEY: ${{ secrets.COINBASE_API_KEY }}
+          COINBASE_SECRET_KEY: ${{ secrets.COINBASE_SECRET_KEY }}
+          BITGET_API_KEY: ${{ secrets.BITGET_API_KEY }}
+          BITGET_SECRET_KEY: ${{ secrets.BITGET_SECRET_KEY }}
+          BITGET_API_PASSPHRASE: ${{ secrets.BITGET_API_PASSPHRASE }}
+          BITMART_API_KEY: ${{ secrets.BITMART_API_KEY }}
+          BITMART_SECRET_KEY: ${{ secrets.BITMART_SECRET_KEY }}
+          BITMART_MEMO: ${{ secrets.BITMART_MEMO }}
+          BYBIT_API_KEY: ${{ secrets.BYBIT_API_KEY }}
+          BYBIT_API_SECRET: ${{ secrets.BYBIT_API_SECRET }}
+          GATEIO_API_KEY: ${{ secrets.GATEIO_API_KEY }}
+          GATEIO_API_SECRET: ${{ secrets.GATEIO_API_SECRET }}
+          HTX_API_KEY: ${{ secrets.HTX_API_KEY }}
+          HTX_API_SECRET: ${{ secrets.HTX_API_SECRET }}
+          ZEROX_API_KEY: ${{ secrets.ZEROX_API_KEY }}
+          ALCHEMY_API_KEY: ${{ secrets.ALCHEMY_API_KEY }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          ADMIN_TOKEN: ${{ secrets.ADMIN_TOKEN }}
+          HFT_ENGINE_SECRET: ${{ secrets.HFT_ENGINE_SECRET }}
+          TEMPORAL_API_KEY: ${{ secrets.TEMPORAL_API_KEY }}
+
+      - name: Enable live trading in KV
+        run: |
+          python3 - <<'PYEOF'
+          import json, subprocess, sys, re
+          KEY = "trading_state"
+          KV_NS = None
+          try:
+              with open("wrangler.toml") as f:
+                  for line in f:
+                      m = re.search(r'id\s*=\s*"([a-f0-9]{32})"', line)
+                      if m:
+                          KV_NS = m.group(1)
+                          break
+          except Exception as e:
+              print(f"Could not read wrangler.toml: {e}", file=sys.stderr)
+          if not KV_NS:
+              print("ERROR: KV namespace ID not found in wrangler.toml", file=sys.stderr)
+              sys.exit(1)
+          state = {}
+          try:
+              r = subprocess.run(
+                  ["npx", "--yes", "wrangler@4", "kv", "key", "get",
+                   "--namespace-id", KV_NS, KEY],
+                  capture_output=True, text=True
+              )
+              for line in r.stdout.splitlines():
+                  line = line.strip()
+                  if line.startswith('{'):
+                      state = json.loads(line)
+                      break
+          except Exception as e:
+              print(f"Could not read existing KV state: {e}", file=sys.stderr)
+          defaults = {
+              "daily_pnl": 0, "daily_trades": 0,
+              "total_pnl": 0, "total_trades": 0,
+              "initial_capital": 1000,
+              "max_daily_loss_usd": 25,
+              "min_seconds_between_trades": 30,
+              "max_per_trade_loss_pct": 0.02,
+              "max_spread_pct": 5.0,
+              "win_rate": 0.55,
+              "risk_reward_ratio": 2.0,
+          }
+          for k, v in defaults.items():
+              state.setdefault(k, v)
+          state["trading_enabled"]  = True
+          state["paper_trading"]    = False
+          state["auto_stopped"]     = False
+          state["auto_stop_reason"] = None
+          subprocess.run(
+              ["npx", "--yes", "wrangler@4", "kv", "key", "put",
+               "--namespace-id", KV_NS, KEY, json.dumps(state)],
+              check=True
+          )
+          print("✅ Live trading enabled in KV")
+          PYEOF
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+
+      - name: Deployment summary
+        run: |
+          echo "✅ Production deployment complete"
+          echo "   Worker  : ultimatearbitragehft"
+          echo "   Mode    : LIVE (real trading)"
+          echo "   Commit  : ${{ github.sha }}"
+          echo "   Actor   : ${{ github.actor }}"
+
+      - name: Notify on production failure
+        if: failure()
+        uses: rtCamp/action-slack-notify@v2
+        env:
+          SLACK_WEBHOOK: ${{ secrets.SLACK_WEBHOOK }}
+          SLACK_COLOR: danger
+          SLACK_MESSAGE: "🚨 PRODUCTION deploy FAILED — ${{ github.repository }}@${{ github.sha }} by ${{ github.actor }}"
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 7. GLOBAL FAILURE NOTIFICATION (any job, any branch)
+# ─────────────────────────────────────────────────────────────────────────────
+  notify-failure:
+    name: Notify on any failure
+    runs-on: ubuntu-latest
+    needs: [lint, audit, test, build]
+    if: failure()
+    steps:
+      - name: Send Slack alert
+        uses: rtCamp/action-slack-notify@v2
+        env:
+          SLACK_WEBHOOK: ${{ secrets.SLACK_WEBHOOK }}
+          SLACK_COLOR: warning
+          SLACK_MESSAGE: "⚠️ CI pipeline failure in ${{ github.repository }} on branch ${{ github.ref_name }} (commit ${{ github.sha }})"
