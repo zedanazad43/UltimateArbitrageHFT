@@ -25,9 +25,17 @@ export default [
       sourceType: 'module',
     },
   },
+  // CommonJS files need commonjs sourceType
+  {
+    files: ['**/*.cjs'],
+    languageOptions: {
+      sourceType: 'commonjs',
+    },
+  },
   // Node.js environment for scripts and temporal worker
   {
     files: [
+      '**/*.cjs',
       'temporal-worker.js',
       'scripts/**/*.js',
       'src/ai-client.js',
