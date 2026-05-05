@@ -7,7 +7,7 @@ import { cors } from 'hono/cors';
 import { renderDashboard, renderChecklist } from './src/dashboard.js';
 import { runScan } from './src/orchestrator.js';
 import { ensureSchema, logAdminEvent, logBotEvent, getRecentTrades, getStrategyPnL, getPerformanceMetrics, exportTrades } from './src/db.js';
-import { hasExchangeCredentials, getExchangeBalance, placeExchangeMarketOrder, ACTIVE_EXECUTION_EXCHANGES, DATA_ONLY_EXCHANGES } from './src/exchange.js';
+import { hasExchangeCredentials, getExchangeBalance, placeExchangeMarketOrder, getRequiredCredentialKeys, getConfiguredExchanges, ACTIVE_EXECUTION_EXCHANGES, DATA_ONLY_EXCHANGES } from './src/exchange.js';
 import { scanDEX } from './src/strategies/dex.js';
 import { isHFTEngineConfigured } from './src/hft-client.js';
 import { runBacktest } from './src/backtest.js';
@@ -416,7 +416,10 @@ app.get('/api/balances', async (c) => {
   const results = await Promise.all(
     ACTIVE_EXECUTION_EXCHANGES.map(async (ex) => {
       const configured = hasExchangeCredentials(c.env, ex);
-      if (!configured) return { exchange: ex, configured: false, balance: null };
+      if (!configured) {
+        const missing = getRequiredCredentialKeys(ex).filter(k => !c.env[k]);
+        return { exchange: ex, configured: false, balance: null, missing_keys: missing };
+      }
       const balance = await getExchangeBalance(c.env, ex, 'USDT');
       return { exchange: ex, configured: true, balance };
     })
@@ -956,11 +959,16 @@ app.post('/telegram/webhook', async (c) => {
     } else if (cmd === '/status') {
       const equity = (state.initial_capital || 1000) + (state.total_pnl || 0);
       const lastScan = await c.env.BOT_STATE.get('nexus_last_scan', 'json').catch(() => null);
+      const configuredExchanges = getConfiguredExchanges(c.env);
+      const credStatus = configuredExchanges.length > 0
+        ? `✅ ${configuredExchanges.length} منصة مُهيأة: ${configuredExchanges.join(', ')}`
+        : `⚠️ لا توجد مفاتيح API — أضف الأسرار عبر: wrangler secret put MEXC_API_KEY`;
       await send(
         `⚙️ *حالة Nexus Hub*\n\n` +
         `الوضع: ${state.paper_trading !== false ? '📄 Paper' : '🔴 Live'}\n` +
         `التداول: ${state.trading_enabled ? '✅ مفعّل' : '❌ متوقف'}\n` +
         `${state.auto_stopped ? `🛑 إيقاف تلقائي: ${state.auto_stop_reason}\n` : ''}` +
+        `🔑 المنصات: ${credStatus}\n` +
         `💰 رأس المال: $${equity.toFixed(2)}\n` +
         `📈 إجمالي الأرباح: $${(state.total_pnl || 0).toFixed(2)}\n` +
         `📊 ربح اليوم: $${(state.daily_pnl || 0).toFixed(2)}\n` +
