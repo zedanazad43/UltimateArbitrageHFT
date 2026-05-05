@@ -16,11 +16,11 @@ export async function renderDashboard(env) {
   const [state, lastScan, trades, stratPnl, metrics] = await Promise.all([
     env.BOT_STATE.get('trading_state', 'json')
       .then(s => s || {
-        trading_enabled: true, paper_trading: false,
+        trading_enabled: false, paper_trading: false,
         daily_pnl: 0, daily_trades: 0, total_pnl: 0, total_trades: 0
       })
       .catch(() => ({
-        trading_enabled: true, paper_trading: false,
+        trading_enabled: false, paper_trading: false,
         daily_pnl: 0, daily_trades: 0, total_pnl: 0, total_trades: 0
       })),
     env.BOT_STATE.get('nexus_last_scan', 'json').catch(() => null),
@@ -719,13 +719,27 @@ ${autoStopBanner}
     try{
       const res=await callAdminApi('/api/balances');
       const json=JSON.parse(res.text);
-      const items=(json.data||[]).map(b=>{
+      const exchanges=json.data||[];
+      const anyConfigured=exchanges.some(b=>b.configured&&!b.dataOnly);
+      const items=exchanges.map(b=>{
         if (b.dataOnly) return \`<div class="bal-card" style="opacity:.4;border-left:2px solid #888"><div class="bal-name">\${b.exchange.toUpperCase()}</div><div class="bal-value" style="color:#888;font-size:.8em">\${b.note||'Data only'}</div></div>\`;
-        if(!b.configured) return \`<div class="bal-card" style="opacity:.45"><div class="bal-name">\${b.exchange.toUpperCase()}</div><div class="bal-value" style="color:#888">غير مُهيأ</div></div>\`;
+        if(!b.configured){
+          const missingKeysList=(b.missing_keys||[]).join(', ');
+          const hint=missingKeysList?\`<div style="font-size:.72em;color:#e67e22;margin-top:4px;word-break:break-all">🔑 أضف: \${missingKeysList}</div>\`:'';
+          return \`<div class="bal-card" style="border:1px solid #e67e22"><div class="bal-name">\${b.exchange.toUpperCase()}</div><div class="bal-value" style="color:#888;font-size:.85em">غير مُهيأ</div>\${hint}</div>\`;
+        }
         const color=b.balance>0?'#2ecc71':'#888';
         return \`<div class="bal-card"><div class="bal-name">\${b.exchange.toUpperCase()}</div><div class="bal-value" style="color:\${color}">$\${Number(b.balance).toFixed(2)}</div></div>\`;
       }).join('');
-      el.innerHTML=items||'<span style="color:#888">لا بيانات</span>';
+      const setupBanner=!anyConfigured
+        ?\`<div style="background:#c0392b;color:#fff;padding:10px 14px;border-radius:8px;margin-bottom:12px;font-size:.85em">
+            ⚠️ <strong>لا توجد مفاتيح API مُعيَّنة — لن تعمل الصفقات الحقيقية.</strong><br>
+            أضف أسرار المنصات باستخدام:<br>
+            <code style="background:rgba(0,0,0,.3);padding:2px 5px;border-radius:4px">wrangler secret put MEXC_API_KEY</code> (وهكذا لكل مفتاح).<br>
+            راجع <a href="/checklist" style="color:#f0b90b">قائمة الإعداد</a> لمزيد من التفاصيل.
+           </div>\`
+        :\`\`;
+      el.innerHTML=setupBanner+(items||'<span style="color:#888">لا بيانات</span>');
     }catch(e){ el.innerHTML='<span style="color:#e74c3c">❌ '+e.message+'</span>'; }
   }
   async function loadCircuitBreaker(){
