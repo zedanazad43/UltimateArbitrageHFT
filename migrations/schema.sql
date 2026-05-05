@@ -80,6 +80,13 @@ INSERT OR IGNORE INTO settings (key, value) VALUES ('max_trade_amount', '100');
 INSERT OR IGNORE INTO settings (key, value) VALUES ('auto_trade',       'false');
 INSERT OR IGNORE INTO settings (key, value) VALUES ('telegram_alerts',  'true');
 
+CREATE TABLE IF NOT EXISTS backtest_runs (
+  id         INTEGER PRIMARY KEY AUTOINCREMENT,
+  config     TEXT    NOT NULL,
+  results    TEXT    NOT NULL,
+  created_at INTEGER NOT NULL
+);
+
 -- Indices for time-range queries and filtering
 CREATE INDEX IF NOT EXISTS idx_trades_created_at
   ON trades(created_at DESC);
@@ -101,4 +108,6 @@ CREATE INDEX IF NOT EXISTS idx_logs_level
   ON logs(level);
 CREATE INDEX IF NOT EXISTS idx_logs_created_at
   ON logs(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_backtest_runs_created_at
+  ON backtest_runs(created_at DESC);
 
