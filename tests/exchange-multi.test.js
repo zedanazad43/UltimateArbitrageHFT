@@ -813,7 +813,7 @@ describe('getKuCoinBalance — all account types', () => {
     assert.ok(url.includes('currency=USDT'), 'URL must filter by currency');
   });
 
-  test('sums available across main and trade account entries', async () => {
+  test('sums available across all account types (main, trade, margin)', async () => {
     installMockFetch(() => makeJsonResponse({
       code: '200000',
       data: [

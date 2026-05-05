@@ -364,7 +364,8 @@ export async function getOKXBalance(env, asset = 'USDT') {
     }
   });
   const fundingData = await fundingResp.json();
-  let fundingFree = 0, fundingLocked = 0;
+  let fundingFree   = 0;
+  let fundingLocked = 0;
   if (fundingData.code === '0') {
     const fundingBal = (fundingData.data || []).find(d => d.ccy === asset);
     fundingFree   = parseFloat(fundingBal?.availBal  || '0');
