@@ -151,6 +151,8 @@ export async function placeMEXCFuturesOrder(env, symbol, side, quantity, leverag
 
 /**
  * Fetches the Binance spot account balance for a given asset (default: USDT).
+ * recvWindow=10000 gives a 10-second window to absorb clock drift between
+ * the Cloudflare Worker and Binance servers (default 5 s is often too tight).
  */
 export async function getBinanceBalance(env, asset = 'USDT') {
   const apiKey    = env.BINANCE_API_KEY;
@@ -159,7 +161,7 @@ export async function getBinanceBalance(env, asset = 'USDT') {
   if (!apiSecret) throw new Error('BINANCE_API_SECRET is not configured');
 
   const timestamp = Date.now().toString();
-  const query     = `timestamp=${timestamp}`;
+  const query     = `timestamp=${timestamp}&recvWindow=10000`;
   const signature = await hmacHex(apiSecret, query);
 
   const resp = await fetch(
@@ -215,8 +217,13 @@ export async function placeMarketOrderBinance(env, symbol, side, quantity, sizeU
 // ── KuCoin ────────────────────────────────────────────────────────────────────
 
 /**
- * Fetches the KuCoin trade account balance for a given asset (default: USDT).
+ * Fetches the KuCoin spot account balance for a given asset (default: USDT).
  * KuCoin API v2: passphrase is HMAC-SHA256 signed.
+ *
+ * Queries ALL account types (main, trade, margin) without the `type` filter so
+ * that funds sitting in the main (deposit) wallet are included.  The `reduce`
+ * sums `available` across every returned account entry; `holds` is summed for
+ * the locked amount.
  */
 export async function getKuCoinBalance(env, asset = 'USDT') {
   const apiKey     = env.KUCOIN_API_KEY;
@@ -226,18 +233,18 @@ export async function getKuCoinBalance(env, asset = 'USDT') {
   if (!apiSecret)  throw new Error('KUCOIN_SECRET_KEY is not configured');
   if (!passphrase) throw new Error('KUCOIN_PASSPHRASE is not configured');
 
-  const timestamp          = Date.now().toString();
-  const path               = `/api/v1/accounts?type=trade&currency=${asset}`;
-  const strToSign          = timestamp + 'GET' + path;
-  const signature          = await hmacBase64(apiSecret, strToSign);
-  const encPassphrase      = await hmacBase64(apiSecret, passphrase);
+  const timestamp     = Date.now().toString();
+  const path          = `/api/v1/accounts?currency=${asset}`;
+  const strToSign     = timestamp + 'GET' + path;
+  const signature     = await hmacBase64(apiSecret, strToSign);
+  const encPassphrase = await hmacBase64(apiSecret, passphrase);
 
   const resp = await fetch(`https://api.kucoin.com${path}`, {
     headers: {
-      'KC-API-KEY':        apiKey,
-      'KC-API-SIGN':       signature,
-      'KC-API-TIMESTAMP':  timestamp,
-      'KC-API-PASSPHRASE': encPassphrase,
+      'KC-API-KEY':         apiKey,
+      'KC-API-SIGN':        signature,
+      'KC-API-TIMESTAMP':   timestamp,
+      'KC-API-PASSPHRASE':  encPassphrase,
       'KC-API-KEY-VERSION': '2'
     }
   });
@@ -245,8 +252,9 @@ export async function getKuCoinBalance(env, asset = 'USDT') {
   if (data.code !== '200000') throw new Error(data.msg || `KuCoin balance error ${data.code}`);
 
   const accounts = data.data || [];
-  const free = accounts.reduce((sum, acc) => sum + parseFloat(acc.available || '0'), 0);
-  return { free, locked: 0 };
+  const free   = accounts.reduce((sum, acc) => sum + parseFloat(acc.available || '0'), 0);
+  const locked = accounts.reduce((sum, acc) => sum + parseFloat(acc.holds    || '0'), 0);
+  return { free, locked };
 }
 
 /**
@@ -303,7 +311,15 @@ export async function placeMarketOrderKuCoin(env, symbol, side, quantity, sizeUs
 // ── OKX ───────────────────────────────────────────────────────────────────────
 
 /**
- * Fetches the OKX unified/spot account balance for a given asset (default: USDT).
+ * Fetches the OKX balance for a given asset (default: USDT).
+ *
+ * OKX has two balance pools:
+ *   1. Trading account  — /api/v5/account/balance   (funds available for spot/futures)
+ *   2. Funding account  — /api/v5/asset/balances     (deposit wallet, withdraw source)
+ *
+ * Both are queried and their available balances are summed so that users who
+ * have not yet transferred funds from the funding wallet to the trading account
+ * still see a non-zero balance.
  */
 export async function getOKXBalance(env, asset = 'USDT') {
   const apiKey     = env.OKX_API_KEY;
@@ -313,27 +329,52 @@ export async function getOKXBalance(env, asset = 'USDT') {
   if (!apiSecret)  throw new Error('OKX_API_SECRET is not configured');
   if (!passphrase) throw new Error('OKX_PASSPHRASE is not configured');
 
-  const timestamp  = new Date().toISOString();
-  const path       = `/api/v5/account/balance?ccy=${asset}`;
-  const strToSign  = timestamp + 'GET' + path;
-  const signature  = await hmacBase64(apiSecret, strToSign);
+  // ── 1. Trading (unified) account ─────────────────────────────────────────
+  const tradingTs   = new Date().toISOString();
+  const tradingPath = `/api/v5/account/balance?ccy=${asset}`;
+  const tradingSig  = await hmacBase64(apiSecret, tradingTs + 'GET' + tradingPath);
 
-  const resp = await fetch(`https://www.okx.com${path}`, {
+  const tradingResp = await fetch(`https://www.okx.com${tradingPath}`, {
     headers: {
       'OK-ACCESS-KEY':        apiKey,
-      'OK-ACCESS-SIGN':       signature,
-      'OK-ACCESS-TIMESTAMP':  timestamp,
+      'OK-ACCESS-SIGN':       tradingSig,
+      'OK-ACCESS-TIMESTAMP':  tradingTs,
       'OK-ACCESS-PASSPHRASE': passphrase
     }
   });
-  const data = await resp.json();
-  if (data.code !== '0') throw new Error(data.msg || `OKX balance error ${data.code}`);
+  const tradingData = await tradingResp.json();
+  if (tradingData.code !== '0') throw new Error(tradingData.msg || `OKX balance error ${tradingData.code}`);
 
-  const details = data.data?.[0]?.details || [];
-  const bal     = details.find(d => d.ccy === asset);
+  const details    = tradingData.data?.[0]?.details || [];
+  const tradingBal = details.find(d => d.ccy === asset);
+  const tradingFree   = parseFloat(tradingBal?.availBal  || '0');
+  const tradingLocked = parseFloat(tradingBal?.frozenBal || '0');
+
+  // ── 2. Funding account ────────────────────────────────────────────────────
+  const fundingTs   = new Date().toISOString();
+  const fundingPath = `/api/v5/asset/balances?ccy=${asset}`;
+  const fundingSig  = await hmacBase64(apiSecret, fundingTs + 'GET' + fundingPath);
+
+  const fundingResp = await fetch(`https://www.okx.com${fundingPath}`, {
+    headers: {
+      'OK-ACCESS-KEY':        apiKey,
+      'OK-ACCESS-SIGN':       fundingSig,
+      'OK-ACCESS-TIMESTAMP':  fundingTs,
+      'OK-ACCESS-PASSPHRASE': passphrase
+    }
+  });
+  const fundingData = await fundingResp.json();
+  let fundingFree   = 0;
+  let fundingLocked = 0;
+  if (fundingData.code === '0') {
+    const fundingBal = (fundingData.data || []).find(d => d.ccy === asset);
+    fundingFree   = parseFloat(fundingBal?.availBal  || '0');
+    fundingLocked = parseFloat(fundingBal?.frozenBal || '0');
+  }
+
   return {
-    free:   parseFloat(bal?.availBal || '0'),
-    locked: parseFloat(bal?.frozenBal || '0')
+    free:   tradingFree   + fundingFree,
+    locked: tradingLocked + fundingLocked
   };
 }
 
@@ -946,24 +987,22 @@ export async function selectBestExchange(env, requiredUsd) {
 
 /**
  * Gets the free balance for the specified asset on the given exchange.
- * Returns 0 on any error (safe fallback — callers should handle insufficient balance).
+ *
+ * Throws on any API or credential error — callers must handle the rejection
+ * (e.g. with Promise.allSettled or a per-exchange try/catch).  An unknown
+ * exchange name returns 0 as a safe no-op rather than throwing.
  */
 export async function getExchangeBalance(env, exchange, asset = 'USDT') {
-  try {
-    switch (exchange?.toLowerCase()) {
-      case 'mexc':    return (await getMEXCBalance(env, asset)).free;
-      case 'binance': return (await getBinanceBalance(env, asset)).free;
-      case 'kucoin':  return (await getKuCoinBalance(env, asset)).free;
-      case 'okx':     return (await getOKXBalance(env, asset)).free;
-      case 'bitget':  return (await getBitgetBalance(env, asset)).free;
-      case 'bitmart': return (await getBitmartBalance(env, asset)).free;
-      case 'htx':     return (await getHTXBalance(env, asset.toLowerCase())).free;
-      // bybit/gateio: data-only, no live execution
-      default:        return 0;
-    }
-  } catch (e) {
-    console.error(`[exchange] ${exchange} balance check failed:`, e.message);
-    return 0;
+  switch (exchange?.toLowerCase()) {
+    case 'mexc':    return (await getMEXCBalance(env, asset)).free;
+    case 'binance': return (await getBinanceBalance(env, asset)).free;
+    case 'kucoin':  return (await getKuCoinBalance(env, asset)).free;
+    case 'okx':     return (await getOKXBalance(env, asset)).free;
+    case 'bitget':  return (await getBitgetBalance(env, asset)).free;
+    case 'bitmart': return (await getBitmartBalance(env, asset)).free;
+    case 'htx':     return (await getHTXBalance(env, asset.toLowerCase())).free;
+    // bybit/gateio: data-only, no live execution
+    default:        return 0;
   }
 }
 

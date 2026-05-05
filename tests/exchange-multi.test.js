@@ -773,10 +773,140 @@ describe('getExchangeBalance', () => {
     assert.equal(free, 1500.0);
   });
 
-  test('returns 0 when the underlying balance call throws', async () => {
-    // No credentials → getMEXCBalance throws → getExchangeBalance returns 0
-    const free = await getExchangeBalance({}, 'mexc', 'USDT');
-    assert.equal(free, 0);
+  test('propagates error when the underlying balance call throws', async () => {
+    // No credentials → getMEXCBalance throws → getExchangeBalance propagates
+    await assert.rejects(
+      () => getExchangeBalance({}, 'mexc', 'USDT'),
+      /MEXC_API_KEY is not configured/
+    );
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// getBinanceBalance — recvWindow regression
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('getBinanceBalance — recvWindow', () => {
+  test('includes recvWindow parameter in query string to tolerate clock drift', async () => {
+    installMockFetch(() => makeJsonResponse({ balances: [] }));
+    await getBinanceBalance({ BINANCE_API_KEY: 'k', BINANCE_API_SECRET: 's' });
+    assert.ok(
+      capturedRequests[0].url.includes('recvWindow='),
+      'Binance URL must include recvWindow to prevent timestamp-drift errors'
+    );
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// getKuCoinBalance — all account types
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('getKuCoinBalance — all account types', () => {
+  test('queries without type filter so main and trade accounts are included', async () => {
+    installMockFetch(() => makeJsonResponse({ code: '200000', data: [] }));
+    await getKuCoinBalance(
+      { KUCOIN_API_KEY: 'k', KUCOIN_SECRET_KEY: 's', KUCOIN_PASSPHRASE: 'p' },
+      'USDT'
+    );
+    const url = capturedRequests[0].url;
+    assert.ok(!url.includes('type='), 'URL must not contain a type= filter');
+    assert.ok(url.includes('currency=USDT'), 'URL must filter by currency');
+  });
+
+  test('sums available across all account types (main, trade, margin)', async () => {
+    installMockFetch(() => makeJsonResponse({
+      code: '200000',
+      data: [
+        { type: 'main',  available: '500.00', holds: '0'     },
+        { type: 'trade', available: '250.00', holds: '25.00' }
+      ]
+    }));
+    const bal = await getKuCoinBalance(
+      { KUCOIN_API_KEY: 'k', KUCOIN_SECRET_KEY: 's', KUCOIN_PASSPHRASE: 'p' },
+      'USDT'
+    );
+    assert.ok(Math.abs(bal.free   - 750) < 0.001, `expected free=750, got ${bal.free}`);
+    assert.ok(Math.abs(bal.locked -  25) < 0.001, `expected locked=25, got ${bal.locked}`);
+  });
+
+  test('reports holds (locked) balance correctly', async () => {
+    installMockFetch(() => makeJsonResponse({
+      code: '200000',
+      data: [{ type: 'trade', available: '100.00', holds: '40.00' }]
+    }));
+    const bal = await getKuCoinBalance(
+      { KUCOIN_API_KEY: 'k', KUCOIN_SECRET_KEY: 's', KUCOIN_PASSPHRASE: 'p' },
+      'USDT'
+    );
+    assert.equal(bal.free,   100.0);
+    assert.equal(bal.locked,  40.0);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// getOKXBalance — trading + funding accounts
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('getOKXBalance — trading + funding accounts', () => {
+  test('makes exactly two requests: trading account and funding account', async () => {
+    installMockFetch(() => makeJsonResponse({ code: '0', data: [{ details: [] }] }));
+    await getOKXBalance(
+      { OKX_API_KEY: 'k', OKX_API_SECRET: 's', OKX_PASSPHRASE: 'p' },
+      'USDT'
+    );
+    assert.equal(capturedRequests.length, 2, 'should make exactly two requests');
+    const urls = capturedRequests.map(r => r.url);
+    assert.ok(urls.some(u => u.includes('/api/v5/account/balance')), 'must query trading account');
+    assert.ok(urls.some(u => u.includes('/api/v5/asset/balances')),  'must query funding account');
+  });
+
+  test('sums trading and funding account free balances', async () => {
+    installMockFetch((req) => {
+      if (req.url.includes('/api/v5/account/balance')) {
+        return makeJsonResponse({
+          code: '0',
+          data: [{ details: [{ ccy: 'USDT', availBal: '200.00', frozenBal: '10.00' }] }]
+        });
+      }
+      // funding account response
+      return makeJsonResponse({
+        code: '0',
+        data: [{ ccy: 'USDT', availBal: '300.00', frozenBal: '5.00' }]
+      });
+    });
+    const bal = await getOKXBalance(
+      { OKX_API_KEY: 'k', OKX_API_SECRET: 's', OKX_PASSPHRASE: 'p' },
+      'USDT'
+    );
+    assert.ok(Math.abs(bal.free   - 500) < 0.001, `expected free=500, got ${bal.free}`);
+    assert.ok(Math.abs(bal.locked -  15) < 0.001, `expected locked=15, got ${bal.locked}`);
+  });
+
+  test('still throws on trading account API error (non-zero code)', async () => {
+    installMockFetch(() => makeJsonResponse({ code: '50013', msg: 'Invalid API key' }));
+    await assert.rejects(
+      () => getOKXBalance({ OKX_API_KEY: 'k', OKX_API_SECRET: 's', OKX_PASSPHRASE: 'p' }),
+      /Invalid API key/
+    );
+  });
+
+  test('treats funding account error as zero (non-fatal) and still returns trading balance', async () => {
+    installMockFetch((req) => {
+      if (req.url.includes('/api/v5/account/balance')) {
+        return makeJsonResponse({
+          code: '0',
+          data: [{ details: [{ ccy: 'USDT', availBal: '150.00', frozenBal: '0' }] }]
+        });
+      }
+      // funding account returns an error code
+      return makeJsonResponse({ code: '50013', msg: 'Funding API error' });
+    });
+    const bal = await getOKXBalance(
+      { OKX_API_KEY: 'k', OKX_API_SECRET: 's', OKX_PASSPHRASE: 'p' },
+      'USDT'
+    );
+    assert.equal(bal.free,   150.0, 'should still return trading balance when funding errors');
+    assert.equal(bal.locked,   0);
   });
 });
 

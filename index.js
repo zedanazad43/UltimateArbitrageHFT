@@ -420,8 +420,13 @@ app.get('/api/balances', async (c) => {
         const missing = getRequiredCredentialKeys(ex).filter(k => !c.env[k]);
         return { exchange: ex, configured: false, balance: null, missing_keys: missing };
       }
-      const balance = await getExchangeBalance(c.env, ex, 'USDT');
-      return { exchange: ex, configured: true, balance };
+      try {
+        const balance = await getExchangeBalance(c.env, ex, 'USDT');
+        return { exchange: ex, configured: true, balance };
+      } catch (e) {
+        console.error(`[balances] ${ex} fetch failed:`, e.message);
+        return { exchange: ex, configured: true, balance: 0, error: e.message };
+      }
     })
   );
   // Also return data-only feeds (no creds needed, always show)
