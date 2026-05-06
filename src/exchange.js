@@ -62,12 +62,15 @@ function missingCredError(canonicalKey) {
 
 // ── Safe JSON parsing ─────────────────────────────────────────────────────────
 
+/** Maximum number of raw-body characters to include in non-JSON error messages. */
+const MAX_ERROR_SNIPPET_LENGTH = 200;
+
 /**
  * Reads the response body as text then parses it as JSON.
  * When the body is not valid JSON (e.g. a Cloudflare error page or plain-text
  * rate-limit message), throws a descriptive error that includes the HTTP status
- * code and the first 200 characters of the raw body instead of a cryptic
- * SyntaxError.
+ * code and the first MAX_ERROR_SNIPPET_LENGTH characters of the raw body instead
+ * of a cryptic SyntaxError.
  *
  * @param {Response} resp     – fetch() Response object
  * @param {string}   context  – short label for the exchange/call (e.g. "OKX trading")
@@ -77,7 +80,7 @@ async function parseJsonResponse(resp, context = '') {
   try {
     return JSON.parse(text);
   } catch (parseErr) {
-    const snippet = text.slice(0, 200);
+    const snippet = text.slice(0, MAX_ERROR_SNIPPET_LENGTH);
     const prefix  = context ? `${context}: ` : '';
     throw new Error(`${prefix}Non-JSON response (HTTP ${resp.status}): ${snippet}`, { cause: parseErr });
   }

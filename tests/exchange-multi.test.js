@@ -47,7 +47,7 @@ function makeTextResponse(text, status = 400) {
   return {
     ok:     status >= 200 && status < 300,
     status,
-    json:   async () => { throw new SyntaxError(`Unexpected token '${text[0]}'`); },
+    json:   async () => { throw new SyntaxError(`Unexpected token '${text[0] ?? '?'}'`); },
     text:   async () => text,
     body: { cancel: async () => {} }
   };
