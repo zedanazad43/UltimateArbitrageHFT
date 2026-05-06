@@ -23,6 +23,66 @@ async function hmacBase64(secret, message) {
   return btoa(String.fromCharCode(...new Uint8Array(sig)));
 }
 
+// ── Credential alias helpers ──────────────────────────────────────────────────
+
+/**
+ * Alternate env-var names accepted for credential keys that users may have
+ * already configured under a different naming convention.
+ * Canonical key is tried first; aliases are tried in order.
+ */
+const CRED_ALIASES = {
+  KUCOIN_SECRET_KEY:  ['KUCOIN_API_SECRET'],
+  BITGET_SECRET_KEY:  ['BITGET_API_SECRET'],
+  BITMART_SECRET_KEY: ['BITMART_API_SECRET'],
+};
+
+/**
+ * Reads a credential from env by its canonical key name, transparently
+ * falling back to any configured aliases when the canonical key is absent.
+ * Returns the value string, or undefined if neither the canonical key nor any
+ * alias is set in env.
+ */
+function resolveEnvKey(env, canonicalKey) {
+  if (env[canonicalKey]) return env[canonicalKey];
+  for (const alias of (CRED_ALIASES[canonicalKey] || [])) {
+    if (env[alias]) return env[alias];
+  }
+  return undefined;
+}
+
+/**
+ * Returns an error message for a missing credential that includes alias hints.
+ */
+function missingCredError(canonicalKey) {
+  const aliases = CRED_ALIASES[canonicalKey];
+  return aliases?.length
+    ? `${canonicalKey} (or ${aliases.join(' or ')}) is not configured`
+    : `${canonicalKey} is not configured`;
+}
+
+// ── Safe JSON parsing ─────────────────────────────────────────────────────────
+
+/**
+ * Reads the response body as text then parses it as JSON.
+ * When the body is not valid JSON (e.g. a Cloudflare error page or plain-text
+ * rate-limit message), throws a descriptive error that includes the HTTP status
+ * code and the first 200 characters of the raw body instead of a cryptic
+ * SyntaxError.
+ *
+ * @param {Response} resp     – fetch() Response object
+ * @param {string}   context  – short label for the exchange/call (e.g. "OKX trading")
+ */
+async function parseJsonResponse(resp, context = '') {
+  const text = await resp.text();
+  try {
+    return JSON.parse(text);
+  } catch (parseErr) {
+    const snippet = text.slice(0, 200);
+    const prefix  = context ? `${context}: ` : '';
+    throw new Error(`${prefix}Non-JSON response (HTTP ${resp.status}): ${snippet}`, { cause: parseErr });
+  }
+}
+
 /**
  * Fetches the MEXC spot account balance for a given asset (default: USDT).
  * Returns { free: number, locked: number } or throws on error.
@@ -41,7 +101,7 @@ export async function getMEXCBalance(env, asset = 'USDT') {
     `https://api.mexc.com/api/v3/account?${query}&signature=${signature}`,
     { headers: { 'X-MEXC-APIKEY': apiKey } }
   );
-  const data = await resp.json();
+  const data = await parseJsonResponse(resp, 'MEXC account');
   if (data.code) throw new Error(data.msg || `MEXC account error ${data.code}`);
 
   const bal = (data.balances || []).find(b => b.asset === asset);
@@ -98,7 +158,7 @@ export async function placeMarketOrderMEXC(env, symbol, side, quantity, sizeUsd)
     },
     body
   });
-  const data = await resp.json();
+  const data = await parseJsonResponse(resp, 'MEXC order');
   if (data.code) throw new Error(data.msg || `MEXC spot error ${data.code}`);
   return data;
 }
@@ -142,7 +202,7 @@ export async function placeMEXCFuturesOrder(env, symbol, side, quantity, leverag
     },
     body: orderBody
   });
-  const data = await resp.json();
+  const data = await parseJsonResponse(resp, 'MEXC futures order');
   if (!data.success) throw new Error(data.message || 'MEXC Futures order error');
   return data;
 }
@@ -168,7 +228,7 @@ export async function getBinanceBalance(env, asset = 'USDT') {
     `https://api.binance.com/api/v3/account?${query}&signature=${signature}`,
     { headers: { 'X-MBX-APIKEY': apiKey } }
   );
-  const data = await resp.json();
+  const data = await parseJsonResponse(resp, 'Binance account');
   if (data.code) throw new Error(data.msg || `Binance account error ${data.code}`);
 
   const bal = (data.balances || []).find(b => b.asset === asset);
@@ -209,7 +269,7 @@ export async function placeMarketOrderBinance(env, symbol, side, quantity, sizeU
     },
     body
   });
-  const data = await resp.json();
+  const data = await parseJsonResponse(resp, 'Binance order');
   if (data.code) throw new Error(data.msg || `Binance spot error ${data.code}`);
   return data;
 }
@@ -227,10 +287,10 @@ export async function placeMarketOrderBinance(env, symbol, side, quantity, sizeU
  */
 export async function getKuCoinBalance(env, asset = 'USDT') {
   const apiKey     = env.KUCOIN_API_KEY;
-  const apiSecret  = env.KUCOIN_SECRET_KEY;
+  const apiSecret  = resolveEnvKey(env, 'KUCOIN_SECRET_KEY');
   const passphrase = env.KUCOIN_PASSPHRASE;
   if (!apiKey)     throw new Error('KUCOIN_API_KEY is not configured');
-  if (!apiSecret)  throw new Error('KUCOIN_SECRET_KEY is not configured');
+  if (!apiSecret)  throw new Error(missingCredError('KUCOIN_SECRET_KEY'));
   if (!passphrase) throw new Error('KUCOIN_PASSPHRASE is not configured');
 
   const timestamp     = Date.now().toString();
@@ -248,7 +308,7 @@ export async function getKuCoinBalance(env, asset = 'USDT') {
       'KC-API-KEY-VERSION': '2'
     }
   });
-  const data = await resp.json();
+  const data = await parseJsonResponse(resp, 'KuCoin balance');
   if (data.code !== '200000') throw new Error(data.msg || `KuCoin balance error ${data.code}`);
 
   const accounts = data.data || [];
@@ -264,10 +324,10 @@ export async function getKuCoinBalance(env, asset = 'USDT') {
  */
 export async function placeMarketOrderKuCoin(env, symbol, side, quantity, sizeUsd) {
   const apiKey     = env.KUCOIN_API_KEY;
-  const apiSecret  = env.KUCOIN_SECRET_KEY;
+  const apiSecret  = resolveEnvKey(env, 'KUCOIN_SECRET_KEY');
   const passphrase = env.KUCOIN_PASSPHRASE;
   if (!apiKey)     throw new Error('KUCOIN_API_KEY is not configured');
-  if (!apiSecret)  throw new Error('KUCOIN_SECRET_KEY is not configured');
+  if (!apiSecret)  throw new Error(missingCredError('KUCOIN_SECRET_KEY'));
   if (!passphrase) throw new Error('KUCOIN_PASSPHRASE is not configured');
 
   const kuSymbol  = symbol.replace(/USDT$/, '-USDT');
@@ -303,7 +363,7 @@ export async function placeMarketOrderKuCoin(env, symbol, side, quantity, sizeUs
     },
     body: bodyStr
   });
-  const data = await resp.json();
+  const data = await parseJsonResponse(resp, 'KuCoin order');
   if (data.code !== '200000') throw new Error(data.msg || `KuCoin spot error ${data.code}`);
   return data;
 }
@@ -342,7 +402,7 @@ export async function getOKXBalance(env, asset = 'USDT') {
       'OK-ACCESS-PASSPHRASE': passphrase
     }
   });
-  const tradingData = await tradingResp.json();
+  const tradingData = await parseJsonResponse(tradingResp, 'OKX trading balance');
   if (tradingData.code !== '0') throw new Error(tradingData.msg || `OKX balance error ${tradingData.code}`);
 
   const details    = tradingData.data?.[0]?.details || [];
@@ -363,7 +423,7 @@ export async function getOKXBalance(env, asset = 'USDT') {
       'OK-ACCESS-PASSPHRASE': passphrase
     }
   });
-  const fundingData = await fundingResp.json();
+  const fundingData = await parseJsonResponse(fundingResp, 'OKX funding balance');
   let fundingFree   = 0;
   let fundingLocked = 0;
   if (fundingData.code === '0') {
@@ -424,7 +484,7 @@ export async function placeMarketOrderOKX(env, symbol, side, quantity, sizeUsd) 
     },
     body: bodyStr
   });
-  const data = await resp.json();
+  const data = await parseJsonResponse(resp, 'OKX order');
   if (data.code !== '0') throw new Error(data.msg || `OKX order error ${data.code}`);
   return data;
 }
@@ -436,10 +496,10 @@ export async function placeMarketOrderOKX(env, symbol, side, quantity, sizeUsd) 
  */
 export async function getBitgetBalance(env, asset = 'USDT') {
   const apiKey     = env.BITGET_API_KEY;
-  const apiSecret  = env.BITGET_SECRET_KEY;
+  const apiSecret  = resolveEnvKey(env, 'BITGET_SECRET_KEY');
   const passphrase = env.BITGET_API_PASSPHRASE;
   if (!apiKey)     throw new Error('BITGET_API_KEY is not configured');
-  if (!apiSecret)  throw new Error('BITGET_SECRET_KEY is not configured');
+  if (!apiSecret)  throw new Error(missingCredError('BITGET_SECRET_KEY'));
   if (!passphrase) throw new Error('BITGET_API_PASSPHRASE is not configured');
 
   const timestamp = Date.now().toString();
@@ -455,7 +515,7 @@ export async function getBitgetBalance(env, asset = 'USDT') {
       'ACCESS-PASSPHRASE': passphrase
     }
   });
-  const data = await resp.json();
+  const data = await parseJsonResponse(resp, 'Bitget balance');
   if (data.code !== '00000') throw new Error(data.msg || `Bitget balance error ${data.code}`);
 
   const assets = data.data || [];
@@ -473,10 +533,10 @@ export async function getBitgetBalance(env, asset = 'USDT') {
  */
 export async function placeMarketOrderBitget(env, symbol, side, quantity, sizeUsd) {
   const apiKey     = env.BITGET_API_KEY;
-  const apiSecret  = env.BITGET_SECRET_KEY;
+  const apiSecret  = resolveEnvKey(env, 'BITGET_SECRET_KEY');
   const passphrase = env.BITGET_API_PASSPHRASE;
   if (!apiKey)     throw new Error('BITGET_API_KEY is not configured');
-  if (!apiSecret)  throw new Error('BITGET_SECRET_KEY is not configured');
+  if (!apiSecret)  throw new Error(missingCredError('BITGET_SECRET_KEY'));
   if (!passphrase) throw new Error('BITGET_API_PASSPHRASE is not configured');
 
   const timestamp = Date.now().toString();
@@ -505,7 +565,7 @@ export async function placeMarketOrderBitget(env, symbol, side, quantity, sizeUs
     },
     body: bodyStr
   });
-  const data = await resp.json();
+  const data = await parseJsonResponse(resp, 'Bitget order');
   if (data.code !== '00000') throw new Error(data.msg || `Bitget order error ${data.code}`);
   return data;
 }
@@ -518,10 +578,10 @@ export async function placeMarketOrderBitget(env, symbol, side, quantity, sizeUs
  */
 export async function getBitmartBalance(env, asset = 'USDT') {
   const apiKey    = env.BITMART_API_KEY;
-  const apiSecret = env.BITMART_SECRET_KEY;
+  const apiSecret = resolveEnvKey(env, 'BITMART_SECRET_KEY');
   const memo      = env.BITMART_MEMO;
   if (!apiKey)    throw new Error('BITMART_API_KEY is not configured');
-  if (!apiSecret) throw new Error('BITMART_SECRET_KEY is not configured');
+  if (!apiSecret) throw new Error(missingCredError('BITMART_SECRET_KEY'));
   if (!memo)      throw new Error('BITMART_MEMO is not configured');
 
   const timestamp = Date.now().toString();
@@ -535,7 +595,7 @@ export async function getBitmartBalance(env, asset = 'USDT') {
       'X-BM-TIMESTAMP': timestamp
     }
   });
-  const data = await resp.json();
+  const data = await parseJsonResponse(resp, 'Bitmart balance');
   if (data.code !== 1000) throw new Error(data.message || `Bitmart balance error ${data.code}`);
 
   const wallet = (data.data?.wallet || []).find(w => w.currency === asset);
@@ -553,10 +613,10 @@ export async function getBitmartBalance(env, asset = 'USDT') {
  */
 export async function placeMarketOrderBitmart(env, symbol, side, quantity, sizeUsd) {
   const apiKey    = env.BITMART_API_KEY;
-  const apiSecret = env.BITMART_SECRET_KEY;
+  const apiSecret = resolveEnvKey(env, 'BITMART_SECRET_KEY');
   const memo      = env.BITMART_MEMO;
   if (!apiKey)    throw new Error('BITMART_API_KEY is not configured');
-  if (!apiSecret) throw new Error('BITMART_SECRET_KEY is not configured');
+  if (!apiSecret) throw new Error(missingCredError('BITMART_SECRET_KEY'));
   if (!memo)      throw new Error('BITMART_MEMO is not configured');
 
   // Bitmart uses underscore symbol format: BTC_USDT, SHIB_USDT, etc.
@@ -588,7 +648,7 @@ export async function placeMarketOrderBitmart(env, symbol, side, quantity, sizeU
     },
     body: bodyStr
   });
-  const data = await resp.json();
+  const data = await parseJsonResponse(resp, 'Bitmart order');
   if (data.code !== 1000) throw new Error(data.message || `Bitmart order error ${data.code}`);
   return data;
 }
@@ -621,7 +681,7 @@ export async function getBybitBalance(env, asset = 'USDT') {
       }
     }
   );
-  const data = await resp.json();
+  const data = await parseJsonResponse(resp, 'Bybit balance');
   if (data.retCode !== 0) throw new Error(data.retMsg || `Bybit balance error ${data.retCode}`);
 
   const coins = data?.result?.list?.[0]?.coin || [];
@@ -669,7 +729,7 @@ export async function placeMarketOrderBybit(env, symbol, side, quantity, sizeUsd
     },
     body: bodyStr
   });
-  const data = await resp.json();
+  const data = await parseJsonResponse(resp, 'Bybit order');
   if (data.retCode !== 0) throw new Error(data.retMsg || `Bybit order error ${data.retCode}`);
   return data;
 }
@@ -719,7 +779,7 @@ export async function getGateioBalance(env, asset = 'USDT') {
       'Timestamp': timestamp
     }
   });
-  const data = await resp.json();
+  const data = await parseJsonResponse(resp, 'Gateio balance');
   if (!Array.isArray(data)) throw new Error(`Gateio balance error: ${JSON.stringify(data)}`);
 
   const acc = data.find(a => a.currency === asset);
@@ -768,7 +828,7 @@ export async function placeMarketOrderGateio(env, symbol, side, quantity, sizeUs
     },
     body: bodyStr
   });
-  const data = await resp.json();
+  const data = await parseJsonResponse(resp, 'Gateio order');
   if (data.label) throw new Error(`Gateio order error: ${data.label} — ${data.message || ''}`);
   return data;
 }
@@ -800,7 +860,7 @@ export async function getHTXBalance(env, asset = 'usdt') {
   params.append('Signature', signature);
 
   const resp = await fetch(`https://${host}${path}?${params}`, { method });
-  const data = await resp.json();
+  const data = await parseJsonResponse(resp, 'HTX accounts');
   if (data.status !== 'ok') throw new Error(data['err-msg'] || `HTX accounts error`);
 
   // Look up the balance for the specific account ID with 'spot' subtype
@@ -821,7 +881,7 @@ export async function getHTXBalance(env, asset = 'usdt') {
   balParams.append('Signature', balSignature);
 
   const balResp = await fetch(`https://${host}${balPath}?${balParams}`);
-  const balData = await balResp.json();
+  const balData = await parseJsonResponse(balResp, 'HTX balance');
   if (balData.status !== 'ok') throw new Error(balData['err-msg'] || 'HTX balance error');
 
   const lowerAsset = asset.toLowerCase();
@@ -864,7 +924,7 @@ export async function placeMarketOrderHTX(env, symbol, side, quantity, sizeUsd) 
   const acctSig   = await hmacBase64(apiSecret, `GET\n${host}\n${acctPath}\n${acctQS.toString()}`);
   acctQS.append('Signature', acctSig);
   const acctResp  = await fetch(`https://${host}${acctPath}?${acctQS}`);
-  const acctData  = await acctResp.json();
+  const acctData  = await parseJsonResponse(acctResp, 'HTX account lookup');
   if (acctData.status !== 'ok') throw new Error(acctData['err-msg'] || 'HTX account lookup failed');
   const accountId = (acctData.data || []).find(a => a.type === 'spot')?.id;
   if (!accountId) throw new Error('HTX: no spot account found');
@@ -894,7 +954,7 @@ export async function placeMarketOrderHTX(env, symbol, side, quantity, sizeUsd) 
     headers: { 'Content-Type': 'application/json' },
     body: orderBodyStr
   });
-  const data = await resp.json();
+  const data = await parseJsonResponse(resp, 'HTX order');
   if (data.status !== 'ok') throw new Error(data['err-msg'] || `HTX order error`);
   return data;
 }
@@ -931,11 +991,12 @@ export const ACTIVE_EXECUTION_EXCHANGES = [
 
 /**
  * Returns true if all required API credentials for the given exchange are configured.
+ * Accepts alias key names (e.g. KUCOIN_API_SECRET in place of KUCOIN_SECRET_KEY).
  */
 export function hasExchangeCredentials(env, exchange) {
   const keys = EXCHANGE_CRED_KEYS[exchange?.toLowerCase()];
   if (!keys) return false;
-  return keys.every(k => !!env[k]);
+  return keys.every(k => !!resolveEnvKey(env, k));
 }
 
 /**
@@ -943,6 +1004,22 @@ export function hasExchangeCredentials(env, exchange) {
  */
 export function getRequiredCredentialKeys(exchange) {
   return EXCHANGE_CRED_KEYS[exchange?.toLowerCase()] || [];
+}
+
+/**
+ * Returns the list of canonical credential keys that are not configured for the
+ * given exchange, accounting for alias names.  A key is NOT considered missing
+ * when an accepted alias is present in env.
+ * Labels include "(or ALIAS)" hints where aliases exist.
+ */
+export function getMissingCredentialKeys(env, exchange) {
+  const keys = EXCHANGE_CRED_KEYS[exchange?.toLowerCase()] || [];
+  return keys
+    .filter(k => !resolveEnvKey(env, k))
+    .map(k => {
+      const aliases = CRED_ALIASES[k];
+      return aliases?.length ? `${k} (or ${aliases.join(' or ')})` : k;
+    });
 }
 
 /**

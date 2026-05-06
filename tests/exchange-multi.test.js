@@ -13,6 +13,7 @@ import {
   getBitmartBalance, placeMarketOrderBitmart,
   hasExchangeCredentials,
   getRequiredCredentialKeys,
+  getMissingCredentialKeys,
   getExchangeBalance,
   placeExchangeMarketOrder
 } from '../src/exchange.js';
@@ -31,9 +32,23 @@ function installMockFetch(handler) {
 }
 
 function makeJsonResponse(body, ok = true) {
+  const jsonText = JSON.stringify(body);
   return {
     ok,
-    json: async () => body,
+    status: ok ? 200 : 400,
+    json:   async () => body,
+    text:   async () => jsonText,
+    body: { cancel: async () => {} }
+  };
+}
+
+/** Simulates an upstream that returns a non-JSON body (e.g. Cloudflare error page). */
+function makeTextResponse(text, status = 400) {
+  return {
+    ok:     status >= 200 && status < 300,
+    status,
+    json:   async () => { throw new SyntaxError(`Unexpected token '${text[0]}'`); },
+    text:   async () => text,
     body: { cancel: async () => {} }
   };
 }
@@ -74,6 +89,21 @@ describe('hasExchangeCredentials', () => {
   test('returns false when env is empty', () => {
     assert.equal(hasExchangeCredentials({}, 'binance'), false);
   });
+
+  test('returns true when KUCOIN_API_SECRET alias is used instead of KUCOIN_SECRET_KEY', () => {
+    const env = { KUCOIN_API_KEY: 'k', KUCOIN_API_SECRET: 's', KUCOIN_PASSPHRASE: 'p' };
+    assert.equal(hasExchangeCredentials(env, 'kucoin'), true);
+  });
+
+  test('returns true when BITGET_API_SECRET alias is used instead of BITGET_SECRET_KEY', () => {
+    const env = { BITGET_API_KEY: 'k', BITGET_API_SECRET: 's', BITGET_API_PASSPHRASE: 'p' };
+    assert.equal(hasExchangeCredentials(env, 'bitget'), true);
+  });
+
+  test('returns true when BITMART_API_SECRET alias is used instead of BITMART_SECRET_KEY', () => {
+    const env = { BITMART_API_KEY: 'k', BITMART_API_SECRET: 's', BITMART_MEMO: 'm' };
+    assert.equal(hasExchangeCredentials(env, 'bitmart'), true);
+  });
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -113,6 +143,51 @@ describe('getRequiredCredentialKeys', () => {
 
   test('returns empty array for unknown exchange', () => {
     assert.deepEqual(getRequiredCredentialKeys('unknown'), []);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// getMissingCredentialKeys — alias-aware missing key reporting
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('getMissingCredentialKeys', () => {
+  test('returns empty array when all canonical keys are present', () => {
+    const env = { KUCOIN_API_KEY: 'k', KUCOIN_SECRET_KEY: 's', KUCOIN_PASSPHRASE: 'p' };
+    assert.deepEqual(getMissingCredentialKeys(env, 'kucoin'), []);
+  });
+
+  test('returns empty array when alias key satisfies the canonical requirement', () => {
+    const env = { KUCOIN_API_KEY: 'k', KUCOIN_API_SECRET: 's', KUCOIN_PASSPHRASE: 'p' };
+    assert.deepEqual(getMissingCredentialKeys(env, 'kucoin'), []);
+  });
+
+  test('returns canonical key with alias hint when neither is set', () => {
+    const env = { KUCOIN_API_KEY: 'k', KUCOIN_PASSPHRASE: 'p' };
+    const missing = getMissingCredentialKeys(env, 'kucoin');
+    assert.equal(missing.length, 1);
+    assert.ok(missing[0].includes('KUCOIN_SECRET_KEY'), 'should mention canonical key');
+    assert.ok(missing[0].includes('KUCOIN_API_SECRET'), 'should mention alias key');
+  });
+
+  test('returns canonical key (no alias) when a non-aliased key is missing', () => {
+    const env = { KUCOIN_API_KEY: 'k', KUCOIN_SECRET_KEY: 's' };
+    const missing = getMissingCredentialKeys(env, 'kucoin');
+    assert.equal(missing.length, 1);
+    assert.equal(missing[0], 'KUCOIN_PASSPHRASE');
+  });
+
+  test('returns empty array for bitget when BITGET_API_SECRET alias is set', () => {
+    const env = { BITGET_API_KEY: 'k', BITGET_API_SECRET: 's', BITGET_API_PASSPHRASE: 'p' };
+    assert.deepEqual(getMissingCredentialKeys(env, 'bitget'), []);
+  });
+
+  test('returns empty array for bitmart when BITMART_API_SECRET alias is set', () => {
+    const env = { BITMART_API_KEY: 'k', BITMART_API_SECRET: 's', BITMART_MEMO: 'm' };
+    assert.deepEqual(getMissingCredentialKeys(env, 'bitmart'), []);
+  });
+
+  test('returns empty array for unknown exchange', () => {
+    assert.deepEqual(getMissingCredentialKeys({}, 'unknown'), []);
   });
 });
 
@@ -261,7 +336,7 @@ describe('getKuCoinBalance', () => {
   test('throws when KUCOIN_SECRET_KEY is missing', async () => {
     await assert.rejects(
       () => getKuCoinBalance({ KUCOIN_API_KEY: 'k', KUCOIN_PASSPHRASE: 'p' }),
-      /KUCOIN_SECRET_KEY is not configured/
+      /KUCOIN_SECRET_KEY.*is not configured/
     );
   });
 
@@ -317,6 +392,22 @@ describe('getKuCoinBalance', () => {
     assert.ok(req.headers['KC-API-SIGN'], 'KC-API-SIGN header must be present');
     assert.ok(req.headers['KC-API-TIMESTAMP'], 'KC-API-TIMESTAMP header must be present');
     assert.equal(req.headers['KC-API-KEY-VERSION'], '2');
+  });
+
+  test('accepts KUCOIN_API_SECRET alias in place of KUCOIN_SECRET_KEY', async () => {
+    installMockFetch(() => makeJsonResponse({ code: '200000', data: [{ available: '100.00' }] }));
+    const bal = await getKuCoinBalance(
+      { KUCOIN_API_KEY: 'k', KUCOIN_API_SECRET: 'alias-secret', KUCOIN_PASSPHRASE: 'p' },
+      'USDT'
+    );
+    assert.ok(Math.abs(bal.free - 100) < 0.001, 'balance should be read using alias secret');
+  });
+
+  test('throws with alias hint when both KUCOIN_SECRET_KEY and alias are absent', async () => {
+    await assert.rejects(
+      () => getKuCoinBalance({ KUCOIN_API_KEY: 'k', KUCOIN_PASSPHRASE: 'p' }),
+      /KUCOIN_SECRET_KEY/
+    );
   });
 });
 
@@ -522,7 +613,7 @@ describe('getBitgetBalance', () => {
   test('throws when BITGET_SECRET_KEY is missing', async () => {
     await assert.rejects(
       () => getBitgetBalance({ BITGET_API_KEY: 'k', BITGET_API_PASSPHRASE: 'p' }),
-      /BITGET_SECRET_KEY is not configured/
+      /BITGET_SECRET_KEY.*is not configured/
     );
   });
 
@@ -562,6 +653,18 @@ describe('getBitgetBalance', () => {
       () => getBitgetBalance({ BITGET_API_KEY: 'k', BITGET_SECRET_KEY: 's', BITGET_API_PASSPHRASE: 'p' }),
       /Invalid API key/
     );
+  });
+
+  test('accepts BITGET_API_SECRET alias in place of BITGET_SECRET_KEY', async () => {
+    installMockFetch(() => makeJsonResponse({
+      code: '00000',
+      data: [{ coin: 'USDT', available: '250.00', frozen: '0' }]
+    }));
+    const bal = await getBitgetBalance(
+      { BITGET_API_KEY: 'k', BITGET_API_SECRET: 'alias-secret', BITGET_API_PASSPHRASE: 'p' },
+      'USDT'
+    );
+    assert.equal(bal.free, 250.0);
   });
 });
 
@@ -627,7 +730,7 @@ describe('getBitmartBalance', () => {
   test('throws when BITMART_SECRET_KEY is missing', async () => {
     await assert.rejects(
       () => getBitmartBalance({ BITMART_API_KEY: 'k', BITMART_MEMO: 'm' }),
-      /BITMART_SECRET_KEY is not configured/
+      /BITMART_SECRET_KEY.*is not configured/
     );
   });
 
@@ -679,6 +782,18 @@ describe('getBitmartBalance', () => {
     assert.equal(req.headers['X-BM-KEY'], 'mybmkey');
     assert.ok(req.headers['X-BM-SIGN'], 'X-BM-SIGN header must be present');
     assert.ok(req.headers['X-BM-TIMESTAMP'], 'X-BM-TIMESTAMP must be present');
+  });
+
+  test('accepts BITMART_API_SECRET alias in place of BITMART_SECRET_KEY', async () => {
+    installMockFetch(() => makeJsonResponse({
+      code: 1000,
+      data: { wallet: [{ currency: 'USDT', available: '75.00', frozen: '0' }] }
+    }));
+    const bal = await getBitmartBalance(
+      { BITMART_API_KEY: 'k', BITMART_API_SECRET: 'alias-secret', BITMART_MEMO: 'm' },
+      'USDT'
+    );
+    assert.equal(bal.free, 75.0);
   });
 });
 
@@ -942,5 +1057,59 @@ describe('placeExchangeMarketOrder', () => {
     );
     assert.equal(result.orderId, 'bn1');
     assert.ok(new URL(capturedRequests[0].url).hostname === 'api.binance.com');
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Non-JSON upstream error handling
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('non-JSON upstream error handling', () => {
+  test('getOKXBalance reports HTTP status and raw snippet when response is not JSON', async () => {
+    installMockFetch(() => makeTextResponse('error code: 1015', 403));
+    await assert.rejects(
+      () => getOKXBalance({ OKX_API_KEY: 'k', OKX_API_SECRET: 's', OKX_PASSPHRASE: 'p' }),
+      (err) => {
+        assert.ok(err.message.includes('error code: 1015'), 'should include raw snippet');
+        assert.ok(err.message.includes('403'), 'should include HTTP status');
+        return true;
+      }
+    );
+  });
+
+  test('getBitgetBalance reports HTTP status and raw snippet when response is not JSON', async () => {
+    installMockFetch(() => makeTextResponse('Access denied', 403));
+    await assert.rejects(
+      () => getBitgetBalance({ BITGET_API_KEY: 'k', BITGET_SECRET_KEY: 's', BITGET_API_PASSPHRASE: 'p' }),
+      (err) => {
+        assert.ok(err.message.includes('Access denied'), 'should include raw snippet');
+        assert.ok(err.message.includes('403'), 'should include HTTP status');
+        return true;
+      }
+    );
+  });
+
+  test('getKuCoinBalance reports HTTP status and raw snippet when response is not JSON', async () => {
+    installMockFetch(() => makeTextResponse('upstream connect error', 503));
+    await assert.rejects(
+      () => getKuCoinBalance({ KUCOIN_API_KEY: 'k', KUCOIN_SECRET_KEY: 's', KUCOIN_PASSPHRASE: 'p' }),
+      (err) => {
+        assert.ok(err.message.includes('upstream connect error'), 'should include raw snippet');
+        assert.ok(err.message.includes('503'), 'should include HTTP status');
+        return true;
+      }
+    );
+  });
+
+  test('getBitmartBalance reports HTTP status and raw snippet when response is not JSON', async () => {
+    installMockFetch(() => makeTextResponse('Service Unavailable', 503));
+    await assert.rejects(
+      () => getBitmartBalance({ BITMART_API_KEY: 'k', BITMART_SECRET_KEY: 's', BITMART_MEMO: 'm' }),
+      (err) => {
+        assert.ok(err.message.includes('Service Unavailable'), 'should include raw snippet');
+        assert.ok(err.message.includes('503'), 'should include HTTP status');
+        return true;
+      }
+    );
   });
 });

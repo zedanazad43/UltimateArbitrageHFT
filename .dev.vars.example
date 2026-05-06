@@ -31,9 +31,11 @@ BINANCE_API_KEY=
 BINANCE_API_SECRET=
 
 # ── KuCoin ───────────────────────────────────────────────────
+# Canonical names (recommended):
 KUCOIN_API_KEY=
 KUCOIN_SECRET_KEY=
 KUCOIN_PASSPHRASE=
+# Alias also accepted for the secret:  KUCOIN_API_SECRET=
 
 # ── OKX ──────────────────────────────────────────────────────
 OKX_API_KEY=
@@ -41,14 +43,18 @@ OKX_API_SECRET=
 OKX_PASSPHRASE=
 
 # ── Bitget ───────────────────────────────────────────────────
+# Canonical names (recommended):
 BITGET_API_KEY=
 BITGET_SECRET_KEY=
 BITGET_API_PASSPHRASE=
+# Alias also accepted for the secret:  BITGET_API_SECRET=
 
 # ── Bitmart ──────────────────────────────────────────────────
+# Canonical names (recommended):
 BITMART_API_KEY=
 BITMART_SECRET_KEY=
 BITMART_MEMO=
+# Alias also accepted for the secret:  BITMART_API_SECRET=
 
 # ── GitHub Models AI ─────────────────────────────────────────
 # Personal Access Token (classic) or fine-grained PAT used to call
