@@ -76,14 +76,32 @@ const MAX_ERROR_SNIPPET_LENGTH = 200;
  * @param {string}   context  – short label for the exchange/call (e.g. "OKX trading")
  */
 async function parseJsonResponse(resp, context = '') {
-  const text = await resp.text();
-  try {
-    return JSON.parse(text);
-  } catch (parseErr) {
-    const snippet = text.slice(0, MAX_ERROR_SNIPPET_LENGTH);
-    const prefix  = context ? `${context}: ` : '';
-    throw new Error(`${prefix}Non-JSON response (HTTP ${resp.status}): ${snippet}`, { cause: parseErr });
+  const prefix = context ? `${context}: ` : '';
+
+  // Prefer text() so we can emit a helpful snippet on non-JSON bodies.
+  // Use clone() when available (real fetch Responses) to avoid consuming the
+  // body stream, then fall back to calling text() directly on the same object
+  // (lightweight test mocks that only implement text()).
+  if (resp && typeof resp.text === 'function') {
+    const r    = (typeof resp.clone === 'function') ? resp.clone() : resp;
+    const text = await r.text();
+    try {
+      return JSON.parse(text);
+    } catch (parseErr) {
+      const snippet = String(text).slice(0, MAX_ERROR_SNIPPET_LENGTH);
+      throw new Error(
+        `${prefix}Non-JSON response (HTTP ${resp.status ?? 'unknown'}): ${snippet}`,
+        { cause: parseErr }
+      );
+    }
   }
+
+  // Fallback for minimal Response-like mocks that only implement json().
+  if (resp && typeof resp.json === 'function') {
+    return await resp.json();
+  }
+
+  throw new Error(`${prefix}Response body is not readable (missing text() and json())`);
 }
 
 /**
@@ -143,8 +161,13 @@ export async function placeMarketOrderMEXC(env, symbol, side, quantity, sizeUsd)
   const params = { symbol, side: side.toUpperCase(), type: 'MARKET', timestamp };
 
   if (side.toUpperCase() === 'BUY') {
-    // MEXC spot market buy: specify USDT amount via quoteOrderQty
-    params.quoteOrderQty = (sizeUsd || 0).toFixed(2);
+    // Use quoteOrderQty only when caller provided a valid positive USDT notional.
+    if (typeof sizeUsd === 'number' && Number.isFinite(sizeUsd) && sizeUsd > 0) {
+      params.quoteOrderQty = sizeUsd.toFixed(2);
+    } else {
+      // Fallback: allow market buy by base quantity when sizeUsd isn't provided.
+      params.quantity = quantity;
+    }
   } else {
     params.quantity = quantity;
   }
