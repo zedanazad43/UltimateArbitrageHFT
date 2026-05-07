@@ -51,7 +51,7 @@ export async function renderDashboard(env) {
 
   const adminTokenBanner = !env.ADMIN_TOKEN
     ? `<div style="background:#e67e22;color:#fff;padding:12px 20px;border-radius:8px;margin-bottom:18px;font-weight:bold">
-        ⚠️ ADMIN_TOKEN غير مُعيَّن — أوامر التحكم معطّلة.
+        ⚠️ ADMIN_TOKEN غير مُهيَّأ — أوامر التحكم معطّلة.
         شغّل: <code style="background:rgba(0,0,0,.25);padding:2px 6px;border-radius:4px">wrangler secret put ADMIN_TOKEN</code>
         ثم أعد النشر.
        </div>`
@@ -559,7 +559,16 @@ ${autoStopBanner}
   // ── Shared API helper ────────────────────────────────────────────────────────
   // Auth is handled via the HttpOnly session cookie (set at /login).
   // Credentials are always included so the browser sends the cookie automatically.
+  const adminConfigured = ${JSON.stringify(Boolean(env.ADMIN_TOKEN))};
   function setButtonsBusy(b){ document.querySelectorAll('[data-admin-action]').forEach(btn=>btn.disabled=b); }
+  function disableAdminUi(){
+    if(adminConfigured) return;
+    document.querySelectorAll('[data-admin-action]').forEach(btn=>{
+      btn.disabled=true;
+      btn.style.opacity='.55';
+      btn.title='ADMIN_TOKEN غير مُهيَّأ بعد';
+    });
+  }
   async function callAdminApi(path,opts={}){
     let r;
     try{ r=await fetch(path,{credentials:'same-origin',...opts}); }
@@ -716,6 +725,10 @@ ${autoStopBanner}
   // ── Load dynamic panels ──────────────────────────────────────────────────────
   async function loadBalances(){
     const el=document.getElementById('balancesContent');
+    if(!adminConfigured){
+      el.innerHTML='<span style="color:#e67e22">⚠️ أضف ADMIN_TOKEN أولاً لعرض أرصدة المنصات المحمية.</span>';
+      return;
+    }
     try{
       const res=await callAdminApi('/api/balances');
       const json=JSON.parse(res.text);
@@ -768,6 +781,10 @@ ${autoStopBanner}
   async function loadPerpsStatus(){
     const el=document.getElementById('perpsStatusContent');
     if(!el) return;
+    if(!adminConfigured){
+      el.innerHTML='<span style="color:#e67e22">⚠️ أضف ADMIN_TOKEN أولاً لعرض حالة Perps المحمية.</span>';
+      return;
+    }
     try{
       const res=await callAdminApi('/api/perps');
       const json=JSON.parse(res.text);
@@ -786,7 +803,7 @@ ${autoStopBanner}
       el.innerHTML=\`<div style="margin-bottom:10px">\${mexcBadge}</div><div style="font-size:.78em;color:#888;margin-bottom:10px">\${json.executionNote||''}</div><div class="bal-grid">\${exList}</div>\${perpCard}\`;
     }catch(e){ el.innerHTML='<span style="color:#e74c3c">❌ '+e.message+'</span>'; }
   }
-  function loadDynamic(){ loadBalances(); loadCircuitBreaker(); loadPerpsStatus(); }
+  function loadDynamic(){ disableAdminUi(); loadBalances(); loadCircuitBreaker(); loadPerpsStatus(); }
   loadDynamic();
 
   // ── MetaMask / Web3 Wallet ────────────────────────────────────────────────────

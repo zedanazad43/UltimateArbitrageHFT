@@ -93,18 +93,41 @@ function isAuthorized(env, c) {
 // "wrong token supplied", making it easier to diagnose setup problems.
 // Use `asJson` for API routes that speak JSON; leave false for plain-text admin routes.
 function authDenied(env, c, asJson = false) {
-  const hint = !env.ADMIN_TOKEN
-    ? 'ADMIN_TOKEN secret not configured — run: wrangler secret put ADMIN_TOKEN'
-    : 'Invalid admin token';
-  if (asJson) return c.json({ error: 'Unauthorized', hint }, 401);
-  return c.text(`Unauthorized: ${hint}`, 401);
+  const adminConfigured = !!env.ADMIN_TOKEN;
+  const hint = adminConfigured
+    ? 'Invalid admin token'
+    : 'ADMIN_TOKEN secret not configured — run: wrangler secret put ADMIN_TOKEN';
+  const status = adminConfigured ? 401 : 503;
+  if (asJson) {
+    return c.json({
+      error: adminConfigured ? 'Unauthorized' : 'Admin auth not configured',
+      hint
+    }, status);
+  }
+  return c.text(`${adminConfigured ? 'Unauthorized' : 'Service unavailable'}: ${hint}`, status);
 }
 
 // ─── Login page renderer ──────────────────────────────────────────────────────
-function renderLoginPage(showError = false) {
-  const errorBanner = showError
+function renderLoginPage(showError = false, adminConfigured = true) {
+  const setupBanner = !adminConfigured
+    ? `<div style="background:#e67e22;color:#fff;padding:10px 18px;border-radius:8px;margin-bottom:18px;font-weight:bold;line-height:1.7">
+         ⚠️ ADMIN_TOKEN غير مُهيَّأ بعد.<br>
+         شغّل: <code style="background:rgba(0,0,0,.25);padding:2px 6px;border-radius:4px">wrangler secret put ADMIN_TOKEN</code>
+         ثم أعد النشر.
+       </div>`
+    : '';
+  const errorBanner = showError && adminConfigured
     ? `<div style="background:#e74c3c;color:#fff;padding:10px 18px;border-radius:8px;margin-bottom:18px;font-weight:bold">❌ رمز الإدارة غير صحيح — حاول مجدداً</div>`
     : '';
+  const formHtml = adminConfigured
+    ? `<form method="POST" action="/login">
+         <label for="token">رمز الإدارة (ADMIN_TOKEN)</label>
+         <input id="token" name="token" type="password" placeholder="••••••••••••" autocomplete="current-password" autofocus required>
+         <button type="submit">🔑 دخول</button>
+       </form>`
+    : `<div style="background:#12161e;border:1px solid #2a2e38;border-radius:10px;padding:16px;text-align:right;line-height:1.8;color:#aaa">
+         تم تعطيل تسجيل الدخول لأن سر الإدارة غير مُهيَّأ بعد.
+       </div>`;
   return new Response(
     `<!DOCTYPE html>
 <html dir="rtl" lang="ar">
@@ -130,13 +153,10 @@ function renderLoginPage(showError = false) {
   <div class="card">
     <div style="font-size:2.2em;margin-bottom:12px">🔷</div>
     <h1>Nexus Arbitrage Hub</h1>
-    <p class="subtitle">أدخل رمز الإدارة للمتابعة</p>
+    <p class="subtitle">${adminConfigured ? 'أدخل رمز الإدارة للمتابعة' : 'أكمِل الإعداد أولاً ثم سجّل الدخول'}</p>
+    ${setupBanner}
     ${errorBanner}
-    <form method="POST" action="/login">
-      <label for="token">رمز الإدارة (ADMIN_TOKEN)</label>
-      <input id="token" name="token" type="password" placeholder="••••••••••••" autocomplete="current-password" autofocus required>
-      <button type="submit">🔑 دخول</button>
-    </form>
+    ${formHtml}
     <p class="footer">مبني على Cloudflare Workers</p>
   </div>
 </body>
@@ -214,11 +234,12 @@ app.use('*', async (c, next) => {
 app.get('/login', (c) => {
   // Already logged in → go to dashboard
   if (isAuthorized(c.env, c)) return c.redirect('/', 302);
-  return renderLoginPage(false);
+  return renderLoginPage(false, !!c.env.ADMIN_TOKEN);
 });
 
 // POST /login — validate token, set HttpOnly session cookie, redirect to /
 app.post('/login', async (c) => {
+  if (!c.env.ADMIN_TOKEN) return renderLoginPage(false, false);
   const body = await c.req.parseBody().catch(() => ({}));
   const input = (typeof body.token === 'string' ? body.token : '').trim();
   if (input && c.env.ADMIN_TOKEN && input === c.env.ADMIN_TOKEN) {
@@ -232,7 +253,7 @@ app.post('/login', async (c) => {
       },
     });
   }
-  return renderLoginPage(true);
+  return renderLoginPage(true, true);
 });
 
 // GET /logout — clear session cookie, redirect to /login
@@ -1342,5 +1363,3 @@ export default {
     }
   },
 };
-
-

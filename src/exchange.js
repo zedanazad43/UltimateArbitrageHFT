@@ -143,8 +143,13 @@ export async function placeMarketOrderMEXC(env, symbol, side, quantity, sizeUsd)
   const params = { symbol, side: side.toUpperCase(), type: 'MARKET', timestamp };
 
   if (side.toUpperCase() === 'BUY') {
-    // MEXC spot market buy: specify USDT amount via quoteOrderQty
-    params.quoteOrderQty = (sizeUsd || 0).toFixed(2);
+    // Use quoteOrderQty only when caller provided a valid positive USDT notional.
+    if (typeof sizeUsd === 'number' && Number.isFinite(sizeUsd) && sizeUsd > 0) {
+      params.quoteOrderQty = sizeUsd.toFixed(2);
+    } else {
+      // Fallback: allow market buy by base quantity when sizeUsd isn't provided.
+      params.quantity = quantity;
+    }
   } else {
     params.quantity = quantity;
   }

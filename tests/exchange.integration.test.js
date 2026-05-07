@@ -41,10 +41,14 @@ function installMockFetch(handler) {
   globalThis.fetch = mockFetch;
 }
 
-function makeJsonResponse(body, ok = true) {
+function makeJsonResponse(body, ok = true, status = ok ? 200 : 400) {
+  const jsonText = JSON.stringify(body);
   return {
     ok,
-    json: async () => body,
+    status,
+    json:   async () => body,
+    text:   async () => jsonText,
+    clone() { return this; },
     body: { cancel: async () => {} }
   };
 }
