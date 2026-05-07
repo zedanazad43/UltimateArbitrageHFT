@@ -111,7 +111,7 @@ function authDenied(env, c, asJson = false) {
 function renderLoginPage(showError = false, adminConfigured = true) {
   const setupBanner = !adminConfigured
     ? `<div style="background:#e67e22;color:#fff;padding:10px 18px;border-radius:8px;margin-bottom:18px;font-weight:bold;line-height:1.7">
-         ⚠️ ADMIN_TOKEN غير مُعيَّن بعد.<br>
+         ⚠️ ADMIN_TOKEN غير مُهيَّأ بعد.<br>
          شغّل: <code style="background:rgba(0,0,0,.25);padding:2px 6px;border-radius:4px">wrangler secret put ADMIN_TOKEN</code>
          ثم أعد النشر.
        </div>`
@@ -1363,4 +1363,3 @@ export default {
     }
   },
 };
-

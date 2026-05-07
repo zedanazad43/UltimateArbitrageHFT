@@ -51,7 +51,7 @@ export async function renderDashboard(env) {
 
   const adminTokenBanner = !env.ADMIN_TOKEN
     ? `<div style="background:#e67e22;color:#fff;padding:12px 20px;border-radius:8px;margin-bottom:18px;font-weight:bold">
-        ⚠️ ADMIN_TOKEN غير مُعيَّن — أوامر التحكم معطّلة.
+        ⚠️ ADMIN_TOKEN غير مُهيَّأ — أوامر التحكم معطّلة.
         شغّل: <code style="background:rgba(0,0,0,.25);padding:2px 6px;border-radius:4px">wrangler secret put ADMIN_TOKEN</code>
         ثم أعد النشر.
        </div>`
