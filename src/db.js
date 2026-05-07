@@ -10,10 +10,22 @@ import { schemaSQL } from '../migrations/schema.js';
 // Schema SQL is imported from migrations/schema.js (single source of truth).
 let _schemaInitPromise = null;
 
+function splitSchemaStatements(sql) {
+  return sql
+    .split(';')
+    .map(stmt => stmt.trim())
+    .filter(Boolean);
+}
+
 export function ensureSchema(env) {
   if (!env.DB) return Promise.resolve();
   if (_schemaInitPromise) return _schemaInitPromise;
-  _schemaInitPromise = env.DB.exec(schemaSQL).catch(e => {
+  _schemaInitPromise = (async () => {
+    const statements = splitSchemaStatements(schemaSQL);
+    for (const statement of statements) {
+      await env.DB.prepare(statement).run();
+    }
+  })().catch(e => {
     _schemaInitPromise = null; // allow retry on the next request
     console.error('[DB] ensureSchema error:', e.message);
     throw e; // propagate so the middleware can log / handle
@@ -259,4 +271,3 @@ export async function getRecentBacktestRuns(env, limit = 5) {
     return [];
   }
 }
-
