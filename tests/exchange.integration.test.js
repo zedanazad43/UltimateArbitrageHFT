@@ -42,9 +42,12 @@ function installMockFetch(handler) {
 }
 
 function makeJsonResponse(body, ok = true) {
+  const jsonText = JSON.stringify(body);
   return {
     ok,
-    json: async () => body,
+    status: ok ? 200 : 400,
+    json:   async () => body,
+    text:   async () => jsonText,
     body: { cancel: async () => {} }
   };
 }
