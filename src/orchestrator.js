@@ -361,11 +361,28 @@ export async function runScan(env, state, sendAlert) {
     return null;
   }
 
+  // ── In live mode, exclude strategies that require the Go HFT engine when it is not
+  //    running.  Without this filter the AI could pick a DEX/funding opportunity that
+  //    executeTrade() would immediately reject, wasting the whole scan cycle.
+  const execPool = (!paperMode && !isHFTEngineConfigured(env))
+    ? allOpportunities.filter(
+        opp => opp.strategy     !== 'dex'     &&
+               opp.strategy     !== 'funding' &&
+               opp.buyExchange  !== '0x'      &&
+               opp.sellExchange !== '0x'
+      )
+    : allOpportunities;
+
+  if (execPool.length === 0) {
+    console.log('[Live] No CEX/perps opportunities this cycle — all candidates require the HFT engine');
+    return null;
+  }
+
   // ── Pick best opportunity — AI-assisted when AIWORKER is available ────────────
   // filterOpportunityWithAI ranks candidates by safety factor, net profit,
   // strategy reliability, and asset liquidity.  Falls back to highest netPct
   // when AI is unavailable or returns an unrecognised response.
-  const best = await filterOpportunityWithAI(env, allOpportunities);
+  let best = await filterOpportunityWithAI(env, execPool);
   if (!best) {
     // Defensive guard: filterOpportunityWithAI only returns null for an empty list,
     // which is already handled above; this branch prevents any future regression.
@@ -379,21 +396,25 @@ export async function runScan(env, state, sendAlert) {
 
   // ── Sizing ───────────────────────────────────────────────────────────────────
   // Leverage only applied for perps; spot arbitrage uses effective leverage 1
-  const leverage = best.isPerp
-    ? calculateAdaptiveLeverage(equity, best.netPct, initialCapital)
-    : 1;
   const baseSize = calculatePositionSize(
     equity,
     state.win_rate          || 0.55,
     state.risk_reward_ratio || 2.0
   );
 
-  // Volatility-adjusted sizing: reduce when spread is elevated
-  const observedSpread = best.grossPct || 0;
-  const volAdjustedSize = volatilityAdjustedSize(baseSize, observedSpread);
+  /** Returns { leverage, sizeUsd } for the given opportunity */
+  function sizeFor(opp) {
+    const lev = opp.isPerp
+      ? calculateAdaptiveLeverage(equity, opp.netPct, initialCapital)
+      : 1;
+    const sz = Math.min(
+      volatilityAdjustedSize(baseSize, opp.grossPct || 0) * lev,
+      equity * MAX_POSITION_EQUITY_FRACTION
+    );
+    return { leverage: lev, sizeUsd: sz };
+  }
 
-  // Hard cap: MAX_POSITION_EQUITY_FRACTION of equity, consistent with risk.js
-  const rawSizeUsd = Math.min(volAdjustedSize * leverage, equity * MAX_POSITION_EQUITY_FRACTION);
+  let { leverage, sizeUsd: rawSizeUsd } = sizeFor(best);
 
   // Open exposure check: count open paper positions total size
   const openPositions    = await getOpenPaperPositions(env);
@@ -404,10 +425,10 @@ export async function runScan(env, state, sendAlert) {
     return null;
   }
 
-  const sizeUsd       = rawSizeUsd;
+  let sizeUsd       = rawSizeUsd;
   const mode          = paperMode ? 'paper' : 'live';
-  const strategyLabel = `${best.strategy}:${best.direction}`;
-  const levStr        = leverage > 1 ? ` | ${leverage}x` : '';
+  let strategyLabel = `${best.strategy}:${best.direction}`;
+  let levStr        = leverage > 1 ? ` | ${leverage}x` : '';
 
   // ── Execute or log paper trade ───────────────────────────────────────────────
   if (paperMode) {
@@ -421,23 +442,52 @@ export async function runScan(env, state, sendAlert) {
       `net ${best.netPct.toFixed(4)}%  safety ${(best.safetyFactor * 100).toFixed(1)}%`
     );
   } else {
-    try {
-      await executeTrade(env, best, sizeUsd, leverage);
+    // Build a fallback queue: try the AI-selected best first, then up to 2 alternatives
+    // sorted by netPct.  This ensures a temporary failure on one exchange (API error,
+    // insufficient balance) does not waste the entire scan cycle.
+    const fallbackQueue = [
+      best,
+      ...execPool
+        .filter(o => o !== best)
+        .sort((a, b) => b.netPct - a.netPct)
+        .slice(0, 2),
+    ];
+
+    let executedOpp = null;
+    for (const candidate of fallbackQueue) {
+      const { leverage: cLev, sizeUsd: cSize } = sizeFor(candidate);
+      try {
+        await executeTrade(env, candidate, cSize, cLev);
+        executedOpp   = candidate;
+        best          = candidate;
+        leverage      = cLev;
+        sizeUsd       = cSize;
+        strategyLabel = `${best.strategy}:${best.direction}`;
+        levStr        = leverage > 1 ? ` | ${leverage}x` : '';
+        break;
+      } catch (err) {
+        console.error(
+          `[Exec] ${candidate.strategy} ${candidate.symbol} failed: ${err.message}` +
+          (candidate !== fallbackQueue[fallbackQueue.length - 1] ? ' — trying next candidate' : '')
+        );
+      }
+    }
+
+    if (!executedOpp) {
       await sendAlert(
         env,
-        `✅ [LIVE] [${best.strategy.toUpperCase()}] ${best.symbol}\n` +
-        `${best.direction}\n` +
-        `$${sizeUsd.toFixed(2)}${levStr}\n` +
-        `net ${best.netPct.toFixed(4)}%`
-      );
-    } catch (execErr) {
-      console.error('Trade execution error:', execErr.message);
-      await sendAlert(
-        env,
-        `❌ [${best.strategy.toUpperCase()}] فشل التنفيذ ${best.symbol}: ${execErr.message}`
+        `❌ [${best.strategy.toUpperCase()}] فشل تنفيذ جميع الفرص المتاحة: ${best.symbol}`
       );
       return null;
     }
+
+    await sendAlert(
+      env,
+      `✅ [LIVE] [${best.strategy.toUpperCase()}] ${best.symbol}\n` +
+      `${best.direction}\n` +
+      `$${sizeUsd.toFixed(2)}${levStr}\n` +
+      `net ${best.netPct.toFixed(4)}%`
+    );
   }
 
   // ── Update state counters (caller saves state to KV) ────────────────────────
@@ -449,7 +499,7 @@ export async function runScan(env, state, sendAlert) {
   state.last_trade_timestamp = Date.now();
   state.last_trade_pnl_usd   = tradePnl;
 
-  // FIXED: ensured inside async function — use queue producer when available, fall back to logTrade()
+  // Use queue producer when available, fall back to logTrade()
   if (env.TRADE_QUEUE) {
     await env.TRADE_QUEUE.send({ type: 'trade_log', data: { strategy: strategyLabel, sizeUsd, netPct: best.netPct, mode } });
   } else {

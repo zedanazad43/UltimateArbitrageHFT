@@ -38,7 +38,7 @@ async function sendTelegramAlert(env, message) {
 
 // ─── State helpers ────────────────────────────────────────────────────────────
 const DEFAULT_STATE = {
-  trading_enabled: false,
+  trading_enabled: true,
   paper_trading: false,
   daily_pnl: 0, daily_trades: 0,
   total_pnl: 0, total_trades: 0,
