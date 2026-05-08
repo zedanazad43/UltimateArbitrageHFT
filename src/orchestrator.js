@@ -453,17 +453,18 @@ export async function runScan(env, state, sendAlert) {
         .slice(0, 2),
     ];
 
+    // `executedOpp` is the candidate that was actually placed on the exchange.
+    // It may differ from `best` (the AI's top pick) when `best` fails transiently.
     let executedOpp = null;
+    let executedLev = leverage;
+    let executedSize = sizeUsd;
     for (const candidate of fallbackQueue) {
       const { leverage: cLev, sizeUsd: cSize } = sizeFor(candidate);
       try {
         await executeTrade(env, candidate, cSize, cLev);
-        executedOpp   = candidate;
-        best          = candidate;
-        leverage      = cLev;
-        sizeUsd       = cSize;
-        strategyLabel = `${best.strategy}:${best.direction}`;
-        levStr        = leverage > 1 ? ` | ${leverage}x` : '';
+        executedOpp  = candidate;
+        executedLev  = cLev;
+        executedSize = cSize;
         break;
       } catch (err) {
         console.error(
@@ -476,18 +477,26 @@ export async function runScan(env, state, sendAlert) {
     if (!executedOpp) {
       await sendAlert(
         env,
-        `❌ [${best.strategy.toUpperCase()}] فشل تنفيذ جميع الفرص المتاحة: ${best.symbol}`
+        `❌ [${best.strategy.toUpperCase()}] فشل التنفيذ ${best.symbol}: جميع الفرص المتاحة فشلت`
       );
       return null;
     }
 
+    strategyLabel = `${executedOpp.strategy}:${executedOpp.direction}`;
+    leverage      = executedLev;
+    sizeUsd       = executedSize;
+    levStr        = leverage > 1 ? ` | ${leverage}x` : '';
+
     await sendAlert(
       env,
-      `✅ [LIVE] [${best.strategy.toUpperCase()}] ${best.symbol}\n` +
-      `${best.direction}\n` +
+      `✅ [LIVE] [${executedOpp.strategy.toUpperCase()}] ${executedOpp.symbol}\n` +
+      `${executedOpp.direction}\n` +
       `$${sizeUsd.toFixed(2)}${levStr}\n` +
-      `net ${best.netPct.toFixed(4)}%`
+      `net ${executedOpp.netPct.toFixed(4)}%`
     );
+
+    // Promote executedOpp so the state-update block below uses the correct trade data
+    best = executedOpp;
   }
 
   // ── Update state counters (caller saves state to KV) ────────────────────────
