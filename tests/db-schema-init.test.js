@@ -1,9 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { pathToFileURL } from 'node:url';
 import { schemaSQL } from '../migrations/schema.js';
 
-const dbModuleUrl = pathToFileURL('/home/runner/work/UltimateArbitrageHFT/UltimateArbitrageHFT/src/db.js').href;
+const dbModuleUrl = new URL('../src/db.js', import.meta.url).href;
 let importNonce = 0;
 
 async function loadDbModule() {
@@ -57,12 +56,11 @@ test('ensureSchema memoizes initialization per isolate', async () => {
   assert.equal(execCalls, 1);
 });
 
-test('ensureSchema resets memoized promise after failure and allows retry', async () => {
+test('ensureSchema resets memoized promise after failure and allows retry', async (t) => {
   const { ensureSchema } = await loadDbModule();
   let execCalls = 0;
   const errors = [];
-  const originalError = console.error;
-  console.error = (...args) => { errors.push(args.join(' ')); };
+  t.mock.method(console, 'error', (...args) => { errors.push(args.join(' ')); });
 
   const env = {
     DB: {
@@ -73,12 +71,8 @@ test('ensureSchema resets memoized promise after failure and allows retry', asyn
     }
   };
 
-  try {
-    await assert.rejects(() => ensureSchema(env), /schema failed/);
-    await ensureSchema(env);
-  } finally {
-    console.error = originalError;
-  }
+  await assert.rejects(async () => ensureSchema(env), /schema failed/);
+  await ensureSchema(env);
 
   assert.equal(execCalls, 2);
   assert.ok(errors.some(line => line.includes('[DB] ensureSchema error: schema failed')));
