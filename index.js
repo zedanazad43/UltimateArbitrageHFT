@@ -12,6 +12,7 @@ import { scanDEX } from './src/strategies/dex.js';
 import { isHFTEngineConfigured } from './src/hft-client.js';
 import { runBacktest } from './src/backtest.js';
 import { getEcosystemCatalog, recommendEcosystem, getApiKeySecurityChecklist } from './src/ecosystem.js';
+import { executeAllExecutableIntegrations, executeExecutableIntegration, listExecutableIntegrationIds, probeExecutableIntegrations } from './src/executive-integrations.js';
 import {
   startWorkflow,
   stopWorkflow,
@@ -938,6 +939,59 @@ app.get('/api/security/api-keys', (c) => {
   return c.json({
     checklist: getApiKeySecurityChecklist()
   });
+});
+
+// ── API: Executable integrations (Hummingbot/Freqtrade/CrewAI/AutoGPT) ────────
+app.get('/api/integrations/executive/status', async (c) => {
+  if (!isAuthorized(c.env, c)) return authDenied(c.env, c, true);
+  try {
+    const statuses = await probeExecutableIntegrations(c.env);
+    return c.json({ integrations: statuses });
+  } catch (e) {
+    return c.json({ error: e.message }, 500);
+  }
+});
+
+app.post('/api/integrations/executive/execute', async (c) => {
+  const limited = await checkRateLimit(c.env, c);
+  if (limited) return limited;
+  if (!isAuthorized(c.env, c)) return authDenied(c.env, c, true);
+  try {
+    const { integration, payload } = await c.req.json().catch(() => ({}));
+    const ids = listExecutableIntegrationIds();
+    if (!ids.includes(integration)) {
+      return c.json({ error: `integration must be one of: ${ids.join(', ')}` }, 400);
+    }
+    const result = await executeExecutableIntegration(c.env, integration, payload || {});
+    await logAdminEvent(c.env, `executive:${integration}:execute`, c.req.raw);
+    return c.json({ success: true, ...result });
+  } catch (e) {
+    return c.json({ success: false, error: e.message }, 500);
+  }
+});
+
+app.post('/api/integrations/executive/execute-all', async (c) => {
+  const limited = await checkRateLimit(c.env, c);
+  if (limited) return limited;
+  if (!isAuthorized(c.env, c)) return authDenied(c.env, c, true);
+  try {
+    const body = await c.req.json().catch(() => ({}));
+    const results = await executeAllExecutableIntegrations(
+      c.env,
+      body.payloadByIntegration || {},
+      body.defaultPayload || {}
+    );
+    await logAdminEvent(c.env, 'executive:all:execute', c.req.raw);
+    const successCount = results.filter((item) => item.success).length;
+    return c.json({
+      success: successCount === results.length,
+      success_count: successCount,
+      total: results.length,
+      results,
+    });
+  } catch (e) {
+    return c.json({ success: false, error: e.message }, 500);
+  }
 });
 
 // ── API: Version metadata ─────────────────────────────────────────────────────
