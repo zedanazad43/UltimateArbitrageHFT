@@ -835,7 +835,7 @@ ${autoStopBanner}
       const lines=(json.integrations||[]).map(item=>{
         const cfg=item.configured?'✅':'⚠️';
         const status=item.reachable===true?'متصل':(item.reachable===false?'غير متصل':'غير مفحوص');
-        return `\${cfg} \${item.integration.toUpperCase()} | configured=\${item.configured?'yes':'no'} | status=\${status}`;
+        return \`\${cfg} \${item.integration.toUpperCase()} | configured=\${item.configured?'yes':'no'} | status=\${status}\`;
       });
       el.textContent=lines.join('\n')||'لا توجد بيانات';
     }catch(e){
