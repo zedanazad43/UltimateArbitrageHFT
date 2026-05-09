@@ -11,6 +11,7 @@ import { hasExchangeCredentials, getExchangeBalance, placeExchangeMarketOrder, g
 import { scanDEX } from './src/strategies/dex.js';
 import { isHFTEngineConfigured } from './src/hft-client.js';
 import { runBacktest } from './src/backtest.js';
+import { getEcosystemCatalog, recommendEcosystem, getApiKeySecurityChecklist } from './src/ecosystem.js';
 import {
   startWorkflow,
   stopWorkflow,
@@ -918,6 +919,25 @@ app.post('/api/ai', async (c) => {
       error:      e.message,
     }, 500);
   }
+});
+
+// ── API: Ecosystem integrations ────────────────────────────────────────────────
+app.get('/api/ecosystem', (c) => {
+  return c.json({
+    updated_at: '2026-05-09',
+    catalog: getEcosystemCatalog()
+  });
+});
+
+app.get('/api/ecosystem/recommendation', (c) => {
+  const goal = c.req.query('goal') || 'quick_start';
+  return c.json(recommendEcosystem(goal));
+});
+
+app.get('/api/security/api-keys', (c) => {
+  return c.json({
+    checklist: getApiKeySecurityChecklist()
+  });
 });
 
 // ── API: Version metadata ─────────────────────────────────────────────────────

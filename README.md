@@ -90,6 +90,23 @@ npm run setup:local
 - **Dashboard**: <https://ultimate-arbitrage-hft.zedanazad43.workers.dev>
 - **Logs**: `npm run tail` or Cloudflare dashboard → Workers → ultimate-arbitrage-hft → Logs
 
+## Ecosystem integrations (2026)
+
+The project now includes a built-in integration catalog and recommendation API for:
+
+- **Hummingbot** (professional arbitrage starter)
+- **Freqtrade + FreqAI** (AI/ML-driven strategy stack)
+- **OpenCode** and **Aider** (coding-agent support)
+- **CrewAI** and **AutoGPT** (multi-agent orchestration patterns)
+
+API endpoints:
+
+- `GET /api/ecosystem` → full catalog
+- `GET /api/ecosystem/recommendation?goal=quick_start|ai_learning|coding_support|multi_agent_ops`
+- `GET /api/security/api-keys` → secure exchange API-key checklist
+
+Latency note: run the bot and execution services in regions close to exchange infrastructure to improve arbitrage fill quality.
+
 ## Security
 
 Secrets (`api_keys.txt`, `.env`) **must not** be committed — see `.gitignore`.
