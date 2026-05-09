@@ -524,7 +524,24 @@ ${autoStopBanner}
     <button class="btn"           data-admin-action="1" onclick="temporalMode(true)">📄 Paper</button>
     <button class="btn btn-red"   data-admin-action="1" onclick="temporalMode(false)">🔴 Live</button>
   </div>
-  <div id="temporalResult" style="font-size:.82em;color:#888;background:#12161e;border-radius:8px;padding:12px;white-space:pre-wrap;display:none"></div>
+<div id="temporalResult" style="font-size:.82em;color:#888;background:#12161e;border-radius:8px;padding:12px;white-space:pre-wrap;display:none"></div>
+</div>
+
+<!-- ── Executable integrations panel ─────────────────────────────────────── -->
+<div class="panel">
+  <h2 style="margin-top:0">🔌 التكاملات التنفيذية الأربعة</h2>
+  <div style="font-size:.82em;color:#888;margin-bottom:10px">
+    Hummingbot + Freqtrade + CrewAI + AutoGPT
+  </div>
+  <div>
+    <button class="btn btn-blue" onclick="loadExecutableIntegrationsStatus()">📊 الحالة</button>
+    <button class="btn btn-green" data-admin-action="1" onclick="runExecutableIntegration('hummingbot')">▶️ Hummingbot</button>
+    <button class="btn btn-green" data-admin-action="1" onclick="runExecutableIntegration('freqtrade')">▶️ Freqtrade</button>
+    <button class="btn btn-green" data-admin-action="1" onclick="runExecutableIntegration('crewai')">▶️ CrewAI</button>
+    <button class="btn btn-green" data-admin-action="1" onclick="runExecutableIntegration('autogpt')">▶️ AutoGPT</button>
+    <button class="btn" data-admin-action="1" onclick="runAllExecutableIntegrations()">🚀 تشغيل الأربعة معًا</button>
+  </div>
+  <div id="execIntegrationsResult" style="font-size:.82em;color:#888;background:#12161e;border-radius:8px;padding:12px;white-space:pre-wrap;display:none;margin-top:10px"></div>
 </div>
 
 <!-- ── R2 Log Archives Panel ────────────────────────────────────────────── -->
@@ -803,7 +820,71 @@ ${autoStopBanner}
       el.innerHTML=\`<div style="margin-bottom:10px">\${mexcBadge}</div><div style="font-size:.78em;color:#888;margin-bottom:10px">\${json.executionNote||''}</div><div class="bal-grid">\${exList}</div>\${perpCard}\`;
     }catch(e){ el.innerHTML='<span style="color:#e74c3c">❌ '+e.message+'</span>'; }
   }
-  function loadDynamic(){ disableAdminUi(); loadBalances(); loadCircuitBreaker(); loadPerpsStatus(); }
+  async function loadExecutableIntegrationsStatus(){
+    const el=document.getElementById('execIntegrationsResult');
+    if(!el) return;
+    el.style.display='block';
+    el.textContent='جارٍ التحميل...';
+    if(!adminConfigured){
+      el.innerHTML='⚠️ أضف ADMIN_TOKEN أولاً لاستخدام التكاملات التنفيذية.';
+      return;
+    }
+    try{
+      const res=await callAdminApi('/api/integrations/executive/status');
+      const json=JSON.parse(res.text);
+      const lines=(json.integrations||[]).map(item=>{
+        const cfg=item.configured?'✅':'⚠️';
+        const status=item.reachable===true?'متصل':(item.reachable===false?'غير متصل':'غير مفحوص');
+        return \`\${cfg} \${item.integration.toUpperCase()} | configured=\${item.configured?'yes':'no'} | status=\${status}\`;
+      });
+      el.textContent=lines.join('\n')||'لا توجد بيانات';
+    }catch(e){
+      el.textContent='❌ '+e.message;
+    }
+  }
+  async function runExecutableIntegration(integration){
+    if(!adminConfigured){ alert('⚠️ ADMIN_TOKEN غير مُهيّأ'); return; }
+    setButtonsBusy(true);
+    try{
+      const res=await callAdminApi('/api/integrations/executive/execute',{
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({
+          integration,
+          payload:{ trigger:'dashboard', requested_at:new Date().toISOString() }
+        })
+      });
+      const json=JSON.parse(res.text);
+      const el=document.getElementById('execIntegrationsResult');
+      if(el){
+        el.style.display='block';
+        el.textContent=JSON.stringify(json,null,2);
+      }
+    }catch(e){ alert('❌ '+e.message); }
+    finally{ setButtonsBusy(false); }
+  }
+  async function runAllExecutableIntegrations(){
+    if(!adminConfigured){ alert('⚠️ ADMIN_TOKEN غير مُهيّأ'); return; }
+    if(!confirm('تشغيل التكاملات التنفيذية الأربعة الآن؟')) return;
+    setButtonsBusy(true);
+    try{
+      const res=await callAdminApi('/api/integrations/executive/execute-all',{
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({
+          defaultPayload:{ trigger:'dashboard_all', requested_at:new Date().toISOString() }
+        })
+      });
+      const json=JSON.parse(res.text);
+      const el=document.getElementById('execIntegrationsResult');
+      if(el){
+        el.style.display='block';
+        el.textContent=JSON.stringify(json,null,2);
+      }
+    }catch(e){ alert('❌ '+e.message); }
+    finally{ setButtonsBusy(false); }
+  }
+  function loadDynamic(){ disableAdminUi(); loadBalances(); loadCircuitBreaker(); loadPerpsStatus(); loadExecutableIntegrationsStatus(); }
   loadDynamic();
 
   // ── MetaMask / Web3 Wallet ────────────────────────────────────────────────────
