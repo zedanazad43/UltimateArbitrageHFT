@@ -5,7 +5,7 @@ import worker from '../index.js';
 describe('API auth hardening', () => {
   test('blocks /api/status without admin token when ADMIN_TOKEN is configured', async () => {
     const env = { ADMIN_TOKEN: 'secret-token' };
-    const req = new Request('https://example.com/api/status');
+    const req = new globalThis.Request('https://example.com/api/status');
     const res = await worker.fetch(req, env, {});
     assert.equal(res.status, 401);
   });
@@ -28,7 +28,7 @@ describe('API auth hardening', () => {
       async put() {}
     };
     const env = { ADMIN_TOKEN: 'secret-token', BOT_STATE: kv };
-    const req = new Request('https://example.com/api/status', {
+    const req = new globalThis.Request('https://example.com/api/status', {
       headers: { 'x-admin-token': 'secret-token' }
     });
     const res = await worker.fetch(req, env, {});
@@ -37,7 +37,7 @@ describe('API auth hardening', () => {
 
   test('blocks /api/export without admin token', async () => {
     const env = { ADMIN_TOKEN: 'secret-token' };
-    const req = new Request('https://example.com/api/export');
+    const req = new globalThis.Request('https://example.com/api/export');
     const res = await worker.fetch(req, env, {});
     assert.equal(res.status, 401);
   });
@@ -49,7 +49,7 @@ describe('Telegram chat allowlist', () => {
       TELEGRAM_BOT_TOKEN: 'bot-token',
       TELEGRAM_CHAT_ID: '123456'
     };
-    const req = new Request('https://example.com/telegram/webhook', {
+    const req = new globalThis.Request('https://example.com/telegram/webhook', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({

@@ -1145,7 +1145,7 @@ export function extractFillMetrics(orderResult) {
     ?? root.dealSize
     ?? root.filledSize
     ?? root.accFillSz
-    ?? root.fieldAmount
+    ?? root.filledAmount
     ?? root.size
   );
 

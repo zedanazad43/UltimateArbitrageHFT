@@ -5,7 +5,7 @@
 # API Keys – NEVER commit real keys
 api_keys.txt
 upload-secrets.ps1
-MEXC_API_KEY=*
+*MEXC_API_KEY*
 *_API_KEY=*.txt
 *_API_SECRET=*.txt
 
