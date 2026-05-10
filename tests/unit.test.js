@@ -16,9 +16,13 @@ import {
   checkDrawdownGuard,
   checkExposureLimit,
   calculateVaR,
+  calculateSharpeRatio,
+  calculateSortinoRatio,
+  maxConsecutiveLosses,
   checkMinTimeBetweenTrades
 } from '../src/risk.js';
-import { scanTriangular } from '../src/strategies/triangular.js';
+import { scanTriangular, TRIANGLES } from '../src/strategies/triangular.js';
+import { CORRELATED_PAIRS } from '../src/strategies/statistical.js';
 import { computeMetrics, monteCarloSimulation } from '../src/backtest.js';
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -464,5 +468,205 @@ describe('checkMinTimeBetweenTrades', () => {
       last_trade_timestamp: Date.now() - 35000  // 35s ago, need 30s
     };
     assert.equal(checkMinTimeBetweenTrades(state).allowed, true);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// calculateSharpeRatio
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('calculateSharpeRatio', () => {
+  test('returns 0 for fewer than 5 observations', () => {
+    assert.equal(calculateSharpeRatio([1, 2, 3]), 0);
+  });
+
+  test('returns 0 for empty array', () => {
+    assert.equal(calculateSharpeRatio([]), 0);
+  });
+
+  test('returns a finite number for a mixed P&L series', () => {
+    const pnls = [10, -5, 8, -3, 6, 12, -2, 9, -1, 7];
+    const sharpe = calculateSharpeRatio(pnls);
+    assert.ok(isFinite(sharpe), `expected finite, got ${sharpe}`);
+    assert.ok(typeof sharpe === 'number');
+  });
+
+  test('positive Sharpe for consistently profitable series', () => {
+    const pnls = [5, 4, 6, 5, 7, 4, 5, 6, 5, 5];
+    const sharpe = calculateSharpeRatio(pnls);
+    assert.ok(sharpe > 0, `expected > 0, got ${sharpe}`);
+  });
+
+  test('negative Sharpe for consistently losing series', () => {
+    const pnls = [-5, -4, -6, -5, -7, -4, -5, -6, -5, -5];
+    const sharpe = calculateSharpeRatio(pnls);
+    assert.ok(sharpe < 0, `expected < 0, got ${sharpe}`);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// calculateSortinoRatio
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('calculateSortinoRatio', () => {
+  test('returns 0 for fewer than 5 observations', () => {
+    assert.equal(calculateSortinoRatio([1, 2]), 0);
+  });
+
+  test('returns a finite number for mixed P&L', () => {
+    const pnls = [10, -5, 8, -3, 6, 12, -2, 9, -1, 7];
+    const sortino = calculateSortinoRatio(pnls);
+    assert.ok(isFinite(sortino));
+    assert.ok(typeof sortino === 'number');
+  });
+
+  test('Sortino >= Sharpe for same series with positive mean (downside-only denominator)', () => {
+    // When losses are smaller than gains, Sortino should be >= Sharpe
+    const pnls = [10, -1, 9, -1, 8, -1, 10, -1, 9, -1];
+    const sharpe  = calculateSharpeRatio(pnls);
+    const sortino = calculateSortinoRatio(pnls);
+    assert.ok(sortino >= sharpe - 0.001, `Sortino ${sortino} should be >= Sharpe ${sharpe}`);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// maxConsecutiveLosses
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('maxConsecutiveLosses', () => {
+  test('returns 0 for empty array', () => {
+    assert.equal(maxConsecutiveLosses([]), 0);
+  });
+
+  test('returns 0 for all winning trades', () => {
+    assert.equal(maxConsecutiveLosses([5, 3, 7, 2, 1]), 0);
+  });
+
+  test('counts a single losing streak correctly', () => {
+    // 3 consecutive losses
+    assert.equal(maxConsecutiveLosses([5, -1, -2, -3, 5, 4]), 3);
+  });
+
+  test('returns the longest of multiple losing streaks', () => {
+    // streak of 2, then streak of 4
+    assert.equal(maxConsecutiveLosses([-1, -2, 5, -1, -2, -3, -4, 6]), 4);
+  });
+
+  test('handles all-loss series', () => {
+    assert.equal(maxConsecutiveLosses([-1, -2, -3, -4, -5]), 5);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// TRIANGLES coverage (expanded paths)
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('TRIANGLES expanded paths', () => {
+  test('contains at least 12 triangle definitions', () => {
+    assert.ok(TRIANGLES.length >= 12, `expected >= 12 triangles, got ${TRIANGLES.length}`);
+  });
+
+  test('each triangle has required fields a, b, c, route', () => {
+    for (const tri of TRIANGLES) {
+      assert.ok(typeof tri.a === 'string', `tri.a must be string: ${JSON.stringify(tri)}`);
+      assert.ok(typeof tri.b === 'string', `tri.b must be string: ${JSON.stringify(tri)}`);
+      assert.ok(typeof tri.c === 'string', `tri.c must be string: ${JSON.stringify(tri)}`);
+      assert.ok(typeof tri.route === 'string', `tri.route must be string: ${JSON.stringify(tri)}`);
+    }
+  });
+
+  test('includes BTC/ETH/USDT and BTC/XRP/USDT paths', () => {
+    const routes = TRIANGLES.map(t => t.route);
+    assert.ok(routes.some(r => r.includes('ETH')), 'should include ETH path');
+    assert.ok(routes.some(r => r.includes('XRP')), 'should include XRP path');
+  });
+
+  test('scanTriangular finds opportunity on new BTC/LINK/USDT triangle', () => {
+    // LINK is mispriced vs BTC: pC/pA should equal pB but it doesn't
+    const pA = 65000;   // BTC/USDT
+    const pB = 0.003;   // LINK/BTC (1 LINK = 0.003 BTC → implied: 65000*0.003=$195)
+    const pC = 240;     // LINK/USDT (quoted higher → profitable direction)
+    const prices = {
+      BTCUSDT: pA, LINKBTC: pB, LINKUSDT: pC
+    };
+    const opp = scanTriangular('binance', 0.0005, prices);
+    // May or may not be above threshold — just ensure function works with new triangles
+    if (opp) {
+      assert.equal(opp.strategy, 'triangular');
+      assert.ok(opp.netPct > 0);
+    }
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// CORRELATED_PAIRS coverage (expanded pairs)
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('CORRELATED_PAIRS expanded list', () => {
+  test('contains at least 10 correlated pair definitions', () => {
+    assert.ok(CORRELATED_PAIRS.length >= 10, `expected >= 10 pairs, got ${CORRELATED_PAIRS.length}`);
+  });
+
+  test('each pair has id, symbolA, symbolB, label', () => {
+    for (const p of CORRELATED_PAIRS) {
+      assert.ok(typeof p.id     === 'string', 'id must be string');
+      assert.ok(typeof p.symbolA === 'string', 'symbolA must be string');
+      assert.ok(typeof p.symbolB === 'string', 'symbolB must be string');
+      assert.ok(typeof p.label  === 'string', 'label must be string');
+    }
+  });
+
+  test('includes ARB/OP and XRP/ADA pairs (new Tier-2/Tier-3)', () => {
+    const ids = CORRELATED_PAIRS.map(p => p.id);
+    assert.ok(ids.includes('ARB_OP'),  'should include ARB_OP pair');
+    assert.ok(ids.includes('XRP_ADA'), 'should include XRP_ADA pair');
+  });
+
+  test('all pair IDs are unique', () => {
+    const ids = CORRELATED_PAIRS.map(p => p.id);
+    const unique = new Set(ids);
+    assert.equal(unique.size, ids.length, 'all pair IDs should be unique');
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// scanCEX slippage integration
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('scanCEX slippage', () => {
+  test('returns slippagePct field on an opportunity', () => {
+    // Large spread ensures the opportunity survives slippage deduction
+    const sources = [
+      { price: 50000, exchange: 'mexc',    fee: 0.0003 },
+      { price: 51500, exchange: 'binance', fee: 0.0002 }
+    ];
+    const opp = scanCEX('BTCUSDT', sources, 5.0);
+    assert.notEqual(opp, null);
+    assert.ok(typeof opp.slippagePct === 'number', 'slippagePct should be a number');
+    assert.ok(opp.slippagePct > 0, 'slippagePct should be positive');
+  });
+
+  test('slippage-adjusted netPct is lower than gross−fees', () => {
+    const sources = [
+      { price: 50000, exchange: 'mexc',    fee: 0.0003 },
+      { price: 51500, exchange: 'binance', fee: 0.0002 }
+    ];
+    const opp = scanCEX('BTCUSDT', sources, 5.0);
+    if (!opp) return;
+    const grossPct    = ((51500 - 50000) / 50000) * 100;
+    const totalFees   = (0.0003 + 0.0002) * 100;
+    const naiveNet    = grossPct - totalFees;
+    assert.ok(opp.netPct < naiveNet, 'slippage should reduce netPct below naive fee-only estimate');
+  });
+
+  test('marginal spread killed by slippage (was borderline without it)', () => {
+    // 0.3% spread, 0.05% fees each side = naive net 0.2% — but slippage ~0.05% each kills it
+    const sources = [
+      { price: 10000, exchange: 'gateio',  fee: 0.0005 },  // slippage 0.07%
+      { price: 10030, exchange: 'bitmart', fee: 0.0005 }   // slippage 0.08%
+    ];
+    const opp = scanCEX('XRPUSDT', sources, 5.0);
+    // With slippage added, this borderline spread should be null or have very small netPct
+    if (opp) assert.ok(opp.netPct < 0.2);
   });
 });

@@ -21,12 +21,31 @@ const MAX_LEG_SPREAD_PCT = 15.0;
  *
  * Direction 1: USDT → buy A → sell A/B cross → sell B for USDT
  * Direction 2: USDT → buy B → buy A via cross → sell A for USDT
+ *
+ * Extended with additional high-liquidity paths sourced from analysis of
+ * triangular-arb bots (harjus, OKX-triangular-arbitrage, hummingbot amm_arb).
  */
 const TRIANGLES = [
-  { a: 'BTCUSDT', b: 'ETHBTC', c: 'ETHUSDT', route: 'USDT→BTC→ETH→USDT' },
-  { a: 'BNBUSDT', b: 'BNBBTC', c: 'BTCUSDT', route: 'USDT→BNB→BTC→USDT' },
-  { a: 'SOLUSDT', b: 'SOLBTC', c: 'BTCUSDT', route: 'USDT→SOL→BTC→USDT' },
-  { a: 'ETHUSDT', b: 'BNBETH', c: 'BNBUSDT', route: 'USDT→ETH→BNB→USDT' },
+  // ── BTC-base triangles ────────────────────────────────────────────────────
+  { a: 'BTCUSDT', b: 'ETHBTC',  c: 'ETHUSDT',  route: 'USDT→BTC→ETH→USDT' },
+  { a: 'BTCUSDT', b: 'BNBBTC',  c: 'BNBUSDT',  route: 'USDT→BTC→BNB→USDT' },
+  { a: 'BTCUSDT', b: 'SOLBTC',  c: 'SOLUSDT',  route: 'USDT→BTC→SOL→USDT' },
+  { a: 'BTCUSDT', b: 'XRPBTC',  c: 'XRPUSDT',  route: 'USDT→BTC→XRP→USDT' },
+  { a: 'BTCUSDT', b: 'ADABTC',  c: 'ADAUSDT',  route: 'USDT→BTC→ADA→USDT' },
+  { a: 'BTCUSDT', b: 'DOTBTC',  c: 'DOTUSDT',  route: 'USDT→BTC→DOT→USDT' },
+  { a: 'BTCUSDT', b: 'LINKBTC', c: 'LINKUSDT', route: 'USDT→BTC→LINK→USDT' },
+  { a: 'BTCUSDT', b: 'LTCBTC',  c: 'LTCUSDT',  route: 'USDT→BTC→LTC→USDT' },
+  { a: 'BTCUSDT', b: 'AVAXBTC', c: 'AVAXUSDT', route: 'USDT→BTC→AVAX→USDT' },
+  // ── ETH-base triangles ────────────────────────────────────────────────────
+  { a: 'ETHUSDT', b: 'BNBETH',  c: 'BNBUSDT',  route: 'USDT→ETH→BNB→USDT' },
+  { a: 'ETHUSDT', b: 'LINKETH', c: 'LINKUSDT', route: 'USDT→ETH→LINK→USDT' },
+  { a: 'ETHUSDT', b: 'DOTETH',  c: 'DOTUSDT',  route: 'USDT→ETH→DOT→USDT' },
+  { a: 'ETHUSDT', b: 'UNIETH',  c: 'UNIUSDT',  route: 'USDT→ETH→UNI→USDT' },
+  // ── BNB-base triangles ────────────────────────────────────────────────────
+  { a: 'BNBUSDT', b: 'BNBBTC',  c: 'BTCUSDT',  route: 'USDT→BNB→BTC→USDT' },
+  { a: 'BNBUSDT', b: 'SOLBNB',  c: 'SOLUSDT',  route: 'USDT→BNB→SOL→USDT' },
+  { a: 'BNBUSDT', b: 'XRPBNB',  c: 'XRPUSDT',  route: 'USDT→BNB→XRP→USDT' },
+  { a: 'BNBUSDT', b: 'ADABNB',  c: 'ADAUSDT',  route: 'USDT→BNB→ADA→USDT' },
 ];
 
 /**

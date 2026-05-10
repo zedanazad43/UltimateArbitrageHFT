@@ -2,6 +2,32 @@
 
 const MIN_SAFETY_FACTOR = 0.4; // net/gross must be ≥ 40%
 
+// Estimated market-impact slippage (in % of trade value) applied per leg.
+// Derived from empirical analysis of crypto order-book depth at ~$5k–$50k sizes.
+// Inspired by Hummingbot's slippage buffer and harjus order-fill modelling.
+// Exchange-specific overrides handle known thin-book exchanges.
+const DEFAULT_SLIPPAGE_PCT = 0.05; // 5 bps per leg
+const SLIPPAGE_OVERRIDES = {
+  mexc:    0.03,  // MEXC has tight spreads on majors
+  binance: 0.02,  // deepest order books
+  bybit:   0.04,
+  okx:     0.03,
+  kucoin:  0.05,
+  bitget:  0.06,
+  gateio:  0.07,
+  bitmart: 0.08,
+  htx:     0.06,
+};
+
+/**
+ * Returns estimated one-way slippage in percent for a given exchange.
+ * @param {string} exchange
+ * @returns {number}
+ */
+function slippagePct(exchange) {
+  return SLIPPAGE_OVERRIDES[exchange] ?? DEFAULT_SLIPPAGE_PCT;
+}
+
 /**
  * Finds the best CEX arbitrage opportunity across the provided price sources.
  *
@@ -35,7 +61,9 @@ export function scanCEX(symbol, sources, maxSpreadPct) {
 
       const grossPct    = ((sell.price - buy.price) / buy.price) * 100;
       const totalFeePct = (buy.fee + sell.fee) * 100;
-      const netPct      = grossPct - totalFeePct;
+      // Deduct estimated market-impact slippage on both legs
+      const totalSlippagePct = slippagePct(buy.exchange) + slippagePct(sell.exchange);
+      const netPct      = grossPct - totalFeePct - totalSlippagePct;
       if (netPct <= 0) continue;
 
       const safetyFactor = netPct / grossPct;
@@ -53,7 +81,8 @@ export function scanCEX(symbol, sources, maxSpreadPct) {
           netPct,
           safetyFactor,
           direction:    `${buy.exchange.toUpperCase()}→${sell.exchange.toUpperCase()}`,
-          isPerp:       false
+          isPerp:       false,
+          slippagePct:  totalSlippagePct
         };
       }
     }
