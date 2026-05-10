@@ -8,13 +8,7 @@
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { scanDEX } from '../src/strategies/dex.js';
-
-// WETH_BSC_ADDRESS mirrors the private constant in src/strategies/dex.js.
-// It is duplicated here intentionally — the constant is not exported — so the
-// test can assert that PancakeSwap is queried for the correct token address.
-// If the address changes in dex.js, this constant must be updated here too.
-const WETH_BSC_ADDRESS = '0x2170ed0880ac9a755fd29b2688956bd959f933f8';
+import { scanDEX, DEX_TOKENS } from '../src/strategies/dex.js';
 
 // ── Mock fetch helpers ────────────────────────────────────────────────────────
 
@@ -49,7 +43,42 @@ function installPriceMock(ethPrice, bscPrice) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// scanDEX
+// DEX_TOKENS config
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('DEX_TOKENS config', () => {
+  test('exports an array with at least 3 entries', () => {
+    assert.ok(Array.isArray(DEX_TOKENS), 'DEX_TOKENS should be an array');
+    assert.ok(DEX_TOKENS.length >= 3, `expected ≥ 3 tokens, got ${DEX_TOKENS.length}`);
+  });
+
+  test('each token has required fields', () => {
+    for (const tok of DEX_TOKENS) {
+      assert.ok(typeof tok.symbol === 'string' && tok.symbol.length > 0,
+        `token ${JSON.stringify(tok)} missing symbol`);
+      assert.ok(typeof tok.alchemySymbol === 'string' && tok.alchemySymbol.length > 0,
+        `token ${tok.symbol} missing alchemySymbol`);
+      assert.ok(typeof tok.bscAddress === 'string' && tok.bscAddress.startsWith('0x'),
+        `token ${tok.symbol} missing/invalid bscAddress`);
+    }
+  });
+
+  test('includes ETH, BTC, and BNB pairs', () => {
+    const symbols = DEX_TOKENS.map(t => t.symbol);
+    assert.ok(symbols.includes('ETHUSDT'), 'should include ETHUSDT');
+    assert.ok(symbols.includes('BTCUSDT'), 'should include BTCUSDT');
+    assert.ok(symbols.includes('BNBUSDT'), 'should include BNBUSDT');
+  });
+
+  test('all BSC addresses are unique (no duplicates)', () => {
+    const addrs = DEX_TOKENS.map(t => t.bscAddress.toLowerCase());
+    const unique = new Set(addrs);
+    assert.equal(unique.size, addrs.length, 'BSC addresses should all be unique');
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// scanDEX — key checks
 // ─────────────────────────────────────────────────────────────────────────────
 
 describe('scanDEX', () => {
@@ -79,8 +108,8 @@ describe('scanDEX', () => {
     assert.equal(fetchWasCalled, true, 'fetch should have been called (key was accepted)');
   });
 
-  test('returns null when the price spread is below the 0.5% minimum', async () => {
-    // 0.3% spread — below MIN_SPREAD_PCT = 0.5
+  test('returns null when all pair spreads are below the 0.5% minimum', async () => {
+    // 0.3% spread on all pairs — below MIN_SPREAD_PCT = 0.5
     installPriceMock(2000, 2006);
     const result = await scanDEX({ ALCHEMY_API_KEY: 'testkey' });
     assert.equal(result, null);
@@ -100,12 +129,9 @@ describe('scanDEX', () => {
 
     assert.notEqual(result, null);
     assert.equal(result.strategy,     'dex');
-    assert.equal(result.symbol,       'ETHUSDT');
     assert.equal(result.buyExchange,  'ethereum');
     assert.equal(result.sellExchange, 'bsc');
     assert.equal(result.direction,    'ETH→BSC');
-    assert.equal(result.buyPrice,     2000);
-    assert.equal(result.sellPrice,    2100);
     assert.ok(result.netPct > 0, 'netPct should be positive');
     assert.equal(result.isPerp, false);
   });
@@ -119,8 +145,6 @@ describe('scanDEX', () => {
     assert.equal(result.buyExchange,  'bsc');
     assert.equal(result.sellExchange, 'ethereum');
     assert.equal(result.direction,    'BSC→ETH');
-    assert.equal(result.buyPrice,     2000);
-    assert.equal(result.sellPrice,    2100);
   });
 
   test('netPct equals absSpread minus BRIDGE_COST_PCT (0.2%)', async () => {
@@ -139,6 +163,23 @@ describe('scanDEX', () => {
     assert.notEqual(result, null);
     const expected = result.netPct / result.grossPct;
     assert.ok(Math.abs(result.safetyFactor - expected) < 0.0001);
+  });
+
+  test('opportunity includes gasEstimateUSD field', async () => {
+    installPriceMock(2000, 2100);
+    const result = await scanDEX({ ALCHEMY_API_KEY: 'testkey' });
+    assert.notEqual(result, null);
+    assert.ok(typeof result.gasEstimateUSD === 'number' && result.gasEstimateUSD > 0,
+      'gasEstimateUSD should be a positive number');
+  });
+
+  test('symbol field matches one of the configured DEX_TOKENS', async () => {
+    installPriceMock(2000, 2100);
+    const result = await scanDEX({ ALCHEMY_API_KEY: 'testkey' });
+    assert.notEqual(result, null);
+    const symbols = DEX_TOKENS.map(t => t.symbol);
+    assert.ok(symbols.includes(result.symbol),
+      `result.symbol "${result.symbol}" should be in DEX_TOKENS`);
   });
 
   test('returns null (does not throw) when Alchemy fetch fails', async () => {
@@ -165,20 +206,66 @@ describe('scanDEX', () => {
     assert.equal(result, null, 'scanDEX should catch errors and return null');
   });
 
-  test('uses the WETH BSC address when fetching PancakeSwap price', async () => {
-    let pancakeUrl;
+  test('uses the WETH BSC address when fetching PancakeSwap price for ETH', async () => {
+    const wethBSCAddress = DEX_TOKENS.find(t => t.symbol === 'ETHUSDT').bscAddress;
+    const pancakeUrls = [];
     globalThis.fetch = async (url) => {
       const host = new URL(url).hostname;
       if (host === 'api.pancakeswap.info') {
-        pancakeUrl = url;
+        pancakeUrls.push(url);
         return makeResponse({ data: { price: '2100' } });
       }
       return makeResponse({ data: [{ prices: [{ value: '2000' }] }] });
     };
     await scanDEX({ ALCHEMY_API_KEY: 'testkey' });
     assert.ok(
-      pancakeUrl && pancakeUrl.includes(WETH_BSC_ADDRESS),
-      'PancakeSwap URL should include the WETH BSC contract address'
+      pancakeUrls.some(u => u.includes(wethBSCAddress)),
+      'At least one PancakeSwap URL should include the WETH BSC contract address'
     );
   });
+
+  test('scans multiple token pairs (queries PancakeSwap for each DEX_TOKEN)', async () => {
+    const pancakeUrls = [];
+    globalThis.fetch = async (url) => {
+      const host = new URL(url).hostname;
+      if (host === 'api.pancakeswap.info') {
+        pancakeUrls.push(url);
+        return makeResponse({ data: { price: '100' } }); // below spread threshold
+      }
+      return makeResponse({ data: [{ prices: [{ value: '100' }] }] });
+    };
+    await scanDEX({ ALCHEMY_API_KEY: 'testkey' });
+    // Each DEX_TOKEN should trigger a PancakeSwap query.
+    assert.ok(pancakeUrls.length >= DEX_TOKENS.length,
+      `expected ≥ ${DEX_TOKENS.length} PancakeSwap calls, got ${pancakeUrls.length}`);
+  });
+
+  test('returns the highest-netPct opportunity when multiple pairs are profitable', async () => {
+    // We simulate different spreads per pair by routing by BSC token address.
+    const wethAddress = DEX_TOKENS.find(t => t.symbol === 'ETHUSDT').bscAddress.toLowerCase();
+    const wbtcAddress = DEX_TOKENS.find(t => t.symbol === 'BTCUSDT').bscAddress.toLowerCase();
+
+    globalThis.fetch = async (url) => {
+      const host = new URL(url).hostname;
+      if (host === 'api.g.alchemy.com') {
+        // Return 1000 as the Ethereum price for any symbol
+        return makeResponse({ data: [{ prices: [{ value: '1000' }] }] });
+      }
+      if (host === 'api.pancakeswap.info') {
+        // WETH on BSC: 5% higher (large spread)
+        if (url.toLowerCase().includes(wethAddress)) return makeResponse({ data: { price: '1050' } });
+        // WBTC on BSC: 3% higher (smaller spread)
+        if (url.toLowerCase().includes(wbtcAddress)) return makeResponse({ data: { price: '1030' } });
+        // BNB: 0.1% higher (below threshold)
+        return makeResponse({ data: { price: '1001' } });
+      }
+      throw new Error(`Unexpected fetch host: ${host}`);
+    };
+
+    const result = await scanDEX({ ALCHEMY_API_KEY: 'testkey' });
+    assert.notEqual(result, null, 'should return an opportunity');
+    // ETH has the largest spread — it should win.
+    assert.equal(result.symbol, 'ETHUSDT', 'should pick the highest-spread pair (ETHUSDT)');
+  });
 });
+
