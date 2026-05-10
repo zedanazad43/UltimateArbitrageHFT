@@ -375,19 +375,14 @@ export async function getPancakePrice(tokenAddress) {
 // Symbol mapping: BTC → XBT (Kraken convention).
 // Public endpoint: https://api.kraken.com/0/public/Ticker?pair=XBTUSDT
 
-const KRAKEN_SYMBOL_MAP = {
-  BTC: 'XBT',
-};
-
 /**
  * Converts a standard symbol (e.g. BTCUSDT) to Kraken pair format (e.g. XBTUSDT).
  * Cross pairs (e.g. ETHBTC) become ETHXBT.
+ * Kraken uses XBT as the symbol for Bitcoin (BTC).
  */
 function toKrakenPair(symbol) {
   return symbol.replace(/^BTC/, 'XBT').replace(/BTC$/, 'XBT');
 }
-// Keep the map for future use if more aliases are needed
-void KRAKEN_SYMBOL_MAP;
 
 export async function getKrakenPrice(symbol) {
   try {
