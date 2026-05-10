@@ -312,7 +312,68 @@ export async function getPancakePrice(tokenAddress) {
   return parseFloat(price);
 }
 
-// ── OKX spot price ────────────────────────────────────────────────────────────
+// ── Kraken public spot price ──────────────────────────────────────────────────
+//
+// Kraken's market-data endpoints are fully public — no API key, no IP whitelist.
+// Symbol mapping: BTC → XBT (Kraken convention).
+// Public endpoint: https://api.kraken.com/0/public/Ticker?pair=XBTUSDT
+
+const KRAKEN_SYMBOL_MAP = {
+  BTC: 'XBT',
+};
+
+/**
+ * Converts a standard symbol (e.g. BTCUSDT) to Kraken pair format (e.g. XBTUSDT).
+ * Cross pairs (e.g. ETHBTC) become ETHXBT.
+ */
+function toKrakenPair(symbol) {
+  return symbol.replace(/^BTC/, 'XBT').replace(/BTC$/, 'XBT');
+}
+// Keep the map for future use if more aliases are needed
+void KRAKEN_SYMBOL_MAP;
+
+export async function getKrakenPrice(symbol) {
+  try {
+    const krakenPair = toKrakenPair(symbol);
+    const resp = await fetchWithRetry(
+      `https://api.kraken.com/0/public/Ticker?pair=${krakenPair}`,
+      FETCH_CF
+    );
+    if (!resp || !resp.ok) { await resp?.body?.cancel(); return null; }
+    const data = await resp.json();
+    if (data.error?.length) return null;
+    // Response has a dynamic key that is the pair name (Kraken may normalise it)
+    const resultValues = Object.values(data.result || {});
+    if (!resultValues.length) return null;
+    const price = parseFloat(resultValues[0]?.c?.[0]);
+    if (!price || isNaN(price)) return null;
+    return { price, exchange: 'kraken', fee: 0.0016 }; // 0.16% taker fee (standard tier)
+  } catch (_) { return null; }
+}
+
+// ── Coinbase public spot price ────────────────────────────────────────────────
+//
+// Coinbase v2 prices endpoint is fully public — no API key, no IP whitelist.
+// Format: /v2/prices/{BASE}-{QUOTE}/spot  e.g. /v2/prices/BTC-USDT/spot
+
+export async function getCoinbasePrice(symbol) {
+  try {
+    // Convert e.g. BTCUSDT → BTC-USDT
+    const base = symbol.endsWith('USDT') ? symbol.slice(0, -4) : symbol.slice(0, -3);
+    const quote = symbol.endsWith('USDT') ? 'USD' : 'BTC'; // Coinbase uses USD not USDT
+    const resp = await fetchWithRetry(
+      `https://api.coinbase.com/v2/prices/${base}-${quote}/spot`,
+      FETCH_CF
+    );
+    if (!resp || !resp.ok) { await resp?.body?.cancel(); return null; }
+    const data = await resp.json();
+    const price = parseFloat(data?.data?.amount);
+    if (!price || isNaN(price)) return null;
+    return { price, exchange: 'coinbase', fee: 0.006 }; // 0.6% taker fee (advanced trade)
+  } catch (_) { return null; }
+}
+
+
 
 export async function getOKXPrice(symbol) {
   try {
@@ -492,16 +553,105 @@ export async function getMEXCCrossPrice(crossSymbol) {
 }
 
 /**
+ * Converts a compact cross-pair symbol (e.g. ETHBTC) to OKX instId format (e.g. ETH-BTC).
+ * Handles BTC-quoted, ETH-quoted, and BNB-quoted pairs.
+ */
+function toOKXCrossInstId(crossSymbol) {
+  for (const quote of ['BTC', 'ETH', 'BNB', 'USDT']) {
+    if (crossSymbol.endsWith(quote) && crossSymbol.length > quote.length) {
+      const base = crossSymbol.slice(0, -quote.length);
+      return `${base}-${quote}`;
+    }
+  }
+  return crossSymbol; // fallback
+}
+
+/**
+ * Fetches a cross-pair price from OKX (public endpoint, no API key required).
+ * Used for triangular arbitrage cross-pair data on OKX.
+ */
+export async function getOKXCrossPrice(crossSymbol) {
+  try {
+    const instId = toOKXCrossInstId(crossSymbol);
+    const resp = await fetchWithRetry(
+      `https://www.okx.com/api/v5/market/ticker?instId=${instId}`,
+      FETCH_CF
+    );
+    if (!resp || !resp.ok) { await resp?.body?.cancel(); return null; }
+    const data = await resp.json();
+    if (data.code !== '0' || !data.data?.[0]?.last) return null;
+    const price = parseFloat(data.data[0].last);
+    if (!price || isNaN(price)) return null;
+    return price;
+  } catch (_) { return null; }
+}
+
+/**
+ * Fetches a cross-pair price from KuCoin (public endpoint, no API key required).
+ * Used for triangular arbitrage cross-pair data on KuCoin.
+ */
+export async function getKuCoinCrossPrice(crossSymbol) {
+  try {
+    // KuCoin uses dash-separated symbol: ETHBTC → ETH-BTC
+    let kuSymbol = crossSymbol;
+    for (const quote of ['BTC', 'ETH', 'BNB', 'USDT']) {
+      if (crossSymbol.endsWith(quote) && crossSymbol.length > quote.length) {
+        kuSymbol = `${crossSymbol.slice(0, -quote.length)}-${quote}`;
+        break;
+      }
+    }
+    const resp = await fetchWithRetry(
+      `https://api.kucoin.com/api/v1/market/orderbook/level1?symbol=${kuSymbol}`,
+      FETCH_CF
+    );
+    if (!resp || !resp.ok) { await resp?.body?.cancel(); return null; }
+    const data = await resp.json();
+    const price = parseFloat(data?.data?.price);
+    if (!price || isNaN(price)) return null;
+    return price;
+  } catch (_) { return null; }
+}
+
+/**
+ * Fetches a cross-pair price from Bybit (public endpoint, no API key required).
+ * Used as an additional data source for triangular arbitrage cross-pair data.
+ */
+export async function getBybitCrossPrice(crossSymbol) {
+  try {
+    const resp = await fetchWithRetry(
+      `https://api.bybit.com/v5/market/tickers?category=spot&symbol=${crossSymbol}`,
+      FETCH_CF
+    );
+    if (!resp || !resp.ok) { await resp?.body?.cancel(); return null; }
+    const data = await resp.json();
+    const ticker = data?.result?.list?.[0];
+    if (!ticker?.lastPrice) return null;
+    const price = parseFloat(ticker.lastPrice);
+    if (!price || isNaN(price)) return null;
+    return price;
+  } catch (_) { return null; }
+}
+
+/**
  * Fetches triangular price data for a set of cross symbols from multiple exchanges.
  * Returns a map of { symbol: price } for each requested cross symbol.
+ * Uses all available public sources (no API key required) with ordered fallback.
  *
- * @param {string[]} crossSymbols  — e.g. ['ETHBTC', 'BNBBTC']
+ * Source priority: Binance (deepest liquidity) → MEXC → OKX → KuCoin → Bybit
+ *
+ * @param {string[]} crossSymbols  — e.g. ['ETHBTC', 'BNBBTC', 'XRPBTC']
  * @returns {object}  { ETHBTC: 0.052, BNBBTC: 0.0084, ... }
  */
 export async function getCrossPairPrices(crossSymbols) {
   const tasks = crossSymbols.map(async sym => {
-    // Try Binance first (most liquid cross pairs), fall back to MEXC
-    const price = await getBinanceCrossPrice(sym) ?? await getMEXCCrossPrice(sym);
+    // Each source is a public endpoint — no API key or IP whitelist required.
+    const price = (
+      await getBinanceCrossPrice(sym) ??
+      await getMEXCCrossPrice(sym)    ??
+      await getOKXCrossPrice(sym)     ??
+      await getKuCoinCrossPrice(sym)  ??
+      await getBybitCrossPrice(sym)
+    );
     return [sym, price];
   });
   const entries = await Promise.allSettled(tasks);
@@ -520,18 +670,23 @@ export async function getCrossPairPrices(crossSymbols) {
  * Fetches all spot price sources for a symbol in parallel.
  * Exchanges listed in the `openCircuits` Set are skipped (circuit breaker).
  * Returns array of non-null PriceSource objects.
+ *
+ * Sources marked (*) are fully public endpoints requiring no API key and no
+ * IP-whitelisted API key — accessible from any IP, including Cloudflare Worker IPs.
  */
 export async function getAllSpotPrices(env, symbol, openCircuits = new Set()) {
   const exchangeFetchers = [
-    ['mexc',    () => getMarketStreamerPrice(env, symbol)],
-    ['binance', () => getBinancePrice(symbol)],
-    ['kucoin',  () => getKuCoinPrice(symbol)],
-    ['okx',     () => getOKXPrice(symbol)],
-    ['bitget',  () => getBitgetPrice(symbol)],
-    ['bitmart', () => getBitmartPrice(symbol)],
-    ['bybit',   () => getBybitSpotPrice(symbol)],
-    ['gateio',  () => getGateioPrice(symbol)],
-    ['htx',     () => getHTXPrice(symbol)],
+    ['mexc',     () => getMarketStreamerPrice(env, symbol)],
+    ['binance',  () => getBinancePrice(symbol)],            // (*) public
+    ['kucoin',   () => getKuCoinPrice(symbol)],             // (*) public
+    ['okx',      () => getOKXPrice(symbol)],                // (*) public
+    ['bitget',   () => getBitgetPrice(symbol)],             // (*) public
+    ['bitmart',  () => getBitmartPrice(symbol)],            // (*) public
+    ['bybit',    () => getBybitSpotPrice(symbol)],          // (*) public
+    ['gateio',   () => getGateioPrice(symbol)],             // (*) public
+    ['htx',      () => getHTXPrice(symbol)],                // (*) public
+    ['kraken',   () => getKrakenPrice(symbol)],             // (*) public — no IP restriction
+    ['coinbase', () => getCoinbasePrice(symbol)],           // (*) public — no IP restriction
   ];
 
   const tasks = exchangeFetchers.map(([name, fetcher]) =>

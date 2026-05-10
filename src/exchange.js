@@ -987,12 +987,14 @@ const EXCHANGE_CRED_KEYS = {
 /**
  * Exchanges excluded from live execution (data-only price feeds).
  * bybit/gateio: German regulatory restrictions (BaFin).
+ * kraken/coinbase: public price feeds used for wider market coverage;
+ *   execution credentials are not configured — data-only.
  * NOTE: perp feed labels (mexc_perp, binance_perp, okx_perp, bybit_perp) are
  * opportunity buyExchange/sellExchange values — they are NOT in this set so the
  * DATA_ONLY guard in executeTrade() does not block isPerp opportunities before
  * they reach the perp routing branch.
  */
-export const DATA_ONLY_EXCHANGES = new Set(['bybit', 'gateio']);
+export const DATA_ONLY_EXCHANGES = new Set(['bybit', 'gateio', 'kraken', 'coinbase']);
 export const ACTIVE_EXECUTION_EXCHANGES = [
   'mexc', 'binance', 'kucoin', 'okx', 'bitget', 'bitmart', 'htx'
 ];
