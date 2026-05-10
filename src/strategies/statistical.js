@@ -34,11 +34,26 @@ const KV_TTL    = 7200; // 2-hour TTL — stale history is useless
 // ── Correlated pair definitions ───────────────────────────────────────────────
 // Each entry defines two assets whose prices are historically correlated.
 // ratio = price(assetA) / price(assetB)
+//
+// Extended based on correlation analysis from statistical-arb literature and
+// Hummingbot's cross-exchange-mining connector patterns.
 export const CORRELATED_PAIRS = [
-  { id: 'BTC_ETH',   symbolA: 'BTCUSDT', symbolB: 'ETHUSDT',  label: 'BTC/ETH ratio' },
-  { id: 'SOL_AVAX',  symbolA: 'SOLUSDT', symbolB: 'AVAXUSDT', label: 'SOL/AVAX ratio' },
-  { id: 'BNB_ETH',   symbolA: 'BNBUSDT', symbolB: 'ETHUSDT',  label: 'BNB/ETH ratio' },
-  { id: 'LINK_UNI',  symbolA: 'LINKUSDT', symbolB: 'UNIUSDT', label: 'LINK/UNI ratio' },
+  // ── Tier 1: Highly correlated large-caps ─────────────────────────────────
+  { id: 'BTC_ETH',    symbolA: 'BTCUSDT',  symbolB: 'ETHUSDT',  label: 'BTC/ETH ratio' },
+  { id: 'SOL_AVAX',   symbolA: 'SOLUSDT',  symbolB: 'AVAXUSDT', label: 'SOL/AVAX ratio' },
+  { id: 'BNB_ETH',    symbolA: 'BNBUSDT',  symbolB: 'ETHUSDT',  label: 'BNB/ETH ratio' },
+  { id: 'LINK_UNI',   symbolA: 'LINKUSDT', symbolB: 'UNIUSDT',  label: 'LINK/UNI ratio' },
+  // ── Tier 2: Layer-1 competitors ──────────────────────────────────────────
+  { id: 'XRP_ADA',    symbolA: 'XRPUSDT',  symbolB: 'ADAUSDT',  label: 'XRP/ADA ratio' },
+  { id: 'DOT_AVAX',   symbolA: 'DOTUSDT',  symbolB: 'AVAXUSDT', label: 'DOT/AVAX ratio' },
+  { id: 'SOL_BNB',    symbolA: 'SOLUSDT',  symbolB: 'BNBUSDT',  label: 'SOL/BNB ratio' },
+  { id: 'ATOM_NEAR',  symbolA: 'ATOMUSDT', symbolB: 'NEARUSDT', label: 'ATOM/NEAR ratio' },
+  // ── Tier 3: Layer-2 / rollup tokens ──────────────────────────────────────
+  { id: 'ARB_OP',     symbolA: 'ARBUSDT',  symbolB: 'OPUSDT',   label: 'ARB/OP ratio' },
+  { id: 'MATIC_ARB',  symbolA: 'MATICUSDT',symbolB: 'ARBUSDT',  label: 'MATIC/ARB ratio' },
+  // ── Tier 4: DeFi tokens ───────────────────────────────────────────────────
+  { id: 'LINK_DOT',   symbolA: 'LINKUSDT', symbolB: 'DOTUSDT',  label: 'LINK/DOT ratio' },
+  { id: 'UNI_INJ',   symbolA: 'UNIUSDT',  symbolB: 'INJUSDT',  label: 'UNI/INJ ratio' },
 ];
 
 // ── Math helpers ──────────────────────────────────────────────────────────────

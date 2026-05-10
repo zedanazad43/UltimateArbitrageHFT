@@ -5,6 +5,13 @@
 // generates risk-free yield equal to the collected funding payment minus
 // round-trip fees.  This strategy surfaces such opportunities for the
 // orchestrator to act on.
+//
+// Informed by Hummingbot's spot-perpetual arbitrage strategy and quantitative
+// funding-rate analysis from multiple open-source HFT repos.
+
+// Funding settlements per day (standard for most exchanges: 3 × 8h periods).
+const FUNDING_PERIODS_PER_DAY = 3;
+const DAYS_PER_YEAR           = 365;
 
 // Minimum absolute funding rate to consider (per 8-hour settlement period).
 // 0.0001 = 0.01% per period ≈ 10.95% APY — below this the edge is marginal.
@@ -52,6 +59,9 @@ export function scanFundingRate(symbol, spotSources, perpData, maxSpreadPct) {
   if (fundingPct === 0) return null;
   const safetyFactor = netPct / fundingPct;
 
+  // Annualized yield estimate: funding paid every 8h → 3×/day × 365 days
+  const annualizedPct = fundingPct * FUNDING_PERIODS_PER_DAY * DAYS_PER_YEAR;
+
   // Positive funding → shorts receive payment → go long spot + short perp
   // Negative funding → longs receive payment  → go short spot + long perp
   const receiveFunding = fundingRate >= 0; // true = receive as short perp
@@ -75,6 +85,7 @@ export function scanFundingRate(symbol, spotSources, perpData, maxSpreadPct) {
     isPerp:         true,
     fundingRate,
     perpSide,
-    fundingHarvest: true
+    fundingHarvest: true,
+    annualizedPct   // APY estimate for display/ranking purposes
   };
 }

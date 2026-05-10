@@ -269,8 +269,18 @@ export async function runScan(env, state, sendAlert) {
   ]);
 
   // ── Triangular arbitrage (per-exchange, using cross-pair prices) ─────────────
-  // Build per-exchange price maps from the mid-price cache and run triangular scan
-  for (const exchangeName of ['binance', 'mexc']) {
+  // Build per-exchange price maps from the mid-price cache and run triangular scan.
+  // Exchange fee map derived from official fee schedules (taker, standard tier).
+  // Extended to include OKX and KuCoin based on their triangular-arb suitability
+  // (deep order books, many cross-pairs, competitive fees).
+  const TRIANGULAR_EXCHANGES = {
+    binance: 0.001,   // 0.10% taker
+    mexc:    0.0005,  // 0.05% taker
+    okx:     0.0008,  // 0.08% taker
+    kucoin:  0.001,   // 0.10% taker
+  };
+  for (const [exchangeName, fee] of Object.entries(TRIANGULAR_EXCHANGES)) {
+    if (openCircuits.has(exchangeName)) continue;
     try {
       const priceMap = {};
       // Add USDT-quoted prices from midPrices (indexed by symbol)
@@ -282,7 +292,6 @@ export async function runScan(env, state, sendAlert) {
       // Add cross-pair prices
       Object.assign(priceMap, crossPrices);
 
-      const fee = exchangeName === 'binance' ? 0.001 : 0.0005;
       const triOpp = scanTriangular(exchangeName, fee, priceMap);
       if (triOpp) {
         allOpportunities.push(triOpp);

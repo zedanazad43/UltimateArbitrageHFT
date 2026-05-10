@@ -157,6 +157,93 @@ export function calculateVaR(pnls, confidence = 0.95) {
 }
 
 /**
+ * Sharpe Ratio — risk-adjusted return vs total volatility.
+ *
+ * Measures excess return per unit of standard deviation.
+ * A Sharpe > 1 is considered good; > 2 is excellent for HFT strategies.
+ * Inspired by Hummingbot's performance analytics module.
+ *
+ * @param {number[]} pnls         — historical trade P&L values in USD
+ * @param {number}   riskFreeRate — annual risk-free rate (decimal, e.g. 0.05 = 5%)
+ * @param {number}   tradesPerDay — estimated number of trades per day
+ * @returns {number} annualised Sharpe ratio (0 when insufficient data)
+ */
+export function calculateSharpeRatio(pnls, riskFreeRate = 0.05, tradesPerDay = 48) {
+  if (!pnls || pnls.length < 5) return 0;
+
+  const n    = pnls.length;
+  const mean = pnls.reduce((s, v) => s + v, 0) / n;
+  const variance = pnls.reduce((s, v) => s + (v - mean) ** 2, 0) / n;
+  const stdDev = Math.sqrt(variance);
+
+  if (stdDev === 0) return mean >= 0 ? Infinity : -Infinity;
+
+  // Per-trade risk-free rate (annual rate → per trade)
+  const rfPerTrade = riskFreeRate / (tradesPerDay * 365);
+  const excessMean = mean - rfPerTrade;
+
+  // Annualise: multiply per-trade Sharpe by √(trades per year)
+  const tradesPerYear = tradesPerDay * 365;
+  return (excessMean / stdDev) * Math.sqrt(tradesPerYear);
+}
+
+/**
+ * Sortino Ratio — risk-adjusted return vs downside volatility only.
+ *
+ * Unlike Sharpe, Sortino penalises only negative returns, making it a more
+ * appropriate measure for asymmetric profit distributions typical of arbitrage
+ * strategies.  Used in statistical-arb risk frameworks (e.g. Hummingbot v2).
+ *
+ * @param {number[]} pnls         — historical trade P&L values in USD
+ * @param {number}   riskFreeRate — annual risk-free rate (decimal)
+ * @param {number}   tradesPerDay — estimated number of trades per day
+ * @returns {number} annualised Sortino ratio (0 when insufficient data)
+ */
+export function calculateSortinoRatio(pnls, riskFreeRate = 0.05, tradesPerDay = 48) {
+  if (!pnls || pnls.length < 5) return 0;
+
+  const n    = pnls.length;
+  const mean = pnls.reduce((s, v) => s + v, 0) / n;
+
+  // Downside deviation: only penalise returns below zero (the target return)
+  const downsideVariance = pnls.reduce((s, v) => s + (v < 0 ? v ** 2 : 0), 0) / n;
+  const downsideStdDev   = Math.sqrt(downsideVariance);
+
+  if (downsideStdDev === 0) return mean >= 0 ? Infinity : -Infinity;
+
+  const rfPerTrade = riskFreeRate / (tradesPerDay * 365);
+  const excessMean = mean - rfPerTrade;
+
+  const tradesPerYear = tradesPerDay * 365;
+  return (excessMean / downsideStdDev) * Math.sqrt(tradesPerYear);
+}
+
+/**
+ * Maximum Consecutive Losses — counts the longest run of losing trades.
+ *
+ * A high consecutive-loss count may indicate model breakdown or adverse market
+ * conditions and is used by several open-source bots (hummingbot, bot18) as a
+ * supplementary halt trigger.
+ *
+ * @param {number[]} pnls — historical trade P&L values
+ * @returns {number} length of the longest losing streak
+ */
+export function maxConsecutiveLosses(pnls) {
+  if (!pnls || pnls.length === 0) return 0;
+  let maxStreak = 0;
+  let current   = 0;
+  for (const p of pnls) {
+    if (p < 0) {
+      current++;
+      if (current > maxStreak) maxStreak = current;
+    } else {
+      current = 0;
+    }
+  }
+  return maxStreak;
+}
+
+/**
  * Minimum time check: enforces a minimum number of seconds between trades
  * to avoid over-trading and to allow price movements to settle.
  *
@@ -183,4 +270,3 @@ export {
   MAX_TOTAL_EXPOSURE_FRACTION,
   HIGH_VOL_THRESHOLD_PCT
 };
-

@@ -18,7 +18,9 @@ import {
   getAlchemyPrice,
   getPancakePrice,
   get0xPrice,
-  getAllSpotPrices
+  getAllSpotPrices,
+  getDEXScreenerPrice,
+  getCoinGeckoSimplePrice,
 } from '../src/prices.js';
 
 // ── Mock fetch helpers ────────────────────────────────────────────────────────
@@ -600,5 +602,104 @@ describe('getAllSpotPrices', () => {
     // No openCircuits argument — should not throw
     const results = await getAllSpotPrices({}, 'BTCUSDT');
     assert.ok(Array.isArray(results));
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// getDEXScreenerPrice
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('getDEXScreenerPrice', () => {
+  test('returns price from highest-volume pair on success', async () => {
+    const pairs = [
+      { chainId: 'ethereum', priceUsd: '1800', volume: { h24: 500000 } },
+      { chainId: 'ethereum', priceUsd: '1810', volume: { h24: 1200000 } }, // higher volume
+      { chainId: 'bsc',      priceUsd: '1790', volume: { h24: 800000 } },
+    ];
+    globalThis.fetch = async () => makeResponse({ pairs });
+    const result = await getDEXScreenerPrice('ethereum', '0xabc123');
+    assert.notEqual(result, null);
+    assert.equal(result.price, 1810, 'should pick the highest-volume Ethereum pair');
+    assert.equal(result.exchange, 'dexscreener');
+    assert.ok(result.fee > 0, 'fee should be positive');
+  });
+
+  test('filters by chainId — ignores pairs from other chains', async () => {
+    const pairs = [
+      { chainId: 'bsc',      priceUsd: '1790', volume: { h24: 999999 } },
+      { chainId: 'ethereum', priceUsd: '1800', volume: { h24: 1 } },
+    ];
+    globalThis.fetch = async () => makeResponse({ pairs });
+    const result = await getDEXScreenerPrice('ethereum', '0xabc123');
+    assert.notEqual(result, null);
+    assert.equal(result.price, 1800, 'should only use Ethereum pairs');
+  });
+
+  test('returns null when no pairs match the requested chainId', async () => {
+    const pairs = [{ chainId: 'bsc', priceUsd: '1790', volume: { h24: 1000 } }];
+    globalThis.fetch = async () => makeResponse({ pairs });
+    const result = await getDEXScreenerPrice('ethereum', '0xabc123');
+    assert.equal(result, null);
+  });
+
+  test('returns null when pairs array is empty', async () => {
+    globalThis.fetch = async () => makeResponse({ pairs: [] });
+    const result = await getDEXScreenerPrice('ethereum', '0xabc123');
+    assert.equal(result, null);
+  });
+
+  test('returns null on HTTP error', async () => {
+    globalThis.fetch = async () => makeResponse({}, 500);
+    const result = await getDEXScreenerPrice('ethereum', '0xabc123');
+    assert.equal(result, null);
+  });
+
+  test('returns null when priceUsd is missing from all pairs', async () => {
+    const pairs = [{ chainId: 'ethereum', volume: { h24: 1000 } }]; // no priceUsd
+    globalThis.fetch = async () => makeResponse({ pairs });
+    const result = await getDEXScreenerPrice('ethereum', '0xabc123');
+    assert.equal(result, null);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// getCoinGeckoSimplePrice
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('getCoinGeckoSimplePrice', () => {
+  test('returns price in USD on success', async () => {
+    globalThis.fetch = async () => makeResponse({ ethereum: { usd: 2500.75 } });
+    const price = await getCoinGeckoSimplePrice('ethereum');
+    assert.notEqual(price, null);
+    assert.equal(price, 2500.75);
+  });
+
+  test('uses the coinId in the request URL', async () => {
+    let capturedUrl;
+    globalThis.fetch = async (url) => {
+      capturedUrl = url;
+      return makeResponse({ bitcoin: { usd: 60000 } });
+    };
+    await getCoinGeckoSimplePrice('bitcoin');
+    assert.ok(capturedUrl.includes('ids=bitcoin'), 'URL should contain the coinId');
+    assert.ok(new URL(capturedUrl).hostname === 'api.coingecko.com', 'URL should target CoinGecko');
+  });
+
+  test('returns null when coinId is absent from response', async () => {
+    globalThis.fetch = async () => makeResponse({ solana: { usd: 150 } });
+    const price = await getCoinGeckoSimplePrice('ethereum'); // wrong key in response
+    assert.equal(price, null);
+  });
+
+  test('returns null on HTTP error', async () => {
+    globalThis.fetch = async () => makeResponse({}, 429);
+    const price = await getCoinGeckoSimplePrice('ethereum');
+    assert.equal(price, null);
+  });
+
+  test('returns null when fetch throws', async () => {
+    globalThis.fetch = async () => { throw new Error('network error'); };
+    const price = await getCoinGeckoSimplePrice('ethereum');
+    assert.equal(price, null);
   });
 });
