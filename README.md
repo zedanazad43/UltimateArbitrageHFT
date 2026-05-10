@@ -1,7 +1,7 @@
 # UltimateArbitrageHFT
 
-Deployed Cloudflare Worker: `ultimate-arbitrage-hft`
-Live URL: <https://ultimate-arbitrage-hft.zedanazad43.workers.dev>
+Deployed Cloudflare Worker: `ultimatearbitragehft`
+Live URL: <https://ultimatearbitragehft.zedanazad43.workers.dev>
 
 ---
 
@@ -88,8 +88,8 @@ npm run setup:local
 ## Monitoring
 
 - **Telegram**: send `/status` or `/scan` to your bot
-- **Dashboard**: <https://ultimate-arbitrage-hft.zedanazad43.workers.dev>
-- **Logs**: `npm run tail` or Cloudflare dashboard → Workers → ultimate-arbitrage-hft → Logs
+- **Dashboard**: <https://ultimatearbitragehft.zedanazad43.workers.dev>
+- **Logs**: `npm run tail` or Cloudflare dashboard → Workers → ultimatearbitragehft → Logs
 
 ## Ecosystem integrations (2026)
 
