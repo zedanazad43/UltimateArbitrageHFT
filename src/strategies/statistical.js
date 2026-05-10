@@ -53,7 +53,7 @@ export const CORRELATED_PAIRS = [
   { id: 'MATIC_ARB',  symbolA: 'MATICUSDT',symbolB: 'ARBUSDT',  label: 'MATIC/ARB ratio' },
   // ── Tier 4: DeFi tokens ───────────────────────────────────────────────────
   { id: 'LINK_DOT',   symbolA: 'LINKUSDT', symbolB: 'DOTUSDT',  label: 'LINK/DOT ratio' },
-  { id: 'UNI_AAVE',   symbolA: 'UNIUSDT',  symbolB: 'INJUSDT',  label: 'UNI/INJ ratio' },
+  { id: 'UNI_INJ',   symbolA: 'UNIUSDT',  symbolB: 'INJUSDT',  label: 'UNI/INJ ratio' },
 ];
 
 // ── Math helpers ──────────────────────────────────────────────────────────────
