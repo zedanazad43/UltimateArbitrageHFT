@@ -222,37 +222,35 @@ jobs:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
 
-      - name: Upload secrets to Cloudflare Worker
+      - name: Verify required production secrets are configured
         run: |
-          python3 - <<'PYEOF'
-          import json, os
-          keys = [
-            "MEXC_API_KEY", "MEXC_API_SECRET",
-            "BINANCE_API_KEY", "BINANCE_API_SECRET",
-            "OKX_API_KEY", "OKX_API_SECRET", "OKX_PASSPHRASE",
-            "KUCOIN_API_KEY", "KUCOIN_SECRET_KEY", "KUCOIN_PASSPHRASE",
-            "COINBASE_API_KEY", "COINBASE_SECRET_KEY",
-            "BITGET_API_KEY", "BITGET_SECRET_KEY", "BITGET_API_PASSPHRASE",
-            "BITMART_API_KEY", "BITMART_SECRET_KEY", "BITMART_MEMO",
-            "BYBIT_API_KEY", "BYBIT_API_SECRET",
-            "GATEIO_API_KEY", "GATEIO_API_SECRET",
-            "HTX_API_KEY", "HTX_API_SECRET",
-            "ZEROX_API_KEY", "ALCHEMY_API_KEY",
-            "TELEGRAM_BOT_TOKEN", "TELEGRAM_CHAT_ID",
-            "ADMIN_TOKEN",
-            "HFT_ENGINE_SECRET",
-            "TEMPORAL_API_KEY",
-          ]
-          secrets = {k: os.environ[k] for k in keys if os.environ.get(k)}
-          fd = os.open("/tmp/cf_secrets.json", os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-          with os.fdopen(fd, "w") as f:
-            json.dump(secrets, f)
-          PYEOF
-          npx --yes wrangler@4 secret bulk /tmp/cf_secrets.json
-          rm -f /tmp/cf_secrets.json
+          missing=0
+          for key in \
+            MEXC_API_KEY MEXC_API_SECRET \
+            BINANCE_API_KEY BINANCE_API_SECRET \
+            OKX_API_KEY OKX_API_SECRET OKX_PASSPHRASE \
+            KUCOIN_API_KEY KUCOIN_SECRET_KEY KUCOIN_PASSPHRASE \
+            COINBASE_API_KEY COINBASE_SECRET_KEY \
+            BITGET_API_KEY BITGET_SECRET_KEY BITGET_API_PASSPHRASE \
+            BITMART_API_KEY BITMART_SECRET_KEY BITMART_MEMO \
+            BYBIT_API_KEY BYBIT_API_SECRET \
+            GATEIO_API_KEY GATEIO_API_SECRET \
+            HTX_API_KEY HTX_API_SECRET \
+            ZEROX_API_KEY ALCHEMY_API_KEY \
+            TELEGRAM_BOT_TOKEN TELEGRAM_CHAT_ID \
+            ADMIN_TOKEN HFT_ENGINE_SECRET TEMPORAL_API_KEY
+          do
+            if [ -z "${!key}" ]; then
+              echo "::warning::Missing GitHub environment secret: $key"
+              missing=1
+            fi
+          done
+          if [ "$missing" -eq 1 ]; then
+            echo "::notice::One or more Worker secrets are absent from GitHub environment. Ensure they are pre-configured directly in the Cloudflare Worker."
+          else
+            echo "✅ All expected production secrets are present in the GitHub environment."
+          fi
         env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           MEXC_API_KEY: ${{ secrets.MEXC_API_KEY }}
           MEXC_API_SECRET: ${{ secrets.MEXC_API_SECRET }}
           BINANCE_API_KEY: ${{ secrets.BINANCE_API_KEY }}
