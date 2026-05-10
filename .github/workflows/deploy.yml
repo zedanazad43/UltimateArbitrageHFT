@@ -1,10 +1,7 @@
-name: Deploy & Real Trade
+name: Deploy Worker (Manual)
 
 on:
   workflow_dispatch:
-  push:
-    branches:
-      - main
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
@@ -25,6 +22,9 @@ jobs:
 
       - name: Install dependencies
         run: npm ci
+
+      - name: Run full test suite
+        run: npm run test:all
 
       - name: Upload build artifact
         uses: actions/upload-artifact@v4
@@ -133,87 +133,10 @@ jobs:
           HFT_ENGINE_SECRET: ${{ secrets.HFT_ENGINE_SECRET }}
           TEMPORAL_API_KEY: ${{ secrets.TEMPORAL_API_KEY }}
 
-      - name: Enable live trading in KV
-        run: |
-          python3 - <<'PYEOF'
-          import json, subprocess, sys, re
-
-          KEY = "trading_state"
-
-          # Derive KV namespace ID from wrangler.toml so it's always in sync
-          KV_NS = None
-          try:
-              with open("wrangler.toml") as f:
-                  for line in f:
-                      m = re.search(r'id\s*=\s*"([a-f0-9]{32})"', line)
-                      if m:
-                          KV_NS = m.group(1)
-                          break
-          except Exception as e:
-              print(f"Could not read wrangler.toml: {e}", file=sys.stderr)
-
-          if not KV_NS:
-              print("ERROR: KV namespace ID not found in wrangler.toml", file=sys.stderr)
-              sys.exit(1)
-
-          # Try to read existing state so accumulated PnL / trade history is preserved
-          state = {}
-          try:
-              r = subprocess.run(
-                  ["npx", "--yes", "wrangler@4", "kv", "key", "get",
-                   "--namespace-id", KV_NS, KEY],
-                  capture_output=True, text=True
-              )
-              for line in r.stdout.splitlines():
-                  line = line.strip()
-                  if line.startswith('{'):
-                      state = json.loads(line)
-                      break
-          except Exception as e:
-              print(f"Could not read existing KV state: {e}", file=sys.stderr)
-
-          # Fill in any missing fields with safe defaults
-          defaults = {
-              "daily_pnl": 0, "daily_trades": 0,
-              "total_pnl": 0, "total_trades": 0,
-              "initial_capital": 1000,
-              "max_daily_loss_usd": 25,
-              "min_seconds_between_trades": 30,
-              "max_per_trade_loss_pct": 0.02,
-              "max_spread_pct": 5.0,
-              "win_rate": 0.55,
-              "risk_reward_ratio": 2.0,
-          }
-          for k, v in defaults.items():
-              state.setdefault(k, v)
-
-          # Activate live trading
-          state["trading_enabled"]  = True
-          state["paper_trading"]    = False
-          state["auto_stopped"]     = False
-          state["auto_stop_reason"] = None
-
-          subprocess.run(
-              ["npx", "--yes", "wrangler@4", "kv", "key", "put",
-               "--namespace-id", KV_NS, KEY, json.dumps(state)],
-              check=True
-          )
-          print("✅ Live trading enabled in KV")
-          PYEOF
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-      # At this point the Worker is live and running in real-trade mode.
-      # The cron trigger (every minute) will automatically call runScheduledCycle()
-      # which scans CEX + Perps opportunities and executes real orders.
-      # Monitor progress via Telegram or the Worker dashboard URL shown in
-      # the "Deploy Worker" step output above.
-      # ─────────────────────────────────────────────────────────────────────────
-
       - name: Deployment summary
         run: |
           echo "✅ Deployment complete"
           echo "   Worker  : ultimatearbitragehft"
-          echo "   Mode    : LIVE (real trading)"
+          echo "   Mode    : unchanged (manual switch required)"
           echo "   Cron    : every minute"
           echo "   Monitor : Telegram bot or Worker dashboard"

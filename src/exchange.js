@@ -1123,3 +1123,52 @@ export async function placeExchangeMarketOrder(env, exchange, symbol, side, quan
       throw new Error(`No execution layer for exchange: ${exchange}`);
   }
 }
+
+function toFiniteNumber(value) {
+  const n = typeof value === 'string' ? Number(value) : value;
+  return Number.isFinite(n) ? n : null;
+}
+
+/**
+ * Extracts best-effort fill metrics from heterogeneous exchange order responses.
+ * Returns null when executed quantity or quote quantity cannot be determined.
+ */
+export function extractFillMetrics(orderResult) {
+  const root = orderResult?.data?.[0]
+    ?? orderResult?.data
+    ?? orderResult?.result
+    ?? orderResult;
+  if (!root || typeof root !== 'object') return null;
+
+  const executedQty = toFiniteNumber(
+    root.executedQty
+    ?? root.dealSize
+    ?? root.filledSize
+    ?? root.accFillSz
+    ?? root.fieldAmount
+    ?? root.size
+  );
+
+  let quoteQty = toFiniteNumber(
+    root.cummulativeQuoteQty
+    ?? root.cumulativeQuoteQty
+    ?? root.dealFunds
+    ?? root.filledValue
+    ?? root.accFillNotionalUsd
+    ?? root.filledAmountQuote
+  );
+
+  if (!quoteQty && Array.isArray(root.fills)) {
+    quoteQty = root.fills.reduce((sum, fill) => {
+      const price = toFiniteNumber(fill?.price);
+      const qty = toFiniteNumber(fill?.qty ?? fill?.quantity);
+      return (price && qty) ? sum + (price * qty) : sum;
+    }, 0);
+  }
+
+  const avgPrice = toFiniteNumber(root.avgPrice ?? root.priceAvg ?? root.fillPrice);
+  if (!quoteQty && avgPrice && executedQty) quoteQty = avgPrice * executedQty;
+
+  if (!executedQty || !quoteQty || executedQty <= 0 || quoteQty <= 0) return null;
+  return { executedQty, quoteQty, avgPrice: quoteQty / executedQty };
+}
