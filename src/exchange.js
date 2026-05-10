@@ -1129,6 +1129,19 @@ function toFiniteNumber(value) {
   return Number.isFinite(n) ? n : null;
 }
 
+function sumFillFees(fills) {
+  if (!Array.isArray(fills)) return 0;
+  return fills.reduce((sum, fill) => {
+    const commission = toFiniteNumber(
+      fill?.commission
+      ?? fill?.fee
+      ?? fill?.fees
+      ?? fill?.fillFee
+    );
+    return commission ? sum + commission : sum;
+  }, 0);
+}
+
 /**
  * Extracts best-effort fill metrics from heterogeneous exchange order responses.
  * Returns null when executed quantity or quote quantity cannot be determined.
@@ -1146,7 +1159,6 @@ export function extractFillMetrics(orderResult) {
     ?? root.filledSize
     ?? root.accFillSz
     ?? root.filledAmount
-    ?? root.size
   );
 
   let quoteQty = toFiniteNumber(
@@ -1167,8 +1179,18 @@ export function extractFillMetrics(orderResult) {
   }
 
   const avgPrice = toFiniteNumber(root.avgPrice ?? root.priceAvg ?? root.fillPrice);
-  if (!quoteQty && avgPrice && executedQty) quoteQty = avgPrice * executedQty;
+  if (!quoteQty && avgPrice && executedQty) {
+    quoteQty = avgPrice * executedQty;
+  }
 
   if (!executedQty || !quoteQty || executedQty <= 0 || quoteQty <= 0) return null;
-  return { executedQty, quoteQty, avgPrice: quoteQty / executedQty };
+
+  return {
+    executedQty,
+    quoteQty,
+    avgPrice: quoteQty / executedQty,
+    feeQty: sumFillFees(root.fills),
+  };
 }
+
+

@@ -2,6 +2,25 @@ import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 import worker from '../index.js';
 
+function createKvMock() {
+  return {
+    async get(key) {
+      if (key === 'trading_state') {
+        return {
+          trading_enabled: true,
+          paper_trading: true,
+          daily_pnl: 0,
+          daily_trades: 0,
+          total_pnl: 0,
+          total_trades: 0,
+        };
+      }
+      return null;
+    },
+    async put() {}
+  };
+}
+
 describe('API auth hardening', () => {
   test('blocks /api/status without admin token when ADMIN_TOKEN is configured', async () => {
     const env = { ADMIN_TOKEN: 'secret-token' };
@@ -11,23 +30,7 @@ describe('API auth hardening', () => {
   });
 
   test('allows /api/status with valid x-admin-token', async () => {
-    const kv = {
-      async get(key) {
-        if (key === 'trading_state') {
-          return {
-            trading_enabled: true,
-            paper_trading: true,
-            daily_pnl: 0,
-            daily_trades: 0,
-            total_pnl: 0,
-            total_trades: 0,
-          };
-        }
-        return null;
-      },
-      async put() {}
-    };
-    const env = { ADMIN_TOKEN: 'secret-token', BOT_STATE: kv };
+    const env = { ADMIN_TOKEN: 'secret-token', BOT_STATE: createKvMock() };
     const req = new globalThis.Request('https://example.com/api/status', {
       headers: { 'x-admin-token': 'secret-token' }
     });
@@ -38,6 +41,34 @@ describe('API auth hardening', () => {
   test('blocks /api/export without admin token', async () => {
     const env = { ADMIN_TOKEN: 'secret-token' };
     const req = new globalThis.Request('https://example.com/api/export');
+    const res = await worker.fetch(req, env, {});
+    assert.equal(res.status, 401);
+  });
+
+  test('blocks /api/trades without admin token', async () => {
+    const env = { ADMIN_TOKEN: 'secret-token' };
+    const req = new globalThis.Request('https://example.com/api/trades');
+    const res = await worker.fetch(req, env, {});
+    assert.equal(res.status, 401);
+  });
+
+  test('blocks /api/pnl without admin token', async () => {
+    const env = { ADMIN_TOKEN: 'secret-token' };
+    const req = new globalThis.Request('https://example.com/api/pnl');
+    const res = await worker.fetch(req, env, {});
+    assert.equal(res.status, 401);
+  });
+
+  test('blocks /api/report without admin token', async () => {
+    const env = { ADMIN_TOKEN: 'secret-token' };
+    const req = new globalThis.Request('https://example.com/api/report');
+    const res = await worker.fetch(req, env, {});
+    assert.equal(res.status, 401);
+  });
+
+  test('blocks /api/logs without admin token', async () => {
+    const env = { ADMIN_TOKEN: 'secret-token' };
+    const req = new globalThis.Request('https://example.com/api/logs');
     const res = await worker.fetch(req, env, {});
     assert.equal(res.status, 401);
   });
