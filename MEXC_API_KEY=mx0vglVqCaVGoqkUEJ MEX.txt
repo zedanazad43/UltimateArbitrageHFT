@@ -1,1 +1,0 @@
-MEXC_API_KEY=<mx0vglVqCaVGoqkUEJ> MEXC_API_SECRET=<d563830fe66644fb888e565efd01bab4> node scripts/check-connection.js

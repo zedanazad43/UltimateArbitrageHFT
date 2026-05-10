@@ -36,18 +36,19 @@ Add these in your repo → Settings → Secrets and variables → Actions → **
 
 ---
 
-## Deploy (publish for real trading)
+## Deploy (manual production publish)
 
 ```
-# From GitHub Actions tab → "Deploy & Real Trade" → Run workflow
+# From GitHub Actions tab → "Deploy Worker (Manual)" → Run workflow
 ```
 
 The workflow will:
 1. Verify Cloudflare credentials (fails fast with a clear error if token is wrong)
-2. Apply the D1 database migration
+2. Run the full test suite
 3. Deploy the Cloudflare Worker
 4. Upload all exchange secrets to the Worker
-5. Enable live trading mode in KV
+
+Live trading mode is no longer auto-enabled by this workflow; switch mode explicitly via authenticated admin controls.
 
 ---
 

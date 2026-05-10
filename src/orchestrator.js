@@ -20,7 +20,7 @@ import {
 import {
   placeMEXCFuturesOrder, hasSufficientUSDT,
   hasExchangeCredentials, getRequiredCredentialKeys, getExchangeBalance,
-  placeExchangeMarketOrder, getConfiguredExchanges, selectBestExchange,
+  placeExchangeMarketOrder, getConfiguredExchanges, selectBestExchange, extractFillMetrics,
   ACTIVE_EXECUTION_EXCHANGES, DATA_ONLY_EXCHANGES
 } from './exchange.js';
 import { isHFTEngineConfigured, scanFromHFT, executeViaHFT } from './hft-client.js';
@@ -467,13 +467,15 @@ export async function runScan(env, state, sendAlert) {
     let executedOpp = null;
     let executedLev = leverage;
     let executedSize = sizeUsd;
+    let executedSummary = null;
     for (const candidate of fallbackQueue) {
       const { leverage: cLev, sizeUsd: cSize } = sizeFor(candidate);
       try {
-        await executeTrade(env, candidate, cSize, cLev);
+        const summary = await executeTrade(env, candidate, cSize, cLev);
         executedOpp  = candidate;
         executedLev  = cLev;
         executedSize = cSize;
+        executedSummary = summary;
         break;
       } catch (err) {
         console.error(
@@ -495,6 +497,16 @@ export async function runScan(env, state, sendAlert) {
     leverage      = executedLev;
     sizeUsd       = executedSize;
     levStr        = leverage > 1 ? ` | ${leverage}x` : '';
+    const hasRealizedPnl = executedSummary?.realized === true &&
+      Number.isFinite(executedSummary?.realizedPnlUsd) &&
+      Number.isFinite(executedSummary?.realizedNetPct);
+    if (!hasRealizedPnl) {
+      console.warn(
+        `[Exec] ${executedOpp.strategy} ${executedOpp.symbol} filled without complete fill metrics; ` +
+        `excluding this trade from realized P&L aggregates until reconciliation is available`
+      );
+    }
+    executedOpp._executionSummary = executedSummary || null;
 
     await sendAlert(
       env,
@@ -509,21 +521,38 @@ export async function runScan(env, state, sendAlert) {
   }
 
   // ── Update state counters (caller saves state to KV) ────────────────────────
-  const tradePnl = sizeUsd * best.netPct / 100;
+  const execSummary = best._executionSummary || null;
+  const hasRealizedLivePnl = !paperMode &&
+    execSummary?.realized === true &&
+    Number.isFinite(execSummary?.realizedPnlUsd) &&
+    Number.isFinite(execSummary?.realizedNetPct);
+  const loggedNetPct = paperMode
+    ? best.netPct
+    : hasRealizedLivePnl
+      ? execSummary.realizedNetPct
+      : 0;
+  const tradePnl = paperMode
+    ? (sizeUsd * best.netPct / 100)
+    : hasRealizedLivePnl
+      ? execSummary.realizedPnlUsd
+      : 0;
   state.daily_pnl            = (state.daily_pnl   || 0) + tradePnl;
   state.total_pnl            = (state.total_pnl   || 0) + tradePnl;
   state.daily_trades         = (state.daily_trades || 0) + 1;
   state.total_trades         = (state.total_trades || 0) + 1;
   state.last_trade_timestamp = Date.now();
   state.last_trade_pnl_usd   = tradePnl;
+  state.last_trade_net_pct   = loggedNetPct;
+  state.last_trade_realized  = hasRealizedLivePnl || paperMode;
 
   // Use queue producer when available, fall back to logTrade()
   if (env.TRADE_QUEUE) {
-    await env.TRADE_QUEUE.send({ type: 'trade_log', data: { strategy: strategyLabel, sizeUsd, netPct: best.netPct, mode } });
+    await env.TRADE_QUEUE.send({ type: 'trade_log', data: { strategy: strategyLabel, sizeUsd, netPct: loggedNetPct, mode } });
   } else {
-    await logTrade(env, { strategy: strategyLabel, sizeUsd, netPct: best.netPct, mode });
+    await logTrade(env, { strategy: strategyLabel, sizeUsd, netPct: loggedNetPct, mode });
   }
 
+  delete best._executionSummary;
   return { opportunity: best, sizeUsd, leverage };
 }
 
@@ -541,7 +570,7 @@ async function executeTrade(env, opp, sizeUsd, leverage) {
   // since the engine already holds the wallet key and exchange credentials.
   if (opp.source === 'hft_engine') {
     await executeViaHFT(env, opp, sizeUsd);
-    return;
+    return { realized: false, realizedPnlUsd: null, realizedNetPct: null };
   }
 
   // DEX cross-chain trades (ETH↔BSC bridge) require on-chain signing.
@@ -549,7 +578,7 @@ async function executeTrade(env, opp, sizeUsd, leverage) {
   if (opp.strategy === 'dex') {
     if (isHFTEngineConfigured(env)) {
       await executeViaHFT(env, opp, sizeUsd);
-      return;
+      return { realized: false, realizedPnlUsd: null, realizedNetPct: null };
     }
     throw new Error(
       'DEX cross-chain execution requires the Go HFT engine. ' +
@@ -563,7 +592,7 @@ async function executeTrade(env, opp, sizeUsd, leverage) {
   if (opp.buyExchange === '0x' || opp.sellExchange === '0x') {
     if (isHFTEngineConfigured(env)) {
       await executeViaHFT(env, opp, sizeUsd);
-      return;
+      return { realized: false, realizedPnlUsd: null, realizedNetPct: null };
     }
     throw new Error(
       'DEX (0x) execution requires the Go HFT engine. ' +
@@ -577,7 +606,7 @@ async function executeTrade(env, opp, sizeUsd, leverage) {
   if (opp.strategy === 'funding') {
     if (isHFTEngineConfigured(env)) {
       await executeViaHFT(env, opp, sizeUsd);
-      return;
+      return { realized: false, realizedPnlUsd: null, realizedNetPct: null };
     }
     throw new Error(
       'Funding rate harvest execution requires the Go HFT engine. ' +
@@ -609,7 +638,7 @@ async function executeTrade(env, opp, sizeUsd, leverage) {
       const sufficient = await hasSufficientUSDT(env, sizeUsd);
       if (sufficient) {
         await placeMEXCFuturesOrder(env, opp.symbol, side, amount, leverage);
-        return;
+        return { realized: false, realizedPnlUsd: null, realizedNetPct: null };
       }
     }
     // MEXC perp unavailable or insufficient balance — fall back to spot hedge.
@@ -631,7 +660,7 @@ async function executeTrade(env, opp, sizeUsd, leverage) {
     }
     // SHORT perp fallback: buy spot as a partial hedge on the cheapest leg
     await placeExchangeMarketOrder(env, fallback, opp.symbol, 'BUY', amount, sizeUsd);
-    return;
+    return { realized: false, realizedPnlUsd: null, realizedNetPct: null };
   }
 
   // ── CEX spatial arbitrage ─────────────────────────────────────────────────
@@ -695,8 +724,29 @@ async function executeTrade(env, opp, sizeUsd, leverage) {
   }
 
   // Execute both legs simultaneously to minimise execution slippage.
-  await Promise.all([
+  const [buyOrder, sellOrder] = await Promise.all([
     placeExchangeMarketOrder(env, buyExch,  opp.symbol, 'BUY',  amount, sizeUsd),
     placeExchangeMarketOrder(env, sellExch, opp.symbol, 'SELL', amount, sizeUsd)
   ]);
+
+  const buyFill = extractFillMetrics(buyOrder);
+  const sellFill = extractFillMetrics(sellOrder);
+  if (!buyFill || !sellFill) {
+    return { realized: false, realizedPnlUsd: null, realizedNetPct: null };
+  }
+
+  const executedQty = Math.min(buyFill.executedQty, sellFill.executedQty);
+  if (!Number.isFinite(executedQty) || executedQty <= 0) {
+    return { realized: false, realizedPnlUsd: null, realizedNetPct: null };
+  }
+
+  const realizedBuyQuote = executedQty * buyFill.avgPrice;
+  const realizedSellQuote = executedQty * sellFill.avgPrice;
+  if (realizedBuyQuote <= 0) {
+    return { realized: false, realizedPnlUsd: null, realizedNetPct: null };
+  }
+
+  const realizedPnlUsd = realizedSellQuote - realizedBuyQuote;
+  const realizedNetPct = (realizedPnlUsd / realizedBuyQuote) * 100;
+  return { realized: true, realizedPnlUsd, realizedNetPct };
 }

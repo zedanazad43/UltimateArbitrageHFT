@@ -401,6 +401,7 @@ app.post('/config', async (c) => {
 
 // ── API: Bot status ───────────────────────────────────────────────────────────
 app.get('/api/status', async (c) => {
+  if (!isAuthorized(c.env, c)) return authDenied(c.env, c, true);
   const [state, lastScan, circuitBreaker] = await Promise.all([
     getState(c.env),
     c.env.BOT_STATE.get('nexus_last_scan', 'json').catch(() => null),
@@ -411,6 +412,7 @@ app.get('/api/status', async (c) => {
 
 // ── API: Recent trades ────────────────────────────────────────────────────────
 app.get('/api/trades', async (c) => {
+  if (!isAuthorized(c.env, c)) return authDenied(c.env, c, true);
   const limit = parseInt(c.req.query('limit') || '50', 10);
   const trades = await getRecentTrades(c.env, Math.min(limit, 100));
   return c.json({ success: true, data: trades });
@@ -418,12 +420,14 @@ app.get('/api/trades', async (c) => {
 
 // ── API: Strategy P&L ─────────────────────────────────────────────────────────
 app.get('/api/pnl', async (c) => {
+  if (!isAuthorized(c.env, c)) return authDenied(c.env, c, true);
   const pnl = await getStrategyPnL(c.env);
   return c.json({ success: true, data: pnl });
 });
 
 // ── API: Performance report ───────────────────────────────────────────────────
 app.get('/api/report', async (c) => {
+  if (!isAuthorized(c.env, c)) return authDenied(c.env, c, true);
   const from   = c.req.query('from');
   const to     = c.req.query('to');
   const fromMs = from ? new Date(from).getTime() : 0;
@@ -646,6 +650,7 @@ app.post('/reset-daily', async (c) => {
 
 // ── API: CSV export — also archives to R2 ────────────────────────────────────
 app.get('/api/export', async (c) => {
+  if (!isAuthorized(c.env, c)) return authDenied(c.env, c, true);
   const from   = c.req.query('from');
   const to     = c.req.query('to');
   const fromMs = from ? new Date(from).getTime() : 0;
@@ -689,6 +694,7 @@ app.get('/api/export', async (c) => {
 // Returns a paginated list of CSV archives stored in the TRADE_LOGS R2 bucket.
 // Accepts optional `?prefix=` query parameter (default: "exports/").
 app.get('/api/logs', async (c) => {
+  if (!isAuthorized(c.env, c)) return authDenied(c.env, c, true);
   if (!c.env.TRADE_LOGS) return c.json({ error: 'R2 binding not configured' }, 503);
   const prefix = c.req.query('prefix') || 'exports/';
   const cursor = c.req.query('cursor') || undefined;
@@ -1027,6 +1033,10 @@ app.post('/telegram/webhook', async (c) => {
   const text = msg.text || '';
   const token = c.env.TELEGRAM_BOT_TOKEN;
   if (!token) return c.json({ ok: true });
+  const allowedChat = String(c.env.TELEGRAM_CHAT_ID || '').trim();
+  if (!allowedChat || String(chatId) !== allowedChat) {
+    return c.json({ ok: false, error: 'Unauthorized chat' }, 403);
+  }
 
   const send = async (txt) => {
     const resp = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
