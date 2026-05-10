@@ -149,6 +149,19 @@ TEMPORAL_WORKER_URL = ""
 #                    Set the same value as HFT_ENGINE_SECRET env var on the engine.
 HFT_ENGINE_URL = ""
 
+# ── Executable ecosystem integrations (non-sensitive endpoint URLs) ────────────
+# Set each URL to enable remote execution from dashboard/API.
+# Tokens for these services should be configured as Worker secrets:
+#   HUMMINGBOT_API_TOKEN, FREQTRADE_API_TOKEN, CREWAI_API_TOKEN, AUTOGPT_API_TOKEN
+HUMMINGBOT_EXECUTE_URL = ""
+HUMMINGBOT_STATUS_URL  = ""
+FREQTRADE_EXECUTE_URL  = ""
+FREQTRADE_STATUS_URL   = ""
+CREWAI_EXECUTE_URL     = ""
+CREWAI_STATUS_URL      = ""
+AUTOGPT_EXECUTE_URL    = ""
+AUTOGPT_STATUS_URL     = ""
+
 # ── Exchange feature flags ─────────────────────────────────────────────────────
 # bybit and gateio are excluded from live execution (German regulatory law).
 # They remain active as price-data sources only.
@@ -162,4 +175,3 @@ HFT_ENGINE_URL = ""
 #   Bitget:  BITGET_API_KEY, BITGET_SECRET_KEY, BITGET_API_PASSPHRASE
 #   Bitmart: BITMART_API_KEY, BITMART_SECRET_KEY, BITMART_MEMO
 #   HTX:     HTX_API_KEY, HTX_API_SECRET
-
