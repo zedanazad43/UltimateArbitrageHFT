@@ -789,8 +789,8 @@ ${autoStopBanner}
   async function loadCircuitBreaker(){
     const el=document.getElementById('cbContent');
     try{
-      const res=await callAdminApi('/api/status');
-      const json=JSON.parse(res.text);
+      const { text } = await callAdminApi('/api/status');
+      const json=JSON.parse(text);
       const cb=json.circuitBreaker||{};
       const active=['mexc','mexc_perp','binance_perp','okx_perp','binance','kucoin','okx','bitget','bitmart','htx'];
       const dataOnly=['bybit','gateio','bybit_perp'];
@@ -921,11 +921,16 @@ ${autoStopBanner}
         callAdminApi('/api/report'),
         callAdminApi('/api/logs')
       ]);
-      const statusJson=JSON.parse(statusRes.text);
-      const tradesJson=JSON.parse(tradesRes.text);
-      const pnlJson=JSON.parse(pnlRes.text);
-      const reportJson=JSON.parse(reportRes.text);
-      const logsJson=JSON.parse(logsRes.text);
+      const { text: statusText } = statusRes;
+      const { text: tradesText } = tradesRes;
+      const { text: pnlText } = pnlRes;
+      const { text: reportText } = reportRes;
+      const { text: logsText } = logsRes;
+      const statusJson=JSON.parse(statusText);
+      const tradesJson=JSON.parse(tradesText);
+      const pnlJson=JSON.parse(pnlText);
+      const reportJson=JSON.parse(reportText);
+      const logsJson=JSON.parse(logsText);
 
       statusEl.innerHTML=\`الحالة: <strong style="color:\${statusJson.trading_enabled?'#2ecc71':'#e74c3c'}">\${statusJson.trading_enabled?'▶️ مفعّل':'⏸️ متوقف'}</strong><br>الوضع: \${statusJson.paper_trading!==false?'Paper':'Live'}\`;
       const rows=Array.isArray(tradesJson.data)?tradesJson.data:[];
