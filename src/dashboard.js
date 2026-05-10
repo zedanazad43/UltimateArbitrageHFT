@@ -557,10 +557,24 @@ ${autoStopBanner}
   </div>
 </div>
 
+<div class="panel">
+  <h2 style="margin-top:0">🔗 مزامنة الواجهة مع API</h2>
+  <div id="apiSyncStatus" style="font-size:.82em;color:#888;margin-bottom:10px">جارٍ مزامنة البيانات…</div>
+  <div class="grid">
+    <div class="card"><div class="card-label">/api/status</div><div id="apiStatusCard" style="font-size:.88em;color:#aaa">—</div></div>
+    <div class="card"><div class="card-label">/api/trades</div><div id="apiTradesCard" style="font-size:.88em;color:#aaa">—</div></div>
+    <div class="card"><div class="card-label">/api/pnl</div><div id="apiPnlCard" style="font-size:.88em;color:#aaa">—</div></div>
+    <div class="card"><div class="card-label">/api/report</div><div id="apiReportCard" style="font-size:.88em;color:#aaa">—</div></div>
+    <div class="card"><div class="card-label">/api/logs</div><div id="apiLogsCard" style="font-size:.88em;color:#aaa">—</div></div>
+  </div>
+</div>
+
 <h2>📊 آخر الصفقات</h2>
 <table>
-  <tr><th>الوضع</th><th>الاستراتيجية</th><th>الاتجاه</th><th>الحجم (USD)</th><th>الربح</th><th>الوقت</th></tr>
-  ${tradesHtml || '<tr><td colspan="6" style="text-align:center;padding:20px;color:#888">لا توجد صفقات مسجّلة</td></tr>'}
+  <thead><tr><th>الوضع</th><th>الاستراتيجية</th><th>الاتجاه</th><th>الحجم (USD)</th><th>الربح</th><th>الوقت</th></tr></thead>
+  <tbody id="recentTradesBody">
+    ${tradesHtml || '<tr><td colspan="6" style="text-align:center;padding:20px;color:#888">لا توجد صفقات مسجّلة</td></tr>'}
+  </tbody>
 </table>
 
 <script>
@@ -775,8 +789,8 @@ ${autoStopBanner}
   async function loadCircuitBreaker(){
     const el=document.getElementById('cbContent');
     try{
-      const r=await fetch('/api/status');
-      const json=await r.json();
+      const res=await callAdminApi('/api/status');
+      const json=JSON.parse(res.text);
       const cb=json.circuitBreaker||{};
       const active=['mexc','mexc_perp','binance_perp','okx_perp','binance','kucoin','okx','bitget','bitmart','htx'];
       const dataOnly=['bybit','gateio','bybit_perp'];
@@ -886,6 +900,69 @@ ${autoStopBanner}
   }
   function loadDynamic(){ disableAdminUi(); loadBalances(); loadCircuitBreaker(); loadPerpsStatus(); loadExecutableIntegrationsStatus(); }
   loadDynamic();
+  async function loadApiSnapshot(){
+    const syncEl=document.getElementById('apiSyncStatus');
+    const statusEl=document.getElementById('apiStatusCard');
+    const tradesEl=document.getElementById('apiTradesCard');
+    const pnlEl=document.getElementById('apiPnlCard');
+    const reportEl=document.getElementById('apiReportCard');
+    const logsEl=document.getElementById('apiLogsCard');
+    if(!adminConfigured){
+      const msg='⚠️ ADMIN_TOKEN غير مُهيأ — نقاط API المحمية تحتاج تسجيل دخول/توكن.';
+      syncEl.textContent=msg;
+      [statusEl,tradesEl,pnlEl,reportEl,logsEl].forEach(el=>{ if(el) el.textContent='غير متاح'; });
+      return;
+    }
+    try{
+      const [statusRes,tradesRes,pnlRes,reportRes,logsRes]=await Promise.all([
+        callAdminApi('/api/status'),
+        callAdminApi('/api/trades?limit=20'),
+        callAdminApi('/api/pnl'),
+        callAdminApi('/api/report'),
+        callAdminApi('/api/logs')
+      ]);
+      const statusJson=JSON.parse(statusRes.text);
+      const tradesJson=JSON.parse(tradesRes.text);
+      const pnlJson=JSON.parse(pnlRes.text);
+      const reportJson=JSON.parse(reportRes.text);
+      const logsJson=JSON.parse(logsRes.text);
+
+      statusEl.innerHTML=\`الحالة: <strong style="color:\${statusJson.trading_enabled?'#2ecc71':'#e74c3c'}">\${statusJson.trading_enabled?'▶️ مفعّل':'⏸️ متوقف'}</strong><br>الوضع: \${statusJson.paper_trading!==false?'Paper':'Live'}\`;
+      const rows=Array.isArray(tradesJson.data)?tradesJson.data:[];
+      tradesEl.textContent=\`\${rows.length} صفقة (آخر تحديث)\`;
+      pnlEl.textContent=\`\${Object.keys(pnlJson.data||{}).length} استراتيجيات\`;
+      reportEl.textContent=\`WinRate \${(((reportJson.data||{}).win_rate||0)*100).toFixed(1)}% | PF \${(reportJson.data||{}).profit_factor?Number(reportJson.data.profit_factor).toFixed(2):'—'}\`;
+      logsEl.textContent=\`\${Array.isArray(logsJson.objects)?logsJson.objects.length:0} ملف\`;
+      syncEl.style.color='#2ecc71';
+      syncEl.textContent='✅ الواجهة متصلة بنقاط API الخلفية.';
+
+      const tbody=document.getElementById('recentTradesBody');
+      if(tbody){
+        tbody.innerHTML=rows.length?rows.map(t=>{
+          const modeCell=t.mode==='live'
+            ? '<span style="color:#e74c3c;font-weight:bold">LIVE</span>'
+            : '<span style="color:#f0b90b;font-weight:bold">PAPER</span>';
+          const parts=(t.strategy||'').split(':');
+          const stratType=parts[0]?.toUpperCase()||'—';
+          const stratDir=parts[1]||'';
+          const pnlColor=Number(t.net_profit_percent)>=0?'#2ecc71':'#e74c3c';
+          return \`<tr>
+            <td>\${modeCell}</td>
+            <td><span style="color:#3498db;font-weight:bold">\${stratType}</span></td>
+            <td style="font-size:.85em">\${stratDir}</td>
+            <td>$\${Number(t.size_usd).toFixed(2)}</td>
+            <td style="color:\${pnlColor}">\${Number(t.net_profit_percent).toFixed(4)}%</td>
+            <td style="font-size:.82em">\${new Date(t.created_at).toLocaleString('ar')}</td>
+          </tr>\`;
+        }).join(''):'<tr><td colspan="6" style="text-align:center;padding:20px;color:#888">لا توجد صفقات مسجّلة</td></tr>';
+      }
+    }catch(e){
+      syncEl.style.color='#e74c3c';
+      syncEl.textContent='❌ تعذر مزامنة الواجهة مع API: '+e.message;
+      [statusEl,tradesEl,pnlEl,reportEl,logsEl].forEach(el=>{ if(el) el.textContent='خطأ'; });
+    }
+  }
+  loadApiSnapshot();
 
   // ── MetaMask / Web3 Wallet ────────────────────────────────────────────────────
   let w3account = null;

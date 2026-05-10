@@ -1008,7 +1008,7 @@ app.get('/api/version', (c) => {
     id:        v?.id        ?? null,
     tag:       v?.tag       ?? null,
     timestamp: v?.timestamp ?? null,
-    worker:    'ultimate-arbitrage-hft',
+    worker:    'ultimatearbitragehft',
   });
 });
 
