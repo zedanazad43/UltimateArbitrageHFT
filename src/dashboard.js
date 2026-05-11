@@ -595,12 +595,13 @@ ${autoStopBanner}
   function disableAdminUi(){
     if(adminConfigured) return;
     document.querySelectorAll('[data-admin-action]').forEach(btn=>{
-      btn.disabled=false;
-      btn.style.opacity='1';
       btn.title='يتطلب تهيئة ADMIN_TOKEN على الخادم لتنفيذ الطلب';
     });
   }
   async function callAdminApi(path,opts={}){
+    if(!adminConfigured){
+      throw new Error('ADMIN_TOKEN غير مُهيَّأ على الخادم. فعّل السر أولاً عبر wrangler secret put ADMIN_TOKEN ثم أعد النشر.');
+    }
     let r;
     try{ r=await fetch(path,{credentials:'same-origin',...opts}); }
     catch(_){ throw new Error('تعذر الاتصال بالخادم'); }
