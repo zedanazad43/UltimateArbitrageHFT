@@ -329,7 +329,7 @@ app.get('/health', async (c) => {
 // Browser access requires a valid session; redirect to /login when absent.
 // API callers that send an x-admin-token header bypass the cookie check.
 app.get('/', async (c) => {
-  if (c.env.ADMIN_TOKEN && !isAuthorized(c.env, c)) return renderPublicLandingPage();
+  if (!isAuthorized(c.env, c)) return renderPublicLandingPage();
   return renderDashboard(c.env);
 });
 app.get('/dashboard', async (c) => {
