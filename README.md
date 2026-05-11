@@ -91,6 +91,23 @@ npm run setup:local
 - **Dashboard**: <https://ultimatearbitragehft.zedanazad43.workers.dev>
 - **Logs**: `npm run tail` or Cloudflare dashboard → Workers → ultimatearbitragehft → Logs
 
+### Production operations commands
+
+- `npm run monitor` → probes `/health` and `/dashboard`, calculates latency/error-rate SLOs, writes `metrics.json`
+- `npm run backup` → exports D1 to SQL and snapshots critical config files
+- `npm run backup:full` → full backup mode (includes key trading tables)
+- `npm run check:secrets` → scans repository for likely hardcoded secrets
+- `npm run audit:security` → secrets scan + `npm audit` vulnerability gate
+- `npm run validate:production` → lint + tests + secrets + build dry-run + monitor
+
+### Scheduled automation
+
+- Workflow: `.github/workflows/monitor-production.yml`
+- Every 10 minutes: production monitor + metrics artifact upload
+- Daily 02:00 UTC: backup job + backup artifact upload
+- On monitor failure: opens/updates a GitHub issue with label `production-alert`
+- Optional external alerts: pass `ops_alert_webhook` input when running workflow manually
+
 ## Ecosystem integrations (2026)
 
 The project now includes a built-in integration catalog and recommendation API for:
