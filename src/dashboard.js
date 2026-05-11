@@ -50,9 +50,9 @@ export async function renderDashboard(env) {
     : '';
 
   const adminTokenBanner = !env.ADMIN_TOKEN
-    ? `<div style="background:#e67e22;color:#fff;padding:12px 20px;border-radius:8px;margin-bottom:18px;font-weight:bold">
-        ⚠️ ADMIN_TOKEN غير مُهيَّأ — الأزرار متاحة لكن التنفيذ المحمي سيتطلب تهيئة السر أولاً.
-        شغّل: <code style="background:rgba(0,0,0,.25);padding:2px 6px;border-radius:4px">wrangler secret put ADMIN_TOKEN</code>
+    ? `<div style="background:#e67e22;color:#fff;padding:12px 20px;border-radius:8px;margin-bottom:18px;font-weight:bold;line-height:1.8">
+        ⚠️ ADMIN_TOKEN غير مُهيَّأ — النظام يعمل الآن في <strong>وضع مفتوح</strong> لتسهيل الإعداد.
+        فعّل الحماية لاحقاً عبر: <code style="background:rgba(0,0,0,.25);padding:2px 6px;border-radius:4px">wrangler secret put ADMIN_TOKEN</code>
         ثم أعد النشر.
        </div>`
     : '';
@@ -588,24 +588,25 @@ ${autoStopBanner}
   },1000);
 
   // ── Shared API helper ────────────────────────────────────────────────────────
-  // Auth is handled via the HttpOnly session cookie (set at /login).
-  // Credentials are always included so the browser sends the cookie automatically.
+  // When ADMIN_TOKEN is configured, auth is handled via HttpOnly session cookie.
+  // Without ADMIN_TOKEN we run in open setup mode and call APIs directly.
   const adminConfigured = ${JSON.stringify(Boolean(env.ADMIN_TOKEN))};
   function setButtonsBusy(b){ document.querySelectorAll('[data-admin-action]').forEach(btn=>btn.disabled=b); }
   function disableAdminUi(){
     if(adminConfigured) return;
     document.querySelectorAll('[data-admin-action]').forEach(btn=>{
-      btn.title='يتطلب تهيئة ADMIN_TOKEN على الخادم لتنفيذ الطلب';
+      btn.title='وضع مفتوح (بدون ADMIN_TOKEN) — فعّل التوكن للحماية الإنتاجية';
     });
   }
   async function callAdminApi(path,opts={}){
-    if(!adminConfigured){
-      throw new Error('ADMIN_TOKEN غير مُهيَّأ على الخادم. فعّل السر أولاً عبر wrangler secret put ADMIN_TOKEN ثم أعد النشر.');
-    }
     let r;
-    try{ r=await fetch(path,{credentials:'same-origin',...opts}); }
+    try{
+      r = adminConfigured
+        ? await fetch(path,{credentials:'same-origin',...opts})
+        : await fetch(path,opts);
+    }
     catch(_){ throw new Error('تعذر الاتصال بالخادم'); }
-    if(r.status===401){ window.location='/login'; return {text:'',r}; }
+    if(adminConfigured && r.status===401){ window.location='/login'; return {text:'',r}; }
     const text=await r.text();
     if(!r.ok) throw new Error(text||('HTTP '+r.status));
     return {text,r};
@@ -757,10 +758,6 @@ ${autoStopBanner}
   // ── Load dynamic panels ──────────────────────────────────────────────────────
   async function loadBalances(){
     const el=document.getElementById('balancesContent');
-    if(!adminConfigured){
-      el.innerHTML='<span style="color:#e67e22">⚠️ أضف ADMIN_TOKEN أولاً لعرض أرصدة المنصات المحمية.</span>';
-      return;
-    }
     try{
       const res=await callAdminApi('/api/balances');
       const json=JSON.parse(res.text);
@@ -813,10 +810,6 @@ ${autoStopBanner}
   async function loadPerpsStatus(){
     const el=document.getElementById('perpsStatusContent');
     if(!el) return;
-    if(!adminConfigured){
-      el.innerHTML='<span style="color:#e67e22">⚠️ أضف ADMIN_TOKEN أولاً لعرض حالة Perps المحمية.</span>';
-      return;
-    }
     try{
       const res=await callAdminApi('/api/perps');
       const json=JSON.parse(res.text);
@@ -840,10 +833,6 @@ ${autoStopBanner}
     if(!el) return;
     el.style.display='block';
     el.textContent='جارٍ التحميل...';
-    if(!adminConfigured){
-      el.innerHTML='⚠️ أضف ADMIN_TOKEN أولاً لاستخدام التكاملات التنفيذية.';
-      return;
-    }
     try{
       const res=await callAdminApi('/api/integrations/executive/status');
       const json=JSON.parse(res.text);
@@ -858,7 +847,6 @@ ${autoStopBanner}
     }
   }
   async function runExecutableIntegration(integration){
-    if(!adminConfigured){ alert('⚠️ ADMIN_TOKEN غير مُهيّأ'); return; }
     setButtonsBusy(true);
     try{
       const res=await callAdminApi('/api/integrations/executive/execute',{
@@ -879,7 +867,6 @@ ${autoStopBanner}
     finally{ setButtonsBusy(false); }
   }
   async function runAllExecutableIntegrations(){
-    if(!adminConfigured){ alert('⚠️ ADMIN_TOKEN غير مُهيّأ'); return; }
     if(!confirm('تشغيل التكاملات التنفيذية الأربعة الآن؟')) return;
     setButtonsBusy(true);
     try{
@@ -908,12 +895,6 @@ ${autoStopBanner}
     const pnlEl=document.getElementById('apiPnlCard');
     const reportEl=document.getElementById('apiReportCard');
     const logsEl=document.getElementById('apiLogsCard');
-    if(!adminConfigured){
-      const msg='⚠️ ADMIN_TOKEN غير مُهيأ — نقاط API المحمية تحتاج تسجيل دخول/توكن.';
-      syncEl.textContent=msg;
-      [statusEl,tradesEl,pnlEl,reportEl,logsEl].forEach(el=>{ if(el) el.textContent='غير متاح'; });
-      return;
-    }
     try{
       const [statusRes,tradesRes,pnlRes,reportRes,logsRes]=await Promise.all([
         callAdminApi('/api/status'),

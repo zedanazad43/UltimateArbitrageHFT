@@ -85,7 +85,9 @@ function getCookieValue(c, name) {
 //   2. nexus_session HttpOnly cookie  — for browser sessions after /login.
 function isAuthorized(env, c) {
   const token = env.ADMIN_TOKEN;
-  if (!token) return false;
+  // Open setup mode: if ADMIN_TOKEN is not configured yet, allow access so
+  // the dashboard can be fully wired during initial bootstrap.
+  if (!token) return true;
   if (c.req.header('x-admin-token') === token) return true;
   const cookie = getCookieValue(c, 'nexus_session');
   return cookie === token;
