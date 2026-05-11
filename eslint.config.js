@@ -2,7 +2,13 @@ import js from '@eslint/js';
 
 export default [
   {
-    ignores: ['node_modules/**', 'public/**'],
+    ignores: [
+      'node_modules/**',
+      '.wrangler/**',
+      'public/**',
+      'UltimateArbitrageHFT/**',
+      'money-transfer-project-template-java/**',
+    ],
   },
   // Base rules for all JS files
   {
