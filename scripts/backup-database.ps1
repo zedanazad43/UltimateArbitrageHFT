@@ -43,8 +43,14 @@ try {
 
     Write-Log "Step 1: Exporting D1 database schema/data..." "INFO"
     $wrangler = Get-Command wrangler -ErrorAction SilentlyContinue
+    $useNpx = $false
     if (-not $wrangler) {
-        throw 'Wrangler CLI not found. Install dependencies or run via npm scripts.'
+        $npx = Get-Command npx -ErrorAction SilentlyContinue
+        if (-not $npx) {
+            throw 'Neither wrangler nor npx was found. Install dependencies or run via npm scripts.'
+        }
+        $useNpx = $true
+        Write-Log "Wrangler not in PATH; using npx wrangler fallback" "WARN"
     }
 
     Push-Location $repoRoot
@@ -62,7 +68,12 @@ try {
             $exportArgs += '--table'
             $exportArgs += 'backtest_runs'
         }
-        & wrangler @exportArgs | Out-Null
+        if ($useNpx) {
+            & npx --yes wrangler @exportArgs | Out-Null
+        }
+        else {
+            & wrangler @exportArgs | Out-Null
+        }
     }
     finally {
         Pop-Location
