@@ -132,6 +132,11 @@ Once the server is running, it exposes OpenAI-compatible endpoints:
 curl http://localhost:8000/health
 ```
 
+### List Models
+```bash
+curl http://localhost:8000/v1/models
+```
+
 ### Chat Completions (used by ai-client.js)
 ```bash
 curl -X POST http://localhost:8000/v1/chat/completions \

@@ -251,6 +251,28 @@ def chat_completions():
         logger.error(f"Error in chat_completions: {e}")
         return jsonify({"error": str(e)}), 500
 
+@app.route('/v1/models', methods=['GET'])
+def list_models():
+    """OpenAI-compatible models list endpoint"""
+    if not active_backend:
+        return jsonify({"error": "Model not loaded"}), 503
+    
+    model_id = OLLAMA_MODEL if active_backend == "ollama" else MODEL_NAME
+    return jsonify({
+        "object": "list",
+        "data": [
+            {
+                "id": model_id,
+                "object": "model",
+                "created": int(datetime.now().timestamp()),
+                "owned_by": "local",
+                "permission": [],
+                "root": model_id,
+                "parent": None
+            }
+        ]
+    })
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Main
 # ─────────────────────────────────────────────────────────────────────────────
@@ -261,6 +283,7 @@ if __name__ == "__main__":
         logger.info(f"Active backend: {active_backend}")
         logger.info(f"API endpoints:")
         logger.info(f"  - Health: http://{HOST}:{PORT}/health")
+        logger.info(f"  - Models: http://{HOST}:{PORT}/v1/models")
         logger.info(f"  - Completions: http://{HOST}:{PORT}/v1/completions")
         logger.info(f"  - Chat: http://{HOST}:{PORT}/v1/chat/completions")
         app.run(host=HOST, port=PORT, debug=False, threaded=True)
