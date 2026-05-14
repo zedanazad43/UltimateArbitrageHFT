@@ -7,7 +7,7 @@ import { cors } from 'hono/cors';
 import { renderDashboard, renderChecklist } from './src/dashboard.js';
 import { runScan } from './src/orchestrator.js';
 import { ensureSchema, logAdminEvent, logBotEvent, getRecentTrades, getStrategyPnL, getPerformanceMetrics, exportTrades } from './src/db.js';
-import { hasExchangeCredentials, getExchangeBalance, placeExchangeMarketOrder, getMissingCredentialKeys, getConfiguredExchanges, ACTIVE_EXECUTION_EXCHANGES, DATA_ONLY_EXCHANGES } from './src/exchange.js';
+import { hasExchangeCredentials, getExchangeBalance, placeExchangeMarketOrder, getMissingCredentialKeys, getConfiguredExchanges, ACTIVE_EXECUTION_EXCHANGES, DATA_ONLY_EXCHANGES, getMEXCFuturesBalance, getMEXCBalance } from './src/exchange.js';
 import { scanDEX } from './src/strategies/dex.js';
 import { isHFTEngineConfigured } from './src/hft-client.js';
 import { runBacktest } from './src/backtest.js';
@@ -42,11 +42,21 @@ async function sendTelegramAlert(env, message) {
 const DEFAULT_STATE = {
   trading_enabled: true,
   paper_trading: false,
+  multi_strategy_live: true,
+  max_live_trades_per_scan: 5,
+  strategy_flags: {
+    cex: true,
+    dex: true,
+    perps: true,
+    funding: true,
+    triangular: true,
+    statistical: true,
+  },
   daily_pnl: 0, daily_trades: 0,
   total_pnl: 0, total_trades: 0,
   initial_capital: 1000,
-  max_daily_loss_usd: 25,
-  min_seconds_between_trades: 30,
+  max_daily_loss_usd: 100,
+  min_seconds_between_trades: 3,
   max_per_trade_loss_pct: 0.02,
   max_spread_pct: 5.0,
   win_rate: 0.55,
@@ -54,10 +64,19 @@ const DEFAULT_STATE = {
 };
 
 async function getState(env) {
-  return await env.BOT_STATE.get('trading_state', 'json').catch((err) => {
+  const state = await env.BOT_STATE.get('trading_state', 'json').catch((err) => {
     console.error('KV getState error:', err?.message);
     return null;
   }) || { ...DEFAULT_STATE };
+
+  return {
+    ...DEFAULT_STATE,
+    ...state,
+    strategy_flags: {
+      ...DEFAULT_STATE.strategy_flags,
+      ...(state?.strategy_flags || {}),
+    },
+  };
 }
 
 async function saveState(env, state) {
@@ -335,6 +354,71 @@ app.get('/stop', async (c) => {
   return c.text('✅ تم إيقاف التداول');
 });
 
+// ── Admin: Debug MEXC Futures ─────────────────────────────────────────────────
+app.get('/debug-futures', async (c) => {
+  if (!isAuthorized(c.env, c)) return authDenied(c.env, c);
+  const results = {};
+  const apiKey    = c.env.MEXC_API_KEY    || '(missing)';
+  const apiSecret = c.env.MEXC_API_SECRET || '(missing)';
+  results.keyPrefix    = apiKey.slice(0, 8) + '...';
+  results.secretLength = apiSecret.length;
+
+  async function makeHmac(secret, msg) {
+    const enc = new TextEncoder();
+    const k = await crypto.subtle.importKey('raw', enc.encode(secret), {name:'HMAC',hash:'SHA-256'}, false, ['sign']);
+    const buf = await crypto.subtle.sign('HMAC', k, enc.encode(msg));
+    return Array.from(new Uint8Array(buf)).map(b=>b.toString(16).padStart(2,'0')).join('');
+  }
+
+  // Test 1: contract.mexc.com with primary key (mx0vglBt)
+  try {
+    results.futuresBalance = await getMEXCFuturesBalance(c.env);
+  } catch (e) {
+    results.futuresBalanceError = e.message;
+  }
+
+  // Test 2: optional secondary credentials from env (if provided)
+  const apiKey2 = c.env.MEXC_API_KEY_2;
+  const apiSec2 = c.env.MEXC_API_SECRET_2;
+  if (apiKey2 && apiSec2) {
+    try {
+      const ts2 = Date.now();
+      const sig2 = await makeHmac(apiSec2, `${ts2}${apiKey2}5000`);
+      const r2 = await fetch('https://contract.mexc.com/api/v1/private/account/assets', {
+        headers: { 'ApiKey': apiKey2, 'Request-Time': ts2.toString(), 'Signature': sig2, 'recv-window': '5000' }
+      });
+      const d2 = await r2.json();
+      results.key2contract = d2.success ? 'OK:' + JSON.stringify((d2.data || []).slice(0, 2)) : `code=${d2.code} ${d2.message}`;
+    } catch (e) {
+      results.key2contractError = e.message;
+    }
+  } else {
+    results.key2contract = 'skipped (set MEXC_API_KEY_2 and MEXC_API_SECRET_2 to test secondary key)';
+  }
+
+  // Test 2b: primary key WITHOUT recv-window in signature
+  try {
+    const ts2b = Date.now();
+    const sig2b = await makeHmac(apiSecret, `${ts2b}${apiKey}`);
+    const r2b = await fetch('https://contract.mexc.com/api/v1/private/account/assets', {
+      headers: { 'ApiKey': apiKey, 'Request-Time': ts2b.toString(), 'Signature': sig2b }
+    });
+    const d2b = await r2b.json();
+    results.noRecvWindow = d2b.success ? 'OK' : `code=${d2b.code} ${d2b.message}`;
+  } catch (e) {
+    results.noRecvWindowError = e.message;
+  }
+
+  // Test 3: spot balance
+  try {
+    results.spotBalance = await getMEXCBalance(c.env, 'USDT');
+  } catch (e) {
+    results.spotBalanceError = e.message;
+  }
+
+  return c.json(results);
+});
+
 // ── Admin: Immediate scan ─────────────────────────────────────────────────────
 app.get('/scan', async (c) => {
   const limited = await checkRateLimit(c.env, c);
@@ -345,6 +429,15 @@ app.get('/scan', async (c) => {
   await saveState(c.env, state);
   if (result) {
     const opp = result.opportunity;
+    if (Array.isArray(result.trades) && result.trades.length > 1) {
+      const lines = result.trades
+        .map(t => `• ${t.symbol} [${String(t.strategy || '').toUpperCase()}] ${t.direction} | ${Number(t.netPct || 0).toFixed(4)}% | $${Number(t.sizeUsd || 0).toFixed(2)}`)
+        .join('\n');
+      return c.text(
+        `✅ مسح اكتمل — تم تنفيذ ${result.trades.length} صفقات في نفس الدورة:\n` +
+        `${lines}`
+      );
+    }
     return c.text(
       `✅ مسح اكتمل — أفضل فرصة:\n` +
       `${opp.symbol} [${opp.strategy.toUpperCase()}] ${opp.direction}\n` +
@@ -396,6 +489,30 @@ app.post('/config', async (c) => {
   if (num(body.max_spread_pct))               state.max_spread_pct               = body.max_spread_pct;
   if (num(body.win_rate))                     state.win_rate                     = body.win_rate;
   if (num(body.risk_reward_ratio))            state.risk_reward_ratio            = body.risk_reward_ratio;
+  if (typeof body.multi_strategy_live === 'boolean') {
+    state.multi_strategy_live = body.multi_strategy_live;
+  }
+  if (Number.isFinite(body.max_live_trades_per_scan)) {
+    const clamped = Math.max(1, Math.min(5, Math.floor(body.max_live_trades_per_scan)));
+    state.max_live_trades_per_scan = clamped;
+  }
+  if (body.strategy_flags && typeof body.strategy_flags === 'object') {
+    const current = state.strategy_flags || {};
+    const nextFlags = {
+      cex: current.cex !== false,
+      dex: current.dex !== false,
+      perps: current.perps !== false,
+      funding: current.funding !== false,
+      triangular: current.triangular !== false,
+      statistical: current.statistical !== false,
+    };
+    for (const key of Object.keys(nextFlags)) {
+      if (typeof body.strategy_flags[key] === 'boolean') {
+        nextFlags[key] = body.strategy_flags[key];
+      }
+    }
+    state.strategy_flags = nextFlags;
+  }
   await saveState(c.env, state);
   await logAdminEvent(c.env, 'config', c.req.raw);
   return c.text('✅ تم حفظ الإعدادات');
@@ -437,6 +554,34 @@ app.get('/api/report', async (c) => {
   if (isNaN(fromMs) || isNaN(toMs)) return c.json({ error: 'Invalid date parameters' }, 400);
   const metrics = await getPerformanceMetrics(c.env, fromMs, toMs);
   return c.json({ success: true, data: metrics });
+});
+
+// ── API: Recent admin/bot logs ───────────────────────────────────────────────
+app.get('/api/logs', async (c) => {
+  if (!isAuthorized(c.env, c)) return authDenied(c.env, c, true);
+  if (!c.env.DB) return c.json({ success: true, data: { admin: [], bot: [] } });
+
+  const limit = Math.min(parseInt(c.req.query('limit') || '50', 10), 200);
+  try {
+    const [adminRows, botRows] = await Promise.all([
+      c.env.DB.prepare(
+        `SELECT action, source_ip, created_at FROM admin_events ORDER BY created_at DESC LIMIT ?`
+      ).bind(limit).all(),
+      c.env.DB.prepare(
+        `SELECT event_type, details, created_at FROM bot_events ORDER BY created_at DESC LIMIT ?`
+      ).bind(limit).all()
+    ]);
+    return c.json({
+      success: true,
+      data: {
+        admin: adminRows?.results || [],
+        bot: botRows?.results || []
+      }
+    });
+  } catch (e) {
+    console.error('[api/logs] fetch failed:', e.message);
+    return c.json({ error: 'Failed to load logs', detail: e.message }, 500);
+  }
 });
 
 // ── API: Exchange balances (auth-protected) ───────────────────────────────────
@@ -505,6 +650,65 @@ app.get('/api/perps', async (c) => {
     executionNote: mexcReady
       ? 'MEXC Futures active — perps orders placed via contract.mexc.com'
       : 'MEXC credentials missing — perps will run as spot hedge on best available exchange'
+  });
+});
+
+// ── API: Execution health (auth-protected) ───────────────────────────────────
+// Returns a concise readiness snapshot for live execution routing:
+// - spotReady: whether MEXC spot is available and funded
+// - futuresReady: whether MEXC futures auth/balance call succeeds
+// - executionMode: futures+spot or spot-fallback
+app.get('/api/execution-health', async (c) => {
+  if (!isAuthorized(c.env, c)) return authDenied(c.env, c, true);
+
+  const [state, lastScan] = await Promise.all([
+    getState(c.env),
+    c.env.BOT_STATE.get('nexus_last_scan', 'json').catch(() => null)
+  ]);
+
+  const mexcConfigured = hasExchangeCredentials(c.env, 'mexc');
+
+  let spotReady = false;
+  let spotBalance = null;
+  let spotError = null;
+  if (mexcConfigured) {
+    try {
+      const bal = await getMEXCBalance(c.env, 'USDT');
+      spotBalance = bal;
+      spotReady = bal.free > 0;
+    } catch (e) {
+      spotError = e.message;
+    }
+  }
+
+  let futuresReady = false;
+  let futuresBalance = null;
+  let futuresError = null;
+  if (mexcConfigured) {
+    try {
+      futuresBalance = await getMEXCFuturesBalance(c.env, 'USDT');
+      futuresReady = true;
+    } catch (e) {
+      futuresError = e.message;
+    }
+  }
+
+  const executionMode = futuresReady ? 'futures+spot' : (spotReady ? 'spot-fallback' : 'blocked');
+
+  return c.json({
+    success: true,
+    tradingEnabled: !!state?.trading_enabled,
+    paperTrading: state?.paper_trading !== false,
+    mexcConfigured,
+    spotReady,
+    futuresReady,
+    executionMode,
+    spotBalance,
+    futuresBalance,
+    spotError,
+    futuresError,
+    lastPerpsOpp: lastScan?.perps || null,
+    lastScanTimestamp: lastScan?.timestamp || null,
   });
 });
 
@@ -690,119 +894,6 @@ app.get('/api/export', async (c) => {
       'Content-Disposition': `attachment; filename="trades-${dateStr}.csv"`
     }
   });
-});
-
-// ── API: R2 log archive listing ───────────────────────────────────────────────
-// Returns a paginated list of CSV archives stored in the TRADE_LOGS R2 bucket.
-// Accepts optional `?prefix=` query parameter (default: "exports/").
-app.get('/api/logs', async (c) => {
-  if (!isAuthorized(c.env, c)) return authDenied(c.env, c, true);
-  if (!c.env.TRADE_LOGS) return c.json({ error: 'R2 binding not configured' }, 503);
-  const prefix = c.req.query('prefix') || 'exports/';
-  const cursor = c.req.query('cursor') || undefined;
-  try {
-    const list = await c.env.TRADE_LOGS.list({ prefix, cursor, limit: 50 });
-    return c.json({
-      success: true,
-      objects: list.objects.map(o => ({
-        key: o.key,
-        size: o.size,
-        uploaded: o.uploaded,
-        customMetadata: o.customMetadata,
-      })),
-      truncated: list.truncated,
-      cursor: list.cursor,
-    });
-  } catch (e) {
-    console.error('[R2] list error:', e.message);
-    return c.json({ error: 'Failed to list log archives' }, 500);
-  }
-});
-
-// ── API: AI opportunity analysis ──────────────────────────────────────────────
-// Accepts a JSON body with an `opportunity` object and returns an AI-generated
-// short analysis and recommendation in Arabic.
-// Body: { opportunity: { symbol, strategy, direction, buyPrice, sellPrice, netPct } }
-//
-// Provider priority:
-//   1. GitHub Models (openai/gpt-4.1) — when GITHUB_TOKEN secret is set.
-//   2. Cloudflare Workers AI (llama-3.1-8b-instruct) — fallback when AIWORKER
-//      binding is available but GITHUB_TOKEN is absent.
-app.post('/api/ai-analysis', async (c) => {
-  if (!isAuthorized(c.env, c)) return authDenied(c.env, c, true);
-
-  const hasGitHubToken = !!c.env.GITHUB_TOKEN;
-  const hasWorkersAI   = !!c.env.AIWORKER;
-  if (!hasGitHubToken && !hasWorkersAI) {
-    return c.json({ error: 'No AI provider configured (set GITHUB_TOKEN or AIWORKER)' }, 503);
-  }
-
-  let body;
-  try { body = await c.req.json(); } catch (_) { return c.json({ error: 'Invalid JSON' }, 400); }
-
-  const opp = body?.opportunity;
-  if (!opp) return c.json({ error: 'Missing opportunity field' }, 400);
-
-  const systemPrompt = 'You are a professional crypto arbitrage analyst.';
-  const userPrompt =
-    `Analyze this opportunity briefly (2-3 sentences) and give a buy/skip recommendation.\n` +
-    `Pair: ${opp.symbol}\n` +
-    `Strategy: ${opp.strategy?.toUpperCase()}\n` +
-    `Direction: ${opp.direction}\n` +
-    `Buy price: $${Number(opp.buyPrice).toFixed(6)}\n` +
-    `Sell price: $${Number(opp.sellPrice).toFixed(6)}\n` +
-    `Net profit: ${Number(opp.netPct).toFixed(4)}%\n` +
-    `Respond in Arabic only.`;
-
-  // ── Provider 1: GitHub Models (openai/gpt-4.1) ──────────────────────────────
-  if (hasGitHubToken) {
-    try {
-      const res = await fetch('https://models.github.ai/inference/chat/completions', {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${c.env.GITHUB_TOKEN}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          model: 'openai/gpt-4.1',
-          messages: [
-            { role: 'system', content: systemPrompt },
-            { role: 'user',   content: userPrompt },
-          ],
-          temperature: 1.0,
-          top_p: 1.0,
-          max_tokens: 256,
-        }),
-      });
-      if (!res.ok) {
-        const errText = await res.text();
-        throw new Error(`GitHub Models API error ${res.status}: ${errText}`);
-      }
-      const data = await res.json();
-      const analysis = data?.choices?.[0]?.message?.content ?? JSON.stringify(data);
-      return c.json({ success: true, analysis, provider: 'github-models' });
-    } catch (e) {
-      console.error('[AI] GitHub Models error:', e.message);
-      // Fall through to Workers AI if available, otherwise return the error.
-      if (!hasWorkersAI) return c.json({ error: 'AI analysis failed', detail: e.message }, 500);
-    }
-  }
-
-  // ── Provider 2: Cloudflare Workers AI (llama-3.1-8b-instruct) ───────────────
-  try {
-    const result = await c.env.AIWORKER.run('@cf/meta/llama-3.1-8b-instruct', {
-      messages: [
-        { role: 'system', content: systemPrompt },
-        { role: 'user',   content: userPrompt },
-      ],
-      max_tokens: 256,
-    });
-    const analysis = result?.response ?? result?.text ?? (typeof result === 'string' ? result : JSON.stringify(result));
-    return c.json({ success: true, analysis, provider: 'workers-ai' });
-  } catch (e) {
-    console.error('[AI] Workers AI error:', e.message);
-    return c.json({ error: 'AI analysis failed', detail: e.message }, 500);
-  }
 });
 
 // ── API: Generic AI inference (OpenAI Responses API schema) ──────────────────

@@ -116,6 +116,7 @@ function evalTriangle(tri, pA, pB, pC, exchange, fee) {
     direction,
     isPerp:       false,
     legs: [tri.a, tri.b, tri.c],
+    crossPrice:     pB,
     crossDeviation: deviation
   };
 }

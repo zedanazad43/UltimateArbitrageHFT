@@ -6,9 +6,6 @@ on:
   pull_request:
     branches: ["main"]
 
-env:
-  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
-
 jobs:
   test:
     name: Verify on node ${{ matrix.node_version }} and ${{ matrix.os }}
@@ -28,17 +25,23 @@ jobs:
 
     - name: Install dependencies
       run: npm ci
+      env:
+        FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
-    - name: Lint
-      run: npm run lint
-
-    - name: Run full tests
-      run: npm run test:all
-
-    - name: Build dry-run validation
+    - name: Verify production baseline (lint + tests + dry-run build)
+      run: npm run verify:prod
       if: matrix.os == 'ubuntu-latest'
-      run: |
-        npx --yes wrangler@4 deploy --dry-run
       env:
         CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
         CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+
+    - name: Lint (Windows parity)
+      if: matrix.os == 'windows-latest'
+      run: npm run lint
+
+    - name: Test (Windows parity)
+      if: matrix.os == 'windows-latest'
+      run: npm run test:all
+
+    - name: Check hardcoded secrets
+      run: npm run check:secrets

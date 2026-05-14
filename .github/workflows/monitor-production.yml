@@ -90,6 +90,7 @@ jobs:
                 body,
                 labels: ['production-alert', 'ops']
               });
+            }
 
       - name: Optional external webhook alert
         if: failure() && github.event_name == 'workflow_dispatch' && inputs.ops_alert_webhook != ''
@@ -98,7 +99,6 @@ jobs:
         run: |
           payload='{"text":"UltimateArbitrageHFT monitoring alert: production health check failed."}'
           curl -sS -X POST -H "Content-Type: application/json" -d "$payload" "$OPS_ALERT_WEBHOOK"
-            }
 
   backup-nightly:
     if: github.event_name == 'workflow_dispatch' || github.event.schedule == '0 2 * * *'

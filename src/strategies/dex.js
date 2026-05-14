@@ -1,6 +1,6 @@
 // nexus/src/strategies/dex.js — DEX Cross-Chain Arbitrage Strategy
 
-import { getAlchemyPrice, getPancakePrice } from '../prices.js';
+import { getAlchemyPrice, getPancakePrice, getCoinGeckoSimplePrice, getDEXScreenerPrice } from '../prices.js';
 
 // ── Token config for cross-chain ETH ↔ BSC arbitrage ─────────────────────────
 //
@@ -18,21 +18,24 @@ export const DEX_TOKENS = [
   {
     symbol:        'ETHUSDT',
     alchemySymbol: 'ETH',
+    coinGeckoId:   'ethereum',
     bscAddress:    '0x2170ed0880ac9a755fd29b2688956bd959f933f8', // Binance-Peg ETH on BSC
   },
   {
     symbol:        'BTCUSDT',
     alchemySymbol: 'BTC',
+    coinGeckoId:   'bitcoin',
     bscAddress:    '0x7130d2a12b9bcbfae4f2634d864a1ee1ce3ead9c', // Binance-Peg BTC on BSC
   },
   {
     symbol:        'BNBUSDT',
     alchemySymbol: 'BNB',
+    coinGeckoId:   'binancecoin',
     bscAddress:    '0xbb4cdb9cbd36b01bd1cbaebf2de08d9173bc095c', // WBNB on BSC
   },
 ];
 
-const MIN_SPREAD_PCT  = 0.5;  // minimum gross spread to consider
+const MIN_SPREAD_PCT  = 0.3;  // minimum gross spread to consider
 const BRIDGE_COST_PCT = 0.2;  // estimated bridge/gas cost deducted from profit
 
 // Estimated swap gas cost in USD per leg (ETH mainnet at ~20 Gwei, BNB Chain at ~3 Gwei).
@@ -46,15 +49,29 @@ const GAS_ESTIMATE_USD = ETH_SWAP_GAS_USD + BSC_SWAP_GAS_USD;
 /**
  * Scans a single ETH↔BSC token pair for a cross-chain DEX arbitrage opportunity.
  *
- * @param {string} alchemyKey — Alchemy API key or full endpoint URL
+ * @param {string|null} alchemyKey — Alchemy API key or full endpoint URL
  * @param {{ symbol, alchemySymbol, bscAddress }} token
  * @returns {object|null}  opportunity or null
  */
 async function scanDEXPair(alchemyKey, token) {
-  const [ethPrice, bscPrice] = await Promise.all([
-    getAlchemyPrice(token.alchemySymbol, alchemyKey),
-    getPancakePrice(token.bscAddress),
-  ]);
+  let ethPrice;
+  let bscPrice;
+
+  if (alchemyKey) {
+    [ethPrice, bscPrice] = await Promise.all([
+      getAlchemyPrice(token.alchemySymbol, alchemyKey),
+      getPancakePrice(token.bscAddress),
+    ]);
+  } else {
+    // Keyless fallback: CoinGecko (ETH-side reference) + DEXScreener (BSC-side).
+    const [ethUsd, bscQuote] = await Promise.all([
+      getCoinGeckoSimplePrice(token.coinGeckoId),
+      getDEXScreenerPrice('bsc', token.bscAddress),
+    ]);
+    if (!ethUsd || !bscQuote?.price) return null;
+    ethPrice = ethUsd;
+    bscPrice = bscQuote.price;
+  }
 
   const spreadPct = ((bscPrice - ethPrice) / ethPrice) * 100;
   const absSpread = Math.abs(spreadPct);
@@ -91,8 +108,6 @@ export async function scanDEX(env) {
   // ALCHEMY_ETHEREUM_ENDPOINT (full RPC URL) was the documented secret name in deploy.ps1,
   // but the prices layer only needs the API key embedded in it.
   const alchemyKey = env.ALCHEMY_API_KEY || env.ALCHEMY_ETHEREUM_ENDPOINT;
-  if (!alchemyKey) return null;
-
   try {
     const results = await Promise.allSettled(
       DEX_TOKENS.map(token => scanDEXPair(alchemyKey, token))

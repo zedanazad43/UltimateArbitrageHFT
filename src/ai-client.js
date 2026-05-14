@@ -19,6 +19,13 @@ const AI_MODEL      = '@cf/meta/llama-3.1-8b-instruct';
 const AI_TIMEOUT_MS = 8000; // abort if Workers AI does not respond within 8 s
 const MAX_CANDIDATES = 5;    // send at most this many opportunities to the model
 
+// ── AI Backend Configuration ─────────────────────────────────────────────────
+// Set to 'local' to use CodeGeeX server (http://localhost:8000)
+// Set to 'cloudflare' to use Cloudflare Workers AI (default)
+const AI_BACKEND = process.env.AI_BACKEND || 'cloudflare';
+const LOCAL_AI_ENDPOINT = process.env.LOCAL_AI_ENDPOINT || 'http://localhost:8000';
+const LOCAL_AI_TIMEOUT_MS = 15000; // Local inference is slower
+
 // ── Strategy reliability ranking (used in the AI prompt) ──────────────────────
 // Higher = more reliable / faster execution. Informational only.
 const STRATEGY_RANK = { cex: 1, perps: 2, statistical: 3, triangular: 4, funding: 5, dex: 6 };
@@ -26,7 +33,84 @@ const STRATEGY_RANK = { cex: 1, perps: 2, statistical: 3, triangular: 4, funding
 // ── Public API ────────────────────────────────────────────────────────────────
 
 /**
- * Uses Workers AI to select the single best opportunity from the provided list.
+ * Calls local CodeGeeX server for AI evaluation
+ */
+async function filterWithLocalAI(opportunities) {
+  const sorted = [...opportunities].sort((a, b) => b.netPct - a.netPct);
+  const fallback = sorted[0];
+  const candidates = sorted.slice(0, MAX_CANDIDATES);
+
+  const summary = candidates
+    .map((o, i) => {
+      const rank = STRATEGY_RANK[o.strategy] ?? 9;
+      const liquid = ['BTCUSDT', 'ETHUSDT', 'BNBUSDT'].includes(o.symbol) ? 'high' : 'medium';
+      return (
+        `${i + 1}. ${o.strategy.toUpperCase()} ${o.symbol} | ` +
+        `net=${o.netPct.toFixed(4)}% gross=${o.grossPct.toFixed(4)}% ` +
+        `safety=${(o.safetyFactor * 100).toFixed(1)}% ` +
+        `stratRank=${rank} liquidity=${liquid}`
+      );
+    })
+    .join('\n');
+
+  const systemPrompt =
+    'You are a risk analyst for a crypto arbitrage trading system. ' +
+    'Given a ranked list of arbitrage opportunities (1=most profitable), ' +
+    'select the SINGLE best one considering: ' +
+    '(1) safety factor — higher is safer (less slippage/execution risk), ' +
+    '(2) net profit percent — higher is better, ' +
+    '(3) strategy reliability rank — lower is more reliable (1=CEX, 6=DEX), ' +
+    '(4) liquidity — high liquidity assets are safer. ' +
+    'Reply with ONLY the opportunity number (1-' + candidates.length + ') and nothing else.';
+
+  const userPrompt = `Opportunities:\n${summary}\n\nBest opportunity number:`;
+
+  try {
+    const response = await Promise.race([
+      fetch(`${LOCAL_AI_ENDPOINT}/v1/chat/completions`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          messages: [
+            { role: 'system', content: systemPrompt },
+            { role: 'user', content: userPrompt },
+          ],
+          max_tokens: 4,
+          temperature: 0.3,
+        }),
+      }),
+      new Promise((_, reject) =>
+        setTimeout(() => reject(new Error('Local AI timeout')), LOCAL_AI_TIMEOUT_MS)
+      ),
+    ]);
+
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}`);
+    }
+
+    const data = await response.json();
+    const raw = (data?.choices?.[0]?.message?.content ?? '').trim();
+    const idx = parseInt(raw, 10);
+
+    if (Number.isFinite(idx) && idx >= 1 && idx <= candidates.length) {
+      const selected = candidates[idx - 1];
+      console.log(
+        `[Local AI] selected opportunity #${idx}: ` +
+        `${selected.strategy} ${selected.symbol} net ${selected.netPct.toFixed(4)}%`
+      );
+      return selected;
+    }
+
+    console.warn('[Local AI] unexpected response from model, using fallback. raw=', raw);
+  } catch (e) {
+    console.warn('[Local AI] filterWithLocalAI failed, using fallback:', e.message);
+  }
+
+  return fallback;
+}
+
+/**
+  * Routes to appropriate AI backend (local CodeGeeX or Cloudflare Workers AI)
  *
  * The AI evaluates: safety factor (slippage guard), net profit %, strategy
  * reliability, and asset liquidity (BTC/ETH > altcoins).
@@ -37,6 +121,11 @@ const STRATEGY_RANK = { cex: 1, perps: 2, statistical: 3, triangular: 4, funding
  */
 export async function filterOpportunityWithAI(env, opportunities) {
   if (!opportunities || opportunities.length === 0) return null;
+
+  // Use local CodeGeeX if configured
+  if (AI_BACKEND === 'local') {
+    return filterWithLocalAI(opportunities);
+  }
 
   // Sort by netPct descending so the top candidates are always the most profitable
   const sorted = [...opportunities].sort((a, b) => b.netPct - a.netPct);

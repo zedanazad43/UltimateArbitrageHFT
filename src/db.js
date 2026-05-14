@@ -14,7 +14,13 @@ export function ensureSchema(env) {
   if (!env.DB) return Promise.resolve();
   if (_schemaInitPromise) return _schemaInitPromise;
   _schemaInitPromise = (async () => {
-    await env.DB.exec(schemaSQL);
+    // D1's exec() does not reliably handle multi-statement SQL, so split the
+    // schema string into individual statements and run them via batch().
+    const stmts = schemaSQL
+      .split(';')
+      .map(s => s.trim())
+      .filter(s => s.length > 0);
+    await env.DB.batch(stmts.map(s => env.DB.prepare(s)));
   })().catch(e => {
     _schemaInitPromise = null; // allow retry on the next request
     console.error('[DB] ensureSchema error:', e.message);

@@ -39,6 +39,16 @@ export async function renderDashboard(env) {
   const maxLoss         = state.max_daily_loss_usd           ?? DEFAULT_RISK.MAX_DAILY_LOSS_USD;
   const minSec          = state.min_seconds_between_trades   ?? DEFAULT_RISK.MIN_SECONDS_BETWEEN_TRADES;
   const maxPerTrade     = state.max_per_trade_loss_pct       ?? DEFAULT_RISK.MAX_PER_TRADE_LOSS_PCT;
+  const multiStrategyLive = state.multi_strategy_live !== false;
+  const maxLiveTradesPerScan = Math.max(1, Math.min(5, Math.floor(state.max_live_trades_per_scan ?? 3)));
+  const strategyFlags   = {
+    cex: state?.strategy_flags?.cex !== false,
+    dex: state?.strategy_flags?.dex !== false,
+    perps: state?.strategy_flags?.perps !== false,
+    funding: state?.strategy_flags?.funding !== false,
+    triangular: state?.strategy_flags?.triangular !== false,
+    statistical: state?.strategy_flags?.statistical !== false,
+  };
   const lastScanTime    = lastScan?.timestamp
     ? new Date(lastScan.timestamp).toLocaleString('ar')
     : 'لم يتم المسح بعد';
@@ -287,9 +297,38 @@ ${autoStopBanner}
       <label>رأس المال الابتدائي ($)</label>
       <input id="initialCapital" type="number" value="${initialCapital}" min="1" step="1">
     </div>
+    <div class="risk-item">
+      <label>تعدد الاستراتيجيات (LIVE)</label>
+      <label style="color:#eee;font-size:.85em;display:flex;align-items:center;gap:6px">
+        <input id="multiStrategyLive" type="checkbox" ${multiStrategyLive ? 'checked' : ''}>
+        تنفيذ أكثر من استراتيجية في نفس دورة المسح
+      </label>
+    </div>
+    <div class="risk-item">
+      <label>أقصى صفقات لكل دورة LIVE</label>
+      <input id="maxLiveTradesPerScan" type="number" value="${maxLiveTradesPerScan}" min="1" max="5" step="1">
+    </div>
   </div>
   <div style="margin-top:14px">
     <button class="btn" data-admin-action="1" onclick="saveConfig()">💾 حفظ الإعدادات</button>
+  </div>
+</div>
+
+<div class="panel">
+  <h2 style="margin-top:0">🧠 تفعيل الاستراتيجيات</h2>
+  <div style="font-size:.82em;color:#888;margin-bottom:10px">
+    فعّل/عطّل كل استراتيجية مباشرة من الواجهة. يتم حفظ الإعدادات في حالة البوت.
+  </div>
+  <div class="risk-row" style="gap:18px">
+    <label><input type="checkbox" id="flag_cex" ${strategyFlags.cex ? 'checked' : ''}> CEX Arbitrage</label>
+    <label><input type="checkbox" id="flag_dex" ${strategyFlags.dex ? 'checked' : ''}> DEX Cross-Chain</label>
+    <label><input type="checkbox" id="flag_perps" ${strategyFlags.perps ? 'checked' : ''}> Perps Arbitrage</label>
+    <label><input type="checkbox" id="flag_funding" ${strategyFlags.funding ? 'checked' : ''}> Funding Rate</label>
+    <label><input type="checkbox" id="flag_triangular" ${strategyFlags.triangular ? 'checked' : ''}> Triangular</label>
+    <label><input type="checkbox" id="flag_statistical" ${strategyFlags.statistical ? 'checked' : ''}> Statistical</label>
+  </div>
+  <div style="margin-top:14px">
+    <button class="btn" data-admin-action="1" onclick="saveConfig()">💾 حفظ إعدادات الاستراتيجيات</button>
   </div>
 </div>
 
@@ -631,10 +670,22 @@ ${autoStopBanner}
       max_daily_loss_usd:         parseFloat(document.getElementById('maxDailyLoss').value),
       max_per_trade_loss_pct:     parseFloat(document.getElementById('maxPerTrade').value),
       min_seconds_between_trades: parseFloat(document.getElementById('minSeconds').value),
-      initial_capital:            parseFloat(document.getElementById('initialCapital').value)
+      initial_capital:            parseFloat(document.getElementById('initialCapital').value),
+      multi_strategy_live:        !!document.getElementById('multiStrategyLive')?.checked,
+      max_live_trades_per_scan:   parseInt(document.getElementById('maxLiveTradesPerScan')?.value || '3', 10),
+      strategy_flags: {
+        cex:         !!document.getElementById('flag_cex')?.checked,
+        dex:         !!document.getElementById('flag_dex')?.checked,
+        perps:       !!document.getElementById('flag_perps')?.checked,
+        funding:     !!document.getElementById('flag_funding')?.checked,
+        triangular:  !!document.getElementById('flag_triangular')?.checked,
+        statistical: !!document.getElementById('flag_statistical')?.checked,
+      }
     };
-    for(const[k,v]of Object.entries(body)){
-      if(isNaN(v)||v<=0){ alert('❌ قيمة غير صحيحة: '+k); return; }
+    const numericKeys=['max_daily_loss_usd','max_per_trade_loss_pct','min_seconds_between_trades','initial_capital','max_live_trades_per_scan'];
+    for(const k of numericKeys){
+      const v=Number(body[k]);
+      if(!Number.isFinite(v)||v<=0){ alert('❌ قيمة غير صحيحة: '+k); return; }
     }
     setButtonsBusy(true);
     try{
@@ -1172,7 +1223,7 @@ export async function renderChecklist(env) {
     { name: 'ADMIN_TOKEN',              ok: !!env.ADMIN_TOKEN,            critical: true,  note: 'لحماية نقاط التحكم' },
     { name: 'Telegram Bot Token',       ok: !!env.TELEGRAM_BOT_TOKEN,    critical: false, note: 'للإشعارات' },
     { name: 'Telegram Chat ID',         ok: !!env.TELEGRAM_CHAT_ID,      critical: false, note: 'معرف المستخدم' },
-    { name: 'Alchemy API Key',          ok: !!env.ALCHEMY_API_KEY,       critical: false, note: 'لتفعيل مسح DEX' },
+    { name: 'Alchemy API Key',          ok: !!env.ALCHEMY_API_KEY,       critical: false, note: 'اختياري: يحسّن دقة مسح DEX (يوجد fallback عام بدون مفتاح)' },
     { name: 'Perps — MEXC Futures',     ok: !!(env.MEXC_API_KEY && env.MEXC_API_SECRET), critical: true,  note: 'تنفيذ MEXC Futures للعقود الدائمة' },
     { name: 'Perps — Binance USDM Feed',ok: true,                        critical: false, note: 'بيانات أسعار Binance Futures (مجاني، لا مفتاح مطلوب)' },
     { name: 'Perps — OKX Swap Feed',    ok: true,                        critical: false, note: 'بيانات أسعار OKX Perpetuals (مجاني، لا مفتاح مطلوب)' },

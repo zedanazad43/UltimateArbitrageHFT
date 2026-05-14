@@ -10,63 +10,73 @@ async function loadDbModule() {
   return import(`${dbModuleUrl}?case=${importNonce}`);
 }
 
-test('ensureSchema executes the full schema through DB.exec', async () => {
+test('ensureSchema executes the full schema via batch of prepared statements', async () => {
   const { ensureSchema } = await loadDbModule();
-  let execInput = null;
-  let prepareCalls = 0;
+  const preparedSqls = [];
+  let batchArgs = null;
 
   const env = {
     DB: {
-      async exec(sql) {
-        execInput = sql;
+      prepare(sql) {
+        preparedSqls.push(sql);
+        return { _sql: sql };
       },
-      prepare() {
-        prepareCalls += 1;
-        return { run: async () => ({}) };
+      async batch(stmts) {
+        batchArgs = stmts;
       }
     }
   };
 
   await ensureSchema(env);
 
-  assert.equal(execInput, schemaSQL);
-  assert.equal(prepareCalls, 0);
-  assert.match(execInput, /CREATE INDEX IF NOT EXISTS idx_trades_created_at ON trades\(created_at DESC\);/);
+  // batch() must have been called with an array of prepared statements
+  assert.ok(Array.isArray(batchArgs), 'batch() should receive an array');
+  assert.ok(batchArgs.length > 0, 'batch array must not be empty');
+  // Every statement from schemaSQL (split on ;) must be present
+  const expected = schemaSQL.split(';').map(s => s.trim()).filter(s => s.length > 0);
+  assert.equal(batchArgs.length, expected.length);
+  // The CREATE INDEX statement must be included
+  assert.ok(
+    preparedSqls.some(s => /CREATE INDEX IF NOT EXISTS idx_trades_created_at ON trades\(created_at DESC\)/.test(s)),
+    'idx_trades_created_at statement must be batched'
+  );
 });
 
 test('ensureSchema memoizes initialization per isolate', async () => {
   const { ensureSchema } = await loadDbModule();
-  let execCalls = 0;
-  let releaseExec;
-  const execGate = new Promise(resolve => { releaseExec = resolve; });
+  let batchCalls = 0;
+  let releaseBatch;
+  const batchGate = new Promise(resolve => { releaseBatch = resolve; });
 
   const env = {
     DB: {
-      async exec() {
-        execCalls += 1;
-        await execGate;
+      prepare(sql) { return { _sql: sql }; },
+      async batch() {
+        batchCalls += 1;
+        await batchGate;
       }
     }
   };
 
   const pending = Promise.all([ensureSchema(env), ensureSchema(env), ensureSchema(env)]);
-  assert.equal(execCalls, 1);
-  releaseExec();
+  assert.equal(batchCalls, 1);
+  releaseBatch();
   await pending;
-  assert.equal(execCalls, 1);
+  assert.equal(batchCalls, 1);
 });
 
 test('ensureSchema resets memoized promise after failure and allows retry', async (t) => {
   const { ensureSchema } = await loadDbModule();
-  let execCalls = 0;
+  let batchCalls = 0;
   const errors = [];
   t.mock.method(console, 'error', (...args) => { errors.push(args.join(' ')); });
 
   const env = {
     DB: {
-      async exec() {
-        execCalls += 1;
-        if (execCalls === 1) throw new Error('schema failed');
+      prepare(sql) { return { _sql: sql }; },
+      async batch() {
+        batchCalls += 1;
+        if (batchCalls === 1) throw new Error('schema failed');
       }
     }
   };
@@ -74,6 +84,6 @@ test('ensureSchema resets memoized promise after failure and allows retry', asyn
   await assert.rejects(async () => ensureSchema(env), /schema failed/);
   await ensureSchema(env);
 
-  assert.equal(execCalls, 2);
+  assert.equal(batchCalls, 2);
   assert.ok(errors.some(line => line.includes('[DB] ensureSchema error: schema failed')));
 });

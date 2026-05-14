@@ -4,7 +4,18 @@
 // symbols, selects the single best opportunity, applies unified risk checks,
 // and executes one trade per scan cycle.
 
-import { getAllSpotPrices, getMEXCPerpPrice, getBybitPerpData, getBinancePerpData, getOKXPerpData, get0xPrice, getCrossPairPrices } from './prices.js';
+import {
+  getAllSpotPrices,
+  getMEXCPerpPrice,
+  getBybitPerpData,
+  getBinancePerpData,
+  getOKXPerpData,
+  get0xPrice,
+  getBinanceCrossPrice,
+  getMEXCCrossPrice,
+  getOKXCrossPrice,
+  getKuCoinCrossPrice,
+} from './prices.js';
 import { scanCEX }         from './strategies/cex.js';
 import { scanDEX }         from './strategies/dex.js';
 import { scanPerps }       from './strategies/perps.js';
@@ -19,9 +30,10 @@ import {
 } from './risk.js';
 import {
   placeMEXCFuturesOrder, hasSufficientUSDT,
+  getMEXCFuturesBalance,
   hasExchangeCredentials, getRequiredCredentialKeys, getExchangeBalance,
   placeExchangeMarketOrder, getConfiguredExchanges, selectBestExchange, extractFillMetrics,
-  ACTIVE_EXECUTION_EXCHANGES, DATA_ONLY_EXCHANGES
+  ACTIVE_EXECUTION_EXCHANGES
 } from './exchange.js';
 import { isHFTEngineConfigured, scanFromHFT, executeViaHFT } from './hft-client.js';
 import { filterOpportunityWithAI } from './ai-client.js';
@@ -40,6 +52,27 @@ const SUPPORTED_SYMBOLS = [
   'INJUSDT', 'TIAUSDT', 'ATOMUSDT', 'FILUSDT', 'HBARUSDT'
 ];
 
+const DEFAULT_STRATEGY_FLAGS = Object.freeze({
+  cex: true,
+  dex: true,
+  perps: true,
+  funding: true,
+  triangular: true,
+  statistical: true,
+});
+
+function getStrategyFlags(state) {
+  const raw = state?.strategy_flags || {};
+  return {
+    cex: raw.cex !== false,
+    dex: raw.dex !== false,
+    perps: raw.perps !== false,
+    funding: raw.funding !== false,
+    triangular: raw.triangular !== false,
+    statistical: raw.statistical !== false,
+  };
+}
+
 // ── Circuit Breaker (KV-backed, 5-minute window) ──────────────────────────────
 //
 // Tracks per-exchange failure counts across scan cycles.  After
@@ -49,6 +82,37 @@ const SUPPORTED_SYMBOLS = [
 const CB_KEY         = 'nexus_circuit_breaker';
 const MAX_CB_FAILURES = 3;
 const CB_RESET_MS    = 5 * 60 * 1000; // 5 min
+const FUTURES_STATUS_KEY = 'nexus_mexc_futures_status';
+const FUTURES_STATUS_TTL_MS = 60 * 1000;
+const PERP_EXCHANGES = new Set(['mexc_perp', 'binance_perp', 'okx_perp', 'bybit_perp']);
+
+async function getMEXCFuturesReadyCached(env) {
+  try {
+    const cached = await env.BOT_STATE.get(FUTURES_STATUS_KEY, 'json');
+    if (cached && typeof cached.checkedAt === 'number' && (Date.now() - cached.checkedAt) < FUTURES_STATUS_TTL_MS) {
+      return !!cached.ready;
+    }
+  } catch (_) {}
+
+  let ready = false;
+  let error = null;
+  try {
+    await getMEXCFuturesBalance(env, 'USDT');
+    ready = true;
+  } catch (e) {
+    error = e.message;
+  }
+
+  try {
+    await env.BOT_STATE.put(
+      FUTURES_STATUS_KEY,
+      JSON.stringify({ ready, error, checkedAt: Date.now() }),
+      { expirationTtl: Math.ceil(FUTURES_STATUS_TTL_MS / 1000) }
+    );
+  } catch (_) {}
+
+  return ready;
+}
 
 async function getCircuitBreaker(env) {
   try { return await env.BOT_STATE.get(CB_KEY, 'json') || {}; }
@@ -132,6 +196,15 @@ export async function runScan(env, state, sendAlert) {
   const initialCapital = state.initial_capital  ?? 1000;
   const equity         = initialCapital + (state.total_pnl || 0);
   const paperMode      = state.paper_trading !== false;
+  const strategyFlags  = getStrategyFlags(state);
+  const multiStrategyLive = state.multi_strategy_live !== false;
+  const maxLiveTradesPerScan = Math.max(
+    1,
+    Math.min(5, Math.floor(state.max_live_trades_per_scan ?? 3))
+  );
+
+  // Keep flags explicit in state so /api/status and dashboard always receive booleans.
+  state.strategy_flags = { ...DEFAULT_STRATEGY_FLAGS, ...strategyFlags };
 
   // ── Enhanced risk pre-flight checks ─────────────────────────────────────────
   const drawdown = checkDrawdownGuard(state, equity);
@@ -152,6 +225,8 @@ export async function runScan(env, state, sendAlert) {
 
   const allOpportunities = [];
   const lastScan = { timestamp: Date.now(), cex: null, dex: null, perps: null, funding: null, triangular: null, statistical: null };
+  const spotPriceByExchange = {};
+  const spotSourcesBySymbol = {};
 
   // Load circuit-breaker state from KV once per cycle and build the open-circuit set
   const cb = await getCircuitBreaker(env);
@@ -170,9 +245,11 @@ export async function runScan(env, state, sendAlert) {
   // Collect cross-pair prices needed for triangular arbitrage once (shared across exchanges)
   const crossSymbols = [...new Set(TRIANGLES.map(t => t.b))]; // e.g. ['ETHBTC', 'BNBBTC', 'SOLBTC', 'BNBETH']
 
-  const [, dexOpp, crossPrices] = await Promise.all([
-    Promise.all(
-      SUPPORTED_SYMBOLS.map(async symbol => {
+  const scanSymbolsInBatches = async () => {
+    const batchSize = 6;
+    for (let i = 0; i < SUPPORTED_SYMBOLS.length; i += batchSize) {
+      const batch = SUPPORTED_SYMBOLS.slice(i, i + batchSize);
+      await Promise.all(batch.map(async symbol => {
         try {
           // Fetch perp prices with per-source error tracking so the circuit breaker
           // only trips on genuine connectivity failures, not on "symbol not listed".
@@ -197,6 +274,13 @@ export async function runScan(env, state, sendAlert) {
           const bybitPerp   = bybitPerpResult.data;
           const binancePerp = binancePerpResult.data;
           const okxPerp     = okxPerpResult.data;
+          spotSourcesBySymbol[symbol] = spotSources;
+
+          // Cache spot prices from this cycle to avoid expensive refetches later.
+          for (const src of spotSources) {
+            if (!spotPriceByExchange[src.exchange]) spotPriceByExchange[src.exchange] = {};
+            spotPriceByExchange[src.exchange][symbol] = src.price;
+          }
 
           // Update circuit breaker based on fetch results.
           // Only record failure on genuine errors (exceptions), NOT on null returns
@@ -244,17 +328,17 @@ export async function runScan(env, state, sendAlert) {
             ? scanFundingRate(symbol, spotSources, fundingPerp, maxSpreadPct)
             : null;
 
-          if (cexOpp) {
+          if (cexOpp && strategyFlags.cex) {
             allOpportunities.push(cexOpp);
             if (!lastScan.cex || cexOpp.netPct > lastScan.cex.netPct)
               lastScan.cex = cexOpp;
           }
-          if (perpsOpp) {
+          if (perpsOpp && strategyFlags.perps) {
             allOpportunities.push(perpsOpp);
             if (!lastScan.perps || perpsOpp.netPct > lastScan.perps.netPct)
               lastScan.perps = perpsOpp;
           }
-          if (fundingOpp) {
+          if (fundingOpp && strategyFlags.funding) {
             allOpportunities.push(fundingOpp);
             if (!lastScan.funding || fundingOpp.netPct > lastScan.funding.netPct)
               lastScan.funding = fundingOpp;
@@ -262,10 +346,13 @@ export async function runScan(env, state, sendAlert) {
         } catch (e) {
           console.error(`[${symbol}] scan error:`, e.message);
         }
-      })
-    ),
-    scanDEX(env),
-    getCrossPairPrices(crossSymbols)
+      }));
+    }
+  };
+
+  const [, dexOpp] = await Promise.all([
+    scanSymbolsInBatches(),
+    scanDEX(env)
   ]);
 
   // ── Triangular arbitrage (per-exchange, using cross-pair prices) ─────────────
@@ -279,21 +366,49 @@ export async function runScan(env, state, sendAlert) {
     okx:     0.0008,  // 0.08% taker
     kucoin:  0.001,   // 0.10% taker
   };
+  const crossFetcherByExchange = {
+    binance: getBinanceCrossPrice,
+    mexc: getMEXCCrossPrice,
+    okx: getOKXCrossPrice,
+    kucoin: getKuCoinCrossPrice,
+  };
+  const crossPricesByExchange = {};
+  await Promise.all(
+    Object.keys(TRIANGULAR_EXCHANGES).map(async (exchangeName) => {
+      const fetchCross = crossFetcherByExchange[exchangeName];
+      if (!fetchCross) {
+        crossPricesByExchange[exchangeName] = {};
+        return;
+      }
+
+      const entries = await Promise.allSettled(
+        crossSymbols.map(async (sym) => [sym, await fetchCross(sym)])
+      );
+      const symbolMap = {};
+      for (const e of entries) {
+        if (e.status === 'fulfilled' && e.value[1]) {
+          symbolMap[e.value[0]] = e.value[1];
+        }
+      }
+      crossPricesByExchange[exchangeName] = symbolMap;
+    })
+  );
+
   for (const [exchangeName, fee] of Object.entries(TRIANGULAR_EXCHANGES)) {
     if (openCircuits.has(exchangeName)) continue;
     try {
       const priceMap = {};
-      // Add USDT-quoted prices from midPrices (indexed by symbol)
+      // Reuse spot prices already fetched in this cycle.
+      const exchangeSpotMap = spotPriceByExchange[exchangeName] || {};
       for (const sym of SUPPORTED_SYMBOLS) {
-        const src = (await getAllSpotPrices(env, sym, openCircuits))
-          .find(s => s.exchange === exchangeName);
-        if (src) priceMap[sym] = src.price;
+        const px = exchangeSpotMap[sym];
+        if (px) priceMap[sym] = px;
       }
-      // Add cross-pair prices
-      Object.assign(priceMap, crossPrices);
+      // Add cross-pair prices from the same exchange only.
+      Object.assign(priceMap, crossPricesByExchange[exchangeName] || {});
 
       const triOpp = scanTriangular(exchangeName, fee, priceMap);
-      if (triOpp) {
+      if (triOpp && strategyFlags.triangular) {
         allOpportunities.push(triOpp);
         if (!lastScan.triangular || triOpp.netPct > lastScan.triangular.netPct)
           lastScan.triangular = triOpp;
@@ -307,15 +422,19 @@ export async function runScan(env, state, sendAlert) {
   for (const pairDef of CORRELATED_PAIRS) {
     try {
       const [sourcesA, sourcesB] = await Promise.all([
-        getAllSpotPrices(env, pairDef.symbolA, openCircuits),
-        getAllSpotPrices(env, pairDef.symbolB, openCircuits)
+        spotSourcesBySymbol[pairDef.symbolA]
+          ? Promise.resolve(spotSourcesBySymbol[pairDef.symbolA])
+          : getAllSpotPrices(env, pairDef.symbolA, openCircuits),
+        spotSourcesBySymbol[pairDef.symbolB]
+          ? Promise.resolve(spotSourcesBySymbol[pairDef.symbolB])
+          : getAllSpotPrices(env, pairDef.symbolB, openCircuits)
       ]);
       const priceA = midPrices[pairDef.symbolA] ?? sourcesA[0]?.price;
       const priceB = midPrices[pairDef.symbolB] ?? sourcesB[0]?.price;
       if (!priceA || !priceB) continue;
 
       const statOpp = await scanStatistical(env, pairDef, priceA, priceB, sourcesA, sourcesB);
-      if (statOpp) {
+      if (statOpp && strategyFlags.statistical) {
         allOpportunities.push(statOpp);
         if (!lastScan.statistical || statOpp.netPct > lastScan.statistical.netPct)
           lastScan.statistical = statOpp;
@@ -328,7 +447,7 @@ export async function runScan(env, state, sendAlert) {
   // Persist updated circuit-breaker state (fire-and-forget)
   saveCircuitBreaker(env, cb);
 
-  if (dexOpp) {
+  if (dexOpp && strategyFlags.dex) {
     allOpportunities.push(dexOpp);
     lastScan.dex = dexOpp;
   }
@@ -370,17 +489,44 @@ export async function runScan(env, state, sendAlert) {
     return null;
   }
 
-  // ── In live mode, exclude strategies that require the Go HFT engine when it is not
-  //    running.  Without this filter the AI could pick a DEX/funding opportunity that
-  //    executeTrade() would immediately reject, wasting the whole scan cycle.
+  let futuresReady = true;
+  if (!paperMode && hasExchangeCredentials(env, 'mexc')) {
+    futuresReady = await getMEXCFuturesReadyCached(env);
+  }
+
+  // CEX spatial arb requires two separate funded exchanges (buy on one, sell on
+  // the other with pre-positioned base asset).  With only one exchange configured
+  // both legs would be rerouted to the same venue, defeating the spread capture.
+  // Compute this once so the filter below can use it cheaply.
+  const configuredExchangeCount = paperMode ? 2 : getConfiguredExchanges(env).length;
+
+  // ── In live mode, keep only strategies with direct execution support in this Worker.
   const execPool = (!paperMode && !isHFTEngineConfigured(env))
-    ? allOpportunities.filter(
-        opp => opp.strategy     !== 'dex'     &&
-               opp.strategy     !== 'funding' &&
-               opp.buyExchange  !== '0x'      &&
-               opp.sellExchange !== '0x'
-      )
+    ? allOpportunities
+        .filter(
+          opp => opp.strategy     !== 'dex'         &&
+                 opp.strategy     !== 'funding'     &&
+                 opp.buyExchange  !== '0x'          &&
+                 opp.sellExchange !== '0x'          &&
+                 (opp.strategy !== 'perps' || futuresReady || PERP_EXCHANGES.has(opp.buyExchange) || PERP_EXCHANGES.has(opp.sellExchange)) &&
+                 (opp.strategy !== 'cex'   || configuredExchangeCount >= 2)
+        )
+        .map(opp => ({ ...opp, _futuresReady: futuresReady }))
     : allOpportunities;
+
+  if (!paperMode) {
+    const byStrategy = allOpportunities.reduce((acc, opp) => {
+      acc[opp.strategy] = (acc[opp.strategy] || 0) + 1;
+      return acc;
+    }, {});
+    console.log(
+      `[Scan] candidates=${allOpportunities.length} executable=${execPool.length} ` +
+      `byStrategy=${JSON.stringify(byStrategy)} strategyFlags=${JSON.stringify(strategyFlags)}`
+    );
+    if (!futuresReady) {
+      console.warn('[Scan] MEXC futures auth unavailable: restricting perps execution to SHORT fallback routes');
+    }
+  }
 
   if (execPool.length === 0) {
     console.log('[Live] No CEX/perps opportunities this cycle — all candidates require the HFT engine');
@@ -411,14 +557,21 @@ export async function runScan(env, state, sendAlert) {
     state.risk_reward_ratio || 2.0
   );
 
+  // Minimum order size — below this exchanges reject the order.
+  // MEXC spot minimum is $1, but effective routing requires ≥$10 for majors.
+  const MIN_TRADE_USD = 10;
+
   /** Returns { leverage, sizeUsd } for the given opportunity */
   function sizeFor(opp) {
     const lev = opp.isPerp
       ? calculateAdaptiveLeverage(equity, opp.netPct, initialCapital)
       : 1;
-    const sz = Math.min(
-      volatilityAdjustedSize(baseSize, opp.grossPct || 0) * lev,
-      equity * MAX_POSITION_EQUITY_FRACTION
+    const sz = Math.max(
+      MIN_TRADE_USD,
+      Math.min(
+        volatilityAdjustedSize(baseSize, opp.grossPct || 0) * lev,
+        equity * MAX_POSITION_EQUITY_FRACTION
+      )
     );
     return { leverage: lev, sizeUsd: sz };
   }
@@ -434,14 +587,14 @@ export async function runScan(env, state, sendAlert) {
     return null;
   }
 
-  let sizeUsd       = rawSizeUsd;
-  const mode          = paperMode ? 'paper' : 'live';
-  let strategyLabel = `${best.strategy}:${best.direction}`;
-  let levStr        = leverage > 1 ? ` | ${leverage}x` : '';
+  const mode = paperMode ? 'paper' : 'live';
+  const executedTrades = [];
+  let runningExposure = currentExposure;
 
   // ── Execute or log paper trade ───────────────────────────────────────────────
   if (paperMode) {
-    // Open a virtual position that will be settled at current price on the next cycle
+    const sizeUsd = rawSizeUsd;
+    const levStr = leverage > 1 ? ` | ${leverage}x` : '';
     await openPaperPosition(env, best, sizeUsd);
     await sendAlert(
       env,
@@ -450,33 +603,49 @@ export async function runScan(env, state, sendAlert) {
       `$${sizeUsd.toFixed(2)}${levStr}\n` +
       `net ${best.netPct.toFixed(4)}%  safety ${(best.safetyFactor * 100).toFixed(1)}%`
     );
+    best._executionSummary = { realized: true, realizedPnlUsd: sizeUsd * best.netPct / 100, realizedNetPct: best.netPct };
+    executedTrades.push({ opportunity: best, sizeUsd, leverage, summary: best._executionSummary });
   } else {
-    // Build a fallback queue: try the AI-selected best first, then up to 2 alternatives
-    // sorted by netPct.  This ensures a temporary failure on one exchange (API error,
-    // insufficient balance) does not waste the entire scan cycle.
+    const allowMulti = multiStrategyLive;
+    const maxLiveTrades = allowMulti ? maxLiveTradesPerScan : 1;
+
     const fallbackQueue = [
       best,
       ...execPool
         .filter(o => o !== best)
-        .sort((a, b) => b.netPct - a.netPct)
-        .slice(0, 2),
+        .sort((a, b) => b.netPct - a.netPct),
     ];
 
-    // `executedOpp` is the candidate that was actually placed on the exchange.
-    // It may differ from `best` (the AI's top pick) when `best` fails transiently.
-    let executedOpp = null;
-    let executedLev = leverage;
-    let executedSize = sizeUsd;
-    let executedSummary = null;
+    const usedStrategies = new Set();
     for (const candidate of fallbackQueue) {
+      if (executedTrades.length >= maxLiveTrades) break;
+
+      // In multi-strategy mode, diversify first: at most one trade per strategy per scan cycle.
+      if (allowMulti && usedStrategies.has(candidate.strategy)) continue;
+
       const { leverage: cLev, sizeUsd: cSize } = sizeFor(candidate);
+      const cExposure = checkExposureLimit(equity, runningExposure, cSize);
+      if (!cExposure.allowed) {
+        console.warn(`[Risk] Skip ${candidate.strategy} ${candidate.symbol}: ${cExposure.reason}`);
+        continue;
+      }
+
       try {
         const summary = await executeTrade(env, candidate, cSize, cLev);
-        executedOpp  = candidate;
-        executedLev  = cLev;
-        executedSize = cSize;
-        executedSummary = summary;
-        break;
+        const hasRealizedPnl = summary?.realized === true &&
+          Number.isFinite(summary?.realizedPnlUsd) &&
+          Number.isFinite(summary?.realizedNetPct);
+        if (!hasRealizedPnl) {
+          console.warn(
+            `[Exec] ${candidate.strategy} ${candidate.symbol} filled without complete fill metrics; ` +
+            `excluding this trade from realized P&L aggregates until reconciliation is available`
+          );
+        }
+
+        candidate._executionSummary = summary || null;
+        executedTrades.push({ opportunity: candidate, sizeUsd: cSize, leverage: cLev, summary: summary || null });
+        usedStrategies.add(candidate.strategy);
+        runningExposure += cSize;
       } catch (err) {
         console.error(
           `[Exec] ${candidate.strategy} ${candidate.symbol} failed: ${err.message}` +
@@ -485,7 +654,7 @@ export async function runScan(env, state, sendAlert) {
       }
     }
 
-    if (!executedOpp) {
+    if (executedTrades.length === 0) {
       await sendAlert(
         env,
         `❌ [${best.strategy.toUpperCase()}] فشل التنفيذ ${best.symbol}: جميع الفرص المتاحة فشلت`
@@ -493,67 +662,67 @@ export async function runScan(env, state, sendAlert) {
       return null;
     }
 
-    strategyLabel = `${executedOpp.strategy}:${executedOpp.direction}`;
-    leverage      = executedLev;
-    sizeUsd       = executedSize;
-    levStr        = leverage > 1 ? ` | ${leverage}x` : '';
-    const hasRealizedPnl = executedSummary?.realized === true &&
-      Number.isFinite(executedSummary?.realizedPnlUsd) &&
-      Number.isFinite(executedSummary?.realizedNetPct);
-    if (!hasRealizedPnl) {
-      console.warn(
-        `[Exec] ${executedOpp.strategy} ${executedOpp.symbol} filled without complete fill metrics; ` +
-        `excluding this trade from realized P&L aggregates until reconciliation is available`
-      );
-    }
-    executedOpp._executionSummary = executedSummary || null;
-
-    await sendAlert(
-      env,
-      `✅ [LIVE] [${executedOpp.strategy.toUpperCase()}] ${executedOpp.symbol}\n` +
-      `${executedOpp.direction}\n` +
-      `$${sizeUsd.toFixed(2)}${levStr}\n` +
-      `net ${executedOpp.netPct.toFixed(4)}%`
-    );
-
-    // Promote executedOpp so the state-update block below uses the correct trade data
-    best = executedOpp;
+    const lines = executedTrades.map(t => {
+      const opp = t.opportunity;
+      const levStr = t.leverage > 1 ? ` | ${t.leverage}x` : '';
+      return `• [${opp.strategy.toUpperCase()}] ${opp.symbol} ${opp.direction} | $${t.sizeUsd.toFixed(2)}${levStr} | net ${opp.netPct.toFixed(4)}%`;
+    }).join('\n');
+    await sendAlert(env, `✅ [LIVE] Executed ${executedTrades.length} trade(s) this scan:\n${lines}`);
   }
 
   // ── Update state counters (caller saves state to KV) ────────────────────────
-  const execSummary = best._executionSummary || null;
-  const hasRealizedLivePnl = !paperMode &&
-    execSummary?.realized === true &&
-    Number.isFinite(execSummary?.realizedPnlUsd) &&
-    Number.isFinite(execSummary?.realizedNetPct);
-  const loggedNetPct = paperMode
-    ? best.netPct
-    : hasRealizedLivePnl
-      ? execSummary.realizedNetPct
-      : 0;
-  const tradePnl = paperMode
-    ? (sizeUsd * best.netPct / 100)
-    : hasRealizedLivePnl
-      ? execSummary.realizedPnlUsd
-      : 0;
-  state.daily_pnl            = (state.daily_pnl   || 0) + tradePnl;
-  state.total_pnl            = (state.total_pnl   || 0) + tradePnl;
-  state.daily_trades         = (state.daily_trades || 0) + 1;
-  state.total_trades         = (state.total_trades || 0) + 1;
-  state.last_trade_timestamp = Date.now();
-  state.last_trade_pnl_usd   = tradePnl;
-  state.last_trade_net_pct   = loggedNetPct;
-  state.last_trade_realized  = hasRealizedLivePnl || paperMode;
+  for (const t of executedTrades) {
+    const opp = t.opportunity;
+    const execSummary = t.summary || opp._executionSummary || null;
+    const hasRealizedLivePnl = !paperMode &&
+      execSummary?.realized === true &&
+      Number.isFinite(execSummary?.realizedPnlUsd) &&
+      Number.isFinite(execSummary?.realizedNetPct);
+    const loggedNetPct = paperMode
+      ? opp.netPct
+      : hasRealizedLivePnl
+        ? execSummary.realizedNetPct
+        : 0;
+    const tradePnl = paperMode
+      ? (t.sizeUsd * opp.netPct / 100)
+      : hasRealizedLivePnl
+        ? execSummary.realizedPnlUsd
+        : 0;
 
-  // Use queue producer when available, fall back to logTrade()
-  if (env.TRADE_QUEUE) {
-    await env.TRADE_QUEUE.send({ type: 'trade_log', data: { strategy: strategyLabel, sizeUsd, netPct: loggedNetPct, mode } });
-  } else {
-    await logTrade(env, { strategy: strategyLabel, sizeUsd, netPct: loggedNetPct, mode });
+    state.daily_pnl            = (state.daily_pnl    || 0) + tradePnl;
+    state.total_pnl            = (state.total_pnl    || 0) + tradePnl;
+    state.daily_trades         = (state.daily_trades || 0) + 1;
+    state.total_trades         = (state.total_trades || 0) + 1;
+    state.last_trade_timestamp = Date.now();
+    state.last_trade_pnl_usd   = tradePnl;
+    state.last_trade_net_pct   = loggedNetPct;
+    state.last_trade_realized  = hasRealizedLivePnl || paperMode;
+
+    const strategyLabel = `${opp.strategy}:${opp.direction}`;
+    if (env.TRADE_QUEUE) {
+      await env.TRADE_QUEUE.send({ type: 'trade_log', data: { strategy: strategyLabel, sizeUsd: t.sizeUsd, netPct: loggedNetPct, mode } });
+    } else {
+      await logTrade(env, { strategy: strategyLabel, sizeUsd: t.sizeUsd, netPct: loggedNetPct, mode });
+    }
+
+    delete opp._executionSummary;
+    delete opp._futuresReady;
   }
 
-  delete best._executionSummary;
-  return { opportunity: best, sizeUsd, leverage };
+  const first = executedTrades[0];
+  return {
+    opportunity: first.opportunity,
+    sizeUsd: first.sizeUsd,
+    leverage: first.leverage,
+    trades: executedTrades.map(t => ({
+      strategy: t.opportunity.strategy,
+      symbol: t.opportunity.symbol,
+      direction: t.opportunity.direction,
+      netPct: t.opportunity.netPct,
+      sizeUsd: t.sizeUsd,
+      leverage: t.leverage,
+    }))
+  };
 }
 
 // ── Trade execution ──────────────────────────────────────────────────────────
@@ -615,57 +784,114 @@ async function executeTrade(env, opp, sizeUsd, leverage) {
     );
   }
 
-  // bybit and gateio are data-only (German regulatory restrictions).
-  if (DATA_ONLY_EXCHANGES.has(opp.buyExchange) || DATA_ONLY_EXCHANGES.has(opp.sellExchange)) {
-    throw new Error(
-      `${opp.buyExchange || opp.sellExchange} is not available for live execution ` +
-      `(German regulatory restrictions). Switching to paper mode is recommended.`
-    );
-  }
-
   const amount = (sizeUsd / opp.buyPrice).toFixed(6);
 
   // ── Perpetuals ────────────────────────────────────────────────────────────
   if (opp.isPerp) {
     // Determine if this is a SHORT (sell on perp exchange) or LONG (buy on perp)
-    const perpExchanges = new Set(['mexc_perp', 'binance_perp', 'okx_perp', 'bybit_perp']);
-    const isSellPerp = perpExchanges.has(opp.sellExchange);
+    const isSellPerp = PERP_EXCHANGES.has(opp.sellExchange);
     const side = isSellPerp ? 'SHORT' : 'LONG';
+    const futuresReadyHint = opp._futuresReady !== false;
 
     // Primary: MEXC Futures (executable perp)
     const hasMEXC = hasExchangeCredentials(env, 'mexc');
+    if (!futuresReadyHint) {
+      // Futures auth is confirmed down — refuse outright.  Proceeding to the
+      // spot-only fallback would buy spot with NO corresponding futures position,
+      // making it a naked directional buy that burns capital with no arb offset.
+      throw new Error(
+        `[Perp] Skipped ${opp.symbol} — futures auth is down (futuresReady=false). ` +
+        `Spot-only hedge without an open futures position would be a naked trade.`
+      );
+    }
     if (hasMEXC) {
       const sufficient = await hasSufficientUSDT(env, sizeUsd);
+      console.log(`[Perp] ${opp.symbol} side=${side} sizeUsd=${sizeUsd.toFixed(2)} amount=${amount} leverage=${leverage} sufficient=${sufficient}`);
       if (sufficient) {
-        await placeMEXCFuturesOrder(env, opp.symbol, side, amount, leverage);
-        return { realized: false, realizedPnlUsd: null, realizedNetPct: null };
+        try {
+          await placeMEXCFuturesOrder(env, opp.symbol, side, amount, leverage);
+          console.log(`[Perp] ✅ MEXC Futures order placed: ${opp.symbol} ${side} vol=${amount} lev=${leverage}`);
+          return { realized: false, realizedPnlUsd: null, realizedNetPct: null };
+        } catch (futErr) {
+          // Futures order failed — do NOT fall through to spot hedge.  Without
+          // a confirmed open futures position the spot buy would be a naked trade.
+          throw new Error(
+            `[Perp] MEXC Futures order FAILED for ${opp.symbol} ${side}: ${futErr.message}. ` +
+            `Aborting to prevent naked spot exposure.`,
+            { cause: futErr }
+          );
+        }
+      } else {
+        throw new Error(
+          `[Perp] Skipped — insufficient USDT ($${sizeUsd.toFixed(2)}) for perps position`
+        );
       }
     }
-    // MEXC perp unavailable or insufficient balance — fall back to spot hedge.
-    // LONG perp (buy perp, sell spot) requires pre-existing base inventory which
-    // the account typically won't hold; executing a blind SELL would fail.
-    // For SHORT perp (sell perp, buy spot) we can safely BUY spot as the hedge.
-    if (!isSellPerp) {
-      throw new Error(
-        `LONG perp live execution requires MEXC Futures (MEXC_API_KEY + MEXC_API_SECRET); ` +
-        `spot-only fallback is unsafe without pre-existing base inventory. ` +
-        `Configure MEXC Futures credentials or set paper_trading=true to simulate.`
-      );
-    }
-    const fallback = await selectBestExchange(env, sizeUsd);
-    if (!fallback) {
-      throw new Error(
-        `No configured exchange has sufficient USDT ($${sizeUsd.toFixed(2)}) for perps hedge trade`
-      );
-    }
-    // SHORT perp fallback: buy spot as a partial hedge on the cheapest leg
-    await placeExchangeMarketOrder(env, fallback, opp.symbol, 'BUY', amount, sizeUsd);
-    return { realized: false, realizedPnlUsd: null, realizedNetPct: null };
+    // No MEXC credentials at all — cannot open futures position.
+    throw new Error(
+      `[Perp] Live perps execution requires MEXC Futures credentials (MEXC_API_KEY + MEXC_API_SECRET). ` +
+      `Configure credentials or set paper_trading=true to simulate.`
+    );
   }
 
   // ── CEX spatial arbitrage ─────────────────────────────────────────────────
   let buyExch  = opp.buyExchange;
   let sellExch = opp.sellExchange;
+  // ── Triangular arbitrage (3-leg sequential, single exchange) ─────────────
+  if (opp.strategy === 'triangular') {
+    const triExchange = opp.buyExchange;
+    if (!hasExchangeCredentials(env, triExchange)) {
+      throw new Error(`[Tri] No execution credentials for ${triExchange}`);
+    }
+    const [legA, legB, legC] = opp.legs;
+    // direction e.g. "USDT→DOT→ETH→USDT" or "USDT→ETH→DOT→USDT"
+    const legCBase = legC.replace(/USDT$/, '');
+    const firstIntermediate = opp.direction.split('→')[1];
+    const isDir2 = firstIntermediate === legCBase;
+
+    const triSize = sizeUsd;
+    let usdtOut;
+
+    if (isDir2) {
+      // Dir2: USDT → legC → legB cross → legA → USDT
+      // Step 1: BUY legC (e.g. DOTUSDT) — spend USDT, receive legC base (DOT)
+      const r1 = await placeExchangeMarketOrder(env, triExchange, legC, 'BUY', null, triSize);
+      const f1 = extractFillMetrics(r1);
+      const q1 = f1?.executedQty ?? (triSize / opp.sellPrice);   // DOT received
+
+      // Step 2: SELL legB (e.g. DOTETH) — sell DOT, receive legA base (ETH)
+      const r2 = await placeExchangeMarketOrder(env, triExchange, legB, 'SELL', String(q1), null);
+      const f2 = extractFillMetrics(r2);
+      const q2 = f2?.quoteQty                                     // ETH received
+        ?? ((f2?.executedQty ?? q1) * (opp.crossPrice ?? 0));
+
+      // Step 3: SELL legA (e.g. ETHUSDT) — sell ETH, receive USDT
+      const r3 = await placeExchangeMarketOrder(env, triExchange, legA, 'SELL', String(q2), null);
+      const f3 = extractFillMetrics(r3);
+      usdtOut = f3?.quoteQty ?? ((f3?.executedQty ?? q2) * opp.buyPrice);
+    } else {
+      // Dir1: USDT → legA → legB cross → legC → USDT
+      // Step 1: BUY legA (e.g. ETHUSDT) — spend USDT, receive legA base (ETH)
+      const r1 = await placeExchangeMarketOrder(env, triExchange, legA, 'BUY', null, triSize);
+      const f1 = extractFillMetrics(r1);
+      const q1 = f1?.executedQty ?? (triSize / opp.buyPrice);    // ETH received
+
+      // Step 2: BUY legB (e.g. DOTETH) — spend ETH (q1 as quoteOrderQty), receive legC base (DOT)
+      const r2 = await placeExchangeMarketOrder(env, triExchange, legB, 'BUY', null, q1);
+      const f2 = extractFillMetrics(r2);
+      const q2 = f2?.executedQty ?? (q1 / (opp.crossPrice ?? 1));  // DOT received
+
+      // Step 3: SELL legC (e.g. DOTUSDT) — sell DOT, receive USDT
+      const r3 = await placeExchangeMarketOrder(env, triExchange, legC, 'SELL', String(q2), null);
+      const f3 = extractFillMetrics(r3);
+      usdtOut = f3?.quoteQty ?? ((f3?.executedQty ?? q2) * opp.sellPrice);
+    }
+
+    const pnl = (usdtOut ?? 0) - triSize;
+    console.log(`[Tri] ✅ ${opp.direction} on ${triExchange}: in=$${triSize.toFixed(2)}, out=$${(usdtOut ?? 0).toFixed(2)}, pnl=$${pnl.toFixed(4)}`);
+    return { realized: true, realizedPnlUsd: pnl, realizedNetPct: (pnl / triSize) * 100 };
+  }
+
 
   // If either leg is on a data-only exchange, reroute to best available exchange.
   if (!ACTIVE_EXECUTION_EXCHANGES.includes(buyExch)) {

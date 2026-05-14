@@ -1,6 +1,6 @@
 // nexus/src/strategies/cex.js — CEX Spatial Arbitrage Strategy
 
-const MIN_SAFETY_FACTOR = 0.4; // net/gross must be ≥ 40%
+const MIN_SAFETY_FACTOR = 0.35; // net/gross must be ≥ 35%
 
 // Estimated market-impact slippage (in % of trade value) applied per leg.
 // Derived from empirical analysis of crypto order-book depth at ~$5k–$50k sizes.

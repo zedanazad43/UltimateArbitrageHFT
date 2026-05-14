@@ -1,6 +1,6 @@
 // nexus/src/strategies/perps.js — Perpetuals vs Spot Arbitrage Strategy
 
-const MIN_SAFETY_FACTOR = 0.4; // net/gross must be ≥ 40%
+const MIN_SAFETY_FACTOR = 0.35; // net/gross must be ≥ 35%
 
 /**
  * Finds arbitrage between spot sources and the perpetual (funding rate spread).

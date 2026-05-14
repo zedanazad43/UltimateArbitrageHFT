@@ -23,6 +23,48 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
+$CanonicalKeyMap = @{
+    'BINANC_API_SECRET'   = 'BINANCE_API_SECRET'
+    'KUCOIN_SECRET_KEY'   = 'KUCOIN_API_SECRET'
+    'BITGET_API_SECRET'   = 'BITGET_SECRET_KEY'
+    'BITMART_API_SECRET'  = 'BITMART_SECRET_KEY'
+}
+
+$RequiredSecretsBySection = @{
+    'BINANCE' = @('BINANCE_API_KEY', 'BINANCE_API_SECRET')
+    'KUCOIN'  = @('KUCOIN_API_KEY', 'KUCOIN_API_SECRET', 'KUCOIN_PASSPHRASE')
+    'OKX'     = @('OKX_API_KEY', 'OKX_API_SECRET', 'OKX_PASSPHRASE')
+    'BITGET'  = @('BITGET_API_KEY', 'BITGET_SECRET_KEY', 'BITGET_API_PASSPHRASE')
+    'BITMART' = @('BITMART_API_KEY', 'BITMART_SECRET_KEY', 'BITMART_MEMO')
+    'HTX'     = @('HTX_API_KEY', 'HTX_API_SECRET')
+}
+
+function Resolve-SecretKey {
+    param(
+        [string] $SectionName,
+        [string] $RawKey
+    )
+
+    if ($CanonicalKeyMap.ContainsKey($RawKey)) {
+        return $CanonicalKeyMap[$RawKey]
+    }
+
+    if ($RawKey -eq 'PASSPHRASE') {
+        switch ($SectionName) {
+            'KUCOIN'  { return 'KUCOIN_PASSPHRASE' }
+            'OKX'     { return 'OKX_PASSPHRASE' }
+            'BITGET'  { return 'BITGET_API_PASSPHRASE' }
+            'BINANCE' { return 'BINANCE_PASSPHRASE' }
+        }
+    }
+
+    if ($RawKey -eq 'MEMO' -and $SectionName -eq 'BITMART') {
+        return 'BITMART_MEMO'
+    }
+
+    return $RawKey
+}
+
 # ── Resolve file path ─────────────────────────────────────────────────────────
 $KeysFile = [System.IO.Path]::GetFullPath($KeysFile)
 if (-not (Test-Path $KeysFile)) {
@@ -33,6 +75,7 @@ if (-not (Test-Path $KeysFile)) {
 # ── Parse KEY=VALUE lines (skip comments and section headers) ─────────────────
 $currentSection = ''
 $pairs          = [System.Collections.Generic.List[hashtable]]::new()
+$skipped        = 0
 
 foreach ($raw in Get-Content $KeysFile) {
     $line = $raw.Trim()
@@ -53,6 +96,14 @@ foreach ($raw in Get-Content $KeysFile) {
     $key   = $line.Substring(0, $eqIdx).Trim()
     $value = $line.Substring($eqIdx + 1).Trim()
 
+    if ([string]::IsNullOrWhiteSpace($value)) {
+        Write-Warning "Skipping $key in [$currentSection] — value is blank"
+        $skipped++
+        continue
+    }
+
+    $canonicalKey = Resolve-SecretKey -SectionName $currentSection.ToUpper() -RawKey $key
+
     # Skip template placeholder values
     if ($value -like 'YOUR_*') {
         Write-Warning "Skipping $key — value looks like a placeholder ($value)"
@@ -62,7 +113,7 @@ foreach ($raw in Get-Content $KeysFile) {
     # Filter by section if requested
     if ($Section -and $currentSection -ne $Section.ToUpper()) { continue }
 
-    $pairs.Add(@{ Key = $key; Value = $value; Section = $currentSection })
+    $pairs.Add(@{ Key = $canonicalKey; Value = $value; Section = $currentSection; RawKey = $key })
 }
 
 if ($pairs.Count -eq 0) {
@@ -70,9 +121,34 @@ if ($pairs.Count -eq 0) {
     exit 0
 }
 
+$keysBySection = @{}
+foreach ($pair in $pairs) {
+    if (-not $keysBySection.ContainsKey($pair.Section)) {
+        $keysBySection[$pair.Section] = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
+    }
+
+    [void] $keysBySection[$pair.Section].Add($pair.Key)
+}
+
+foreach ($sectionName in $RequiredSecretsBySection.Keys) {
+    if (-not $keysBySection.ContainsKey($sectionName)) {
+        continue
+    }
+
+    $missingKeys = @()
+    foreach ($requiredKey in $RequiredSecretsBySection[$sectionName]) {
+        if (-not $keysBySection[$sectionName].Contains($requiredKey)) {
+            $missingKeys += $requiredKey
+        }
+    }
+
+    if ($missingKeys.Count -gt 0) {
+        Write-Warning "[$sectionName] Missing required secret(s): $($missingKeys -join ', ')"
+    }
+}
+
 # ── Upload ────────────────────────────────────────────────────────────────────
 $ok      = 0
-$skipped = 0
 $failed  = 0
 
 Write-Host ""
@@ -84,6 +160,9 @@ Write-Host ""
 
 foreach ($pair in $pairs) {
     $label = "[$($pair.Section)] $($pair.Key)"
+    if ($pair.RawKey -ne $pair.Key) {
+        $label += " (from $($pair.RawKey))"
+    }
 
     if ($DryRun) {
         Write-Host "  [DRY-RUN] Would upload: $label" -ForegroundColor Cyan

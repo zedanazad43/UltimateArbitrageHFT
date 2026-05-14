@@ -8,6 +8,8 @@
     "lint": "eslint . --ext .js,.jsx,.mjs,.cjs",
     "build:check": "wrangler deploy --dry-run",
     "verify:prod": "npm run lint && npm run test:all && npm run build:check",
+    "preflight:prod": "npm run verify:prod && npm run check:secrets",
+    "ready:prod": "npm run preflight:prod && npm run validate:production",
     "build": "wrangler deploy",
     "deploy": "wrangler deploy",
     "dev": "wrangler dev",
@@ -40,16 +42,22 @@
     "setup:local": "npm install && npm run db:migrate:local"
   },
   "dependencies": {
+    "@langchain/community": "^1.1.28",
+    "@langchain/core": "^1.1.46",
     "@temporalio/activity": "^1.12.3",
     "@temporalio/client": "^1.16.1",
     "@temporalio/worker": "^1.4.4",
     "@temporalio/workflow": "^1.16.1",
     "hono": "^4.12.18",
+    "jsonwebtoken": "^9.0.3",
     "openai": "^6.35.0"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
     "eslint": "^10.2.1",
     "wrangler": "^4.0.0"
+  },
+  "overrides": {
+    "protobufjs": "^7.5.6"
   }
 }

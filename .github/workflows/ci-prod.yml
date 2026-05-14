@@ -143,9 +143,6 @@ jobs:
     runs-on: ubuntu-latest
     needs: build
     if: github.ref == 'refs/heads/staging' && github.event_name == 'push'
-    environment:
-      name: staging
-      url: https://ultimatearbitragehft-staging.zedanazad43.workers.dev
     steps:
       - uses: actions/checkout@v5
 
@@ -173,15 +170,6 @@ jobs:
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-
-      - name: Notify on staging failure
-        if: failure()
-        continue-on-error: true
-        uses: rtCamp/action-slack-notify@v2
-        env:
-          SLACK_WEBHOOK: ${{ secrets.SLACK_WEBHOOK }}
-          SLACK_COLOR: danger
-          SLACK_MESSAGE: "❌ Staging deploy FAILED — ${{ github.repository }}@${{ github.sha }}"
 
 # ─────────────────────────────────────────────────────────────────────────────
 # 6. DEPLOY — PRODUCTION  (push to main, with environment approval gate)
@@ -269,18 +257,11 @@ jobs:
           BITMART_API_KEY: ${{ secrets.BITMART_API_KEY }}
           BITMART_SECRET_KEY: ${{ secrets.BITMART_SECRET_KEY }}
           BITMART_MEMO: ${{ secrets.BITMART_MEMO }}
-          BYBIT_API_KEY: ${{ secrets.BYBIT_API_KEY }}
-          BYBIT_API_SECRET: ${{ secrets.BYBIT_API_SECRET }}
-          GATEIO_API_KEY: ${{ secrets.GATEIO_API_KEY }}
-          GATEIO_API_SECRET: ${{ secrets.GATEIO_API_SECRET }}
-          HTX_API_KEY: ${{ secrets.HTX_API_KEY }}
-          HTX_API_SECRET: ${{ secrets.HTX_API_SECRET }}
           ZEROX_API_KEY: ${{ secrets.ZEROX_API_KEY }}
           ALCHEMY_API_KEY: ${{ secrets.ALCHEMY_API_KEY }}
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
           ADMIN_TOKEN: ${{ secrets.ADMIN_TOKEN }}
-          HFT_ENGINE_SECRET: ${{ secrets.HFT_ENGINE_SECRET }}
           TEMPORAL_API_KEY: ${{ secrets.TEMPORAL_API_KEY }}
 
       - name: Enable live trading in KV
@@ -351,15 +332,6 @@ jobs:
           echo "   Commit  : ${{ github.sha }}"
           echo "   Actor   : ${{ github.actor }}"
 
-      - name: Notify on production failure
-        if: failure()
-        continue-on-error: true
-        uses: rtCamp/action-slack-notify@v2
-        env:
-          SLACK_WEBHOOK: ${{ secrets.SLACK_WEBHOOK }}
-          SLACK_COLOR: danger
-          SLACK_MESSAGE: "🚨 PRODUCTION deploy FAILED — ${{ github.repository }}@${{ github.sha }} by ${{ github.actor }}"
-
 # ─────────────────────────────────────────────────────────────────────────────
 # 7. GLOBAL FAILURE NOTIFICATION (any job, any branch)
 # ─────────────────────────────────────────────────────────────────────────────
@@ -369,10 +341,5 @@ jobs:
     needs: [lint, audit, test, build]
     if: failure()
     steps:
-      - name: Send Slack alert
-        continue-on-error: true
-        uses: rtCamp/action-slack-notify@v2
-        env:
-          SLACK_WEBHOOK: ${{ secrets.SLACK_WEBHOOK }}
-          SLACK_COLOR: warning
-          SLACK_MESSAGE: "⚠️ CI pipeline failure in ${{ github.repository }} on branch ${{ github.ref_name }} (commit ${{ github.sha }})"
+      - name: Failure marker
+        run: echo "Pipeline failed in one or more prerequisite jobs."

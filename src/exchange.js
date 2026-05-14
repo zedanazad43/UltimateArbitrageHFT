@@ -128,6 +128,89 @@ export async function hasSufficientUSDT(env, requiredUsd) {
   }
 }
 
+function getMEXCFuturesCredentialCandidates(env) {
+  const candidates = [];
+  if (env.MEXC_API_KEY && env.MEXC_API_SECRET) {
+    candidates.push({ label: 'primary', apiKey: env.MEXC_API_KEY, apiSecret: env.MEXC_API_SECRET });
+  }
+  if (env.MEXC_API_KEY_2 && env.MEXC_API_SECRET_2) {
+    const duplicatePrimary =
+      env.MEXC_API_KEY_2 === env.MEXC_API_KEY &&
+      env.MEXC_API_SECRET_2 === env.MEXC_API_SECRET;
+    if (!duplicatePrimary) {
+      candidates.push({ label: 'secondary', apiKey: env.MEXC_API_KEY_2, apiSecret: env.MEXC_API_SECRET_2 });
+    }
+  }
+  return candidates;
+}
+
+function assertMEXCFuturesCredentialShape(env) {
+  const hasSecondaryComplete = !!(env.MEXC_API_KEY_2 && env.MEXC_API_SECRET_2);
+  if (env.MEXC_API_KEY && !env.MEXC_API_SECRET && !hasSecondaryComplete) {
+    throw new Error('MEXC_API_SECRET is not configured');
+  }
+  if (!env.MEXC_API_KEY && env.MEXC_API_SECRET && !hasSecondaryComplete) {
+    throw new Error('MEXC_API_KEY is not configured');
+  }
+}
+
+/**
+ * Fetches the MEXC Futures account balance for a given currency (default: USDT).
+ * Returns { equity: number, availableBalance: number } or throws on error.
+ */
+export async function getMEXCFuturesBalance(env, currency = 'USDT') {
+  assertMEXCFuturesCredentialShape(env);
+  const candidates = getMEXCFuturesCredentialCandidates(env);
+  if (candidates.length === 0) {
+    throw new Error('MEXC Futures credentials are not configured (set MEXC_API_KEY/MEXC_API_SECRET, optional fallback: MEXC_API_KEY_2/MEXC_API_SECRET_2)');
+  }
+
+  const errors = [];
+  for (const { label, apiKey, apiSecret } of candidates) {
+    const timestamp  = Date.now();
+    const recvWindow = 5000;
+    const authModes = [
+      { mode: 'with-recv-window', rawSig: `${timestamp}${apiKey}${recvWindow}`, includeRecvWindow: true },
+      { mode: 'no-recv-window', rawSig: `${timestamp}${apiKey}`, includeRecvWindow: false },
+    ];
+
+    for (const auth of authModes) {
+      const signature  = await hmacHex(apiSecret, auth.rawSig);
+      try {
+        const headers = {
+          'ApiKey': apiKey,
+          'Request-Time': timestamp.toString(),
+          'Signature': signature,
+        };
+        if (auth.includeRecvWindow) {
+          headers['recv-window'] = recvWindow.toString();
+        }
+
+        const resp = await fetch('https://contract.mexc.com/api/v1/private/account/assets', {
+          headers
+        });
+        const data = await parseJsonResponse(resp, 'MEXC futures account');
+        if (!data.success) {
+          throw new Error(`code=${data.code} message=${data.message} auth=${auth.mode}`);
+        }
+
+        const assets = Array.isArray(data.data) ? data.data : [];
+        const asset  = assets.find(a => a.currency === currency);
+        return {
+          equity:           parseFloat(asset?.equity           || '0'),
+          availableBalance: parseFloat(asset?.availableBalance || '0'),
+          positionMargin:   parseFloat(asset?.positionMargin   || '0'),
+          unrealisedPnl:    parseFloat(asset?.unrealisedPnl    || '0')
+        };
+      } catch (err) {
+        errors.push(`${label}:${auth.mode}:${err.message}`);
+      }
+    }
+  }
+
+  throw new Error(`MEXC futures account failed across credential candidates (${errors.join(' | ')})`);
+}
+
 /**
  * Places a market order on MEXC spot.
  * side: 'BUY' | 'SELL'
@@ -154,8 +237,8 @@ export async function placeMarketOrderMEXC(env, symbol, side, quantity, sizeUsd)
     params.quantity = quantity;
   }
 
-  const sorted = Object.keys(params).sort().map(k => `${k}=${params[k]}`).join('&');
-  params.signature = await hmacHex(apiSecret, sorted);
+  const serialized = new URLSearchParams(params).toString();
+  params.signature = await hmacHex(apiSecret, serialized);
 
   const body = new URLSearchParams(params).toString();
   const resp = await fetch('https://api.mexc.com/api/v3/order', {
@@ -166,9 +249,24 @@ export async function placeMarketOrderMEXC(env, symbol, side, quantity, sizeUsd)
     },
     body
   });
-  const data = await parseJsonResponse(resp, 'MEXC order');
-  if (data.code) throw new Error(data.msg || `MEXC spot error ${data.code}`);
-  return data;
+  let data = await parseJsonResponse(resp, 'MEXC order');
+  if (!data.code) return data;
+
+  // Some MEXC deployments reject form-encoded bodies and only accept signed
+  // parameters in the query string for POST /api/v3/order.
+  if (String(data.msg || '').toLowerCase().includes('invalid content type')) {
+    const query = new URLSearchParams(params).toString();
+    const retryResp = await fetch(`https://api.mexc.com/api/v3/order?${query}`, {
+      method: 'POST',
+      headers: {
+        'X-MEXC-APIKEY': apiKey
+      }
+    });
+    data = await parseJsonResponse(retryResp, 'MEXC order (query fallback)');
+    if (!data.code) return data;
+  }
+
+  throw new Error(data.msg || `MEXC spot error ${data.code}`);
 }
 
 /**
@@ -176,14 +274,14 @@ export async function placeMarketOrderMEXC(env, symbol, side, quantity, sizeUsd)
  * side: 'LONG' | 'SHORT'
  */
 export async function placeMEXCFuturesOrder(env, symbol, side, quantity, leverage) {
-  const apiKey    = env.MEXC_API_KEY;
-  const apiSecret = env.MEXC_API_SECRET;
-  if (!apiKey)    throw new Error('MEXC_API_KEY is not configured');
-  if (!apiSecret) throw new Error('MEXC_API_SECRET is not configured');
+  assertMEXCFuturesCredentialShape(env);
+  const candidates = getMEXCFuturesCredentialCandidates(env);
+  if (candidates.length === 0) {
+    throw new Error('MEXC Futures credentials are not configured (set MEXC_API_KEY/MEXC_API_SECRET, optional fallback: MEXC_API_KEY_2/MEXC_API_SECRET_2)');
+  }
 
   const perpSymbol = symbol.replace('USDT', '_USDT');
   const recvWindow = 5000;
-  const timestamp  = Date.now();
   // MEXC Futures side codes: 1=open long, 2=close short (buy), 3=open short, 4=close long
   const sideCode = side === 'LONG' ? 1 : 3;
 
@@ -196,23 +294,45 @@ export async function placeMEXCFuturesOrder(env, symbol, side, quantity, leverag
     leverage
   });
 
-  const rawSig  = `${timestamp}${apiKey}${recvWindow}${orderBody}`;
-  const signature = await hmacHex(apiSecret, rawSig);
+  const errors = [];
+  for (const { label, apiKey, apiSecret } of candidates) {
+    const ts = Date.now();
+    const authModes = [
+      { mode: 'with-recv-window', rawSig: `${ts}${apiKey}${recvWindow}${orderBody}`, includeRecvWindow: true },
+      { mode: 'no-recv-window', rawSig: `${ts}${apiKey}${orderBody}`, includeRecvWindow: false },
+    ];
 
-  const resp = await fetch('https://contract.mexc.com/api/v1/private/order/submit', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'ApiKey': apiKey,
-      'Request-Time': timestamp.toString(),
-      'Signature': signature,
-      'recv-window': recvWindow.toString()
-    },
-    body: orderBody
-  });
-  const data = await parseJsonResponse(resp, 'MEXC futures order');
-  if (!data.success) throw new Error(data.message || 'MEXC Futures order error');
-  return data;
+    for (const auth of authModes) {
+      const signature = await hmacHex(apiSecret, auth.rawSig);
+
+      try {
+        const headers = {
+          'Content-Type': 'application/json',
+          'ApiKey': apiKey,
+          'Request-Time': ts.toString(),
+          'Signature': signature,
+        };
+        if (auth.includeRecvWindow) {
+          headers['recv-window'] = recvWindow.toString();
+        }
+
+        const resp = await fetch('https://contract.mexc.com/api/v1/private/order/submit', {
+          method: 'POST',
+          headers,
+          body: orderBody
+        });
+        const data = await parseJsonResponse(resp, 'MEXC futures order');
+        if (!data.success) {
+          throw new Error((data.message || `MEXC Futures order error code=${data.code || 'unknown'}`) + ` auth=${auth.mode}`);
+        }
+        return data;
+      } catch (err) {
+        errors.push(`${label}:${auth.mode}:${err.message}`);
+      }
+    }
+  }
+
+  throw new Error(`MEXC Futures order failed across credential candidates (${errors.join(' | ')})`);
 }
 
 // ── Binance ───────────────────────────────────────────────────────────────────

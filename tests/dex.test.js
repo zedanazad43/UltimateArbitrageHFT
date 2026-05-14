@@ -88,7 +88,7 @@ describe('scanDEX', () => {
   });
 
   test('accepts ALCHEMY_ETHEREUM_ENDPOINT as an alternative key', async () => {
-    // Use a 0.1% spread (below MIN_SPREAD_PCT=0.5%) so the function proceeds past
+    // Use a 0.1% spread (below MIN_SPREAD_PCT=0.3%) so the function proceeds past
     // the key check but then returns null from the spread guard — not from a
     // missing-key guard.  If the key were not accepted the function would return
     // null *before* calling fetch at all, and we would never reach the spread check.
@@ -108,9 +108,9 @@ describe('scanDEX', () => {
     assert.equal(fetchWasCalled, true, 'fetch should have been called (key was accepted)');
   });
 
-  test('returns null when all pair spreads are below the 0.5% minimum', async () => {
-    // 0.3% spread on all pairs — below MIN_SPREAD_PCT = 0.5
-    installPriceMock(2000, 2006);
+  test('returns null when all pair spreads are below the 0.3% minimum', async () => {
+    // 0.25% spread on all pairs — below MIN_SPREAD_PCT = 0.3
+    installPriceMock(2000, 2005);
     const result = await scanDEX({ ALCHEMY_API_KEY: 'testkey' });
     assert.equal(result, null);
   });

@@ -11,6 +11,7 @@ function formatUnits(value, decimals) {
 }
 
 const FETCH_CF = { cf: { cacheTtl: 2, cacheEverything: true } };
+const PRICE_FETCH_TIMEOUT_MS = 2500;
 
 // ── Retry / rate-limit helper ─────────────────────────────────────────────────
 
@@ -25,8 +26,11 @@ const FETCH_CF = { cf: { cacheTtl: 2, cacheEverything: true } };
 async function fetchWithRetry(url, options = {}, maxRetries = 2) {
   let lastErr;
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    const timeoutPromise = new Promise((_, reject) => {
+      setTimeout(() => reject(new Error('price-fetch-timeout')), PRICE_FETCH_TIMEOUT_MS);
+    });
     try {
-      const resp = await fetch(url, options);
+      const resp = await Promise.race([fetch(url, options), timeoutPromise]);
       if (resp.status === 429) {
         await resp.body?.cancel();
         if (attempt < maxRetries) {

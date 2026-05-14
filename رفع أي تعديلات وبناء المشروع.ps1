@@ -1,30 +1,68 @@
-Write-Host "------------------- 1. Git Status Before -------------------"
-git status
+[CmdletBinding()]
+param(
+    [switch]$SkipInstall,
+    [switch]$WithSecurityAudit,
+    [switch]$Deploy,
+    [switch]$Commit,
+    [string]$CommitMessage = "chore: production preflight updates",
+    [switch]$Push
+)
 
-Write-Host "`n** 2. Adding all changes to staging... **"
-git add .
+Set-StrictMode -Version Latest
+$ErrorActionPreference = 'Stop'
 
-Write-Host "`n** 3. Committing changes (ignore error if no changes)... **"
-git commit -m "Update: latest fixes and enhancements"
+function Invoke-Step {
+    param(
+        [Parameter(Mandatory = $true)][string]$Title,
+        [Parameter(Mandatory = $true)][scriptblock]$Script
+    )
 
-Write-Host "`n** 4. Fetching remote changes... **"
-git fetch origin
+    Write-Host "`n==================== $Title ====================" -ForegroundColor Cyan
+    & $Script
+}
 
-Write-Host "`n** 5. Merging latest main into your branch... **"
-git merge origin/main
+Invoke-Step -Title '1) Git status (before)' -Script {
+    git status
+}
 
-Write-Host "`n** 6. Pushing branch to GitHub... **"
-git push origin HEAD
+if (-not $SkipInstall) {
+    Invoke-Step -Title '2) Install dependencies (clean)' -Script {
+        npm ci
+    }
+}
 
-Write-Host "`n------------------- 7. NPM Install & Build -------------------"
-npm install
-npm run build
+Invoke-Step -Title '3) Production preflight (lint + tests + build check + secrets check)' -Script {
+    npm run preflight:prod
+}
 
-Write-Host "`n------------------- 8. NPM Security Audit -------------------"
-npm audit
-npm audit fix
+if ($WithSecurityAudit) {
+    Invoke-Step -Title '4) Security audit (no auto-fix)' -Script {
+        npm run audit:security
+    }
+}
 
-Write-Host "`n------------------- 9. Git Status After -------------------"
-git status
+if ($Deploy) {
+    Invoke-Step -Title '5) Deploy to Cloudflare Worker' -Script {
+        npm run deploy
+    }
+}
 
-Write-Host "`nاجتزت جميع خطوات الـ DevOps بأفضل طريقة! 🎉"
+if ($Commit) {
+    Invoke-Step -Title '6) Commit staged changes (if any)' -Script {
+        git add .
+        git commit -m $CommitMessage
+    }
+}
+
+if ($Push) {
+    Invoke-Step -Title '7) Push current branch' -Script {
+        git push origin HEAD
+    }
+}
+
+Invoke-Step -Title '8) Git status (after)' -Script {
+    git status
+}
+
+Write-Host "`n✅ Production preflight completed successfully." -ForegroundColor Green
+Write-Host "ℹ️ Use -Deploy to publish, -Commit/-Push to publish code changes." -ForegroundColor Yellow
