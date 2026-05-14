@@ -2,6 +2,38 @@
 
 ## Quick Start (3 steps)
 
+> Windows note: if native vLLM is not available, use Ollama backend (works well on Windows).
+> vLLM remains available via WSL2 Ubuntu for advanced setups.
+
+## Windows Fast Path (Ollama backend)
+
+1. Start Ollama:
+
+```powershell
+ollama serve
+```
+
+2. In another terminal, pull the model once:
+
+```powershell
+ollama pull codegeex4
+```
+
+3. Start the local API bridge:
+
+```powershell
+.\start-codegeex-server.ps1
+```
+
+4. Use local backend in app terminal:
+
+```powershell
+$env:AI_BACKEND = "local"
+$env:LOCAL_AI_ENDPOINT = "http://localhost:8000"
+```
+
+The server auto-selects available backend in this order: `vLLM` then `Ollama`.
+
 ### 1️⃣ Start the CodeGeeX Server
 ```powershell
 # Terminal 1: Start the server (takes 5-10 min on first run)
@@ -40,6 +72,41 @@ npm start
 | **RAM** | 16+ GB minimum (24+ GB recommended) |
 | **Storage** | 12+ GB free (for model download) |
 | **GPU** | Optional but recommended (NVIDIA/CUDA) |
+
+### Recommended Python Version
+
+- Python 3.10 to 3.12 for vLLM compatibility
+- Avoid Python 3.14 for this stack
+
+---
+
+## Windows + WSL2 Setup (recommended)
+
+1. Install or enable WSL2 Ubuntu.
+2. Open Ubuntu and run:
+
+```bash
+sudo apt update
+sudo apt install -y python3.11 python3.11-venv python3-pip build-essential
+python3.11 -m venv ~/codegeex-venv
+source ~/codegeex-venv/bin/activate
+pip install --upgrade pip
+pip install vllm flask requests
+```
+
+3. From Ubuntu, run the server from your repo path:
+
+```bash
+cd /mnt/c/Users/azadz/OneDrive/UltimateArbitrageHFT
+python codegeex-server.py
+```
+
+4. In PowerShell (your app terminal), keep:
+
+```powershell
+$env:AI_BACKEND = "local"
+$env:LOCAL_AI_ENDPOINT = "http://localhost:8000"
+```
 
 ---
 
@@ -89,6 +156,8 @@ curl -X POST http://localhost:8000/v1/completions \
 - Server may still be downloading the model (check Terminal 1 logs)
 - Wait 5-10 minutes for first-time startup
 - Check disk space: `Get-Volume` in PowerShell
+- Ensure `vllm` imports in the same Python runtime used by the server
+- On Windows, prefer WSL2 Ubuntu if native install fails
 
 ### ❌ "Out of Memory" error
 - Your system doesn't have enough RAM

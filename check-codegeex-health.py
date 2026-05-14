@@ -12,6 +12,7 @@ from datetime import datetime
 SERVER_URL = "http://localhost:8000"
 HEALTH_ENDPOINT = f"{SERVER_URL}/health"
 CHAT_ENDPOINT = f"{SERVER_URL}/v1/chat/completions"
+INFERENCE_TIMEOUT_SEC = int(__import__('os').environ.get('CODEGEEX_HEALTH_TIMEOUT_SEC', '180'))
 
 def color_text(text, color):
     """ANSI color codes"""
@@ -59,7 +60,7 @@ def test_inference():
         }
         
         print("\nTesting inference...")
-        response = requests.post(CHAT_ENDPOINT, json=payload, timeout=30)
+        response = requests.post(CHAT_ENDPOINT, json=payload, timeout=INFERENCE_TIMEOUT_SEC)
         
         if response.status_code != 200:
             print(color_text(f"✗ Inference failed (HTTP {response.status_code})", 'red'))
