@@ -27,6 +27,7 @@ MODEL_NAME = "THUDM/codegeex4-all-9b"  # CodeGeeX 4 model (9B, good for trading 
 OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "codegeex4")
 OLLAMA_URL = os.getenv("OLLAMA_URL", "http://127.0.0.1:11434")
 OLLAMA_TIMEOUT_SEC = int(os.getenv("OLLAMA_TIMEOUT_SEC", "300"))
+OLLAMA_NUM_CTX = int(os.getenv("OLLAMA_NUM_CTX", "1024"))
 BACKEND_MODE = os.getenv("LOCAL_AI_ENGINE", "auto").lower()  # auto | vllm | ollama
 PORT = 8000
 HOST = "127.0.0.1"
@@ -65,6 +66,7 @@ def _generate_with_ollama_chat(messages, max_tokens, temperature):
         "options": {
             "temperature": temperature,
             "num_predict": max_tokens,
+            "num_ctx": OLLAMA_NUM_CTX,
         },
     }
     resp = requests.post(f"{OLLAMA_URL}/api/chat", json=payload, timeout=OLLAMA_TIMEOUT_SEC)
@@ -82,6 +84,7 @@ def _generate_with_ollama_completion(prompt, max_tokens, temperature):
         "options": {
             "temperature": temperature,
             "num_predict": max_tokens,
+            "num_ctx": OLLAMA_NUM_CTX,
         },
     }
     resp = requests.post(f"{OLLAMA_URL}/api/generate", json=payload, timeout=OLLAMA_TIMEOUT_SEC)

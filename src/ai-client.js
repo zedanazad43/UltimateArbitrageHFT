@@ -24,7 +24,7 @@ const MAX_CANDIDATES = 5;    // send at most this many opportunities to the mode
 // Set to 'cloudflare' to use Cloudflare Workers AI (default)
 const AI_BACKEND = process.env.AI_BACKEND || 'cloudflare';
 const LOCAL_AI_ENDPOINT = process.env.LOCAL_AI_ENDPOINT || 'http://localhost:8000';
-const LOCAL_AI_TIMEOUT_MS = 15000; // Local inference is slower
+const LOCAL_AI_TIMEOUT_MS = Number(process.env.LOCAL_AI_TIMEOUT_MS || 15000); // Local inference may be much slower on CPU
 
 // ── Strategy reliability ranking (used in the AI prompt) ──────────────────────
 // Higher = more reliable / faster execution. Informational only.
@@ -42,26 +42,17 @@ async function filterWithLocalAI(opportunities) {
 
   const summary = candidates
     .map((o, i) => {
-      const rank = STRATEGY_RANK[o.strategy] ?? 9;
-      const liquid = ['BTCUSDT', 'ETHUSDT', 'BNBUSDT'].includes(o.symbol) ? 'high' : 'medium';
+      const liquid = ['BTCUSDT', 'ETHUSDT', 'BNBUSDT'].includes(o.symbol) ? 'high' : 'med';
       return (
-        `${i + 1}. ${o.strategy.toUpperCase()} ${o.symbol} | ` +
-        `net=${o.netPct.toFixed(4)}% gross=${o.grossPct.toFixed(4)}% ` +
-        `safety=${(o.safetyFactor * 100).toFixed(1)}% ` +
-        `stratRank=${rank} liquidity=${liquid}`
+        `${i + 1}. ${o.strategy.toUpperCase()} ${o.symbol} ` +
+        `net=${o.netPct.toFixed(3)} safety=${(o.safetyFactor * 100).toFixed(0)}% liq=${liquid}`
       );
     })
     .join('\n');
 
   const systemPrompt =
-    'You are a risk analyst for a crypto arbitrage trading system. ' +
-    'Given a ranked list of arbitrage opportunities (1=most profitable), ' +
-    'select the SINGLE best one considering: ' +
-    '(1) safety factor — higher is safer (less slippage/execution risk), ' +
-    '(2) net profit percent — higher is better, ' +
-    '(3) strategy reliability rank — lower is more reliable (1=CEX, 6=DEX), ' +
-    '(4) liquidity — high liquidity assets are safer. ' +
-    'Reply with ONLY the opportunity number (1-' + candidates.length + ') and nothing else.';
+    'Pick one arbitrage option. Prefer higher safety, then higher net, then higher liquidity. ' +
+    'Reply with ONLY one number between 1 and ' + candidates.length + '.';
 
   const userPrompt = `Opportunities:\n${summary}\n\nBest opportunity number:`;
 
@@ -75,8 +66,8 @@ async function filterWithLocalAI(opportunities) {
             { role: 'system', content: systemPrompt },
             { role: 'user', content: userPrompt },
           ],
-          max_tokens: 4,
-          temperature: 0.3,
+          max_tokens: 2,
+          temperature: 0.1,
         }),
       }),
       new Promise((_, reject) =>
@@ -89,7 +80,7 @@ async function filterWithLocalAI(opportunities) {
     }
 
     const data = await response.json();
-    const raw = (data?.choices?.[0]?.message?.content ?? '').trim();
+    const raw = (data?.choices?.[0]?.message?.content ?? data?.choices?.[0]?.text ?? '').trim();
     const idx = parseInt(raw, 10);
 
     if (Number.isFinite(idx) && idx >= 1 && idx <= candidates.length) {
