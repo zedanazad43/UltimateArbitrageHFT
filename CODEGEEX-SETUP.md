@@ -1,15 +1,22 @@
 # CodeGeeX Local Setup Guide
 
-## Quick Start (3 steps)
+## Overview
 
-> Windows note: if native vLLM is not available, use Ollama backend (works well on Windows).
-> vLLM remains available via WSL2 Ubuntu for advanced setups.
+This guide enables local CodeGeeX deployment via Ollama (cross-platform) or vLLM (Linux/WSL2). 
+The setup integrates with [official CodeGeeX local mode](https://zhipu-ai.feishu.cn/wiki/space/7304237817729810433) 
+and provides additional production-grade features: auto-backend detection, extended timeouts, and graceful fallbacks.
+
+> **Platform notes:** 
+> - **Windows (recommended):** Use Ollama backend (native Windows support, no WSL required)
+> - **macOS/Linux:** Use vLLM (GPU support, faster inference) or Ollama
+> - **WSL2 Ubuntu:** Use vLLM (better performance than Windows native)
 
 ## Windows Fast Path (Ollama backend)
 
-1. Start Ollama:
+1. Start Ollama server (keep running in background):
 
 ```powershell
+$env:OLLAMA_ORIGINS = "*"  # Enable cross-origin requests (required for IDE integration)
 ollama serve
 ```
 
@@ -32,7 +39,7 @@ $env:AI_BACKEND = "local"
 $env:LOCAL_AI_ENDPOINT = "http://localhost:8000"
 ```
 
-The server auto-selects available backend in this order: `vLLM` then `Ollama`.
+The bridge auto-selects available backend in this order: `vLLM` → `Ollama`.
 
 ### 1️⃣ Start the CodeGeeX Server
 ```powershell
@@ -42,6 +49,12 @@ The server auto-selects available backend in this order: `vLLM` then `Ollama`.
 
 ⏳ **First run will download the CodeGeeX model (9.2 GB)**
 ✓ You should see: `Starting CodeGeeX server on 127.0.0.1:8000`
+
+**What this does:**
+- Detects available backend (vLLM or Ollama)
+- Wraps the model in an OpenAI-compatible API bridge
+- Handles extended timeouts for CPU-based inference
+- Provides unified interface for application code
 
 ### 2️⃣ Set Environment Variable
 ```powershell
@@ -239,3 +252,26 @@ curl http://localhost:8000/health -w "\n"
 - ✅ Monitor logs and verify AI decisions are being made
 
 Questions? Check `/src/ai-client.js` for the integration logic.
+
+---
+
+## Official CodeGeeX Local Mode
+
+This setup implements the [official CodeGeeX local mode workflow](https://zhipu-ai.feishu.cn/wiki/space/7304237817729810433):
+
+| Official Step | This Repo Implementation |
+|---|---|
+| Download IDE extension (VS Code/JetBrains) | Use `codegeex-server.py` bridge as custom endpoint |
+| Enable local mode in extension settings | Point extension to `http://localhost:8000` |
+| Start Ollama server (keep running) | ✅ `ollama serve` (with `OLLAMA_ORIGINS="*"`) |
+| Enter API address + model name | ✅ Automatic via bridge auto-detection |
+
+**Key enhancement:** This repo's bridge adds production features:
+- ✅ Auto-detect backend (vLLM or Ollama)
+- ✅ Extended timeouts for CPU inference
+- ✅ Graceful fallback to cloud/heuristic
+- ✅ Application-level AI integration (`src/ai-client.js`)
+
+You can use **either** approach:
+- **Official CLI-based workflow:** Follow Zhipu AI tutorial for VS Code/JetBrains IDE integration
+- **Application-level integration:** Use `npm start` with `AI_BACKEND=local` to leverage app-level AI decisions
