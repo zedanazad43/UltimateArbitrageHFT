@@ -13,7 +13,7 @@
     "build": "wrangler deploy",
     "deploy": "wrangler deploy",
     "dev": "wrangler dev",
-    "dev:local-ai": "AI_BACKEND=local LOCAL_AI_ENDPOINT=http://127.0.0.1:8000 wrangler dev",
+    "dev:local-ai": "AI_BACKEND=local LOCAL_AI_ENDPOINT=http://127.0.0.1:8000 wrangler dev --local",
     "ai:gateway:start": "python3 codegeex-server.py",
     "ai:gateway:health": "python3 check-codegeex-health.py",
     "tail": "wrangler tail",
