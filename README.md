@@ -85,6 +85,16 @@ npm run setup:local
 # then:  npm run dev
 ```
 
+### HFT Go quick verification
+
+Use these commands after any Go dependency or engine changes:
+
+```bash
+cd hft
+go mod verify
+go test ./...
+```
+
 ## Monitoring
 
 - **Telegram**: send `/status` or `/scan` to your bot
