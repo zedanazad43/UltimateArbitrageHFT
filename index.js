@@ -11,6 +11,7 @@ import { hasExchangeCredentials, getExchangeBalance, placeExchangeMarketOrder, g
 import { scanDEX } from './src/strategies/dex.js';
 import { isHFTEngineConfigured } from './src/hft-client.js';
 import { runBacktest } from './src/backtest.js';
+import { evaluateStrategyBreakdown } from './src/self-evaluation.js';
 import { getEcosystemCatalog, recommendEcosystem, getApiKeySecurityChecklist } from './src/ecosystem.js';
 import { executeAllExecutableIntegrations, executeExecutableIntegration, listExecutableIntegrationIds, probeExecutableIntegrations } from './src/executive-integrations.js';
 import {
@@ -1370,6 +1371,35 @@ app.get('/api/backtest/runs', async (c) => {
     const { getRecentBacktestRuns } = await import('./src/db.js');
     const runs = await getRecentBacktestRuns(c.env, 10);
     return c.json({ runs });
+  } catch (e) {
+    return c.json({ error: e.message }, 500);
+  }
+});
+
+app.post('/api/strategies/self-evaluate', async (c) => {
+  const limited = await checkRateLimit(c.env, c);
+  if (limited) return limited;
+  if (!isAuthorized(c.env, c)) return c.json({ error: 'Unauthorized' }, 401);
+  try {
+    const body = await c.req.json().catch(() => ({}));
+    const days = Math.max(1, Math.min(90, Number(body.days || 7)));
+    const toMs = Date.now();
+    const fromMs = toMs - days * 24 * 60 * 60 * 1000;
+    const backtest = await runBacktest(c.env, {
+      from_ms: fromMs,
+      to_ms: toMs,
+      run_monte_carlo: false,
+      run_param_sweep: true,
+    });
+    const evaluation = evaluateStrategyBreakdown(backtest.strategy_breakdown || {});
+    return c.json({
+      period_days: days,
+      trade_count: backtest.trade_count,
+      return_pct: backtest.return_pct,
+      recommendations: evaluation.recommendations,
+      rankings: evaluation.rankings,
+      generated_at: evaluation.generatedAt,
+    });
   } catch (e) {
     return c.json({ error: e.message }, 500);
   }
