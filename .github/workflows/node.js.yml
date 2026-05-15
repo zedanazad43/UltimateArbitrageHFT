@@ -45,3 +45,21 @@ jobs:
 
     - name: Check hardcoded secrets
       run: npm run check:secrets
+
+  go-lint:
+    name: Go lint (hft)
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v5
+
+    - name: Setup Go
+      uses: actions/setup-go@v5
+      with:
+        go-version-file: hft/go.mod
+
+    - name: Run golangci-lint
+      uses: golangci/golangci-lint-action@v8
+      with:
+        version: v1.64.8
+        working-directory: hft
