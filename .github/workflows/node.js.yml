@@ -62,6 +62,16 @@ jobs:
         go-version-file: hft/go.mod
         cache-dependency-path: hft/go.sum
 
+    - name: Go vet (hft)
+      run: |
+        cd hft
+        go vet ./...
+
+    - name: Go test (hft)
+      run: |
+        cd hft
+        go test ./...
+
     - name: Run golangci-lint
       uses: golangci/golangci-lint-action@v8
       with:
