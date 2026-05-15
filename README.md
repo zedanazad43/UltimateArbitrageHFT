@@ -95,6 +95,26 @@ go mod verify
 go test ./...
 ```
 
+### Local LLM gateway (CodeGeeX via Ollama)
+
+Use these commands for a fully local AI workflow:
+
+```bash
+# 1) Start local gateway (OpenAI-compatible API on 127.0.0.1:8000)
+npm run ai:gateway:start
+
+# 2) Check gateway health
+npm run ai:gateway:health
+
+# 3) Validate IDE/app integration against local model
+npm run test:ide:local
+
+# 4) Run Worker dev mode with local AI backend
+npm run dev:local-ai
+```
+
+Default behavior remains unchanged: `npm run dev` uses the current default AI backend settings.
+
 ## Monitoring
 
 - **Telegram**: send `/status` or `/scan` to your bot
