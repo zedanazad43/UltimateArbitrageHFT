@@ -184,7 +184,7 @@ func getAlchemyPrice(apiKey, symbol string) (float64, error) {
 	if err != nil {
 		return 0, err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	body, _ := io.ReadAll(resp.Body)
 	var result struct {
 		Data []struct {
@@ -209,7 +209,7 @@ func getPancakePrice(tokenAddress string) (float64, error) {
 	if err != nil {
 		return 0, err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	body, _ := io.ReadAll(resp.Body)
 	var result struct {
 		Data struct {

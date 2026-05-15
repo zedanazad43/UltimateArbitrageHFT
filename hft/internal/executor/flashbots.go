@@ -118,7 +118,7 @@ func (f *FlashbotsClient) SendBundle(ctx context.Context, b Bundle) (*BundleResu
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	body, _ := io.ReadAll(resp.Body)
 
 	var result struct {
@@ -172,7 +172,7 @@ func (f *FlashbotsClient) SimulateBundle(ctx context.Context, b Bundle, stateBlo
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	body, _ := io.ReadAll(resp.Body)
 
 	var raw map[string]json.RawMessage

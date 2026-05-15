@@ -411,7 +411,7 @@ func newAPIServer(eng *engine, secret string) *http.Server {
 				if got != "Bearer "+secret {
 					w.Header().Set("Content-Type", "application/json")
 					w.WriteHeader(http.StatusUnauthorized)
-					fmt.Fprintln(w, `{"error":"Unauthorized"}`)
+					_, _ = fmt.Fprintln(w, `{"error":"Unauthorized"}`)
 					return
 				}
 			}
@@ -550,7 +550,7 @@ func main() {
 		mux.Handle("/metrics", promhttp.Handler())
 		mux.HandleFunc("/healthz", func(w http.ResponseWriter, _ *http.Request) {
 			w.WriteHeader(http.StatusOK)
-			fmt.Fprintln(w, "ok")
+			_, _ = fmt.Fprintln(w, "ok")
 		})
 		srv := &http.Server{Addr: cfg.MetricsAddr, Handler: mux}
 		slog.Info("metrics server", "addr", cfg.MetricsAddr)

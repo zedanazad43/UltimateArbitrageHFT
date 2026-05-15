@@ -70,7 +70,7 @@ func PlaceMEXCSpotOrder(apiKey, apiSecret, symbol, side string, quantity float64
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	raw, _ := io.ReadAll(resp.Body)
 
 	var result map[string]any
@@ -123,7 +123,7 @@ func PlaceMEXCFuturesOrder(apiKey, apiSecret, symbol, side string, quantity floa
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	raw, _ := io.ReadAll(resp.Body)
 
 	var result struct {
@@ -176,7 +176,7 @@ func PlaceBinanceSpotOrder(apiKey, apiSecret, symbol, side string, quantity, siz
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	raw, _ := io.ReadAll(resp.Body)
 
 	var result map[string]any
@@ -224,7 +224,7 @@ func PlaceBybitSpotOrder(apiKey, apiSecret, symbol, side string, quantity float6
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	raw, _ := io.ReadAll(resp.Body)
 
 	var result struct {

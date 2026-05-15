@@ -48,7 +48,7 @@ func (n *Notifier) Send(msg string) {
 		slog.Error("telegram send failed", "err", err)
 		return
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if _, err := io.Copy(io.Discard, resp.Body); err != nil {
 		slog.Warn("telegram response drain failed", "err", err)
 	}

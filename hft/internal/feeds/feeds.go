@@ -325,11 +325,11 @@ func RunMEXCPerpsREST(ctx context.Context, book *Book, symbols []string, interva
 				resp, err := http.Get(url)
 				if err != nil || resp.StatusCode != 200 {
 					if resp != nil {
-						resp.Body.Close()
+								_ = resp.Body.Close()
 					}
 					return
 				}
-				defer resp.Body.Close()
+				defer func() { _ = resp.Body.Close() }()
 				body, _ := io.ReadAll(resp.Body)
 				var result struct {
 					Success bool `json:"success"`
@@ -398,7 +398,7 @@ func reconnect(ctx context.Context, name, url string, handler func(*websocket.Co
 		if err := handler(conn); err != nil {
 			slog.Warn("ws feed error, reconnecting", "feed", name, "err", err)
 		}
-		conn.Close()
+		_ = conn.Close()
 		sleep(ctx, backoff)
 		backoff = min(backoff*2, wsReconnectMax)
 	}
@@ -419,7 +419,7 @@ func FetchMEXCSpotREST(symbol string) (PriceSource, error) {
 	if err != nil {
 		return PriceSource{}, err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	body, _ := io.ReadAll(resp.Body)
 	var result struct {
 		Price string `json:"price"`
@@ -441,7 +441,7 @@ func FetchBinanceSpotREST(symbol string) (PriceSource, error) {
 	if err != nil {
 		return PriceSource{}, err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	body, _ := io.ReadAll(resp.Body)
 	var result struct {
 		Price string `json:"price"`
