@@ -1,9 +1,83 @@
+
+// ─── API: Analytics Dashboard ──────────────────────────────────────────────
+app.get('/api/analytics', async (c) => {
+  if (!isAuthorized(c.env, c)) return authDenied(c.env, c, true);
+  
+  try {
+    const initialCapital = parseInt(c.req.query('capital') || '10000', 10);
+    const report = analyticsEngine.getPerformanceReport(initialCapital);
+    const equityData = analyticsEngine.getEquityCurveData().slice(-100); // Last 100 points
+    
+    return c.json({
+      ok: true,
+      timestamp: new Date().toISOString(),
+      report,
+      equityCurve: equityData
+    });
+  } catch (err) {
+    return c.json({ ok: false, error: err.message }, 500);
+  }
+});
+
+// ─── API: Performance Metrics ──────────────────────────────────────────────
+app.get('/api/performance', async (c) => {
+  if (!isAuthorized(c.env, c)) return authDenied(c.env, c, true);
+  
+  const metrics = perfOptimizer.getMetrics();
+  return c.json({
+    ok: true,
+    timestamp: new Date().toISOString(),
+    performance: metrics
+  });
+});
+
+// ─── API: Health Check Status ──────────────────────────────────────────────
+app.get('/api/health', async (c) => {
+  if (!isAuthorized(c.env, c)) return authDenied(c.env, c, true);
+  
+  const healthStatus = reliabilityMgr.getHealthStatus();
+  const errorReport = reliabilityMgr.getErrorReport(10);
+  
+  const overallHealth = Object.values(healthStatus).every(h => h.status === 'healthy') 
+    ? 'HEALTHY' 
+    : 'DEGRADED';
+  
+  return c.json({
+    ok: true,
+    timestamp: new Date().toISOString(),
+    overallHealth,
+    checks: healthStatus,
+    recentErrors: errorReport
+  });
+});
+
+// ─── API: Reset Performance Metrics ──────────────────────────────────────────
+app.post('/api/metrics/reset', async (c) => {
+  if (!isAuthorized(c.env, c)) return authDenied(c.env, c, true);
+  
+  perfOptimizer.resetMetrics();
+  reliabilityMgr.resetErrorHistory();
+  analyticsEngine.reset();
+  
+  return c.json({
+    ok: true,
+    message: 'All metrics have been reset',
+    timestamp: new Date().toISOString()
+  });
+});
+// ─── Initialize performance & reliability modules ────────────────────────────
+const perfOptimizer = new PerformanceOptimizer({ ttl: 300000, maxSize: 1000 });
+const reliabilityMgr = new ReliabilityManager({ maxRetries: 3 });
+const analyticsEngine = new AnalyticsEngine();
 // ===== NEXUS ARBITRAGE HUB — Final Integrated Bot =====
 // Entry point: ultimate-arbitrage-hft Cloudflare Worker
 // Integrates: CEX + DEX + Perps strategies, admin dashboard, Telegram bot
 
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';
+import PerformanceOptimizer from './src/performance-optimizer.js';
+import ReliabilityManager from './src/reliability-manager.js';
+import AnalyticsEngine from './src/analytics-engine.js';
 import { renderDashboard, renderChecklist } from './src/dashboard.js';
 import { runScan } from './src/orchestrator.js';
 import { ensureSchema, logAdminEvent, logBotEvent, getRecentTrades, getStrategyPnL, getPerformanceMetrics, exportTrades } from './src/db.js';
