@@ -57,9 +57,10 @@ jobs:
       uses: actions/setup-go@v5
       with:
         go-version-file: hft/go.mod
+        cache-dependency-path: hft/go.sum
 
     - name: Run golangci-lint
-      uses: golangci/golangci-lint-action@v8
+      uses: golangci/golangci-lint-action@v6
       with:
-        version: latest
+        version: v1.64.8
         working-directory: hft
