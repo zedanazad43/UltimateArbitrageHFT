@@ -16,6 +16,7 @@
     "dev:local-ai": "AI_BACKEND=local LOCAL_AI_ENDPOINT=http://127.0.0.1:8000 wrangler dev --local",
     "ai:gateway:start": "python3 codegeex-server.py",
     "ai:gateway:health": "python3 check-codegeex-health.py",
+    "ai:local:all": "bash -lc 'nohup python3 codegeex-server.py >/tmp/codegeex-gateway.log 2>&1 & sleep 2; python3 check-codegeex-health.py; CODEGEEX_ENDPOINT=http://127.0.0.1:8000 CODEGEEX_MODEL=codegeex4 node test-ide-integration.js; AI_BACKEND=local LOCAL_AI_ENDPOINT=http://127.0.0.1:8000 npx wrangler dev --local'",
     "tail": "wrangler tail",
     "test": "node --test tests/unit.test.js",
     "test:integration": "node --test tests/exchange.integration.test.js",
