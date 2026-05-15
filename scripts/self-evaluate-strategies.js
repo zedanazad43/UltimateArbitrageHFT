@@ -4,7 +4,11 @@ import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { notify } from '../src/bots/notifier.js';
-import { evaluateStrategyBreakdown, summarizeEvaluation } from '../src/self-evaluation.js';
+import {
+  evaluateStrategyBreakdown,
+  formatEvaluationTelegramReport,
+  summarizeEvaluation,
+} from '../src/self-evaluation.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -56,7 +60,7 @@ async function main() {
   console.log(summary);
 
   if (process.env.TELEGRAM_BOT_TOKEN && process.env.TELEGRAM_CHAT_ID) {
-    await notify(process.env, {}, `${summary}\nPeriod: ${DAYS}d\nReturn: ${artifact.return_pct.toFixed(2)}%`);
+    await notify(process.env, {}, formatEvaluationTelegramReport(artifact));
   }
 }
 

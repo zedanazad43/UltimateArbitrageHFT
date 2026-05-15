@@ -85,3 +85,37 @@ export function summarizeEvaluation(evaluation) {
 
   return lines.join('\n');
 }
+
+export function formatEvaluationTelegramReport(artifact = {}) {
+  const periodDays = Number(artifact.period_days || 0);
+  const tradeCount = Number(artifact.trade_count || 0);
+  const returnPct = Number(artifact.return_pct || 0);
+  const evaluation = artifact.evaluation || {};
+  const leader = evaluation.leader;
+  const laggard = evaluation.laggard;
+  const recommendations = evaluation.recommendations || [];
+
+  const lines = [
+    '*UltimateArbitrageHFT weekly self-evaluation*',
+    `Period: ${periodDays}d`,
+    `Trades: ${tradeCount}`,
+    `Return: ${returnPct.toFixed(2)}%`,
+  ];
+
+  if (leader) {
+    lines.push(`Leader: ${leader.strategy} (score ${leader.score}, trades ${leader.trades}, pnl $${leader.totalPnlUsd.toFixed(2)})`);
+  }
+
+  if (laggard && laggard.strategy !== leader?.strategy) {
+    lines.push(`Laggard: ${laggard.strategy} (score ${laggard.score}, drawdown ${laggard.maxDrawdownPct.toFixed(2)}%)`);
+  }
+
+  if (recommendations.length > 0) {
+    lines.push('Recommendations:');
+    for (const recommendation of recommendations.slice(0, 3)) {
+      lines.push(`- ${recommendation}`);
+    }
+  }
+
+  return lines.join('\n');
+}

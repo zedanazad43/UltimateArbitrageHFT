@@ -1,6 +1,11 @@
 import { describe, test } from 'node:test';
 import assert from 'node:assert/strict';
-import { evaluateStrategyBreakdown, scoreStrategyMetrics, summarizeEvaluation } from '../src/self-evaluation.js';
+import {
+  evaluateStrategyBreakdown,
+  formatEvaluationTelegramReport,
+  scoreStrategyMetrics,
+  summarizeEvaluation,
+} from '../src/self-evaluation.js';
 
 describe('self evaluation scoring', () => {
   test('returns bounded score for populated metrics', () => {
@@ -56,5 +61,39 @@ describe('self evaluation scoring', () => {
 
     assert.match(summary, /Leader: perps/);
     assert.match(summary, /scale perps|observe perps/);
+  });
+
+  test('formats a Telegram-ready weekly evaluation report', () => {
+    const artifact = {
+      period_days: 7,
+      trade_count: 42,
+      return_pct: 12.345,
+      evaluation: evaluateStrategyBreakdown({
+        triangular: {
+          total_trades: 20,
+          win_rate: 0.68,
+          sharpe: 1.5,
+          profit_factor: 1.9,
+          max_drawdown_pct: 4,
+          total_pnl_usd: 140,
+        },
+        dex: {
+          total_trades: 8,
+          win_rate: 0.41,
+          sharpe: 0.1,
+          profit_factor: 0.8,
+          max_drawdown_pct: 17,
+          total_pnl_usd: -20,
+        },
+      }),
+    };
+
+    const report = formatEvaluationTelegramReport(artifact);
+    assert.match(report, /weekly self-evaluation/i);
+    assert.match(report, /Period: 7d/);
+    assert.match(report, /Trades: 42/);
+    assert.match(report, /Return: 12.35%/);
+    assert.match(report, /Leader: triangular/);
+    assert.match(report, /Recommendations:/);
   });
 });

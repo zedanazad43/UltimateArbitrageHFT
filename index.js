@@ -28,15 +28,25 @@ import {
 async function sendTelegramAlert(env, message) {
   const token = env.TELEGRAM_BOT_TOKEN;
   const chatId = env.TELEGRAM_CHAT_ID;
-  if (!token || !chatId) return;
+  if (!token || !chatId) {
+    return { ok: false, error: 'Telegram is not configured' };
+  }
   try {
     const resp = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ chat_id: chatId, text: message, parse_mode: 'Markdown' })
     });
+    if (!resp.ok) {
+      const detail = await resp.text().catch(() => 'Telegram API request failed');
+      await resp.body?.cancel();
+      return { ok: false, error: detail, status: resp.status };
+    }
     await resp.body?.cancel();
-  } catch (_) {}
+    return { ok: true };
+  } catch (error) {
+    return { ok: false, error: error.message };
+  }
 }
 
 // ─── State helpers ────────────────────────────────────────────────────────────
@@ -528,6 +538,27 @@ app.get('/api/status', async (c) => {
     c.env.BOT_STATE.get('nexus_circuit_breaker', 'json').catch(() => null)
   ]);
   return c.json({ ...state, lastScan, circuitBreaker: circuitBreaker || {} });
+});
+
+app.post('/api/alerts/test', async (c) => {
+  const limited = await checkRateLimit(c.env, c);
+  if (limited) return limited;
+  if (!isAuthorized(c.env, c)) return authDenied(c.env, c, true);
+
+  const body = await c.req.json().catch(() => ({}));
+  const requestedMessage = typeof body.message === 'string' ? body.message.trim() : '';
+  const message = requestedMessage || [
+    '🧪 *UltimateArbitrageHFT test alert*',
+    `Time: ${new Date().toISOString()}`,
+    'Path: /api/alerts/test',
+  ].join('\n');
+
+  const result = await sendTelegramAlert(c.env, message);
+  if (!result.ok) {
+    return c.json({ ok: false, error: result.error }, result.status ? 502 : 503);
+  }
+
+  return c.json({ ok: true, preview: message });
 });
 
 // ── API: Recent trades ────────────────────────────────────────────────────────
