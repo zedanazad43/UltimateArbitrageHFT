@@ -129,11 +129,34 @@ jobs:
           TEMPORAL_API_KEY: ${{ secrets.TEMPORAL_API_KEY }}
 
       - name: Post-deploy endpoint smoke test
+        id: smoke_test
         run: |
           chmod +x ./scripts/verify-production-endpoints.sh
           ADMIN_TOKEN="${ADMIN_TOKEN}" ./scripts/verify-production-endpoints.sh
         env:
           ADMIN_TOKEN: ${{ secrets.ADMIN_TOKEN }}
+
+      - name: Telegram alert on smoke test failure
+        if: ${{ failure() && steps.smoke_test.outcome == 'failure' }}
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          SHA: ${{ github.sha }}
+          BRANCH: ${{ github.ref_name }}
+        run: |
+          if [ -z "$TELEGRAM_BOT_TOKEN" ] || [ -z "$TELEGRAM_CHAT_ID" ]; then
+            echo "Telegram secrets are not set; skipping alert."
+            exit 0
+          fi
+
+          short_sha=$(echo "$SHA" | cut -c1-7)
+          text=$(printf 'Smoke test failed after deploy%%0AWorkflow: Deploy Worker%%0ABranch: %s%%0ASHA: %s%%0ARun: %s' "$BRANCH" "$short_sha" "$RUN_URL")
+
+          curl -fsS -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
+            -d "chat_id=${TELEGRAM_CHAT_ID}" \
+            -d "text=${text}" \
+            -d "disable_web_page_preview=true"
 
       - name: Deployment summary
         run: |
