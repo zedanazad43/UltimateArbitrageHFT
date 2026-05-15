@@ -121,6 +121,44 @@ Default behavior remains unchanged: `npm run dev` uses the current default AI ba
 - **Dashboard**: <https://ultimatearbitragehft.zedanazad43.workers.dev>
 - **Logs**: `npm run tail` or Cloudflare dashboard → Workers → ultimatearbitragehft → Logs
 
+## Developer hooks and release flow
+
+### Enable local pre-commit hooks
+
+```bash
+git config core.hooksPath .githooks
+chmod +x .githooks/pre-commit scripts/pre-commit-check.sh
+```
+
+The pre-commit hook runs:
+- `npm run lint`
+- `go vet ./...` in `hft`
+- `go test ./...` in `hft`
+
+### Tag-based release
+
+Workflow: `.github/workflows/release-tags.yml`
+
+When you push a tag like `v2.1.0`, the workflow builds:
+- `dist/hft-linux-amd64`
+- `dist/checksums.txt`
+
+and publishes them to a GitHub Release automatically.
+
+### Telegram alerts for failed workflows
+
+Workflow: `.github/workflows/telegram-workflow-failures.yml`
+
+It sends a Telegram alert when one of these workflows fails:
+- `Node.js CI`
+- `Deploy Worker`
+- `Deploy static content to Pages`
+- `Production Monitoring and Operations`
+
+It uses repository secrets:
+- `TELEGRAM_BOT_TOKEN`
+- `TELEGRAM_CHAT_ID`
+
 ### Production operations commands
 
 - `npm run monitor` → probes `/health` and `/dashboard`, calculates latency/error-rate SLOs, writes `metrics.json`

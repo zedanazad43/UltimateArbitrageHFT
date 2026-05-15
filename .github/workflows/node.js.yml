@@ -72,8 +72,38 @@ jobs:
         cd hft
         go test ./...
 
+    - name: Go coverage report (hft)
+      run: |
+        cd hft
+        go test ./... -coverprofile=coverage.out
+        go tool cover -func=coverage.out | tail -n1
+
+    - name: Upload Go coverage artifact
+      uses: actions/upload-artifact@v5
+      with:
+        name: hft-go-coverage
+        path: hft/coverage.out
+        if-no-files-found: error
+
+    - name: Check go.mod/go.sum drift (hft)
+      run: |
+        cd hft
+        go mod tidy
+        git diff --exit-code -- go.mod go.sum
+
+    - name: Install govulncheck
+      run: |
+        cd hft
+        go install golang.org/x/vuln/cmd/govulncheck@latest
+
+    - name: Govulncheck (non-blocking rollout)
+      continue-on-error: true
+      run: |
+        cd hft
+        govulncheck ./...
+
     - name: Run golangci-lint
       uses: golangci/golangci-lint-action@v8
       with:
-        version: latest
+        version: v2.12.2
         working-directory: hft
