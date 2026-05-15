@@ -15,6 +15,7 @@ const TIMEOUT_MS = parseInt(process.env.CODEGEEX_TIMEOUT || '120000', 10);
 console.log('═════════════════════════════════════════════');
 console.log('  CodeGeeX IDE Integration Test');
 console.log('  اختبار تكامل CodeGeeX مع IDE');
+console.log(`  Model: ${MODEL}`);
 console.log('═════════════════════════════════════════════\n');
 
 async function testEndpoint(name, method, path, body) {
@@ -46,7 +47,7 @@ async function testEndpoint(name, method, path, body) {
           console.log(`  ✓ Status: ${res.statusCode}`);
           console.log(`  ✓ Response: ${JSON.stringify(json).substring(0, 100)}...`);
           resolve({ success: true, status: res.statusCode, data: json });
-        } catch (e) {
+        } catch (_error) {
           console.log(`  ✓ Status: ${res.statusCode}`);
           console.log(`  ✓ Response (raw): ${data.substring(0, 100)}`);
           resolve({ success: true, status: res.statusCode, data: data });
@@ -109,7 +110,7 @@ async function runTests() {
     try {
       await testEndpoint(test.name, test.method, test.path, test.body);
       passed++;
-    } catch (err) {
+    } catch (_error) {
       failed++;
     }
   }

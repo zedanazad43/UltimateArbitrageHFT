@@ -46,6 +46,7 @@ export default [
       'scripts/**/*.js',
       'src/ai-client.js',
       'tests/**/*.js',
+      'test-ide-integration.js',
     ],
     languageOptions: {
       globals: {
