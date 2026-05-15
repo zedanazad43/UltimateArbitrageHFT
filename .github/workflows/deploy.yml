@@ -128,6 +128,13 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TEMPORAL_API_KEY: ${{ secrets.TEMPORAL_API_KEY }}
 
+      - name: Post-deploy endpoint smoke test
+        run: |
+          chmod +x ./scripts/verify-production-endpoints.sh
+          ADMIN_TOKEN="${ADMIN_TOKEN}" ./scripts/verify-production-endpoints.sh
+        env:
+          ADMIN_TOKEN: ${{ secrets.ADMIN_TOKEN }}
+
       - name: Deployment summary
         run: |
           echo "✅ Deployment complete"

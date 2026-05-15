@@ -324,6 +324,13 @@ jobs:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
 
+      - name: Post-deploy endpoint smoke test
+        run: |
+          chmod +x ./scripts/verify-production-endpoints.sh
+          ADMIN_TOKEN="${ADMIN_TOKEN}" ./scripts/verify-production-endpoints.sh
+        env:
+          ADMIN_TOKEN: ${{ secrets.ADMIN_TOKEN }}
+
       - name: Deployment summary
         run: |
           echo "✅ Production deployment complete"
