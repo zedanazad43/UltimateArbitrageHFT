@@ -49,7 +49,9 @@ func (n *Notifier) Send(msg string) {
 		return
 	}
 	defer resp.Body.Close()
-	io.Copy(io.Discard, resp.Body)
+	if _, err := io.Copy(io.Discard, resp.Body); err != nil {
+		slog.Warn("telegram response drain failed", "err", err)
+	}
 }
 
 // Sendf is a convenience wrapper for formatted messages.

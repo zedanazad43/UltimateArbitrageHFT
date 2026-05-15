@@ -241,7 +241,9 @@ func PlaceBybitSpotOrder(apiKey, apiSecret, symbol, side string, quantity float6
 	var inner struct {
 		OrderID string `json:"orderId"`
 	}
-	json.Unmarshal(result.Result, &inner)
+	if err := json.Unmarshal(result.Result, &inner); err != nil {
+		return nil, err
+	}
 	return &OrderResult{OrderID: inner.OrderID, Exchange: "bybit", Symbol: symbol, Side: side, Raw: raw}, nil
 }
 

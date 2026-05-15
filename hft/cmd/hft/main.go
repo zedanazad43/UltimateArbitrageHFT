@@ -101,14 +101,6 @@ const (
 	cbResetWindow = 5 * time.Minute
 )
 
-func (cb *circuitBreaker) isOpen(exchange string) bool {
-	s := cb.states[exchange]
-	if s == nil || !s.open {
-		return false
-	}
-	return time.Since(s.lastFail) < cbResetWindow
-}
-
 func (cb *circuitBreaker) recordSuccess(exchange string) {
 	if s := cb.states[exchange]; s != nil {
 		s.failures = 0

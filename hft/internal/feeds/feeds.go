@@ -133,7 +133,9 @@ type binanceStreamMsg struct {
 
 func readBinanceFeed(conn *websocket.Conn, book *Book) error {
 	for {
-		conn.SetReadDeadline(time.Now().Add(wsReadTimeout))
+		if err := conn.SetReadDeadline(time.Now().Add(wsReadTimeout)); err != nil {
+			return err
+		}
 		_, msg, err := conn.ReadMessage()
 		if err != nil {
 			return err
@@ -180,7 +182,9 @@ type mexcMsg struct {
 
 func readMEXCFeed(conn *websocket.Conn, book *Book) error {
 	for {
-		conn.SetReadDeadline(time.Now().Add(wsReadTimeout))
+		if err := conn.SetReadDeadline(time.Now().Add(wsReadTimeout)); err != nil {
+			return err
+		}
 		_, msg, err := conn.ReadMessage()
 		if err != nil {
 			return err
@@ -227,7 +231,9 @@ type bybitMsg struct {
 
 func readBybitFeed(conn *websocket.Conn, book *Book) error {
 	for {
-		conn.SetReadDeadline(time.Now().Add(wsReadTimeout))
+		if err := conn.SetReadDeadline(time.Now().Add(wsReadTimeout)); err != nil {
+			return err
+		}
 		_, msg, err := conn.ReadMessage()
 		if err != nil {
 			return err
@@ -277,7 +283,9 @@ type bybitPerpMsg struct {
 
 func readBybitPerpsFeed(conn *websocket.Conn, book *Book) error {
 	for {
-		conn.SetReadDeadline(time.Now().Add(wsReadTimeout))
+		if err := conn.SetReadDeadline(time.Now().Add(wsReadTimeout)); err != nil {
+			return err
+		}
 		_, msg, err := conn.ReadMessage()
 		if err != nil {
 			return err
@@ -377,7 +385,9 @@ func reconnect(ctx context.Context, name, url string, handler func(*websocket.Co
 				case <-ctx.Done():
 					return
 				case <-ticker.C:
-					conn.SetWriteDeadline(time.Now().Add(5 * time.Second))
+					if err := conn.SetWriteDeadline(time.Now().Add(5 * time.Second)); err != nil {
+						return
+					}
 					if err := conn.WriteMessage(websocket.PingMessage, nil); err != nil {
 						return
 					}

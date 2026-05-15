@@ -176,7 +176,9 @@ func (f *FlashbotsClient) SimulateBundle(ctx context.Context, b Bundle, stateBlo
 	body, _ := io.ReadAll(resp.Body)
 
 	var raw map[string]json.RawMessage
-	json.Unmarshal(body, &raw)
+	if err := json.Unmarshal(body, &raw); err != nil {
+		return nil, err
+	}
 	return raw["result"], nil
 }
 
