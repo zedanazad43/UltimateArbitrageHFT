@@ -1,7 +1,9 @@
-name: Deploy Worker (Manual)
+name: Deploy Worker
 
 on:
   workflow_dispatch:
+  push:
+    branches: [main]
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
