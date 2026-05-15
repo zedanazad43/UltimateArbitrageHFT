@@ -211,3 +211,5 @@ Latency note: run the bot and execution services in regions close to exchange in
 
 Secrets (`api_keys.txt`, `.env`) **must not** be committed — see `.gitignore`.
 `ADMIN_TOKEN` must be set before the worker will accept admin commands.
+
+intentional ci failure
