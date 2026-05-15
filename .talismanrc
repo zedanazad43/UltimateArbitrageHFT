@@ -1,0 +1,59 @@
+---
+# Talisman DLP Configuration
+# Detects patterns like credentials, API keys, private keys, PII
+
+# Patterns to detect
+fileignore_patterns:
+  - tests/**
+  - node_modules/**
+  - hft/vendor/**
+  - build/**
+  - dist/**
+
+# High-severity patterns (will block commits by default)
+patterns:
+  # AWS Credentials
+  - pattern: '(?i)(aws_access_key_id|aws_secret_access_key)\s*=\s*.+'
+    severity: critical
+  
+  # Private Keys
+  - pattern: '-----BEGIN (RSA|DSA|EC|OPENSSH|PGP) PRIVATE KEY'
+    severity: critical
+  
+  # API Keys
+  - pattern: '(?i)(api[_-]?key|apikey|api[_-]?secret)\s*=\s*["\']?.{20,}["\']?'
+    severity: critical
+  
+  # Telegram Tokens
+  - pattern: '(?i)telegram[_-]?(bot[_-]?)?token\s*=\s*\d{9}:\w{35,}'
+    severity: critical
+  
+  # Database URLs
+  - pattern: '(mongodb|mysql|postgresql|sql)://[\w:]+@[\w\.]+'
+    severity: high
+  
+  # Authorization Tokens
+  - pattern: '(?i)(bearer|token|authorization)\s*[:=]\s*["\']?[A-Za-z0-9\-._~+/]{32,}["\']?'
+    severity: high
+  
+  # Credit Card Patterns
+  - pattern: '\b\d{4}[\s-]?\d{4}[\s-]?\d{4}[\s-]?\d{4}\b'
+    severity: critical
+  
+  # Email addresses with sensitive context
+  - pattern: '(?i)(email|user_email|admin_email)\s*=\s*.+@.+\.(local|internal|test)'
+    severity: medium
+
+# Acceptable file types (non-sensitive)
+fileIgnoreList:
+  - '*.md'
+  - '*.txt'
+  - 'package.json'
+  - '.gitignore'
+  - 'LICENSE'
+
+# Threshold for block
+threshold: critical
+
+# Report format
+reportFormat: json

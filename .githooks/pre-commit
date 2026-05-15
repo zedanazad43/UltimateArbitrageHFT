@@ -4,4 +4,8 @@ set -euo pipefail
 repo_root=$(git rev-parse --show-toplevel)
 cd "$repo_root"
 
+# Step 1: Run linting and testing
+echo "[pre-commit] 🔍 Running lint and test checks..."
 ./scripts/pre-commit-check.sh
+
+echo "[pre-commit] ✅ All checks passed (ESLint, Go vet, tests)"

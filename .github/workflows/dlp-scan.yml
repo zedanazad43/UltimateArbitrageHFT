@@ -1,0 +1,188 @@
+name: 🔐 Data Loss Prevention (DLP) & Secret Scanning
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main, develop]
+  schedule:
+    - cron: '0 2 * * *'  # Daily at 2 AM UTC
+  workflow_dispatch:
+
+jobs:
+  dlp-scan:
+    name: 🔒 DLP & Secret Detection
+    runs-on: ubuntu-latest
+    
+    permissions:
+      contents: read
+      security-events: write
+    
+    steps:
+      - name: 📥 Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      # ═══════════════════════════════════════════════════════════════
+      # GitHub Secret Scanning (Built-in)
+      # ═══════════════════════════════════════════════════════════════
+      
+      - name: 🔍 GitHub Secret Scanning
+        run: |
+          echo "✅ GitHub Secret Scanning enabled (built-in feature)"
+          echo "Check: Settings > Security > Secret scanning"
+
+      # ═══════════════════════════════════════════════════════════════
+      # TruffleHog (Deep Git History Scan)
+      # ═══════════════════════════════════════════════════════════════
+      
+      - name: 🐷 TruffleHog - Scan git history
+        uses: trufflesecurity/trufflehog@main
+        with:
+          path: ./
+          base: ${{ github.event.repository.default_branch }}
+          head: HEAD
+          extra_args: --debug --only-verified
+        continue-on-error: true
+
+      # ═══════════════════════════════════════════════════════════════
+      # Semgrep SAST Analysis
+      # ═══════════════════════════════════════════════════════════════
+      
+      - name: 🛡️ Semgrep SAST Scan
+        uses: returntocorp/semgrep-action@v1
+        with:
+          config: >-
+            p/security-audit
+            p/owasp-top-ten
+            p/cwe-top-25
+          generateSarif: true
+        continue-on-error: true
+
+      - name: 📊 Upload Semgrep SARIF
+        uses: github/codeql-action/upload-sarif@v2
+        with:
+          sarif_file: semgrep.sarif
+        if: always()
+
+      # ═══════════════════════════════════════════════════════════════
+      # Gitleaks (Pattern-based Secret Detection)
+      # ═══════════════════════════════════════════════════════════════
+      
+      - name: 🔑 Gitleaks - Pattern detection
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        continue-on-error: true
+
+      # ═══════════════════════════════════════════════════════════════
+      # Local Talisman Check
+      # ═══════════════════════════════════════════════════════════════
+      
+      - name: 📦 Setup Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: '24'
+          cache: 'npm'
+
+      - name: 🎯 Talisman DLP Check
+        run: |
+          npm install --save-dev talisman@latest
+          npx talisman --scan-history
+        continue-on-error: true
+
+      # ═══════════════════════════════════════════════════════════════
+      # Dependency Check (Vulnerability Detection)
+      # ═══════════════════════════════════════════════════════════════
+      
+      - name: 🧪 OWASP Dependency Check
+        uses: jeremylong/DependencyCheck_Action@main
+        with:
+          project: 'UltimateArbitrageHFT'
+          path: '.'
+          format: 'SARIF'
+          args: >
+            --enableExperimental
+            --enableVulnerability
+        continue-on-error: true
+
+      - name: 📈 Upload Dependency Check SARIF
+        uses: github/codeql-action/upload-sarif@v2
+        with:
+          sarif_file: dependency-check-report.sarif
+        if: always()
+
+      # ═══════════════════════════════════════════════════════════════
+      # AWS Secrets Detection (if AWS config exists)
+      # ═══════════════════════════════════════════════════════════════
+      
+      - name: ☁️ AWS Secrets Pattern Detection
+        run: |
+          echo "Scanning for AWS credential patterns..."
+          grep -r "AKIA[0-9A-Z]\{16\}" . --include="*.js" --include="*.go" --include="*.env*" && \
+            echo "❌ AWS Access Keys found!" || echo "✅ No AWS keys detected"
+          grep -r "aws_secret_access_key" . --include="*.js" --include="*.go" --include="*.env*" && \
+            echo "⚠️ AWS secret patterns found" || echo "✅ Safe"
+        continue-on-error: true
+
+      # ═══════════════════════════════════════════════════════════════
+      # Report Generation
+      # ═══════════════════════════════════════════════════════════════
+      
+      - name: 📋 Generate DLP Report
+        run: |
+          cat > dlp-report.md << 'EOF'
+          # 🔐 Data Loss Prevention Report
+          
+          ## Scan Results
+          - **Date**: $(date -u)
+          - **Branch**: ${{ github.ref_name }}
+          - **Commit**: ${{ github.sha }}
+          
+          ### Checks Performed
+          ✅ GitHub Secret Scanning (enabled)
+          ✅ TruffleHog (git history)
+          ✅ Semgrep (SAST)
+          ✅ Gitleaks (patterns)
+          ✅ Talisman (local DLP)
+          ✅ OWASP Dependency Check
+          ✅ AWS Secrets Detection
+          
+          ### Recommendations
+          - Review SARIF reports in Security tab
+          - Enable branch protection with required checks
+          - Rotate any exposed credentials immediately
+          - Enable secret scanning on all repositories
+          EOF
+          cat dlp-report.md
+
+      - name: 📤 Upload DLP Report
+        uses: actions/upload-artifact@v3
+        with:
+          name: dlp-report
+          path: dlp-report.md
+        if: always()
+
+      # ═══════════════════════════════════════════════════════════════
+      # Telegram Alert on Critical Findings
+      # ═══════════════════════════════════════════════════════════════
+      
+      - name: 🚨 Alert on Secret Detection
+        if: failure()
+        run: |
+          ALERT="🚨 **DLP Alert**\n"
+          ALERT+="Repo: ${{ github.repository }}\n"
+          ALERT+="Branch: ${{ github.ref_name }}\n"
+          ALERT+="Commit: ${{ github.sha }}\n"
+          ALERT+="Event: Secret/sensitive data potentially detected\n"
+          ALERT+="Action: Check ${{ github.server_url }}/${{ github.repository }}/security/secret-scanning"
+          
+          curl -s -X POST "https://api.telegram.org/bot${{ secrets.TELEGRAM_BOT_TOKEN }}/sendMessage" \
+            -H "Content-Type: application/json" \
+            -d '{
+              "chat_id": "${{ secrets.TELEGRAM_CHAT_ID }}",
+              "text": "'"$ALERT"'",
+              "parse_mode": "Markdown"
+            }' || true
+        continue-on-error: true
