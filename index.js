@@ -535,7 +535,15 @@ app.get('/api/status', async (c) => {
     c.env.BOT_STATE.get('nexus_last_scan', 'json').catch(() => null),
     c.env.BOT_STATE.get('nexus_circuit_breaker', 'json').catch(() => null)
   ]);
-  return c.json({ ...state, lastScan, circuitBreaker: circuitBreaker || {} });
+  return c.json({
+    ...state,
+    lastScan,
+    circuitBreaker: circuitBreaker || {},
+    secretBindings: {
+      telegramConfigured: !!c.env.TELEGRAM_BOT_TOKEN && !!c.env.TELEGRAM_CHAT_ID,
+      vscodeApiTokenConfigured: !!c.env.VSCODE_API_TOKEN,
+    },
+  });
 });
 
 app.post('/api/alerts/test', async (c) => {
