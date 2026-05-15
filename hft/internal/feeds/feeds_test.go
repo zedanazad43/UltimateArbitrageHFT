@@ -1,9 +1,18 @@
 package feeds
 
 import (
+	"io"
+	"net/http"
+	"strings"
 	"testing"
 	"time"
 )
+
+type feedRoundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f feedRoundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) {
+	return f(req)
+}
 
 func TestBookSpotSourcesAndPerpLookup(t *testing.T) {
 	book := NewBook()
@@ -42,5 +51,50 @@ func TestMinDuration(t *testing.T) {
 	}
 	if got := min(b, a); got != a {
 		t.Fatalf("min(%s, %s) = %s, want %s", b, a, got, a)
+	}
+}
+
+func TestFetchMEXCSpotREST_Success(t *testing.T) {
+	origTransport := http.DefaultTransport
+	t.Cleanup(func() { http.DefaultTransport = origTransport })
+
+	http.DefaultTransport = feedRoundTripFunc(func(req *http.Request) (*http.Response, error) {
+		if req.URL.Host != "api.mexc.com" {
+			t.Fatalf("unexpected host: %s", req.URL.Host)
+		}
+		return &http.Response{
+			StatusCode: 200,
+			Body:       io.NopCloser(strings.NewReader(`{"price":"123.45"}`)),
+			Header:     make(http.Header),
+		}, nil
+	})
+
+	price, err := FetchMEXCSpotREST("BTCUSDT")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if price.Price != 123.45 {
+		t.Fatalf("unexpected price: %.2f", price.Price)
+	}
+}
+
+func TestFetchBinanceSpotREST_InvalidPrice(t *testing.T) {
+	origTransport := http.DefaultTransport
+	t.Cleanup(func() { http.DefaultTransport = origTransport })
+
+	http.DefaultTransport = feedRoundTripFunc(func(req *http.Request) (*http.Response, error) {
+		if req.URL.Host != "api.binance.com" {
+			t.Fatalf("unexpected host: %s", req.URL.Host)
+		}
+		return &http.Response{
+			StatusCode: 200,
+			Body:       io.NopCloser(strings.NewReader(`{"price":"bad"}`)),
+			Header:     make(http.Header),
+		}, nil
+	})
+
+	_, err := FetchBinanceSpotREST("BTCUSDT")
+	if err == nil {
+		t.Fatal("expected error for invalid price")
 	}
 }

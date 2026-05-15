@@ -76,7 +76,20 @@ jobs:
       run: |
         cd hft
         go test ./... -coverprofile=coverage.out
-        go tool cover -func=coverage.out | tail -n1
+        total_line=$(go tool cover -func=coverage.out | tail -n1)
+        echo "$total_line"
+        total_pct=$(echo "$total_line" | awk '{print $3}' | tr -d '%')
+        echo "GO_COVERAGE_TOTAL=$total_pct" >> "$GITHUB_ENV"
+
+    - name: Enforce Go coverage baseline (hft)
+      run: |
+        awk -v total="$GO_COVERAGE_TOTAL" -v min="4.5" 'BEGIN {
+          if (total + 0 < min + 0) {
+            printf("Go coverage gate failed: total %.2f%% is below %.2f%%\n", total, min)
+            exit 1
+          }
+          printf("Go coverage gate passed: total %.2f%% (min %.2f%%)\n", total, min)
+        }'
 
     - name: Upload Go coverage artifact
       uses: actions/upload-artifact@v5

@@ -35,3 +35,6 @@ coverage
 *.local
 *.cache
 *.secret
+.ai-code-tracker.json
+metrics.json
+strategy-evaluation.json
