@@ -39,10 +39,8 @@ async function sendTelegramAlert(env, message) {
     });
     if (!resp.ok) {
       const detail = await resp.text().catch(() => 'Telegram API request failed');
-      await resp.body?.cancel();
       return { ok: false, error: detail, status: resp.status };
     }
-    await resp.body?.cancel();
     return { ok: true };
   } catch (error) {
     return { ok: false, error: error.message };
