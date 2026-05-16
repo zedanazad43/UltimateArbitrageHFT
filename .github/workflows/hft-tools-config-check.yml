@@ -1,6 +1,6 @@
 name: 'hft tools configuration check'
 
-on:
+'on':
   pull_request:
     paths:
       - 'hft/**'
