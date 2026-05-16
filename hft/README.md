@@ -118,6 +118,22 @@ Both Uniswap V3 and Curve ABI bindings are pre-generated in `internal/contracts/
 All settings are read from environment variables. See `.env.example` for the
 full list with defaults and documentation.
 
+### Refresh tools configuration report
+
+The Go tools/environment snapshot is stored in `# Tools Configuration.md`.
+
+Use one of the following refresh options:
+
+```bash
+cd hft
+bash scripts/generate-tools-configuration.sh
+```
+
+Or run the VS Code task named `hft: generate tools configuration`.
+
+CI guard: workflow `hft tools configuration check` regenerates
+`# Tools Configuration.md` and fails if the committed file is stale.
+
 Key safety flags:
 - `PAPER_TRADING=true` — simulate trades only (default)
 - `TRADING_ENABLED=false` — master kill switch (default)
