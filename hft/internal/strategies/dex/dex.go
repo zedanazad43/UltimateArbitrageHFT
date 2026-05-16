@@ -55,6 +55,13 @@ var dexTokens = []token{
 	},
 }
 
+// alchemyBaseURL and pancakeBaseURL are package-level vars so tests can
+// substitute httptest servers without touching production code paths.
+var (
+	alchemyBaseURL = "https://api.g.alchemy.com/prices/v1"
+	pancakeBaseURL = "https://api.pancakeswap.info/api/v2/tokens"
+)
+
 // Scan fetches prices for all supported tokens from Ethereum (Alchemy) and BSC
 // (PancakeSwap) concurrently, then returns the cross-chain DEX arbitrage
 // opportunity with the highest net profit, or nil when none are actionable.
@@ -179,7 +186,7 @@ func getAlchemyPrice(apiKey, symbol string) (float64, error) {
 		parts := splitLast(key, "/")
 		key = parts[1]
 	}
-	url := fmt.Sprintf("https://api.g.alchemy.com/prices/v1/%s/tokens/by-symbol?symbols[]=%s", key, symbol)
+	url := fmt.Sprintf("%s/%s/tokens/by-symbol?symbols[]=%s", alchemyBaseURL, key, symbol)
 	resp, err := http.Get(url) //nolint:noctx // best-effort; timeouts handled by engine
 	if err != nil {
 		return 0, err
@@ -204,7 +211,7 @@ func getAlchemyPrice(apiKey, symbol string) (float64, error) {
 
 // getPancakePrice fetches a token price from PancakeSwap's info API.
 func getPancakePrice(tokenAddress string) (float64, error) {
-	url := "https://api.pancakeswap.info/api/v2/tokens/" + tokenAddress
+	url := pancakeBaseURL + "/" + tokenAddress
 	resp, err := http.Get(url) //nolint:noctx
 	if err != nil {
 		return 0, err

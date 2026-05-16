@@ -13,11 +13,15 @@ import (
 
 // Notifier sends messages to a Telegram chat.
 type Notifier struct {
-	token  string
-	chatID string
-	client *http.Client
+	token   string
+	chatID  string
+	client  *http.Client
+	baseURL string // overridable in tests; defaults to telegramBaseURL
 }
 
+// telegramBaseURL is the base URL for the Telegram Bot API.
+// Tests may override this to point at an httptest server.
+var telegramBaseURL = "https://api.telegram.org"
 // New creates a Notifier. Returns nil when token or chatID are empty so
 // callers can guard with a nil check.
 func New(token, chatID string) *Notifier {
@@ -25,9 +29,10 @@ func New(token, chatID string) *Notifier {
 		return nil
 	}
 	return &Notifier{
-		token:  token,
-		chatID: chatID,
-		client: &http.Client{Timeout: 10 * time.Second},
+		token:   token,
+		chatID:  chatID,
+		client:  &http.Client{Timeout: 10 * time.Second},
+		baseURL: telegramBaseURL,
 	}
 }
 
@@ -42,7 +47,7 @@ func (n *Notifier) Send(msg string) {
 		"text":       msg,
 		"parse_mode": "Markdown",
 	})
-	url := fmt.Sprintf("https://api.telegram.org/bot%s/sendMessage", n.token)
+	url := fmt.Sprintf("%s/bot%s/sendMessage", n.baseURL, n.token)
 	resp, err := n.client.Post(url, "application/json", bytes.NewReader(body))
 	if err != nil {
 		slog.Error("telegram send failed", "err", err)
