@@ -49,6 +49,28 @@ export async function renderDashboard(env) {
     triangular: state?.strategy_flags?.triangular !== false,
     statistical: state?.strategy_flags?.statistical !== false,
   };
+  const platformReadiness = [
+    {
+      name: 'MEXC',
+      ok: !!(env.MEXC_API_KEY && env.MEXC_API_SECRET),
+      note: 'Spot + Futures execution',
+    },
+    {
+      name: 'Binance',
+      ok: !!(env.BINANCE_API_KEY && env.BINANCE_API_SECRET),
+      note: 'Spot execution',
+    },
+    {
+      name: 'Bitget',
+      ok: !!(env.BITGET_API_KEY && env.BITGET_SECRET_KEY && env.BITGET_API_PASSPHRASE),
+      note: 'Spot execution',
+    },
+    {
+      name: 'MetaMask',
+      ok: true,
+      note: 'Browser wallet for Web3 signing; DEX live execution still requires a separate on-chain path',
+    },
+  ];
   const lastScanTime    = lastScan?.timestamp
     ? new Date(lastScan.timestamp).toLocaleString('ar')
     : 'لم يتم المسح بعد';
@@ -66,6 +88,14 @@ export async function renderDashboard(env) {
         ثم أعد النشر.
        </div>`
     : '';
+
+  const platformCards = platformReadiness.map(p => `
+    <div class="bal-card" style="border-left:2px solid ${p.ok ? '#2ecc71' : '#e74c3c'}">
+      <div class="bal-name">${p.name}</div>
+      <div style="color:${p.ok ? '#2ecc71' : '#e74c3c'};font-size:.88em;font-weight:bold">${p.ok ? '✅ جاهز' : '🔴 غير جاهز'}</div>
+      <div style="font-size:.76em;color:#888;margin-top:4px;line-height:1.5">${p.note}</div>
+    </div>
+  `).join('');
 
   // Strategy P&L
   const cexPnl    = stratPnl.cex?.pnl    ?? 0;
@@ -431,6 +461,14 @@ ${autoStopBanner}
 <div class="panel">
   <h2 style="margin-top:0">💰 أرصدة المنصات (USDT)</h2>
   <div id="balancesContent" class="bal-grid"><span style="color:#888">جارٍ التحميل...</span></div>
+</div>
+
+<div class="panel">
+  <h2 style="margin-top:0">🧭 جاهزية منصات التنفيذ</h2>
+  <div style="font-size:.78em;color:#888;margin-bottom:10px">
+    MEXC و Binance و Bitget للتنفيذ المركزي، وMetaMask لتوقيع Web3 فقط.
+  </div>
+  <div class="bal-grid">${platformCards}</div>
 </div>
 
 <!-- ── Circuit Breaker panel (loaded dynamically) ────────────────────────── -->
@@ -1215,11 +1253,14 @@ export async function renderChecklist(env) {
     { name: 'MEXC API Key',            ok: !!env.MEXC_API_KEY,          critical: true,  note: 'مطلوب للتداول الحقيقي + MEXC Futures Perps' },
     { name: 'MEXC API Secret',          ok: !!env.MEXC_API_SECRET,       critical: true,  note: 'مطلوب للتداول الحقيقي + MEXC Futures Perps' },
     { name: 'Binance API Key',          ok: !!env.BINANCE_API_KEY,       critical: false, note: 'مطلوب لتنفيذ Binance Spot' },
+    { name: 'Binance API Secret',       ok: !!env.BINANCE_API_SECRET,    critical: false, note: 'مطلوب لتنفيذ Binance Spot' },
     { name: 'KuCoin API Key',           ok: !!env.KUCOIN_API_KEY,        critical: false, note: 'مطلوب لتنفيذ KuCoin' },
     { name: 'OKX API Key',              ok: !!env.OKX_API_KEY,           critical: false, note: 'مطلوب لتنفيذ OKX Spot' },
     { name: 'Bitget API Key',           ok: !!env.BITGET_API_KEY,        critical: false, note: 'مطلوب لتنفيذ Bitget' },
+    { name: 'Bitget Secret + Passphrase',ok: !!(env.BITGET_SECRET_KEY && env.BITGET_API_PASSPHRASE), critical: false, note: 'مطلوب لتنفيذ Bitget' },
     { name: 'Bitmart API Key',          ok: !!env.BITMART_API_KEY,       critical: false, note: 'مطلوب لتنفيذ Bitmart' },
     { name: 'HTX (Huobi) API Key',      ok: !!env.HTX_API_KEY,           critical: false, note: 'مطلوب لتنفيذ HTX' },
+    { name: 'MetaMask / Web3 Wallet',    ok: true,                        critical: false, note: 'جاهز على مستوى الواجهة — التنفيذ اللامركزي ما زال يحتاج مسار on-chain مستقل' },
     { name: 'ADMIN_TOKEN',              ok: !!env.ADMIN_TOKEN,            critical: true,  note: 'لحماية نقاط التحكم' },
     { name: 'Telegram Bot Token',       ok: !!env.TELEGRAM_BOT_TOKEN,    critical: false, note: 'للإشعارات' },
     { name: 'Telegram Chat ID',         ok: !!env.TELEGRAM_CHAT_ID,      critical: false, note: 'معرف المستخدم' },
