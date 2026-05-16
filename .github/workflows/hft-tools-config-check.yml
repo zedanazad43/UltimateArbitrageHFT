@@ -1,15 +1,16 @@
-name: hft tools configuration check
+name: 'hft tools configuration check'
 
 on:
   pull_request:
     paths:
-      - "hft/**"
-      - ".github/workflows/hft-tools-config-check.yml"
+      - 'hft/**'
+      - '.github/workflows/hft-tools-config-check.yml'
   push:
-    branches: [main]
+    branches:
+      - main
     paths:
-      - "hft/**"
-      - ".github/workflows/hft-tools-config-check.yml"
+      - 'hft/**'
+      - '.github/workflows/hft-tools-config-check.yml'
   workflow_dispatch:
 
 permissions:
@@ -18,12 +19,11 @@ permissions:
 jobs:
   verify-tools-config:
     runs-on: ubuntu-latest
-
     steps:
       - name: Checkout repository
         uses: actions/checkout@v5
 
-      - name: Setup Go from go.mod
+      - name: Setup Go
         uses: actions/setup-go@v5
         with:
           go-version-file: hft/go.mod
@@ -32,6 +32,5 @@ jobs:
         working-directory: hft
         run: bash scripts/generate-tools-configuration.sh
 
-      - name: Ensure generated file is committed
-        run: |
-          git diff --exit-code -- 'hft/# Tools Configuration.md'
+      - name: Verify generated file is unchanged
+        run: git diff --exit-code -- 'hft/# Tools Configuration.md'
