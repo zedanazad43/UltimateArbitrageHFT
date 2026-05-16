@@ -49,28 +49,6 @@ export async function renderDashboard(env) {
     triangular: state?.strategy_flags?.triangular !== false,
     statistical: state?.strategy_flags?.statistical !== false,
   };
-  const platformReadiness = [
-    {
-      name: 'MEXC',
-      ok: !!(env.MEXC_API_KEY && env.MEXC_API_SECRET),
-      note: 'Spot + Futures execution',
-    },
-    {
-      name: 'Binance',
-      ok: !!(env.BINANCE_API_KEY && env.BINANCE_API_SECRET),
-      note: 'Spot execution',
-    },
-    {
-      name: 'Bitget',
-      ok: !!(env.BITGET_API_KEY && env.BITGET_SECRET_KEY && env.BITGET_API_PASSPHRASE),
-      note: 'Spot execution',
-    },
-    {
-      name: 'MetaMask',
-      ok: true,
-      note: 'Browser wallet for Web3 signing; DEX live execution still requires a separate on-chain path',
-    },
-  ];
   const lastScanTime    = lastScan?.timestamp
     ? new Date(lastScan.timestamp).toLocaleString('ar')
     : 'لم يتم المسح بعد';
@@ -88,14 +66,6 @@ export async function renderDashboard(env) {
         ثم أعد النشر.
        </div>`
     : '';
-
-  const platformCards = platformReadiness.map(p => `
-    <div class="bal-card" style="border-left:2px solid ${p.ok ? '#2ecc71' : '#e74c3c'}">
-      <div class="bal-name">${p.name}</div>
-      <div style="color:${p.ok ? '#2ecc71' : '#e74c3c'};font-size:.88em;font-weight:bold">${p.ok ? '✅ جاهز' : '🔴 غير جاهز'}</div>
-      <div style="font-size:.76em;color:#888;margin-top:4px;line-height:1.5">${p.note}</div>
-    </div>
-  `).join('');
 
   // Strategy P&L
   const cexPnl    = stratPnl.cex?.pnl    ?? 0;
@@ -468,7 +438,7 @@ ${autoStopBanner}
   <div style="font-size:.78em;color:#888;margin-bottom:10px">
     MEXC و Binance و Bitget للتنفيذ المركزي، وMetaMask لتوقيع Web3 فقط.
   </div>
-  <div class="bal-grid">${platformCards}</div>
+  <div id="platformsGrid" class="bal-grid"><span style="color:#888">جارٍ التحميل...</span></div>
 </div>
 
 <!-- ── Circuit Breaker panel (loaded dynamically) ────────────────────────── -->
@@ -976,7 +946,79 @@ ${autoStopBanner}
     finally{ setButtonsBusy(false); }
   }
   function loadDynamic(){ disableAdminUi(); loadBalances(); loadCircuitBreaker(); loadPerpsStatus(); loadExecutableIntegrationsStatus(); }
+  function loadDynamic(){ disableAdminUi(); loadBalances(); loadCircuitBreaker(); loadPerpsStatus(); loadExecutableIntegrationsStatus(); loadPlatformsGrid(); }
   loadDynamic();
+
+  // ── Platform cards — dynamic refresh every 30 s ─────────────────────────────
+  function _renderPlatformCard(p){
+    const isConfigured = p.configured;
+    const borderColor  = isConfigured ? '#2ecc71' : '#e67e22';
+    const balLine      = p.type === 'web3'
+      ? \`<div style="font-size:.8em;color:#3498db;margin-top:4px">🌐 Web3 only</div>\`
+      : isConfigured && p.balance != null
+        ? \`<div style="font-size:.88em;color:#2ecc71;margin-top:4px">$\${Number(p.balance).toFixed(2)} USDT</div>\`
+        : isConfigured
+          ? \`<div style="font-size:.8em;color:#888;margin-top:4px">جارٍ جلب الرصيد…</div>\`
+          : \`<div style="font-size:.72em;color:#e67e22;margin-top:4px">🔑 غير مُهيأ</div>\`;
+    const statusLabel = isConfigured
+      ? \`<span style="color:#2ecc71">✅ مُهيأ</span>\`
+      : \`<span style="color:#e67e22">⚠️ غير مُهيأ</span>\`;
+    const safeData = JSON.stringify(p).replace(/'/g,"&#39;");
+    return \`<div class="bal-card" style="border:1px solid \${borderColor};cursor:pointer" onclick="showPlatformModal('\${safeData}')">
+      <div class="bal-name">\${p.name.toUpperCase()}</div>
+      <div style="font-size:.8em">\${statusLabel}</div>
+      \${balLine}
+    </div>\`;
+  }
+
+  async function loadPlatformsGrid(){
+    const grid = document.getElementById('platformsGrid');
+    if (!grid) return;
+    try {
+      const res  = await callAdminApi('/api/platforms');
+      const data = JSON.parse(res.text);
+      const platforms = data.platforms || [];
+      grid.innerHTML = platforms.map(_renderPlatformCard).join('') ||
+        '<span style="color:#888">لا توجد منصات</span>';
+    } catch(e) {
+      if (grid) grid.innerHTML = \`<span style="color:#e74c3c">❌ \${e.message}</span>\`;
+    }
+  }
+  setInterval(loadPlatformsGrid, 30000);
+
+  // ── Platform detail modal ────────────────────────────────────────────────────
+  function showPlatformModal(rawJson){
+    let p;
+    try { p = typeof rawJson === 'string' ? JSON.parse(rawJson) : rawJson; } catch(_){ return; }
+    const balText = p.type === 'web3'
+      ? '🌐 Web3 — لا رصيد مركزي'
+      : p.balance != null
+        ? \`$\${Number(p.balance).toFixed(2)} USDT\`
+        : '—';
+    const missingList = (p.missingKeys||[]).length
+      ? \`<ul style="margin:4px 0 0 16px;padding:0;color:#e67e22">\${(p.missingKeys||[]).map(k=>\`<li style="font-size:.82em">\${k}</li>\`).join('')}</ul>\`
+      : '<span style="color:#2ecc71;font-size:.82em">لا توجد مفاتيح ناقصة</span>';
+    const stratList = (p.strategies||[]).map(s=>\`<span style="background:#12161e;border-radius:4px;padding:2px 6px;font-size:.78em;margin:2px;display:inline-block">\${s}</span>\`).join(' ');
+    document.getElementById('platformModalBody').innerHTML = \`
+      <h3 style="margin:0 0 14px;color:#f0b90b">\${p.name.toUpperCase()} <span style="font-size:.7em;color:#888">\${p.type}</span></h3>
+      <table style="width:100%;border-collapse:collapse;font-size:.88em">
+        <tr><td style="color:#888;padding:5px 0;width:140px">وضع التنفيذ</td><td><code>\${p.executionMode}</code></td></tr>
+        <tr><td style="color:#888;padding:5px 0">الحالة</td><td>\${p.configured?'<span style="color:#2ecc71">✅ مُهيأ</span>':'<span style="color:#e67e22">⚠️ غير مُهيأ</span>'}</td></tr>
+        <tr><td style="color:#888;padding:5px 0">رصيد USDT</td><td style="color:#2ecc71;font-weight:bold">\${balText}</td></tr>
+        <tr><td style="color:#888;padding:5px 0">الاستراتيجيات</td><td>\${stratList||'—'}</td></tr>
+        <tr><td style="color:#888;padding:5px 0">مفاتيح ناقصة</td><td>\${missingList}</td></tr>
+        <tr><td style="color:#888;padding:5px 0;vertical-align:top">ملاحظات</td><td style="font-size:.82em;color:#ccc">\${p.note||'—'}</td></tr>
+      </table>
+    \`;
+    document.getElementById('platformModal').style.display='flex';
+  }
+  function closePlatformModal(){
+    document.getElementById('platformModal').style.display='none';
+  }
+  document.addEventListener('click', e=>{
+    const modal = document.getElementById('platformModal');
+    if (modal && e.target === modal) modal.style.display='none';
+  });
   async function loadApiSnapshot(){
     const syncEl=document.getElementById('apiSyncStatus');
     const statusEl=document.getElementById('apiStatusCard');
@@ -1239,6 +1281,13 @@ ${autoStopBanner}
     }
   }
 </script>
+<!-- ── Platform detail modal ────────────────────────────────────────────────── -->
+<div id="platformModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.75);z-index:9999;align-items:center;justify-content:center">
+  <div style="background:#1a2030;border:1px solid #2a3042;border-radius:12px;padding:28px;max-width:520px;width:90%;position:relative;max-height:85vh;overflow-y:auto">
+    <button onclick="closePlatformModal()" style="position:absolute;top:14px;right:14px;background:none;border:none;color:#888;font-size:1.3em;cursor:pointer;line-height:1">✕</button>
+    <div id="platformModalBody"></div>
+  </div>
+</div>
 </body>
 </html>`;
 

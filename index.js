@@ -979,29 +979,37 @@ app.get('/api/platforms', async (c) => {
     }
   ];
 
-  const platforms = PLATFORM_META.map(({ name, type, executionMode, strategies, note }) => {
-    const configured = hasExchangeCredentials(c.env, name);
-    const missingKeys = configured ? [] : getMissingCredentialKeys(c.env, name);
-    return { name, type, executionMode, configured, missingKeys, strategies, note };
-  });
+  // Fetch live USDT balances in parallel for configured CEX platforms
+  const platformResults = await Promise.all(
+    PLATFORM_META.map(async ({ name, type, executionMode, strategies, note }) => {
+      const configured = hasExchangeCredentials(c.env, name);
+      const missingKeys = configured ? [] : getMissingCredentialKeys(c.env, name);
+      let balance = null;
+      if (configured) {
+        try { balance = await getExchangeBalance(c.env, name, 'USDT'); } catch (_) {}
+      }
+      return { name, type, executionMode, configured, missingKeys, balance, strategies, note };
+    })
+  );
 
   // MetaMask is browser-only — always considered "configured" on the server side
-  platforms.push({
+  platformResults.push({
     name: 'metamask',
     type: 'web3',
     executionMode: 'browser-signing',
     configured: true,
     missingKeys: [],
+    balance: null,
     strategies: ['dex-gmx', 'dex-dydx'],
     note: 'Web3 browser wallet; on-chain execution requires browser + MetaMask extension. Server executes via HFT engine private key.'
   });
 
-  const configuredCount = platforms.filter(p => p.configured).length;
+  const configuredCount = platformResults.filter(p => p.configured).length;
 
   return c.json({
     success: true,
-    summary: { total: platforms.length, configured: configuredCount, unconfigured: platforms.length - configuredCount },
-    platforms
+    summary: { total: platformResults.length, configured: configuredCount, unconfigured: platformResults.length - configuredCount },
+    platforms: platformResults
   });
 });
 
