@@ -438,6 +438,18 @@ ${autoStopBanner}
   <div style="font-size:.78em;color:#888;margin-bottom:10px">
     MEXC و Binance و Bitget للتنفيذ المركزي، وMetaMask لتوقيع Web3 فقط.
   </div>
+  <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:8px">
+    <input
+      id="platformsSearch"
+      type="text"
+      oninput="filterPlatformsGrid()"
+      placeholder="ابحث: mexc / web3 / configured"
+      style="background:#0f131b;border:1px solid #2a3042;color:#ddd;border-radius:8px;padding:8px 10px;min-width:240px;flex:1"
+    />
+    <button onclick="loadPlatformsGrid({ force: true, manual: true })" style="padding:8px 12px;border-radius:8px;border:1px solid #2a3042;background:#1a2030;color:#ddd;cursor:pointer">تحديث الآن</button>
+    <span id="platformsUpdatedAt" style="font-size:.76em;color:#888">آخر تحديث: —</span>
+  </div>
+  <div id="platformsFetchStatus" style="font-size:.76em;color:#888;margin-bottom:10px">⏳ جاري تحميل بيانات المنصات...</div>
   <div id="platformsGrid" class="bal-grid"><span style="color:#888">جارٍ التحميل...</span></div>
 </div>
 
@@ -945,8 +957,72 @@ ${autoStopBanner}
     }catch(e){ alert('❌ '+e.message); }
     finally{ setButtonsBusy(false); }
   }
-  function loadDynamic(){ disableAdminUi(); loadBalances(); loadCircuitBreaker(); loadPerpsStatus(); loadExecutableIntegrationsStatus(); }
-  function loadDynamic(){ disableAdminUi(); loadBalances(); loadCircuitBreaker(); loadPerpsStatus(); loadExecutableIntegrationsStatus(); loadPlatformsGrid(); }
+  const PLATFORM_REFRESH_MS = 30000;
+  const PLATFORM_BACKOFF_BASE_MS = 2000;
+  const PLATFORM_BACKOFF_MAX_MS = 30000;
+  const _platformsState = {
+    all: [],
+    query: '',
+    inFlight: false,
+    retryCount: 0,
+    retryTimer: null,
+  };
+
+  function _setPlatformsStatus(msg, color='#888'){
+    const el = document.getElementById('platformsFetchStatus');
+    if (!el) return;
+    el.style.color = color;
+    el.textContent = msg;
+  }
+
+  function _setPlatformsUpdatedAtLabel(value){
+    const el = document.getElementById('platformsUpdatedAt');
+    if (!el) return;
+    el.textContent = 'آخر تحديث: ' + (value || '—');
+  }
+
+  function _renderPlatformsFromState(){
+    const grid = document.getElementById('platformsGrid');
+    if (!grid) return;
+    const q = (_platformsState.query || '').trim().toLowerCase();
+    const filtered = !q
+      ? _platformsState.all
+      : _platformsState.all.filter((p) => {
+          const haystack = [
+            p.name,
+            p.type,
+            p.executionMode,
+            ...(p.strategies || []),
+            p.configured ? 'configured' : 'unconfigured',
+            p.configured ? 'مهيأ' : 'غير مهيأ',
+          ].join(' ').toLowerCase();
+          return haystack.includes(q);
+        });
+
+    grid.innerHTML = filtered.map(_renderPlatformCard).join('') ||
+      '<span style="color:#888">لا توجد منصات مطابقة</span>';
+  }
+
+  function filterPlatformsGrid(){
+    const input = document.getElementById('platformsSearch');
+    _platformsState.query = input ? input.value : '';
+    _renderPlatformsFromState();
+  }
+
+  function _schedulePlatformsRetry(){
+    if (_platformsState.retryTimer) return;
+    const delayMs = Math.min(
+      PLATFORM_BACKOFF_BASE_MS * (2 ** Math.max(0, _platformsState.retryCount - 1)),
+      PLATFORM_BACKOFF_MAX_MS
+    );
+    _setPlatformsStatus('⚠️ تعذر جلب المنصات. إعادة المحاولة خلال ' + Math.round(delayMs / 1000) + ' ثانية...', '#e67e22');
+    _platformsState.retryTimer = setTimeout(() => {
+      _platformsState.retryTimer = null;
+      loadPlatformsGrid({ fromRetry: true });
+    }, delayMs);
+  }
+
+  function loadDynamic(){ disableAdminUi(); loadBalances(); loadCircuitBreaker(); loadPerpsStatus(); loadExecutableIntegrationsStatus(); loadPlatformsGrid({ force: true }); }
   loadDynamic();
 
   // ── Platform cards — dynamic refresh every 30 s ─────────────────────────────
@@ -963,28 +1039,50 @@ ${autoStopBanner}
     const statusLabel = isConfigured
       ? \`<span style="color:#2ecc71">✅ مُهيأ</span>\`
       : \`<span style="color:#e67e22">⚠️ غير مُهيأ</span>\`;
+    const updatedLine = \`<div style="font-size:.72em;color:#888;margin-top:4px">آخر تحديث: \${p._fetchedAt || '—'}</div>\`;
     const safeData = JSON.stringify(p).replace(/'/g,"&#39;");
     return \`<div class="bal-card" style="border:1px solid \${borderColor};cursor:pointer" onclick="showPlatformModal('\${safeData}')">
       <div class="bal-name">\${p.name.toUpperCase()}</div>
       <div style="font-size:.8em">\${statusLabel}</div>
       \${balLine}
+      \${updatedLine}
     </div>\`;
   }
 
-  async function loadPlatformsGrid(){
+  async function loadPlatformsGrid(opts = {}){
     const grid = document.getElementById('platformsGrid');
     if (!grid) return;
+    if (_platformsState.inFlight && !opts.force) return;
+    _platformsState.inFlight = true;
     try {
       const res  = await callAdminApi('/api/platforms');
       const data = JSON.parse(res.text);
-      const platforms = data.platforms || [];
-      grid.innerHTML = platforms.map(_renderPlatformCard).join('') ||
-        '<span style="color:#888">لا توجد منصات</span>';
+      if (!data || data.success !== true) {
+        throw new Error('استجابة غير صالحة من /api/platforms');
+      }
+      const fetchedAt = new Date().toLocaleTimeString('ar');
+      const platforms = Array.isArray(data.platforms) ? data.platforms : [];
+      _platformsState.all = platforms.map((p) => ({ ...p, _fetchedAt: fetchedAt }));
+      _platformsState.retryCount = 0;
+      if (_platformsState.retryTimer) {
+        clearTimeout(_platformsState.retryTimer);
+        _platformsState.retryTimer = null;
+      }
+      _setPlatformsUpdatedAtLabel(fetchedAt);
+      _setPlatformsStatus('✅ تم تحديث ' + platforms.length + ' منصة', '#2ecc71');
+      _renderPlatformsFromState();
     } catch(e) {
-      if (grid) grid.innerHTML = \`<span style="color:#e74c3c">❌ \${e.message}</span>\`;
+      _platformsState.retryCount += 1;
+      if (!_platformsState.all.length) {
+        grid.innerHTML = \`<span style="color:#e74c3c">❌ \${e.message}</span>\`;
+      }
+      _setPlatformsStatus('❌ فشل التحديث: ' + e.message, '#e74c3c');
+      _schedulePlatformsRetry();
+    } finally {
+      _platformsState.inFlight = false;
     }
   }
-  setInterval(loadPlatformsGrid, 30000);
+  setInterval(() => loadPlatformsGrid(), PLATFORM_REFRESH_MS);
 
   // ── Platform detail modal ────────────────────────────────────────────────────
   function showPlatformModal(rawJson){
@@ -1004,6 +1102,7 @@ ${autoStopBanner}
       <table style="width:100%;border-collapse:collapse;font-size:.88em">
         <tr><td style="color:#888;padding:5px 0;width:140px">وضع التنفيذ</td><td><code>\${p.executionMode}</code></td></tr>
         <tr><td style="color:#888;padding:5px 0">الحالة</td><td>\${p.configured?'<span style="color:#2ecc71">✅ مُهيأ</span>':'<span style="color:#e67e22">⚠️ غير مُهيأ</span>'}</td></tr>
+        <tr><td style="color:#888;padding:5px 0">آخر تحديث</td><td>\${p._fetchedAt || '—'}</td></tr>
         <tr><td style="color:#888;padding:5px 0">رصيد USDT</td><td style="color:#2ecc71;font-weight:bold">\${balText}</td></tr>
         <tr><td style="color:#888;padding:5px 0">الاستراتيجيات</td><td>\${stratList||'—'}</td></tr>
         <tr><td style="color:#888;padding:5px 0">مفاتيح ناقصة</td><td>\${missingList}</td></tr>

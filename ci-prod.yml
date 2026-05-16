@@ -41,7 +41,7 @@ jobs:
 
       - name: Run unit/integration tests
         run: |
-          if npm run | grep -q test; then npm test; else echo "No tests defined."; fi
+          if npm run | grep -q test:all; then npm run test:all; elif npm run | grep -q test; then npm test; else echo "No tests defined."; fi
 
       - name: Upload test coverage (اختياري)
         if: always()
