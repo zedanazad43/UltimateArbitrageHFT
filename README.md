@@ -48,6 +48,23 @@ The workflow will:
 3. Deploy the Cloudflare Worker
 4. Upload all exchange secrets to the Worker
 
+---
+
+## HFT Tools Configuration & CI Automation
+
+The Go HFT engine maintains an automated tools configuration report (`hft/# Tools Configuration.md`) that tracks the build environment (Go version, tools, environment variables).
+
+**Refresh the report locally:**
+```bash
+cd hft && bash scripts/generate-tools-configuration.sh
+```
+
+**Or run from VS Code:** Tasks > `hft: generate tools configuration`
+
+**CI guard:** The workflow `hft tools configuration check` automatically verifies on every push/PR that the config file is up to date with the current environment. Commits fail if the file is stale.
+
+See [hft/README.md](hft/README.md) for details.
+
 Live trading mode is no longer auto-enabled by this workflow; switch mode explicitly via authenticated admin controls.
 
 ---
