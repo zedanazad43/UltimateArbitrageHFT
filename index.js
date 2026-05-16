@@ -948,6 +948,63 @@ app.get('/api/dex', async (c) => {
   });
 });
 
+// ── API: Platform readiness — per-platform detailed status ───────────────────
+// GET /api/platforms — returns configuration status, missing keys, and
+// execution capabilities for each supported trading platform.
+// Auth-protected.
+app.get('/api/platforms', async (c) => {
+  if (!isAuthorized(c.env, c)) return authDenied(c.env, c, true);
+
+  const PLATFORM_META = [
+    {
+      name: 'mexc',
+      type: 'cex',
+      executionMode: 'spot+futures',
+      strategies: ['cex', 'perps', 'funding', 'triangular'],
+      note: 'Primary execution exchange — spot and MEXC futures'
+    },
+    {
+      name: 'binance',
+      type: 'cex',
+      executionMode: 'spot',
+      strategies: ['cex', 'triangular'],
+      note: 'Spot execution + USDM perps price feed'
+    },
+    {
+      name: 'bitget',
+      type: 'cex',
+      executionMode: 'spot',
+      strategies: ['cex'],
+      note: 'Spot execution'
+    }
+  ];
+
+  const platforms = PLATFORM_META.map(({ name, type, executionMode, strategies, note }) => {
+    const configured = hasExchangeCredentials(c.env, name);
+    const missingKeys = configured ? [] : getMissingCredentialKeys(c.env, name);
+    return { name, type, executionMode, configured, missingKeys, strategies, note };
+  });
+
+  // MetaMask is browser-only — always considered "configured" on the server side
+  platforms.push({
+    name: 'metamask',
+    type: 'web3',
+    executionMode: 'browser-signing',
+    configured: true,
+    missingKeys: [],
+    strategies: ['dex-gmx', 'dex-dydx'],
+    note: 'Web3 browser wallet; on-chain execution requires browser + MetaMask extension. Server executes via HFT engine private key.'
+  });
+
+  const configuredCount = platforms.filter(p => p.configured).length;
+
+  return c.json({
+    success: true,
+    summary: { total: platforms.length, configured: configuredCount, unconfigured: platforms.length - configuredCount },
+    platforms
+  });
+});
+
 // ── Admin: Reset daily stats ──────────────────────────────────────────────────
 app.post('/reset-daily', async (c) => {
   const limited = await checkRateLimit(c.env, c);
