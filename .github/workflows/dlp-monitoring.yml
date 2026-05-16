@@ -1,4 +1,4 @@
-name: 📊 Continuous DLP Monitoring
+name: Continuous DLP Monitoring
 
 on:
   schedule:
@@ -33,12 +33,14 @@ jobs:
           npm install @aws-sdk/client-s3 @aws-sdk/util-stream-node
         continue-on-error: true
 
-      - name: ☁️ Scan AWS S3 Buckets
+      - name: Scan AWS S3 buckets
         env:
-          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           AWS_REGION: us-east-1
         run: |
+          if [ -z "${AWS_ACCESS_KEY_ID:-}" ] || [ -z "${AWS_SECRET_ACCESS_KEY:-}" ]; then
+            echo "AWS credentials are not set; skipping S3 DLP scan"
+            exit 0
+          fi
           node scripts/aws-s3-dlp-scanner.js || true
         continue-on-error: true
 

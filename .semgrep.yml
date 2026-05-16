@@ -8,15 +8,14 @@ rules:
   # ═══════════════════════════════════════════════════════════════════
   
   - id: hardcoded-api-key
-    pattern-either:
-      - patterns:
-          - pattern: $VAR = $LITERAL
-          - metavariable-comparison:
-              metavariable: $VAR
-              regex: '(api_key|apikey|api[_-]secret)'
-          - metavariable-comparison:
-              metavariable: $LITERAL
-              regex: '[a-zA-Z0-9]{32,}'
+    patterns:
+      - pattern: $VAR = $LITERAL
+      - metavariable-regex:
+          metavariable: $VAR
+          regex: '(?i).*(api_key|apikey|api[_-]secret).*'
+      - metavariable-regex:
+          metavariable: $LITERAL
+          regex: "^['\"][A-Za-z0-9_-]{32,}['\"]$"
     message: Hardcoded API key detected
     languages: [javascript, python, go]
     severity: CRITICAL
@@ -44,9 +43,9 @@ rules:
               console.error($PASS)
           - pattern: |
               throw new Error($PASS)
-      - metavariable-comparison:
+      - metavariable-regex:
           metavariable: $PASS
-          regex: '(PASSWORD|KEY|SECRET|TOKEN|CREDENTIAL)'
+          regex: '(?i).*(PASSWORD|KEY|SECRET|TOKEN|CREDENTIAL).*'
     message: Sensitive environment variable logged
     languages: [javascript]
     severity: HIGH
@@ -127,7 +126,11 @@ rules:
   - id: jwt-secret-hardcoded
     pattern-either:
       - pattern: jwt.sign($PAYLOAD, "secret")
-      - pattern: jwt.sign($PAYLOAD, $SECRET) where $SECRET regex "(secret|key|pass)"
+      - patterns:
+          - pattern: jwt.sign($PAYLOAD, $SECRET)
+          - metavariable-regex:
+              metavariable: $SECRET
+              regex: "^(?i)['\"].*(secret|key|pass).*(['\"])$"
     message: JWT signed with weak hardcoded secret
     languages: [javascript, python]
     severity: HIGH

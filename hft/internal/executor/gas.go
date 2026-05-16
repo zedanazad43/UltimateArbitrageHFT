@@ -1,6 +1,5 @@
-// gas.go — EIP-1559 gas oracle
-// Subscribes to new block headers to track the current base fee and recommends
-// maxFeePerGas / maxPriorityFeePerGas values for on-chain transactions.
+// Package executor provides execution primitives for centralized and on-chain
+// trade flows, including an EIP-1559 gas oracle for on-chain transactions.
 package executor
 
 import (

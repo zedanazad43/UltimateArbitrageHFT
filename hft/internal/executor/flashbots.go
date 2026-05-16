@@ -1,4 +1,5 @@
-// flashbots.go — Flashbots MEV protection for on-chain DEX trades.
+// Package executor provides execution primitives for centralized and on-chain
+// trade flows, including Flashbots MEV protection for DEX transactions.
 //
 // Three layers of protection are implemented:
 //

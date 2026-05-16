@@ -71,8 +71,8 @@ EOF
   printf "toolsGopath: %s\n" "${toolsGopath:-}"
   printf "gopath: %s\n" "$(go env GOPATH 2>/dev/null || true)"
   printf "GOROOT: %s\n" "$(go env GOROOT 2>/dev/null || true)"
-  printf "PATH: %s\n" "${PATH:-}"
-  printf "PATH (shell launched with): %s\n" "${PATH:-}"
+  printf "PATH: %s\n" "redacted (environment-dependent)"
+  printf "PATH (shell launched with): %s\n" "redacted (environment-dependent)"
 
   cat <<'EOF'
 ```
@@ -103,7 +103,7 @@ EOF
 EOF
 
   if [[ -n "$go_bin_path" ]]; then
-    go env
+    go env | sed -E "s#-ffile-prefix-map=/tmp/go-build[0-9]+=/tmp/go-build#-ffile-prefix-map=/tmp/go-buildXXXX=/tmp/go-build#g"
   else
     echo "go command not found"
   fi
