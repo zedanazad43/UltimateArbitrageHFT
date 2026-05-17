@@ -785,41 +785,44 @@ ${autoStopBanner}
     const d = _parseDateSafe(value);
     return d ? d.toLocaleString('ar') : '—';
   }
-  const ctx=document.getElementById('pnlChart').getContext('2d');
-  new Chart(ctx,{type:'line',data:{
-    labels: pnlLabels.length ? pnlLabels : Array.from({length:${pnlData.length}},(_,i)=>i+1),
-    datasets:[{label:'الربح المتراكم ($)',data:${JSON.stringify(pnlData)},borderColor:'#f0b90b',backgroundColor:'rgba(240,185,11,0.08)',fill:true,tension:.3,pointRadius:3}]
-  },options:{responsive:true,plugins:{legend:{labels:{color:'#eee'}}},scales:{x:{ticks:{color:'#888',maxTicksLimit:12}},y:{ticks:{color:'#888'}}}}});
+  try {
+    const ctx=document.getElementById('pnlChart').getContext('2d');
+    new Chart(ctx,{type:'line',data:{
+      labels: pnlLabels.length ? pnlLabels : Array.from({length:${pnlData.length}},(_,i)=>i+1),
+      datasets:[{label:'الربح المتراكم ($)',data:${JSON.stringify(pnlData)},borderColor:'#f0b90b',backgroundColor:'rgba(240,185,11,0.08)',fill:true,tension:.3,pointRadius:3}]
+    },options:{responsive:true,plugins:{legend:{labels:{color:'#eee'}}},scales:{x:{ticks:{color:'#888',maxTicksLimit:12}},y:{ticks:{color:'#888'}}}}});
+    } catch(_chartErr){ console.warn('P&L chart init failed:', _chartErr); }
 
-  // ── Strategy P&L Bar Chart ────────────────────────────────────────────────────
-  const stratCtx = document.getElementById('stratChart').getContext('2d');
-  new Chart(stratCtx, {
-    type: 'bar',
-    data: {
-      labels: ['CEX', 'DEX', 'Perps', 'Triangular', 'Statistical'],
-      datasets: [{
-        label: 'P&L بالاستراتيجية ($)',
-        data: [
-          ${(cexPnl).toFixed(4)},
-          ${(dexPnl).toFixed(4)},
-          ${(perpsPnl).toFixed(4)},
-          ${(triPnl).toFixed(4)},
-          ${(statPnl).toFixed(4)}
-        ],
-        backgroundColor: ['#3498db','#9b59b6','#e67e22','#1abc9c','#e91e8c'],
-        borderRadius: 6
-      }]
-    },
-    options: {
-      responsive: true,
-      plugins: { legend: { labels: { color: '#eee' } } },
-      scales: {
-        x: { ticks: { color: '#888' } },
-        y: { ticks: { color: '#888' } }
+    // ── Strategy P&L Bar Chart ────────────────────────────────────────────────────
+    try {
+    const stratCtx = document.getElementById('stratChart').getContext('2d');
+    new Chart(stratCtx, {
+      type: 'bar',
+      data: {
+        labels: ['CEX', 'DEX', 'Perps', 'Triangular', 'Statistical'],
+        datasets: [{
+          label: 'P&L بالاستراتيجية ($)',
+          data: [
+            ${(cexPnl).toFixed(4)},
+            ${(dexPnl).toFixed(4)},
+            ${(perpsPnl).toFixed(4)},
+            ${(triPnl).toFixed(4)},
+            ${(statPnl).toFixed(4)}
+          ],
+          backgroundColor: ['#3498db','#9b59b6','#e67e22','#1abc9c','#e91e8c'],
+          borderRadius: 6
+        }]
+      },
+      options: {
+        responsive: true,
+        plugins: { legend: { labels: { color: '#eee' } } },
+        scales: {
+          x: { ticks: { color: '#888' } },
+          y: { ticks: { color: '#888' } }
+        }
       }
-    }
-  });
-
+    });
+    } catch(_chartErr){ console.warn('Strategy chart init failed:', _chartErr); }
   // ── Backtesting ──────────────────────────────────────────────────────────────
   async function runBacktest() {
     const capital  = parseFloat(document.getElementById('bt_capital').value)  || 1000;
