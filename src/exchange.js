@@ -634,51 +634,33 @@ export async function getBitgetBalance(env, asset = 'USDT') {
 
   const timestamp = Date.now().toString();
   const requestPath = '/api/v2/spot/account/assets';
-  const query = `coin=${asset}`;
-  const fullPath = `${requestPath}?${query}`;
-  const signCandidates = [
-    timestamp + 'GET' + fullPath,
-    timestamp + 'GET' + requestPath,
-  ];
+  // V2 API: signature is timestamp + method + requestPath (without query params)
+  const signature = await hmacBase64(apiSecret, timestamp + 'GET' + requestPath);
 
   const errors = [];
   let data = null;
 
   for (const host of BITGET_API_HOSTS) {
-    for (const rawSign of signCandidates) {
-      const signature = await hmacBase64(apiSecret, rawSign);
-      try {
-        const resp = await fetch(`https://${host}${fullPath}`, {
-          headers: {
-            'ACCESS-KEY':        apiKey,
-            'ACCESS-SIGN':       signature,
-            'ACCESS-TIMESTAMP':  timestamp,
-            'ACCESS-PASSPHRASE': passphrase,
-            'Accept':            'application/json',
-            'locale':            'en-US',
-            'User-Agent':        'Mozilla/5.0',
-          }
-        });
-        data = await parseJsonResponse(resp, 'Bitget balance');
-        if (data?.code === '00000') break;
-
-        const msg = data?.msg || data?.message || data?.error || JSON.stringify(data);
-        errors.push(`${host}: ${msg}`);
-
-        // Retry on Cloudflare anti-bot blocks by switching host/sign format.
-        if (data?.cloudflare === 'block') {
-          data = null;
-          continue;
+    try {
+      const resp = await fetch(`https://${host}${requestPath}`, {
+        headers: {
+          'ACCESS-KEY':        apiKey,
+          'ACCESS-SIGN':       signature,
+          'ACCESS-TIMESTAMP':  timestamp,
+          'ACCESS-PASSPHRASE': passphrase,
         }
-      } catch (err) {
-        errors.push(`${host}: ${err.message || String(err)}`);
-      }
-      data = null;
+      });
+      data = await parseJsonResponse(resp, 'Bitget balance');
+      if (data?.code === '00000') break;
+
+      const msg = data?.msg || data?.message || data?.error || JSON.stringify(data);
+      errors.push(`${host}: ${msg}`);
+    } catch (err) {
+      errors.push(`${host}: ${err.message || String(err)}`);
     }
-    if (data?.code === '00000') break;
   }
 
-  if (!data) {
+  if (!data || data.code !== '00000') {
     throw new Error(`Bitget balance failed: ${errors.join(' | ') || 'unknown error'}`);
   }
 
