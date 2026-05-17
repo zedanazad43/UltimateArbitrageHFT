@@ -17,6 +17,7 @@ import { runBacktest } from './src/backtest.js';
 import { evaluateStrategyBreakdown } from './src/self-evaluation.js';
 import { getEcosystemCatalog, recommendEcosystem, getApiKeySecurityChecklist } from './src/ecosystem.js';
 import { executeAllExecutableIntegrations, executeExecutableIntegration, listExecutableIntegrationIds, probeExecutableIntegrations } from './src/executive-integrations.js';
+import { getAutoExecutor } from './src/strategies/auto-executor.js';
 import {
   startWorkflow,
   stopWorkflow,
@@ -632,6 +633,23 @@ app.get('/api/status', async (c) => {
       telegramConfigured: !!c.env.TELEGRAM_BOT_TOKEN && !!c.env.TELEGRAM_CHAT_ID,
       vscodeApiTokenConfigured: !!c.env.VSCODE_API_TOKEN,
     },
+  });
+});
+
+// ── API: Proxy routing stats ────────────────────────────────────────────────
+// GET /api/proxy-stats — returns current proxy pool mode, available proxies,
+// auto-executor strategy health, and rate-limiter backoff state.
+app.get('/api/proxy-stats', async (c) => {
+  if (!isAuthorized(c.env, c)) return authDenied(c.env, c, true);
+  const executor = getAutoExecutor(c.env);
+  const stats = executor.getStats();
+  return c.json({
+    success: true,
+    proxyRouting: stats.proxyRouting,
+    rateLimiterBackoffExchanges: stats.rateLimiterBackoffExchanges,
+    strategyHealth: stats.strategyHealth,
+    executorPaperMode: stats.paperMode,
+    openPositions: stats.openPositions,
   });
 });
 
