@@ -10,6 +10,41 @@ const DEFAULT_RISK = {
   MAX_SPREAD_PCT:              5.0
 };
 
+function parseDateSafe(value) {
+  if (value == null || value === '') return null;
+  if (value instanceof Date) return Number.isNaN(value.getTime()) ? null : value;
+
+  if (typeof value === 'number') {
+    const ms = value < 1e12 ? value * 1000 : value;
+    const d = new Date(ms);
+    return Number.isNaN(d.getTime()) ? null : d;
+  }
+
+  const raw = String(value).trim();
+  if (!raw) return null;
+
+  if (/^\d+$/.test(raw)) {
+    const n = Number(raw);
+    const ms = n < 1e12 ? n * 1000 : n;
+    const d = new Date(ms);
+    return Number.isNaN(d.getTime()) ? null : d;
+  }
+
+  const normalized = raw.includes(' ') && !raw.includes('T') ? raw.replace(' ', 'T') : raw;
+  const d = new Date(normalized);
+  return Number.isNaN(d.getTime()) ? null : d;
+}
+
+function formatDateTimeAr(value) {
+  const d = parseDateSafe(value);
+  return d ? d.toLocaleString('ar') : '—';
+}
+
+function formatTimeAr(value) {
+  const d = parseDateSafe(value);
+  return d ? d.toLocaleTimeString('ar-SA', { hour: '2-digit', minute: '2-digit' }) : '—';
+}
+
 // ── Main dashboard ────────────────────────────────────────────────────────────
 
 export async function renderDashboard(env) {
@@ -50,7 +85,7 @@ export async function renderDashboard(env) {
     statistical: state?.strategy_flags?.statistical !== false,
   };
   const lastScanTime    = lastScan?.timestamp
-    ? new Date(lastScan.timestamp).toLocaleString('ar')
+    ? formatDateTimeAr(lastScan.timestamp)
     : 'لم يتم المسح بعد';
 
   const autoStopBanner = state.auto_stopped
@@ -131,7 +166,7 @@ export async function renderDashboard(env) {
       <td style="font-size:.85em">${stratDir}</td>
       <td>$${Number(t.size_usd).toFixed(2)}</td>
       <td style="color:${pnlColor}">${Number(t.net_profit_percent).toFixed(4)}%</td>
-      <td style="font-size:.82em">${new Date(t.created_at).toLocaleString('ar')}</td>
+      <td style="font-size:.82em">${formatDateTimeAr(t.created_at)}</td>
     </tr>`;
   }).join('');
 
@@ -723,7 +758,33 @@ ${autoStopBanner}
   }
 
   // ── P&L Chart ────────────────────────────────────────────────────────────────
-  const pnlLabels = ${JSON.stringify([...trades].reverse().map(t => new Date(t.created_at).toLocaleTimeString('ar-SA', {hour:'2-digit',minute:'2-digit'})))};
+  const pnlLabels = ${JSON.stringify([...trades].reverse().map(t => formatTimeAr(t.created_at)))};
+
+  function _parseDateSafe(value){
+    if (value == null || value === '') return null;
+    if (value instanceof Date) return Number.isNaN(value.getTime()) ? null : value;
+    if (typeof value === 'number') {
+      const ms = value < 1e12 ? value * 1000 : value;
+      const d = new Date(ms);
+      return Number.isNaN(d.getTime()) ? null : d;
+    }
+    const raw = String(value).trim();
+    if (!raw) return null;
+    if (/^\\d+$/.test(raw)) {
+      const n = Number(raw);
+      const ms = n < 1e12 ? n * 1000 : n;
+      const d = new Date(ms);
+      return Number.isNaN(d.getTime()) ? null : d;
+    }
+    const normalized = raw.includes(' ') && !raw.includes('T') ? raw.replace(' ', 'T') : raw;
+    const d = new Date(normalized);
+    return Number.isNaN(d.getTime()) ? null : d;
+  }
+
+  function _fmtDateTimeAr(value){
+    const d = _parseDateSafe(value);
+    return d ? d.toLocaleString('ar') : '—';
+  }
   const ctx=document.getElementById('pnlChart').getContext('2d');
   new Chart(ctx,{type:'line',data:{
     labels: pnlLabels.length ? pnlLabels : Array.from({length:${pnlData.length}},(_,i)=>i+1),
@@ -811,7 +872,7 @@ ${autoStopBanner}
       tbody.innerHTML = runs.map(r => {
         const m    = r.metrics || {};
         const ret  = (r.return_pct || 0).toFixed(2);
-        const date = r.created_at ? new Date(r.created_at).toLocaleString('ar') : '—';
+        const date = _fmtDateTimeAr(r.created_at);
         const retColor = parseFloat(ret) >= 0 ? '#2ecc71' : '#e74c3c';
         return \`<tr>
           <td style="font-size:.82em">\${date}</td>
@@ -1126,32 +1187,49 @@ ${autoStopBanner}
     const reportEl=document.getElementById('apiReportCard');
     const logsEl=document.getElementById('apiLogsCard');
     try{
-      const [statusRes,tradesRes,pnlRes,reportRes,logsRes]=await Promise.all([
+      const [statusSettle,tradesSettle,pnlSettle,reportSettle,logsSettle]=await Promise.allSettled([
         callAdminApi('/api/status'),
         callAdminApi('/api/trades?limit=20'),
         callAdminApi('/api/pnl'),
         callAdminApi('/api/report'),
         callAdminApi('/api/logs')
       ]);
-      const { text: statusText } = statusRes;
-      const { text: tradesText } = tradesRes;
-      const { text: pnlText } = pnlRes;
-      const { text: reportText } = reportRes;
-      const { text: logsText } = logsRes;
-      const statusJson=JSON.parse(statusText);
-      const tradesJson=JSON.parse(tradesText);
-      const pnlJson=JSON.parse(pnlText);
-      const reportJson=JSON.parse(reportText);
-      const logsJson=JSON.parse(logsText);
+      const statusOk = statusSettle.status === 'fulfilled';
+      const tradesOk = tradesSettle.status === 'fulfilled';
+      const pnlOk    = pnlSettle.status === 'fulfilled';
+      const reportOk = reportSettle.status === 'fulfilled';
+      const logsOk   = logsSettle.status === 'fulfilled';
 
-      statusEl.innerHTML=\`الحالة: <strong style="color:\${statusJson.trading_enabled?'#2ecc71':'#e74c3c'}">\${statusJson.trading_enabled?'▶️ مفعّل':'⏸️ متوقف'}</strong><br>الوضع: \${statusJson.paper_trading!==false?'Paper':'Live'}\`;
-      const rows=Array.isArray(tradesJson.data)?tradesJson.data:[];
-      tradesEl.textContent=\`\${rows.length} صفقة (آخر تحديث)\`;
-      pnlEl.textContent=\`\${Object.keys(pnlJson.data||{}).length} استراتيجيات\`;
-      reportEl.textContent=\`WinRate \${(((reportJson.data||{}).win_rate||0)*100).toFixed(1)}% | PF \${(reportJson.data||{}).profit_factor?Number(reportJson.data.profit_factor).toFixed(2):'—'}\`;
-      logsEl.textContent=\`\${Array.isArray(logsJson.objects)?logsJson.objects.length:0} ملف\`;
-      syncEl.style.color='#2ecc71';
-      syncEl.textContent='✅ الواجهة متصلة بنقاط API الخلفية.';
+      const statusJson = statusOk ? JSON.parse(statusSettle.value.text) : null;
+      const tradesJson = tradesOk ? JSON.parse(tradesSettle.value.text) : null;
+      const pnlJson    = pnlOk    ? JSON.parse(pnlSettle.value.text)    : null;
+      const reportJson = reportOk ? JSON.parse(reportSettle.value.text) : null;
+      const logsJson   = logsOk   ? JSON.parse(logsSettle.value.text)   : null;
+
+      if (statusOk && statusJson) {
+        const statusColor = statusJson.trading_enabled ? '#2ecc71' : '#e74c3c';
+        const statusLabel = statusJson.trading_enabled ? '▶️ مفعّل' : '⏸️ متوقف';
+        const modeLabel = statusJson.paper_trading !== false ? 'Paper' : 'Live';
+        statusEl.innerHTML = 'الحالة: <strong style="color:' + statusColor + '">' + statusLabel + '</strong><br>الوضع: ' + modeLabel;
+      } else {
+        statusEl.textContent = 'خطأ';
+      }
+
+      const rows = Array.isArray(tradesJson?.data) ? tradesJson.data : [];
+      tradesEl.textContent = tradesOk ? (rows.length + ' صفقة (آخر تحديث)') : 'خطأ';
+      pnlEl.textContent = pnlOk ? (Object.keys(pnlJson?.data || {}).length + ' استراتيجيات') : 'خطأ';
+      reportEl.textContent = reportOk
+        ? ('WinRate ' + ((((reportJson?.data || {}).win_rate || 0) * 100).toFixed(1)) + '% | PF ' + ((reportJson?.data || {}).profit_factor ? Number((reportJson?.data || {}).profit_factor).toFixed(2) : '—'))
+        : 'خطأ';
+      logsEl.textContent = logsOk ? ((Array.isArray(logsJson?.objects) ? logsJson.objects.length : 0) + ' ملف') : 'خطأ';
+
+      const okCount = [statusOk, tradesOk, pnlOk, reportOk, logsOk].filter(Boolean).length;
+      syncEl.style.color = okCount === 5 ? '#2ecc71' : (okCount > 0 ? '#f0b90b' : '#e74c3c');
+      syncEl.textContent = okCount === 5
+        ? '✅ الواجهة متصلة بنقاط API الخلفية.'
+        : okCount > 0
+          ? ('⚠️ مزامنة جزئية: ' + okCount + '/5 APIs متاحة.')
+          : '❌ تعذر مزامنة الواجهة مع API.';
 
       const tbody=document.getElementById('recentTradesBody');
       if(tbody){
@@ -1169,7 +1247,7 @@ ${autoStopBanner}
             <td style="font-size:.85em">\${stratDir}</td>
             <td>$\${Number(t.size_usd).toFixed(2)}</td>
             <td style="color:\${pnlColor}">\${Number(t.net_profit_percent).toFixed(4)}%</td>
-            <td style="font-size:.82em">\${new Date(t.created_at).toLocaleString('ar')}</td>
+            <td style="font-size:.82em">\${_fmtDateTimeAr(t.created_at)}</td>
           </tr>\`;
         }).join(''):'<tr><td colspan="6" style="text-align:center;padding:20px;color:#888">لا توجد صفقات مسجّلة</td></tr>';
       }
@@ -1364,7 +1442,7 @@ ${autoStopBanner}
       if (!objs.length) { tbody.innerHTML = '<tr><td colspan="4" style="color:#888;text-align:center">لا يوجد أرشيف</td></tr>'; return; }
       tbody.innerHTML = objs.map(o => {
         const kb   = (o.size / 1024).toFixed(1);
-        const date = o.uploaded ? new Date(o.uploaded).toLocaleString('ar') : '—';
+        const date = _fmtDateTimeAr(o.uploaded);
         const rows = o.customMetadata?.rows ?? '—';
         const key  = o.key || '';
         return \`<tr>
