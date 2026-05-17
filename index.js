@@ -106,6 +106,20 @@ function getCookieValue(c, name) {
   return m ? decodeURIComponent(m[1]) : null;
 }
 
+function constantTimeEquals(a, b) {
+  if (typeof a !== 'string' || typeof b !== 'string') return false;
+  const aLen = a.length;
+  const bLen = b.length;
+  const len = Math.max(aLen, bLen);
+  let diff = aLen ^ bLen;
+  for (let i = 0; i < len; i++) {
+    const ac = i < aLen ? a.charCodeAt(i) : 0;
+    const bc = i < bLen ? b.charCodeAt(i) : 0;
+    diff |= ac ^ bc;
+  }
+  return diff === 0;
+}
+
 // ─── Admin auth ───────────────────────────────────────────────────────────────
 // ADMIN_TOKEN must be set as a Cloudflare Worker secret (`wrangler secret put ADMIN_TOKEN`).
 // If it is absent the endpoint is denied — this prevents accidental exposure of admin
@@ -119,9 +133,9 @@ function isAuthorized(env, c) {
   // Open setup mode: if ADMIN_TOKEN is not configured yet, allow access so
   // the dashboard can be fully wired during initial bootstrap.
   if (!token) return true;
-  if (c.req.header('x-admin-token') === token) return true;
+  if (constantTimeEquals(c.req.header('x-admin-token') || '', token)) return true;
   const cookie = getCookieValue(c, 'nexus_session');
-  return cookie === token;
+  return constantTimeEquals(cookie || '', token);
 }
 
 // Returns a descriptive 401 response that distinguishes "secret not configured" from
@@ -349,7 +363,7 @@ app.post('/login', async (c) => {
   if (!c.env.ADMIN_TOKEN) return renderLoginPage(false, false);
   const body = await c.req.parseBody().catch(() => ({}));
   const input = (typeof body.token === 'string' ? body.token : '').trim();
-  if (input && c.env.ADMIN_TOKEN && input === c.env.ADMIN_TOKEN) {
+  if (input && c.env.ADMIN_TOKEN && constantTimeEquals(input, c.env.ADMIN_TOKEN)) {
     const maxAge = 86400; // 24 hours
     const isHttps = c.req.url.startsWith('https://');
     return new Response(null, {
@@ -735,7 +749,7 @@ app.get('/api/perps', async (c) => {
   ]);
   const cbState = cb || {};
 
-  const perpExchanges = ['mexc_perp', 'binance_perp', 'okx_perp', 'bybit_perp'];
+  const perpExchanges = ['mexc_perp', 'binance_perp', 'bybit_perp'];
   const exchangeStatus = perpExchanges.map(ex => {
     const info = cbState[ex];
     const now = Date.now();
@@ -1333,7 +1347,7 @@ app.post('/telegram/webhook', async (c) => {
       await send(
         `🔷 *Nexus Arbitrage Hub*\n\n` +
         `📊 الاستراتيجيات: CEX + DEX + Perps + Funding Rate\n` +
-        `🏦 المنصات: MEXC, Binance, KuCoin, OKX, Bitget, Bitmart, Bybit, Gate.io\n` +
+        `🏦 المنصات: MEXC, Binance, KuCoin, Bitget, Bitmart, Bybit, Gate.io\n` +
         `📈 الأزواج: 29 زوج من أكبر العملات\n\n` +
         `⚡ *الأوامر:*\n` +
         `/status — حالة البوت والإحصائيات\n` +

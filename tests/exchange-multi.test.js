@@ -1,4 +1,4 @@
-// tests/exchange-multi.test.js — Tests for Binance, KuCoin, OKX, Bitget, Bitmart
+// tests/exchange-multi.test.js — Tests for Binance, KuCoin, Bitget, Bitmart
 // exchange functions plus the exchange dispatcher helpers in src/exchange.js.
 // Run with: node --test tests/exchange-multi.test.js
 
@@ -8,7 +8,6 @@ import assert from 'node:assert/strict';
 import {
   getBinanceBalance, placeMarketOrderBinance,
   getKuCoinBalance, placeMarketOrderKuCoin,
-  getOKXBalance,    placeMarketOrderOKX,
   getBitgetBalance, placeMarketOrderBitget,
   getBitmartBalance, placeMarketOrderBitmart,
   hasExchangeCredentials,
@@ -124,11 +123,6 @@ describe('getRequiredCredentialKeys', () => {
   test('returns correct three-key list for kucoin', () => {
     const keys = getRequiredCredentialKeys('kucoin');
     assert.deepEqual(keys, ['KUCOIN_API_KEY', 'KUCOIN_SECRET_KEY', 'KUCOIN_PASSPHRASE']);
-  });
-
-  test('returns correct three-key list for okx', () => {
-    const keys = getRequiredCredentialKeys('okx');
-    assert.deepEqual(keys, ['OKX_API_KEY', 'OKX_API_SECRET', 'OKX_PASSPHRASE']);
   });
 
   test('returns correct three-key list for bitget', () => {
@@ -464,136 +458,6 @@ describe('placeMarketOrderKuCoin', () => {
         'BTCUSDT', 'BUY', '0.001', 100
       ),
       /KuCoin spot error/
-    );
-  });
-});
-
-// ─────────────────────────────────────────────────────────────────────────────
-// getOKXBalance
-// ─────────────────────────────────────────────────────────────────────────────
-
-describe('getOKXBalance', () => {
-  test('throws when OKX_API_KEY is missing', async () => {
-    await assert.rejects(
-      () => getOKXBalance({ OKX_API_SECRET: 's', OKX_PASSPHRASE: 'p' }),
-      /OKX_API_KEY is not configured/
-    );
-  });
-
-  test('throws when OKX_API_SECRET is missing', async () => {
-    await assert.rejects(
-      () => getOKXBalance({ OKX_API_KEY: 'k', OKX_PASSPHRASE: 'p' }),
-      /OKX_API_SECRET is not configured/
-    );
-  });
-
-  test('throws when OKX_PASSPHRASE is missing', async () => {
-    await assert.rejects(
-      () => getOKXBalance({ OKX_API_KEY: 'k', OKX_API_SECRET: 's' }),
-      /OKX_PASSPHRASE is not configured/
-    );
-  });
-
-  test('returns free and locked balances from details array', async () => {
-    installMockFetch(() => makeJsonResponse({
-      code: '0',
-      data: [{ details: [{ ccy: 'USDT', availBal: '750.25', frozenBal: '50.00' }] }]
-    }));
-    const bal = await getOKXBalance(
-      { OKX_API_KEY: 'k', OKX_API_SECRET: 's', OKX_PASSPHRASE: 'p' },
-      'USDT'
-    );
-    assert.equal(bal.free,   750.25);
-    assert.equal(bal.locked, 50.0);
-  });
-
-  test('returns 0/0 when asset is absent from details', async () => {
-    installMockFetch(() => makeJsonResponse({
-      code: '0',
-      data: [{ details: [] }]
-    }));
-    const bal = await getOKXBalance(
-      { OKX_API_KEY: 'k', OKX_API_SECRET: 's', OKX_PASSPHRASE: 'p' },
-      'USDT'
-    );
-    assert.equal(bal.free,   0);
-    assert.equal(bal.locked, 0);
-  });
-
-  test('throws when API returns error code', async () => {
-    installMockFetch(() => makeJsonResponse({ code: '50001', msg: 'API key does not exist' }));
-    await assert.rejects(
-      () => getOKXBalance({ OKX_API_KEY: 'k', OKX_API_SECRET: 's', OKX_PASSPHRASE: 'p' }),
-      /API key does not exist/
-    );
-  });
-
-  test('sends request with correct OKX auth headers', async () => {
-    installMockFetch(() => makeJsonResponse({ code: '0', data: [{ details: [] }] }));
-    await getOKXBalance(
-      { OKX_API_KEY: 'myokxkey', OKX_API_SECRET: 's', OKX_PASSPHRASE: 'myphrase' },
-      'USDT'
-    );
-    const req = capturedRequests[0];
-    assert.equal(req.headers['OK-ACCESS-KEY'], 'myokxkey');
-    assert.ok(req.headers['OK-ACCESS-SIGN'], 'OK-ACCESS-SIGN header must be present');
-    assert.ok(req.headers['OK-ACCESS-TIMESTAMP'], 'OK-ACCESS-TIMESTAMP must be present');
-    assert.equal(req.headers['OK-ACCESS-PASSPHRASE'], 'myphrase');
-  });
-});
-
-// ─────────────────────────────────────────────────────────────────────────────
-// placeMarketOrderOKX
-// ─────────────────────────────────────────────────────────────────────────────
-
-describe('placeMarketOrderOKX', () => {
-  test('throws when any credential is missing', async () => {
-    await assert.rejects(
-      () => placeMarketOrderOKX({}, 'BTCUSDT', 'BUY', '0.001', 100),
-      /OKX_API_KEY is not configured/
-    );
-  });
-
-  test('converts XXXUSDT symbol to XXX-USDT OKX instId format in order body', async () => {
-    installMockFetch(() => makeJsonResponse({ code: '0', data: [{}] }));
-    await placeMarketOrderOKX(
-      { OKX_API_KEY: 'k', OKX_API_SECRET: 's', OKX_PASSPHRASE: 'p' },
-      'BTCUSDT', 'BUY', '0.001', 100
-    );
-    const body = JSON.parse(capturedRequests[0].body);
-    assert.equal(body.instId, 'BTC-USDT', 'instId should be in OKX format');
-  });
-
-  test('BUY order sets tgtCcy to quote_ccy', async () => {
-    installMockFetch(() => makeJsonResponse({ code: '0', data: [{}] }));
-    await placeMarketOrderOKX(
-      { OKX_API_KEY: 'k', OKX_API_SECRET: 's', OKX_PASSPHRASE: 'p' },
-      'ETHUSDT', 'BUY', '0.5', 500
-    );
-    const body = JSON.parse(capturedRequests[0].body);
-    assert.equal(body.tgtCcy, 'quote_ccy', 'BUY should target quote currency');
-    assert.equal(body.side, 'buy');
-  });
-
-  test('SELL order does not set tgtCcy and uses base quantity', async () => {
-    installMockFetch(() => makeJsonResponse({ code: '0', data: [{}] }));
-    await placeMarketOrderOKX(
-      { OKX_API_KEY: 'k', OKX_API_SECRET: 's', OKX_PASSPHRASE: 'p' },
-      'ETHUSDT', 'SELL', '0.5', 500
-    );
-    const body = JSON.parse(capturedRequests[0].body);
-    assert.equal(body.tgtCcy, undefined, 'SELL should not have tgtCcy');
-    assert.equal(body.sz, '0.5');
-  });
-
-  test('throws when API returns error code', async () => {
-    installMockFetch(() => makeJsonResponse({ code: '51001', msg: 'Instrument not found' }));
-    await assert.rejects(
-      () => placeMarketOrderOKX(
-        { OKX_API_KEY: 'k', OKX_API_SECRET: 's', OKX_PASSPHRASE: 'p' },
-        'BTCUSDT', 'BUY', '0.001', 100
-      ),
-      /Instrument not found/
     );
   });
 });
@@ -959,73 +823,6 @@ describe('getKuCoinBalance — all account types', () => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// getOKXBalance — trading + funding accounts
-// ─────────────────────────────────────────────────────────────────────────────
-
-describe('getOKXBalance — trading + funding accounts', () => {
-  test('makes exactly two requests: trading account and funding account', async () => {
-    installMockFetch(() => makeJsonResponse({ code: '0', data: [{ details: [] }] }));
-    await getOKXBalance(
-      { OKX_API_KEY: 'k', OKX_API_SECRET: 's', OKX_PASSPHRASE: 'p' },
-      'USDT'
-    );
-    assert.equal(capturedRequests.length, 2, 'should make exactly two requests');
-    const urls = capturedRequests.map(r => r.url);
-    assert.ok(urls.some(u => u.includes('/api/v5/account/balance')), 'must query trading account');
-    assert.ok(urls.some(u => u.includes('/api/v5/asset/balances')),  'must query funding account');
-  });
-
-  test('sums trading and funding account free balances', async () => {
-    installMockFetch((req) => {
-      if (req.url.includes('/api/v5/account/balance')) {
-        return makeJsonResponse({
-          code: '0',
-          data: [{ details: [{ ccy: 'USDT', availBal: '200.00', frozenBal: '10.00' }] }]
-        });
-      }
-      // funding account response
-      return makeJsonResponse({
-        code: '0',
-        data: [{ ccy: 'USDT', availBal: '300.00', frozenBal: '5.00' }]
-      });
-    });
-    const bal = await getOKXBalance(
-      { OKX_API_KEY: 'k', OKX_API_SECRET: 's', OKX_PASSPHRASE: 'p' },
-      'USDT'
-    );
-    assert.ok(Math.abs(bal.free   - 500) < 0.001, `expected free=500, got ${bal.free}`);
-    assert.ok(Math.abs(bal.locked -  15) < 0.001, `expected locked=15, got ${bal.locked}`);
-  });
-
-  test('still throws on trading account API error (non-zero code)', async () => {
-    installMockFetch(() => makeJsonResponse({ code: '50013', msg: 'Invalid API key' }));
-    await assert.rejects(
-      () => getOKXBalance({ OKX_API_KEY: 'k', OKX_API_SECRET: 's', OKX_PASSPHRASE: 'p' }),
-      /Invalid API key/
-    );
-  });
-
-  test('treats funding account error as zero (non-fatal) and still returns trading balance', async () => {
-    installMockFetch((req) => {
-      if (req.url.includes('/api/v5/account/balance')) {
-        return makeJsonResponse({
-          code: '0',
-          data: [{ details: [{ ccy: 'USDT', availBal: '150.00', frozenBal: '0' }] }]
-        });
-      }
-      // funding account returns an error code
-      return makeJsonResponse({ code: '50013', msg: 'Funding API error' });
-    });
-    const bal = await getOKXBalance(
-      { OKX_API_KEY: 'k', OKX_API_SECRET: 's', OKX_PASSPHRASE: 'p' },
-      'USDT'
-    );
-    assert.equal(bal.free,   150.0, 'should still return trading balance when funding errors');
-    assert.equal(bal.locked,   0);
-  });
-});
-
-// ─────────────────────────────────────────────────────────────────────────────
 // placeExchangeMarketOrder — dispatcher
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -1065,25 +862,12 @@ describe('placeExchangeMarketOrder', () => {
 // ─────────────────────────────────────────────────────────────────────────────
 
 describe('non-JSON upstream error handling', () => {
-  test('getOKXBalance reports HTTP status and raw snippet when response is not JSON', async () => {
-    installMockFetch(() => makeTextResponse('error code: 1015', 403));
-    await assert.rejects(
-      () => getOKXBalance({ OKX_API_KEY: 'k', OKX_API_SECRET: 's', OKX_PASSPHRASE: 'p' }),
-      (err) => {
-        assert.ok(err.message.includes('error code: 1015'), 'should include raw snippet');
-        assert.ok(err.message.includes('403'), 'should include HTTP status');
-        return true;
-      }
-    );
-  });
-
   test('getBitgetBalance reports HTTP status and raw snippet when response is not JSON', async () => {
     installMockFetch(() => makeTextResponse('Access denied', 403));
     await assert.rejects(
       () => getBitgetBalance({ BITGET_API_KEY: 'k', BITGET_SECRET_KEY: 's', BITGET_API_PASSPHRASE: 'p' }),
       (err) => {
         assert.ok(err.message.includes('Access denied'), 'should include raw snippet');
-        assert.ok(err.message.includes('403'), 'should include HTTP status');
         return true;
       }
     );

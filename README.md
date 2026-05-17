@@ -29,7 +29,7 @@ Add these in your repo → Settings → Secrets and variables → Actions → **
 | `TELEGRAM_CHAT_ID` | Telegram chat/group ID (optional) |
 | `MEXC_API_KEY` + `MEXC_API_SECRET` | MEXC exchange keys (needed for live execution) |
 | `BINANCE_API_KEY` + `BINANCE_API_SECRET` | Binance keys (optional) |
-| `OKX_API_KEY` + `OKX_API_SECRET` + `OKX_PASSPHRASE` | OKX keys (optional) |
+| `OKX_API_KEY` + `OKX_API_SECRET` + `OKX_PASSPHRASE` | OKX keys (data-only — BaFin restricted, no live execution) |
 | `KUCOIN_API_KEY` + `KUCOIN_SECRET_KEY` + `KUCOIN_PASSPHRASE` | KuCoin keys (optional) |
 | `BITGET_API_KEY` + `BITGET_SECRET_KEY` + `BITGET_API_PASSPHRASE` | Bitget keys (optional) |
 | `BITMART_API_KEY` + `BITMART_SECRET_KEY` + `BITMART_MEMO` | Bitmart keys (optional) |

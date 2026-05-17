@@ -11,8 +11,6 @@ import {
   getKuCoinPrice,
   getMEXCPerpPrice,
   getBinancePerpData,
-  getOKXPerpData,
-  getOKXPrice,
   getBitgetPrice,
   getBitmartPrice,
   getAlchemyPrice,
@@ -263,103 +261,6 @@ describe('getBinancePerpData', () => {
   });
 });
 
-// ─────────────────────────────────────────────────────────────────────────────
-// getOKXPerpData
-// ─────────────────────────────────────────────────────────────────────────────
-
-describe('getOKXPerpData', () => {
-  test('converts XXXUSDT symbol to BTC-USDT-SWAP OKX Swap instId format', async () => {
-    let capturedTickerUrl = '';
-    globalThis.fetch = async (url) => {
-      if (url.includes('market/ticker')) {
-        capturedTickerUrl = url;
-        return makeResponse({ code: '0', data: [{ last: '45300.0' }] });
-      }
-      return makeResponse({ code: '0', data: [{ fundingRate: '0.0002' }] });
-    };
-    await getOKXPerpData('BTCUSDT');
-    assert.ok(capturedTickerUrl.includes('BTC-USDT-SWAP'), 'URL should contain BTC-USDT-SWAP instId');
-    assert.ok(!capturedTickerUrl.includes('BTCUSDT'), 'URL should NOT contain unformatted BTCUSDT');
-  });
-
-  test('returns perp data with fundingRate on success', async () => {
-    globalThis.fetch = async (url) => {
-      if (url.includes('market/ticker'))
-        return makeResponse({ code: '0', data: [{ last: '45300.0' }] });
-      return makeResponse({ code: '0', data: [{ fundingRate: '0.0002' }] });
-    };
-    const result = await getOKXPerpData('BTCUSDT');
-    assert.notEqual(result, null);
-    assert.equal(result.price, 45300.0);
-    assert.equal(result.exchange, 'okx_perp');
-    assert.equal(result.fee, 0.0005);
-    assert.equal(result.fundingRate, 0.0002);
-  });
-
-  test('returns null when OKX ticker code is not "0" (symbol not listed)', async () => {
-    globalThis.fetch = async (url) => {
-      if (url.includes('market/ticker'))
-        return makeResponse({ code: '51001', msg: 'Instrument not found' });
-      return makeResponse({ code: '0', data: [] });
-    };
-    assert.equal(await getOKXPerpData('BTCUSDT'), null);
-  });
-
-  test('defaults fundingRate to 0 when funding data is absent', async () => {
-    globalThis.fetch = async (url) => {
-      if (url.includes('market/ticker'))
-        return makeResponse({ code: '0', data: [{ last: '45300.0' }] });
-      return makeResponse({ code: '0', data: [] });
-    };
-    const result = await getOKXPerpData('BTCUSDT');
-    assert.notEqual(result, null);
-    assert.equal(result.fundingRate, 0);
-  });
-
-  test('returns null when HTTP 4xx (symbol not in swap)', async () => {
-    globalThis.fetch = async () => makeResponse({}, 404);
-    assert.equal(await getOKXPerpData('BTCUSDT'), null);
-  });
-
-  test('throws on HTTP 5xx server error', async () => {
-    globalThis.fetch = async () => makeResponse({}, 503);
-    await assert.rejects(
-      () => getOKXPerpData('BTCUSDT'),
-      /OKX Swap HTTP 503/
-    );
-  });
-});
-
-// ─────────────────────────────────────────────────────────────────────────────
-
-describe('getOKXPrice', () => {
-  test('converts XXXUSDT symbol to XXX-USDT OKX instId format', async () => {
-    installMockFetch(() => makeResponse({ code: '0', data: [{ last: '45100.0' }] }));
-    await getOKXPrice('BTCUSDT');
-    assert.ok(capturedUrl.includes('BTC-USDT'), 'URL should use OKX instId format');
-  });
-
-  test('returns price source on success', async () => {
-    installMockFetch(() => makeResponse({ code: '0', data: [{ last: '45100.0' }] }));
-    const result = await getOKXPrice('BTCUSDT');
-    assert.notEqual(result, null);
-    assert.equal(result.price, 45100.0);
-    assert.equal(result.exchange, 'okx');
-    assert.equal(result.fee, 0.001);
-  });
-
-  test('returns null when API code is not "0"', async () => {
-    installMockFetch(() => makeResponse({ code: '51001', msg: 'Instrument not found' }));
-    assert.equal(await getOKXPrice('BTCUSDT'), null);
-  });
-
-  test('returns null when last price field is absent', async () => {
-    installMockFetch(() => makeResponse({ code: '0', data: [{}] }));
-    assert.equal(await getOKXPrice('BTCUSDT'), null);
-  });
-});
-
-// ─────────────────────────────────────────────────────────────────────────────
 // getBitgetPrice
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -541,14 +442,14 @@ describe('get0xPrice', () => {
 
 describe('getAllSpotPrices', () => {
   test('returns empty array when all exchanges are in openCircuits', async () => {
-    const openCircuits = new Set(['mexc', 'binance', 'kucoin', 'okx', 'bitget', 'bitmart']);
+    const openCircuits = new Set(['mexc', 'binance', 'kucoin', 'bitget', 'bitmart']);
     const results = await getAllSpotPrices({}, 'BTCUSDT', openCircuits);
     assert.equal(results.length, 0);
   });
 
   test('skips exchanges listed in openCircuits and returns only active ones', async () => {
     // Only binance is NOT in openCircuits
-    const openCircuits = new Set(['mexc', 'kucoin', 'okx', 'bitget', 'bitmart']);
+    const openCircuits = new Set(['mexc', 'kucoin', 'bitget', 'bitmart']);
     const fetchedHosts = [];
     globalThis.fetch = async (url) => {
       const host = new URL(url).hostname;
@@ -569,7 +470,7 @@ describe('getAllSpotPrices', () => {
 
   test('filters out null results from failed exchange fetches', async () => {
     // Only binance is not in openCircuits; others return circuit-breaker null
-    const openCircuits = new Set(['mexc', 'kucoin', 'okx', 'bitget', 'bitmart']);
+    const openCircuits = new Set(['mexc', 'kucoin', 'bitget', 'bitmart']);
     globalThis.fetch = async (url) => {
       if (new URL(url).hostname === 'api.binance.com') return makeResponse({ price: '45000.0' });
       return makeResponse({}, 500);
@@ -580,7 +481,7 @@ describe('getAllSpotPrices', () => {
   });
 
   test('returns results from multiple non-circuit exchanges', async () => {
-    const openCircuits = new Set(['okx', 'bitget', 'bitmart']); // mexc, binance, kucoin active
+    const openCircuits = new Set(['bitget', 'bitmart']); // mexc, binance, kucoin active
     globalThis.fetch = async (url) => {
       const host = new URL(url).hostname;
       if (host === 'api.mexc.com')    return makeResponse({ price: '45000.0' });

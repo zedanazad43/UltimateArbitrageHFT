@@ -191,56 +191,6 @@ export async function getBinancePerpData(symbol) {
   return { price, exchange: 'binance_perp', fee: 0.0004, fundingRate };
 }
 
-/**
- * Fetches OKX Swap (perpetuals) price and current funding rate.
- * - Throws on 5xx server errors so the circuit breaker can detect outages.
- * - Returns null when the symbol has no swap contract (OKX code !== '0').
- * - Transport-level errors throw naturally.
- * instId format: BTC-USDT-SWAP
- */
-export async function getOKXPerpData(symbol) {
-  const baseAsset = symbol.replace(/USDT$/, '');
-  const instId    = `${baseAsset}-USDT-SWAP`;
-  const [tickerResp, fundingResp] = await Promise.all([
-    fetchWithRetry(
-      `https://www.okx.com/api/v5/market/ticker?instId=${instId}`,
-      FETCH_CF
-    ),
-    fetchWithRetry(
-      `https://www.okx.com/api/v5/public/funding-rate?instId=${instId}`,
-      FETCH_CF
-    )
-  ]);
-
-  if (!tickerResp) return null;
-  if (tickerResp.status >= 500) {
-    await tickerResp.body?.cancel();
-    await fundingResp?.body?.cancel();
-    throw new Error(`OKX Swap HTTP ${tickerResp.status} for ${instId}`);
-  }
-  if (!tickerResp.ok) {
-    await tickerResp.body?.cancel();
-    await fundingResp?.body?.cancel();
-    return null;
-  }
-
-  const tickerData = await tickerResp.json();
-  if (tickerData.code !== '0' || !tickerData.data?.[0]?.last) return null;
-  const price = parseFloat(tickerData.data[0].last);
-  if (!price || isNaN(price)) return null;
-
-  let fundingRate = DEFAULT_FUNDING_RATE;
-  if (fundingResp && fundingResp.ok) {
-    const fundingData = await fundingResp.json();
-    if (fundingData.code === '0' && fundingData.data?.[0]?.fundingRate) {
-      fundingRate = parseFloat(fundingData.data[0].fundingRate);
-    }
-  } else {
-    await fundingResp?.body?.cancel();
-  }
-  return { price, exchange: 'okx_perp', fee: 0.0005, fundingRate };
-}
-
 // ── DEX prices ────────────────────────────────────────────────────────────────
 
 // ── DEXScreener public price ──────────────────────────────────────────────────
@@ -431,22 +381,6 @@ export async function getCoinbasePrice(symbol) {
 
 
 
-export async function getOKXPrice(symbol) {
-  try {
-    const okxInstId = symbol.replace(/USDT$/, '-USDT');
-    const resp = await fetchWithRetry(
-      `https://www.okx.com/api/v5/market/ticker?instId=${okxInstId}`,
-      FETCH_CF
-    );
-    if (!resp || !resp.ok) { await resp?.body?.cancel(); return null; }
-    const data = await resp.json();
-    if (data.code !== '0' || !data.data?.[0]?.last) return null;
-    const price = parseFloat(data.data[0].last);
-    if (!price || isNaN(price)) return null;
-    return { price, exchange: 'okx', fee: 0.001 };
-  } catch (_) { return null; }
-}
-
 // ── Bitget spot price ─────────────────────────────────────────────────────────
 
 export async function getBitgetPrice(symbol) {
@@ -609,39 +543,6 @@ export async function getMEXCCrossPrice(crossSymbol) {
 }
 
 /**
- * Converts a compact cross-pair symbol (e.g. ETHBTC) to OKX instId format (e.g. ETH-BTC).
- * Handles BTC-quoted, ETH-quoted, and BNB-quoted pairs.
- */
-function toOKXCrossInstId(crossSymbol) {
-  for (const quote of ['BTC', 'ETH', 'BNB', 'USDT']) {
-    if (crossSymbol.endsWith(quote) && crossSymbol.length > quote.length) {
-      const base = crossSymbol.slice(0, -quote.length);
-      return `${base}-${quote}`;
-    }
-  }
-  return crossSymbol; // fallback
-}
-
-/**
- * Fetches a cross-pair price from OKX (public endpoint, no API key required).
- * Used for triangular arbitrage cross-pair data on OKX.
- */
-export async function getOKXCrossPrice(crossSymbol) {
-  try {
-    const instId = toOKXCrossInstId(crossSymbol);
-    const resp = await fetchWithRetry(
-      `https://www.okx.com/api/v5/market/ticker?instId=${instId}`,
-      FETCH_CF
-    );
-    if (!resp || !resp.ok) { await resp?.body?.cancel(); return null; }
-    const data = await resp.json();
-    if (data.code !== '0' || !data.data?.[0]?.last) return null;
-    const price = parseFloat(data.data[0].last);
-    if (!price || isNaN(price)) return null;
-    return price;
-  } catch (_) { return null; }
-}
-
 /**
  * Fetches a cross-pair price from KuCoin (public endpoint, no API key required).
  * Used for triangular arbitrage cross-pair data on KuCoin.
@@ -693,7 +594,7 @@ export async function getBybitCrossPrice(crossSymbol) {
  * Returns a map of { symbol: price } for each requested cross symbol.
  * Uses all available public sources (no API key required) with ordered fallback.
  *
- * Source priority: Binance (deepest liquidity) → MEXC → OKX → KuCoin → Bybit
+ * Source priority: Binance (deepest liquidity) → MEXC → KuCoin → Bybit
  *
  * @param {string[]} crossSymbols  — e.g. ['ETHBTC', 'BNBBTC', 'XRPBTC']
  * @returns {object}  { ETHBTC: 0.052, BNBBTC: 0.0084, ... }
@@ -704,7 +605,6 @@ export async function getCrossPairPrices(crossSymbols) {
     const price = (
       await getBinanceCrossPrice(sym) ??
       await getMEXCCrossPrice(sym)    ??
-      await getOKXCrossPrice(sym)     ??
       await getKuCoinCrossPrice(sym)  ??
       await getBybitCrossPrice(sym)
     );
@@ -735,7 +635,6 @@ export async function getAllSpotPrices(env, symbol, openCircuits = new Set()) {
     ['mexc',     () => getMarketStreamerPrice(env, symbol)],
     ['binance',  () => getBinancePrice(symbol)],            // (*) public
     ['kucoin',   () => getKuCoinPrice(symbol)],             // (*) public
-    ['okx',      () => getOKXPrice(symbol)],                // (*) public
     ['bitget',   () => getBitgetPrice(symbol)],             // (*) public
     ['bitmart',  () => getBitmartPrice(symbol)],            // (*) public
     ['bybit',    () => getBybitSpotPrice(symbol)],          // (*) public

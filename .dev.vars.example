@@ -19,9 +19,6 @@ ADMIN_TOKEN=change-me-local-dev
 # ── Telegram notifications ───────────────────────────────────
 # Bot token from @BotFather and your chat/channel ID.
 # Leave blank to disable Telegram alerts during local dev.
-TELEGRAM_BOT_TOKEN=
-TELEGRAM_CHAT_ID=
-
 # ── MEXC ─────────────────────────────────────────────────────
 MEXC_API_KEY=
 MEXC_API_SECRET=
@@ -37,11 +34,6 @@ KUCOIN_SECRET_KEY=
 KUCOIN_PASSPHRASE=
 # Alias also accepted for the secret:  KUCOIN_API_SECRET=
 
-# ── OKX ──────────────────────────────────────────────────────
-OKX_API_KEY=
-OKX_API_SECRET=
-OKX_PASSPHRASE=
-
 # ── Bitget ───────────────────────────────────────────────────
 # Canonical names (recommended):
 BITGET_API_KEY=
@@ -55,6 +47,16 @@ BITMART_API_KEY=
 BITMART_SECRET_KEY=
 BITMART_MEMO=
 # Alias also accepted for the secret:  BITMART_API_SECRET=
+
+# ── Proxy routing mode ─────────────────────────────────────
+# PROXY_MODE values:
+#   auto     -> use proxy when configured, fallback direct on failure
+#   off      -> always direct (good for servers outside proxy)
+#   required -> fail requests if proxy is unavailable
+PROXY_MODE=auto
+# Optional: exchanges that should always bypass proxy in auto mode.
+# Example: DIRECT_EXCHANGES=bitmart,mexc
+DIRECT_EXCHANGES=
 
 # ── GitHub Models AI ─────────────────────────────────────────
 # Personal Access Token (classic) or fine-grained PAT used to call

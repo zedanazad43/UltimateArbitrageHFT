@@ -925,7 +925,7 @@ ${autoStopBanner}
       const { text } = await callAdminApi('/api/status');
       const json=JSON.parse(text);
       const cb=json.circuitBreaker||{};
-      const active=['mexc','mexc_perp','binance_perp','okx_perp','binance','kucoin','okx','bitget','bitmart','htx'];
+      const active=['mexc','mexc_perp','binance_perp','binance','kucoin','bitget','bitmart','htx'];
       const dataOnly=['bybit','gateio','bybit_perp'];
       const items=[
         ...active.map(ex=>{
@@ -934,7 +934,7 @@ ${autoStopBanner}
           const failures=info?.failures||0;
           const cls=open?'cb-open':'cb-ok';
           const label=open?\`🔴 مفتوح (\${failures} أخطاء)\`:\`✅ سليم\`;
-          const isDataOnly=['binance_perp','okx_perp'].includes(ex);
+          const isDataOnly=['binance_perp'].includes(ex);
           return \`<div class="cb-card"\${isDataOnly?' style="opacity:.75"':''}><div class="name">\${ex.toUpperCase()}</div><div class="\${cls}">\${label}\${isDataOnly?' <span style="font-size:.72em;color:#888">(feed)</span>':''}</div></div>\`;
         }),
         ...dataOnly.map(ex=>\`<div class="cb-card" style="opacity:.4"><div class="name">\${ex.toUpperCase()}</div><div style="color:#888;font-size:.78em">📊 بيانات فقط</div></div>\`)
@@ -1490,7 +1490,7 @@ export async function renderChecklist(env) {
     { name: 'Binance API Key',          ok: !!env.BINANCE_API_KEY,       critical: false, note: 'مطلوب لتنفيذ Binance Spot' },
     { name: 'Binance API Secret',       ok: !!env.BINANCE_API_SECRET,    critical: false, note: 'مطلوب لتنفيذ Binance Spot' },
     { name: 'KuCoin API Key',           ok: !!env.KUCOIN_API_KEY,        critical: false, note: 'مطلوب لتنفيذ KuCoin' },
-    { name: 'OKX API Key',              ok: !!env.OKX_API_KEY,           critical: false, note: 'مطلوب لتنفيذ OKX Spot' },
+    // { name: 'OKX API Key (data-only)',  ok: !!env.OKX_API_KEY,           critical: false, note: 'OKX = data-only (BaFin) — لا تنفيذ حي' },
     { name: 'Bitget API Key',           ok: !!env.BITGET_API_KEY,        critical: false, note: 'مطلوب لتنفيذ Bitget' },
     { name: 'Bitget Secret + Passphrase',ok: !!(env.BITGET_SECRET_KEY && env.BITGET_API_PASSPHRASE), critical: false, note: 'مطلوب لتنفيذ Bitget' },
     { name: 'Bitmart API Key',          ok: !!env.BITMART_API_KEY,       critical: false, note: 'مطلوب لتنفيذ Bitmart' },
@@ -1502,7 +1502,7 @@ export async function renderChecklist(env) {
     { name: 'Alchemy API Key',          ok: !!env.ALCHEMY_API_KEY,       critical: false, note: 'اختياري: يحسّن دقة مسح DEX (يوجد fallback عام بدون مفتاح)' },
     { name: 'Perps — MEXC Futures',     ok: !!(env.MEXC_API_KEY && env.MEXC_API_SECRET), critical: true,  note: 'تنفيذ MEXC Futures للعقود الدائمة' },
     { name: 'Perps — Binance USDM Feed',ok: true,                        critical: false, note: 'بيانات أسعار Binance Futures (مجاني، لا مفتاح مطلوب)' },
-    { name: 'Perps — OKX Swap Feed',    ok: true,                        critical: false, note: 'بيانات أسعار OKX Perpetuals (مجاني، لا مفتاح مطلوب)' },
+    // { name: 'Perps — OKX Swap Feed',    ok: true,                        critical: false, note: 'بيانات أسعار OKX Perpetuals (مجاني، لا مفتاح مطلوب)' },
     { name: 'وضع Live مفعّل',           ok: state.paper_trading === false, critical: true, note: 'التداول الحقيقي' },
     { name: 'حد الخسارة اليومية',       ok: !!(state.max_daily_loss_usd), critical: true, note: `الحالي: $${state.max_daily_loss_usd ?? 25}` },
     { name: 'التداول مفعّل',            ok: state.trading_enabled !== false, critical: false, note: 'يجب التشغيل قبل المسح' },

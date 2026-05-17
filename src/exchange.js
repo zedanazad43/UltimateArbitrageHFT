@@ -1,4 +1,7 @@
-// nexus/src/exchange.js — Exchange order placement (MEXC, Binance, KuCoin, OKX, Bitget, Bitmart)
+// nexus/src/exchange.js — Exchange order placement (MEXC, Binance, KuCoin, Bitget, Bitmart)
+
+import { getGlobalProxyPool } from './infra/proxy-pool.js';
+import { auditLog, secureFetch } from './infra/security.js';
 
 // ── HMAC-SHA256 helpers ───────────────────────────────────────────────────────
 
@@ -13,7 +16,7 @@ async function hmacHex(secret, message) {
     .map(b => b.toString(16).padStart(2, '0')).join('');
 }
 
-/** Returns HMAC-SHA256 as a base64 string (used by KuCoin, OKX, Bitget, Bitmart). */
+/** Returns HMAC-SHA256 as a base64 string (used by KuCoin, Bitget, Bitmart). */
 async function hmacBase64(secret, message) {
   const encoder = new TextEncoder();
   const key = await crypto.subtle.importKey(
@@ -73,7 +76,7 @@ const MAX_ERROR_SNIPPET_LENGTH = 200;
  * of a cryptic SyntaxError.
  *
  * @param {Response} resp     – fetch() Response object
- * @param {string}   context  – short label for the exchange/call (e.g. "OKX trading")
+ * @param {string}   context  – short label for the exchange/call (e.g. "Bitget trading")
  */
 async function parseJsonResponse(resp, context = '') {
   const text = await resp.text();
@@ -82,8 +85,44 @@ async function parseJsonResponse(resp, context = '') {
   } catch (parseErr) {
     const snippet = text.slice(0, MAX_ERROR_SNIPPET_LENGTH);
     const prefix  = context ? `${context}: ` : '';
-    throw new Error(`${prefix}Non-JSON response (HTTP ${resp.status}): ${snippet}`, { cause: parseErr });
+    // Attach HTTP status so callers can detect 429 / 5xx
+    const err = new Error(`${prefix}Non-JSON response (HTTP ${resp.status}): ${snippet}`, { cause: parseErr });
+    err.status = resp.status;
+    throw err;
   }
+}
+
+// ── Exchange-aware fetch helper ──────────────────────────────────────────────
+
+/**
+ * Detects the exchange name from a URL for rate-limiting and proxy routing.
+ * @private
+ */
+function _detectExchangeFromUrl(url) {
+  if (/api\.mexc\.com/i.test(url) || /contract\.mexc\.com/i.test(url)) return 'mexc';
+  if (/api\.binance\.com/i.test(url) || /api-futures\.binance\.com/i.test(url)) return 'binance';
+  if (/api\.kucoin\.com/i.test(url)) return 'kucoin';
+  if (/api\.bitget\.com/i.test(url)) return 'bitget';
+  if (/api-cloud\.bitmart\.com/i.test(url)) return 'bitmart';
+  if (/api\.htx\.com/i.test(url)) return 'htx';
+  if (/api\.bybit\.com/i.test(url)) return 'bybit';
+  if (/api\.gateio\.ws/i.test(url)) return 'gateio';
+  return 'unknown';
+}
+
+/**
+ * Exchange-aware fetch that routes through secureFetch with rate-limiting,
+ * proxy pool integration, retry on transient errors, and 429 backoff.
+ *
+ * @param {string} url      - Target URL
+ * @param {object} options  - fetch() options
+ * @param {string} [exchange] - Override exchange name (auto-detected from URL if omitted)
+ * @param {number} [maxRetries=2] - Max retries on transient errors
+ */
+export async function exchangeFetch(url, options = {}, exchange, maxRetries = 2) {
+  const ex = exchange || _detectExchangeFromUrl(url);
+  const proxyPool = getGlobalProxyPool();
+  return secureFetch(ex, url, options, proxyPool, maxRetries);
 }
 
 /**
@@ -100,7 +139,7 @@ export async function getMEXCBalance(env, asset = 'USDT') {
   const query     = `timestamp=${timestamp}`;
   const signature = await hmacHex(apiSecret, query);
 
-  const resp = await fetch(
+  const resp = await exchangeFetch(
     `https://api.mexc.com/api/v3/account?${query}&signature=${signature}`,
     { headers: { 'X-MEXC-APIKEY': apiKey } }
   );
@@ -186,7 +225,7 @@ export async function getMEXCFuturesBalance(env, currency = 'USDT') {
           headers['recv-window'] = recvWindow.toString();
         }
 
-        const resp = await fetch('https://contract.mexc.com/api/v1/private/account/assets', {
+        const resp = await exchangeFetch('https://contract.mexc.com/api/v1/private/account/assets', {
           headers
         });
         const data = await parseJsonResponse(resp, 'MEXC futures account');
@@ -241,7 +280,7 @@ export async function placeMarketOrderMEXC(env, symbol, side, quantity, sizeUsd)
   params.signature = await hmacHex(apiSecret, serialized);
 
   const body = new URLSearchParams(params).toString();
-  const resp = await fetch('https://api.mexc.com/api/v3/order', {
+  const resp = await exchangeFetch('https://api.mexc.com/api/v3/order', {
     method: 'POST',
     headers: {
       'X-MEXC-APIKEY': apiKey,
@@ -256,7 +295,7 @@ export async function placeMarketOrderMEXC(env, symbol, side, quantity, sizeUsd)
   // parameters in the query string for POST /api/v3/order.
   if (String(data.msg || '').toLowerCase().includes('invalid content type')) {
     const query = new URLSearchParams(params).toString();
-    const retryResp = await fetch(`https://api.mexc.com/api/v3/order?${query}`, {
+    const retryResp = await exchangeFetch(`https://api.mexc.com/api/v3/order?${query}`, {
       method: 'POST',
       headers: {
         'X-MEXC-APIKEY': apiKey
@@ -316,7 +355,7 @@ export async function placeMEXCFuturesOrder(env, symbol, side, quantity, leverag
           headers['recv-window'] = recvWindow.toString();
         }
 
-        const resp = await fetch('https://contract.mexc.com/api/v1/private/order/submit', {
+        const resp = await exchangeFetch('https://contract.mexc.com/api/v1/private/order/submit', {
           method: 'POST',
           headers,
           body: orderBody
@@ -352,7 +391,7 @@ export async function getBinanceBalance(env, asset = 'USDT') {
   const query     = `timestamp=${timestamp}&recvWindow=10000`;
   const signature = await hmacHex(apiSecret, query);
 
-  const resp = await fetch(
+  const resp = await exchangeFetch(
     `https://api.binance.com/api/v3/account?${query}&signature=${signature}`,
     { headers: { 'X-MBX-APIKEY': apiKey } }
   );
@@ -389,7 +428,7 @@ export async function placeMarketOrderBinance(env, symbol, side, quantity, sizeU
   params.signature = await hmacHex(apiSecret, sorted);
 
   const body = new URLSearchParams(params).toString();
-  const resp = await fetch('https://api.binance.com/api/v3/order', {
+  const resp = await exchangeFetch('https://api.binance.com/api/v3/order', {
     method: 'POST',
     headers: {
       'X-MBX-APIKEY': apiKey,
@@ -427,7 +466,7 @@ export async function getKuCoinBalance(env, asset = 'USDT') {
   const signature     = await hmacBase64(apiSecret, strToSign);
   const encPassphrase = await hmacBase64(apiSecret, passphrase);
 
-  const resp = await fetch(`https://api.kucoin.com${path}`, {
+  const resp = await exchangeFetch(`https://api.kucoin.com${path}`, {
     headers: {
       'KC-API-KEY':         apiKey,
       'KC-API-SIGN':        signature,
@@ -479,7 +518,7 @@ export async function placeMarketOrderKuCoin(env, symbol, side, quantity, sizeUs
   const signature      = await hmacBase64(apiSecret, strToSign);
   const encPassphrase  = await hmacBase64(apiSecret, passphrase);
 
-  const resp = await fetch(`https://api.kucoin.com${path}`, {
+  const resp = await exchangeFetch(`https://api.kucoin.com${path}`, {
     method: 'POST',
     headers: {
       'KC-API-KEY':         apiKey,
@@ -493,127 +532,6 @@ export async function placeMarketOrderKuCoin(env, symbol, side, quantity, sizeUs
   });
   const data = await parseJsonResponse(resp, 'KuCoin order');
   if (data.code !== '200000') throw new Error(data.msg || `KuCoin spot error ${data.code}`);
-  return data;
-}
-
-// ── OKX ───────────────────────────────────────────────────────────────────────
-
-/**
- * Fetches the OKX balance for a given asset (default: USDT).
- *
- * OKX has two balance pools:
- *   1. Trading account  — /api/v5/account/balance   (funds available for spot/futures)
- *   2. Funding account  — /api/v5/asset/balances     (deposit wallet, withdraw source)
- *
- * Both are queried and their available balances are summed so that users who
- * have not yet transferred funds from the funding wallet to the trading account
- * still see a non-zero balance.
- */
-export async function getOKXBalance(env, asset = 'USDT') {
-  const apiKey     = env.OKX_API_KEY;
-  const apiSecret  = env.OKX_API_SECRET;
-  const passphrase = env.OKX_PASSPHRASE;
-  if (!apiKey)     throw new Error('OKX_API_KEY is not configured');
-  if (!apiSecret)  throw new Error('OKX_API_SECRET is not configured');
-  if (!passphrase) throw new Error('OKX_PASSPHRASE is not configured');
-
-  // ── 1. Trading (unified) account ─────────────────────────────────────────
-  const tradingTs   = new Date().toISOString();
-  const tradingPath = `/api/v5/account/balance?ccy=${asset}`;
-  const tradingSig  = await hmacBase64(apiSecret, tradingTs + 'GET' + tradingPath);
-
-  const tradingResp = await fetch(`https://www.okx.com${tradingPath}`, {
-    headers: {
-      'OK-ACCESS-KEY':        apiKey,
-      'OK-ACCESS-SIGN':       tradingSig,
-      'OK-ACCESS-TIMESTAMP':  tradingTs,
-      'OK-ACCESS-PASSPHRASE': passphrase
-    }
-  });
-  const tradingData = await parseJsonResponse(tradingResp, 'OKX trading balance');
-  if (tradingData.code !== '0') throw new Error(tradingData.msg || `OKX balance error ${tradingData.code}`);
-
-  const details    = tradingData.data?.[0]?.details || [];
-  const tradingBal = details.find(d => d.ccy === asset);
-  const tradingFree   = parseFloat(tradingBal?.availBal  || '0');
-  const tradingLocked = parseFloat(tradingBal?.frozenBal || '0');
-
-  // ── 2. Funding account ────────────────────────────────────────────────────
-  const fundingTs   = new Date().toISOString();
-  const fundingPath = `/api/v5/asset/balances?ccy=${asset}`;
-  const fundingSig  = await hmacBase64(apiSecret, fundingTs + 'GET' + fundingPath);
-
-  const fundingResp = await fetch(`https://www.okx.com${fundingPath}`, {
-    headers: {
-      'OK-ACCESS-KEY':        apiKey,
-      'OK-ACCESS-SIGN':       fundingSig,
-      'OK-ACCESS-TIMESTAMP':  fundingTs,
-      'OK-ACCESS-PASSPHRASE': passphrase
-    }
-  });
-  const fundingData = await parseJsonResponse(fundingResp, 'OKX funding balance');
-  let fundingFree   = 0;
-  let fundingLocked = 0;
-  if (fundingData.code === '0') {
-    const fundingBal = (fundingData.data || []).find(d => d.ccy === asset);
-    fundingFree   = parseFloat(fundingBal?.availBal  || '0');
-    fundingLocked = parseFloat(fundingBal?.frozenBal || '0');
-  }
-
-  return {
-    free:   tradingFree   + fundingFree,
-    locked: tradingLocked + fundingLocked
-  };
-}
-
-/**
- * Places a market order on OKX spot.
- * BUY: sz = USDT amount, tgtCcy = quote_ccy.
- * SELL: sz = base asset amount.
- * instId format: BTC-USDT.
- */
-export async function placeMarketOrderOKX(env, symbol, side, quantity, sizeUsd) {
-  const apiKey     = env.OKX_API_KEY;
-  const apiSecret  = env.OKX_API_SECRET;
-  const passphrase = env.OKX_PASSPHRASE;
-  if (!apiKey)     throw new Error('OKX_API_KEY is not configured');
-  if (!apiSecret)  throw new Error('OKX_API_SECRET is not configured');
-  if (!passphrase) throw new Error('OKX_PASSPHRASE is not configured');
-
-  const okxInstId  = symbol.replace(/USDT$/, '-USDT');
-  const timestamp  = new Date().toISOString();
-  const path       = '/api/v5/trade/order';
-
-  const orderObj = {
-    instId:  okxInstId,
-    tdMode:  'cash',
-    side:    side.toLowerCase(),
-    ordType: 'market'
-  };
-  if (side.toUpperCase() === 'BUY') {
-    orderObj.sz     = sizeUsd.toFixed(8);  // quote currency (USDT)
-    orderObj.tgtCcy = 'quote_ccy';
-  } else {
-    orderObj.sz = quantity;                // base currency
-  }
-
-  const bodyStr   = JSON.stringify(orderObj);
-  const strToSign = timestamp + 'POST' + path + bodyStr;
-  const signature = await hmacBase64(apiSecret, strToSign);
-
-  const resp = await fetch(`https://www.okx.com${path}`, {
-    method: 'POST',
-    headers: {
-      'OK-ACCESS-KEY':        apiKey,
-      'OK-ACCESS-SIGN':       signature,
-      'OK-ACCESS-TIMESTAMP':  timestamp,
-      'OK-ACCESS-PASSPHRASE': passphrase,
-      'Content-Type':         'application/json'
-    },
-    body: bodyStr
-  });
-  const data = await parseJsonResponse(resp, 'OKX order');
-  if (data.code !== '0') throw new Error(data.msg || `OKX order error ${data.code}`);
   return data;
 }
 
@@ -642,7 +560,7 @@ export async function getBitgetBalance(env, asset = 'USDT') {
 
   for (const host of BITGET_API_HOSTS) {
     try {
-      const resp = await fetch(`https://${host}${requestPath}`, {
+      const resp = await exchangeFetch(`https://${host}${requestPath}`, {
         headers: {
           'ACCESS-KEY':        apiKey,
           'ACCESS-SIGN':       signature,
@@ -704,7 +622,7 @@ export async function placeMarketOrderBitget(env, symbol, side, quantity, sizeUs
   const errors = [];
   for (const host of BITGET_API_HOSTS) {
     try {
-      const resp = await fetch(`https://${host}${path}`, {
+      const resp = await exchangeFetch(`https://${host}${path}`, {
         method: 'POST',
         headers: {
           'ACCESS-KEY':        apiKey,
@@ -745,25 +663,55 @@ export async function getBitmartBalance(env, asset = 'USDT') {
   if (!apiSecret) throw new Error(missingCredError('BITMART_SECRET_KEY'));
   if (!memo)      throw new Error('BITMART_MEMO is not configured');
 
-  const timestamp = Date.now().toString();
-  const strToSign = `${timestamp}#${memo}#`;
-  const signature = await hmacBase64(apiSecret, strToSign);
+  // BitMart has strict rate limits — use proxy + retry
+  const proxyPool = getGlobalProxyPool(env);
+  const maxRetries = 3;
+  let lastError = null;
 
-  const resp = await fetch('https://api-cloud.bitmart.com/spot/v1/wallet', {
-    headers: {
-      'X-BM-KEY':       apiKey,
-      'X-BM-SIGN':      signature,
-      'X-BM-TIMESTAMP': timestamp
+  for (let attempt = 0; attempt < maxRetries; attempt++) {
+    try {
+      const timestamp = Date.now().toString();
+      const strToSign = `${timestamp}#${memo}#`;
+      const signature = await hmacBase64(apiSecret, strToSign);
+
+      const url = 'https://api-cloud.bitmart.com/spot/v1/wallet';
+      const headers = {
+        'X-BM-KEY':       apiKey,
+        'X-BM-SIGN':      signature,
+        'X-BM-TIMESTAMP': timestamp,
+        'Content-Type':   'application/json',
+      };
+
+      const resp = await proxyPool.fetchWithProxy(url, { headers }, 2);
+      const data = await parseJsonResponse(resp, 'Bitmart balance');
+
+      // BitMart rate limit: code 429 or 50006
+      if (data.code === 429 || data.code === 50006) {
+        const backoff = Math.min(1000 * Math.pow(2, attempt), 8000);
+        console.warn(`[bitmart] Rate limited on balance query, retrying in ${backoff}ms (attempt ${attempt + 1}/${maxRetries})`);
+        await new Promise(r => setTimeout(r, backoff));
+        continue;
+      }
+
+      if (data.code !== 1000) {
+        throw new Error(data.message || `Bitmart balance error ${data.code}`);
+      }
+
+      const wallet = (data.data?.wallet || []).find(w => w.currency === asset);
+      return {
+        free:   parseFloat(wallet?.available || '0'),
+        locked: parseFloat(wallet?.frozen    || '0'),
+      };
+    } catch (err) {
+      lastError = err;
+      if (attempt < maxRetries - 1) {
+        const backoff = Math.min(1000 * Math.pow(2, attempt), 8000);
+        console.warn(`[bitmart] Balance query failed: ${err.message}, retrying in ${backoff}ms`);
+        await new Promise(r => setTimeout(r, backoff));
+      }
     }
-  });
-  const data = await parseJsonResponse(resp, 'Bitmart balance');
-  if (data.code !== 1000) throw new Error(data.message || `Bitmart balance error ${data.code}`);
-
-  const wallet = (data.data?.wallet || []).find(w => w.currency === asset);
-  return {
-    free:   parseFloat(wallet?.available || '0'),
-    locked: parseFloat(wallet?.frozen    || '0')
-  };
+  }
+  throw lastError || new Error('Bitmart balance query failed after retries');
 }
 
 /**
@@ -780,38 +728,94 @@ export async function placeMarketOrderBitmart(env, symbol, side, quantity, sizeU
   if (!apiSecret) throw new Error(missingCredError('BITMART_SECRET_KEY'));
   if (!memo)      throw new Error('BITMART_MEMO is not configured');
 
-  // Bitmart uses underscore symbol format: BTC_USDT, SHIB_USDT, etc.
+  // BitMart uses underscore symbol format: BTC_USDT, SHIB_USDT, etc.
   const bmSymbol = symbol.replace(/USDT$/, '_USDT');
-  const timestamp = Date.now().toString();
 
-  const orderObj = {
-    symbol: bmSymbol,
-    side:   side.toLowerCase(),
-    type:   'market'
-  };
-  if (side.toUpperCase() === 'BUY') {
-    orderObj.notional = sizeUsd.toFixed(8);  // USDT amount
-  } else {
-    orderObj.size = quantity;                // base asset amount
+  // BitMart order placement — proxy + retry with exponential backoff
+  const proxyPool = getGlobalProxyPool(env);
+  const maxRetries = 3;
+  let lastError = null;
+
+  for (let attempt = 0; attempt < maxRetries; attempt++) {
+    try {
+      const timestamp = Date.now().toString();
+
+      const orderObj = {
+        symbol: bmSymbol,
+        side:   side.toLowerCase(),
+        type:   'market',
+      };
+      if (side.toUpperCase() === 'BUY') {
+        orderObj.notional = sizeUsd.toFixed(8);  // USDT amount
+      } else {
+        orderObj.size = quantity;                // base asset amount
+      }
+
+      const bodyStr   = JSON.stringify(orderObj);
+      const strToSign = `${timestamp}#${memo}#${bodyStr}`;
+      const signature = await hmacBase64(apiSecret, strToSign);
+
+      const url = 'https://api-cloud.bitmart.com/spot/v2/submit_order';
+      const resp = await proxyPool.fetchWithProxy(url, {
+        method: 'POST',
+        headers: {
+          'X-BM-KEY':       apiKey,
+          'X-BM-SIGN':      signature,
+          'X-BM-TIMESTAMP': timestamp,
+          'Content-Type':   'application/json',
+        },
+        body: bodyStr,
+      }, 2);
+
+      const data = await parseJsonResponse(resp, 'Bitmart order');
+
+      // BitMart rate limit: code 429 or 50006
+      if (data.code === 429 || data.code === 50006) {
+        const backoff = Math.min(1500 * Math.pow(2, attempt), 10000);
+        console.warn(`[bitmart] Rate limited on order, retrying in ${backoff}ms (attempt ${attempt + 1}/${maxRetries})`);
+        await new Promise(r => setTimeout(r, backoff));
+        continue;
+      }
+
+      // BitMart insufficient balance: code 40001 or 50011
+      if (data.code === 40001 || data.code === 50011) {
+        throw new Error(`BitMart insufficient balance: ${data.message || data.code}`);
+      }
+
+      // BitMart trading restricted / symbol issues: code 40005, 40006
+      if (data.code === 40005 || data.code === 40006) {
+        throw new Error(`BitMart trading restricted: ${data.message || data.code}`);
+      }
+
+      if (data.code !== 1000) {
+        throw new Error(data.message || `Bitmart order error ${data.code}`);
+      }
+
+      auditLog({
+        type: 'bitmart_order_placed',
+        level: 'info',
+        details: {
+          symbol: bmSymbol, side, sizeUsd,
+          orderId: data.data?.order_id,
+          attempt: attempt + 1,
+        },
+      });
+
+      return data;
+    } catch (err) {
+      lastError = err;
+      // Don't retry on balance/restriction errors — they won't change
+      if (err.message.includes('insufficient balance') || err.message.includes('trading restricted')) {
+        throw err;
+      }
+      if (attempt < maxRetries - 1) {
+        const backoff = Math.min(1500 * Math.pow(2, attempt), 10000);
+        console.warn(`[bitmart] Order failed: ${err.message}, retrying in ${backoff}ms`);
+        await new Promise(r => setTimeout(r, backoff));
+      }
+    }
   }
-
-  const bodyStr   = JSON.stringify(orderObj);
-  const strToSign = `${timestamp}#${memo}#${bodyStr}`;
-  const signature = await hmacBase64(apiSecret, strToSign);
-
-  const resp = await fetch('https://api-cloud.bitmart.com/spot/v2/submit_order', {
-    method: 'POST',
-    headers: {
-      'X-BM-KEY':       apiKey,
-      'X-BM-SIGN':      signature,
-      'X-BM-TIMESTAMP': timestamp,
-      'Content-Type':   'application/json'
-    },
-    body: bodyStr
-  });
-  const data = await parseJsonResponse(resp, 'Bitmart order');
-  if (data.code !== 1000) throw new Error(data.message || `Bitmart order error ${data.code}`);
-  return data;
+  throw lastError || new Error('Bitmart order failed after retries');
 }
 
 // ── Bybit ─────────────────────────────────────────────────────────────────────
@@ -831,7 +835,7 @@ export async function getBybitBalance(env, asset = 'USDT') {
   const rawSign    = timestamp + apiKey + recvWindow + params;
   const signature  = await hmacHex(apiSecret, rawSign);
 
-  const resp = await fetch(
+  const resp = await exchangeFetch(
     `https://api.bybit.com/v5/account/wallet-balance?${params}`,
     {
       headers: {
@@ -879,7 +883,7 @@ export async function placeMarketOrderBybit(env, symbol, side, quantity, sizeUsd
   const rawSign   = timestamp + apiKey + recvWindow + bodyStr;
   const signature = await hmacHex(apiSecret, rawSign);
 
-  const resp = await fetch('https://api.bybit.com/v5/order/create', {
+  const resp = await exchangeFetch('https://api.bybit.com/v5/order/create', {
     method: 'POST',
     headers: {
       'X-BAPI-API-KEY':     apiKey,
@@ -933,7 +937,7 @@ export async function getGateioBalance(env, asset = 'USDT') {
   const rawSign   = `${method}\n${path}\n${query}\n${bodyHash}\n${timestamp}`;
   const signature = await hmacSha512Hex(apiSecret, rawSign);
 
-  const resp = await fetch(`https://api.gateio.ws${path}?${query}`, {
+  const resp = await exchangeFetch(`https://api.gateio.ws${path}?${query}`, {
     headers: {
       'KEY':       apiKey,
       'SIGN':      signature,
@@ -979,7 +983,7 @@ export async function placeMarketOrderGateio(env, symbol, side, quantity, sizeUs
   const rawSign   = `${method}\n${path}\n${query}\n${bodyHash}\n${timestamp}`;
   const signature = await hmacSha512Hex(apiSecret, rawSign);
 
-  const resp = await fetch(`https://api.gateio.ws${path}`, {
+  const resp = await exchangeFetch(`https://api.gateio.ws${path}`, {
     method: 'POST',
     headers: {
       'KEY':          apiKey,
@@ -1020,7 +1024,7 @@ export async function getHTXBalance(env, asset = 'usdt') {
   const signature  = await hmacBase64(apiSecret, payload);
   params.append('Signature', signature);
 
-  const resp = await fetch(`https://${host}${path}?${params}`, { method });
+  const resp = await exchangeFetch(`https://${host}${path}?${params}`, { method });
   const data = await parseJsonResponse(resp, 'HTX accounts');
   if (data.status !== 'ok') throw new Error(data['err-msg'] || `HTX accounts error`);
 
@@ -1041,7 +1045,7 @@ export async function getHTXBalance(env, asset = 'usdt') {
   const balSignature = await hmacBase64(apiSecret, balPayload);
   balParams.append('Signature', balSignature);
 
-  const balResp = await fetch(`https://${host}${balPath}?${balParams}`);
+  const balResp = await exchangeFetch(`https://${host}${balPath}?${balParams}`);
   const balData = await parseJsonResponse(balResp, 'HTX balance');
   if (balData.status !== 'ok') throw new Error(balData['err-msg'] || 'HTX balance error');
 
@@ -1084,7 +1088,7 @@ export async function placeMarketOrderHTX(env, symbol, side, quantity, sizeUsd) 
   });
   const acctSig   = await hmacBase64(apiSecret, `GET\n${host}\n${acctPath}\n${acctQS.toString()}`);
   acctQS.append('Signature', acctSig);
-  const acctResp  = await fetch(`https://${host}${acctPath}?${acctQS}`);
+  const acctResp  = await exchangeFetch(`https://${host}${acctPath}?${acctQS}`);
   const acctData  = await parseJsonResponse(acctResp, 'HTX account lookup');
   if (acctData.status !== 'ok') throw new Error(acctData['err-msg'] || 'HTX account lookup failed');
   const accountId = (acctData.data || []).find(a => a.type === 'spot')?.id;
@@ -1110,7 +1114,7 @@ export async function placeMarketOrderHTX(env, symbol, side, quantity, sizeUsd) 
   );
   orderQS.append('Signature', orderSig);
 
-  const resp = await fetch(`https://${host}${orderPath}?${orderQS}`, {
+  const resp = await exchangeFetch(`https://${host}${orderPath}?${orderQS}`, {
     method,
     headers: { 'Content-Type': 'application/json' },
     body: orderBodyStr
@@ -1130,7 +1134,6 @@ const EXCHANGE_CRED_KEYS = {
   mexc:    ['MEXC_API_KEY', 'MEXC_API_SECRET'],
   binance: ['BINANCE_API_KEY', 'BINANCE_API_SECRET'],
   kucoin:  ['KUCOIN_API_KEY', 'KUCOIN_SECRET_KEY', 'KUCOIN_PASSPHRASE'],
-  okx:     ['OKX_API_KEY', 'OKX_API_SECRET', 'OKX_PASSPHRASE'],
   bitget:  ['BITGET_API_KEY', 'BITGET_SECRET_KEY', 'BITGET_API_PASSPHRASE'],
   bitmart: ['BITMART_API_KEY', 'BITMART_SECRET_KEY', 'BITMART_MEMO'],
   htx:     ['HTX_API_KEY', 'HTX_API_SECRET'],
@@ -1142,14 +1145,14 @@ const EXCHANGE_CRED_KEYS = {
  * bybit/gateio: German regulatory restrictions (BaFin).
  * kraken/coinbase: public price feeds used for wider market coverage;
  *   execution credentials are not configured — data-only.
- * NOTE: perp feed labels (mexc_perp, binance_perp, okx_perp, bybit_perp) are
+ * NOTE: perp feed labels (mexc_perp, binance_perp, bybit_perp) are
  * opportunity buyExchange/sellExchange values — they are NOT in this set so the
  * DATA_ONLY guard in executeTrade() does not block isPerp opportunities before
  * they reach the perp routing branch.
  */
 export const DATA_ONLY_EXCHANGES = new Set(['bybit', 'gateio', 'kraken', 'coinbase']);
 export const ACTIVE_EXECUTION_EXCHANGES = [
-  'mexc', 'binance', 'kucoin', 'okx', 'bitget', 'bitmart', 'htx'
+  'mexc', 'binance', 'kucoin', 'bitget', 'bitmart', 'htx'
 ];
 
 /**
@@ -1237,7 +1240,6 @@ export async function getExchangeBalance(env, exchange, asset = 'USDT') {
     case 'mexc':    return (await getMEXCBalance(env, asset)).free;
     case 'binance': return (await getBinanceBalance(env, asset)).free;
     case 'kucoin':  return (await getKuCoinBalance(env, asset)).free;
-    case 'okx':     return (await getOKXBalance(env, asset)).free;
     case 'bitget':  return (await getBitgetBalance(env, asset)).free;
     case 'bitmart': return (await getBitmartBalance(env, asset)).free;
     case 'htx':     return (await getHTXBalance(env, asset.toLowerCase())).free;
@@ -1262,7 +1264,6 @@ export async function placeExchangeMarketOrder(env, exchange, symbol, side, quan
     case 'mexc':    return placeMarketOrderMEXC(env, symbol, side, quantity, sizeUsd);
     case 'binance': return placeMarketOrderBinance(env, symbol, side, quantity, sizeUsd);
     case 'kucoin':  return placeMarketOrderKuCoin(env, symbol, side, quantity, sizeUsd);
-    case 'okx':     return placeMarketOrderOKX(env, symbol, side, quantity, sizeUsd);
     case 'bitget':  return placeMarketOrderBitget(env, symbol, side, quantity, sizeUsd);
     case 'bitmart': return placeMarketOrderBitmart(env, symbol, side, quantity, sizeUsd);
     case 'htx':     return placeMarketOrderHTX(env, symbol, side, quantity, sizeUsd);
@@ -1270,7 +1271,7 @@ export async function placeExchangeMarketOrder(env, exchange, symbol, side, quan
     case 'gateio':
       throw new Error(
         `${exchange} is not available for live execution (German regulatory restrictions). ` +
-        `Use paper trading mode or switch to MEXC, Binance, KuCoin, OKX, Bitget, Bitmart, or HTX.`
+        `Use paper trading mode or switch to MEXC, Binance, KuCoin, Bitget, Bitmart, or HTX.`
       );
     default:
       throw new Error(`No execution layer for exchange: ${exchange}`);

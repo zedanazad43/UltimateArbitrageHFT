@@ -9,11 +9,9 @@ import {
   getMEXCPerpPrice,
   getBybitPerpData,
   getBinancePerpData,
-  getOKXPerpData,
   get0xPrice,
   getBinanceCrossPrice,
   getMEXCCrossPrice,
-  getOKXCrossPrice,
   getKuCoinCrossPrice,
 } from './prices.js';
 import { scanCEX }         from './strategies/cex.js';
@@ -84,7 +82,7 @@ const MAX_CB_FAILURES = 3;
 const CB_RESET_MS    = 5 * 60 * 1000; // 5 min
 const FUTURES_STATUS_KEY = 'nexus_mexc_futures_status';
 const FUTURES_STATUS_TTL_MS = 60 * 1000;
-const PERP_EXCHANGES = new Set(['mexc_perp', 'binance_perp', 'okx_perp', 'bybit_perp']);
+const PERP_EXCHANGES = new Set(['mexc_perp', 'binance_perp', 'bybit_perp']);
 
 async function getMEXCFuturesReadyCached(env) {
   try {
@@ -253,7 +251,7 @@ export async function runScan(env, state, sendAlert) {
         try {
           // Fetch perp prices with per-source error tracking so the circuit breaker
           // only trips on genuine connectivity failures, not on "symbol not listed".
-          const [spotSources, zeroXSource, mexcPerpResult, bybitPerpResult, binancePerpResult, okxPerpResult] = await Promise.all([
+          const [spotSources, zeroXSource, mexcPerpResult, bybitPerpResult, binancePerpResult] = await Promise.all([
             getAllSpotPrices(env, symbol, openCircuits),
             get0xPrice(env, symbol),
             (!openCircuits.has('mexc_perp'))
@@ -265,15 +263,11 @@ export async function runScan(env, state, sendAlert) {
             (!openCircuits.has('binance_perp'))
               ? getBinancePerpData(symbol).then(d => ({ data: d, error: null })).catch(e => ({ data: null, error: e }))
               : Promise.resolve({ data: null, error: null }),
-            (!openCircuits.has('okx_perp'))
-              ? getOKXPerpData(symbol).then(d => ({ data: d, error: null })).catch(e => ({ data: null, error: e }))
-              : Promise.resolve({ data: null, error: null }),
           ]);
 
           const mexcPerp    = mexcPerpResult.data;
           const bybitPerp   = bybitPerpResult.data;
           const binancePerp = binancePerpResult.data;
-          const okxPerp     = okxPerpResult.data;
           spotSourcesBySymbol[symbol] = spotSources;
 
           // Cache spot prices from this cycle to avoid expensive refetches later.
@@ -301,19 +295,16 @@ export async function runScan(env, state, sendAlert) {
           if (binancePerpResult.error) recordCBFailure(cb, 'binance_perp');
           else if (binancePerp)        recordCBSuccess(cb, 'binance_perp');
 
-          if (okxPerpResult.error)    recordCBFailure(cb, 'okx_perp');
-          else if (okxPerp)           recordCBSuccess(cb, 'okx_perp');
-
           // Record mid price for paper settlement (use MEXC spot as reference)
           const mexcSrc = spotSources.find(s => s.exchange === 'mexc');
           if (mexcSrc) midPrices[symbol] = mexcSrc.price;
 
-          // Perp source priority: MEXC (executable) → Binance → OKX → Bybit (data-only)
-          const perpSource = mexcPerp || binancePerp || okxPerp || bybitPerp;
+          // Perp source priority: MEXC (executable) → Binance → Bybit (data-only)
+          const perpSource = mexcPerp || binancePerp || bybitPerp;
 
           // Best perp source with funding rate for harvest strategy
           // Prefer sources that carry a fundingRate field
-          const fundingPerp = bybitPerp || binancePerp || okxPerp || mexcPerp;
+          const fundingPerp = bybitPerp || binancePerp || mexcPerp;
 
           // CEX: all spot sources + 0x DEX price
           const cexSources = zeroXSource
@@ -358,18 +349,15 @@ export async function runScan(env, state, sendAlert) {
   // ── Triangular arbitrage (per-exchange, using cross-pair prices) ─────────────
   // Build per-exchange price maps from the mid-price cache and run triangular scan.
   // Exchange fee map derived from official fee schedules (taker, standard tier).
-  // Extended to include OKX and KuCoin based on their triangular-arb suitability
-  // (deep order books, many cross-pairs, competitive fees).
+  // Uses exchanges currently enabled for routing.
   const TRIANGULAR_EXCHANGES = {
     binance: 0.001,   // 0.10% taker
     mexc:    0.0005,  // 0.05% taker
-    okx:     0.0008,  // 0.08% taker
     kucoin:  0.001,   // 0.10% taker
   };
   const crossFetcherByExchange = {
     binance: getBinanceCrossPrice,
     mexc: getMEXCCrossPrice,
-    okx: getOKXCrossPrice,
     kucoin: getKuCoinCrossPrice,
   };
   const crossPricesByExchange = {};

@@ -161,7 +161,7 @@ MEXC_API_SECRET           # only needed for live trading
 index.js                  ← Cloudflare Worker entry point (Hono router + cron)
 src/
   orchestrator.js         ← Scan-and-execute decision engine
-  prices.js               ← Price feeds (MEXC, Binance, KuCoin, OKX, Bitget, Bitmart, 0x, Alchemy)
+  prices.js               ← Price feeds (MEXC, Binance, KuCoin, Bitget, Bitmart, 0x, Alchemy)
   exchange.js             ← Order placement (MEXC spot + futures, multi-exchange)
   db.js                   ← D1 helpers + Analytics Engine
   risk.js                 ← Kelly sizing + adaptive leverage
