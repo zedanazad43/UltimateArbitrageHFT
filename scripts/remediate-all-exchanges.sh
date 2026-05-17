@@ -11,6 +11,31 @@ set -euo pipefail
 
 DRY_RUN=0
 DIAGNOSE_ONLY=0
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+DEV_VARS_FILE="$ROOT_DIR/.dev.vars"
+
+load_dev_vars() {
+  if [[ ! -f "$DEV_VARS_FILE" ]]; then
+    return 0
+  fi
+
+  echo "== Load local secrets from .dev.vars =="
+  while IFS= read -r line || [[ -n "$line" ]]; do
+    [[ -z "$line" ]] && continue
+    [[ "$line" =~ ^[[:space:]]*# ]] && continue
+    if [[ "$line" == *=* ]]; then
+      local key="${line%%=*}"
+      local value="${line#*=}"
+      key="$(printf '%s' "$key" | xargs)"
+      if [[ -n "$key" && -z "${!key:-}" ]]; then
+        export "$key=$value"
+      fi
+    fi
+  done < "$DEV_VARS_FILE"
+  echo
+}
+
+load_dev_vars
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
