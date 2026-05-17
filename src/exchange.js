@@ -656,7 +656,8 @@ export async function getBitgetBalance(env, asset = 'USDT') {
       const msg = data?.msg || data?.message || data?.error || JSON.stringify(data);
       errors.push(`${host}: ${msg}`);
     } catch (err) {
-      errors.push(`${host}: ${err.message || String(err)}`);
+      const errMsg = (err?.cause?.message || err?.message || String(err) || 'unknown fetch error');
+      errors.push(`${host}: ${errMsg}`);
     }
   }
 

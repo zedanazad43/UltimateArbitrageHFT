@@ -38,3 +38,4 @@ coverage
 .ai-code-tracker.json
 metrics.json
 strategy-evaluation.json
+test-exchanges.js
