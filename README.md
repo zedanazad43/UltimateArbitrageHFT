@@ -57,6 +57,8 @@ Recommended server profiles:
 
 Set non-secret vars in `wrangler.toml` under `[vars]` and redeploy.
 
+For copy/paste production profiles and rollout steps, see [docs/production-profiles.md](docs/production-profiles.md).
+
 ---
 
 ## Deploy (manual production publish)

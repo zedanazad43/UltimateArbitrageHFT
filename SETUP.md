@@ -129,6 +129,8 @@ Examples:
 - Strict proxy mode:
   - `PROXY_MODE=required`
 
+For ready production profiles and validation steps, see [docs/production-profiles.md](docs/production-profiles.md).
+
 ---
 
 ## Step 7 — Deploy the Worker
