@@ -701,6 +701,92 @@ app.post('/api/bitmart/reset-circuit-breaker', async (c) => {
   });
 });
 
+// ── API: Readiness — cross-system go-live checklist ───────────────────────────────────────
+// Returns a single structured object showing every pre-requisite for live
+// trading.  Auth-protected.  Checks: exchange credentials, BitMart circuit
+// breaker, external proxy, trading state, Telegram, and admin token.
+app.get('/api/readiness', async (c) => {
+  if (!isAuthorized(c.env, c)) return authDenied(c.env, c, true);
+
+  const state = await getState(c.env);
+
+  // ---- Exchange credentials -----------------------------------------------
+  const allExchanges = [
+    ...ACTIVE_EXECUTION_EXCHANGES,
+    ...['bybit', 'gateio', 'kraken', 'coinbase'],
+  ];
+  const exchangeStatus = {};
+  let configuredCount = 0;
+  for (const ex of allExchanges) {
+    const configured = hasExchangeCredentials(c.env, ex);
+    const missing = configured ? [] : getMissingCredentialKeys(c.env, ex);
+    exchangeStatus[ex] = { configured, missing };
+    if (configured) configuredCount++;
+  }
+
+  // ---- BitMart circuit breaker --------------------------------------------
+  let bitmartCircuitBreaker = { state: 'UNKNOWN', failures: 0 };
+  try {
+    const { getBitmartEnhanced } = await import('./src/infra/bitmart-enhanced.js');
+    const bm = getBitmartEnhanced(c.env);
+    const bmStats = bm.getStats();
+    bitmartCircuitBreaker = {
+      state: bmStats.circuitBreakerState ?? 'UNKNOWN',
+      failures: bmStats.failures ?? 0,
+      rateLimitUsed: bmStats.rateLimitUsed ?? 0,
+    };
+  } catch (_) {}
+
+  // ---- External proxy -----------------------------------------------------
+  let proxyStatus = { provider: 'none', enabled: false, healthy: false };
+  try {
+    const { getExternalProxyManager } = await import('./src/infra/external-proxy.js');
+    const pm = getExternalProxyManager(c.env);
+    const ps = pm.getStatus();
+    proxyStatus = {
+      provider: ps.provider ?? 'none',
+      enabled: ps.enabled ?? false,
+      healthy: ps.healthy ?? false,
+    };
+  } catch (_) {}
+
+  // ---- System flags -------------------------------------------------------
+  const adminTokenSet = !!(c.env.ADMIN_TOKEN);
+  const telegramConfigured = !!(c.env.TELEGRAM_TOKEN && c.env.TELEGRAM_CHAT_ID);
+  const tradingEnabled = !!state.trading_enabled;
+  const paperMode = state.paper_trading !== false;
+  const executionExchangesReady = configuredCount > 0;
+
+  // ---- Live-trading gate: all checks must pass ----------------------------
+  const readyForLive = (
+    adminTokenSet &&
+    tradingEnabled &&
+    !paperMode &&
+    executionExchangesReady &&
+    bitmartCircuitBreaker.state !== 'OPEN'
+  );
+
+  return c.json({
+    success: true,
+    readyForLive,
+    checks: {
+      adminTokenSet,
+      telegramConfigured,
+      tradingEnabled,
+      paperMode,
+      configuredExchangeCount: configuredCount,
+      executionExchangesReady,
+      bitmartCircuitBreaker,
+      externalProxy: proxyStatus,
+    },
+    exchanges: exchangeStatus,
+    note: readyForLive
+      ? 'All systems go — live trading is active'
+      : 'One or more pre-requisites are not met; review checks above',
+    timestamp: new Date().toISOString(),
+  });
+});
+
 // ── API: Execution Health ───────────────────────────────────────────────────
 app.get('/api/execution-health', async (c) => {
   if (!isAuthorized(c.env, c)) return authDenied(c.env, c, true);
@@ -773,6 +859,18 @@ app.get('/api/logs', async (c) => {
 // ── API: Exchange balances (auth-protected) ───────────────────────────────────
 app.get('/api/balances', async (c) => {
   if (!isAuthorized(c.env, c)) return authDenied(c.env, c, true);
+
+  const CACHE_KEY = 'balances_cache_v1';
+  const CACHE_TTL = 60_000; // 60 s
+  const forceFresh = c.req.query('fresh') === '1';
+
+  if (!forceFresh && c.env.BOT_STATE) {
+    const cached = await c.env.BOT_STATE.get(CACHE_KEY, 'json').catch(() => null);
+    if (cached && cached._ts && (Date.now() - cached._ts) < CACHE_TTL) {
+      return c.json({ success: true, data: cached.data, cached: true, age_ms: Date.now() - cached._ts });
+    }
+  }
+
   const results = await Promise.all(
     ACTIVE_EXECUTION_EXCHANGES.map(async (ex) => {
       const configured = hasExchangeCredentials(c.env, ex);
@@ -794,7 +892,17 @@ app.get('/api/balances', async (c) => {
     { exchange: 'bybit',  configured: false, balance: null, dataOnly: true, note: 'German law — data feed only' },
     { exchange: 'gateio', configured: false, balance: null, dataOnly: true, note: 'German law — data feed only' }
   ];
-  return c.json({ success: true, data: [...results, ...dataOnly] });
+  const data = [...results, ...dataOnly];
+
+  // Persist to KV cache in background (don't await — keep response fast)
+  if (c.env.BOT_STATE) {
+    const payload = JSON.stringify({ data, _ts: Date.now() });
+    c.executionCtx.waitUntil(
+      c.env.BOT_STATE.put(CACHE_KEY, payload, { expirationTtl: 120 }).catch(() => {})
+    );
+  }
+
+  return c.json({ success: true, data, cached: false });
 });
 
 // ── API: Perps status ─────────────────────────────────────────────────────────
