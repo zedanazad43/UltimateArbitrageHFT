@@ -631,20 +631,38 @@ export async function getBitgetBalance(env, asset = 'USDT') {
   if (!passphrase) throw new Error('BITGET_API_PASSPHRASE is not configured');
 
   const timestamp = Date.now().toString();
-  const path      = `/api/v2/spot/account/assets?coin=${asset}`;
-  const strToSign = timestamp + 'GET' + path;
-  const signature = await hmacBase64(apiSecret, strToSign);
+  const requestPath = '/api/v2/spot/account/assets';
+  const query = `coin=${asset}`;
+  const fullPath = `${requestPath}?${query}`;
+  const signCandidates = [
+    timestamp + 'GET' + fullPath,
+    timestamp + 'GET' + requestPath,
+  ];
 
-  const resp = await fetch(`https://api.bitget.com${path}`, {
-    headers: {
-      'ACCESS-KEY':        apiKey,
-      'ACCESS-SIGN':       signature,
-      'ACCESS-TIMESTAMP':  timestamp,
-      'ACCESS-PASSPHRASE': passphrase
-    }
-  });
-  const data = await parseJsonResponse(resp, 'Bitget balance');
-  if (data.code !== '00000') throw new Error(data.msg || `Bitget balance error ${data.code}`);
+  const errors = [];
+  let data = null;
+
+  for (const rawSign of signCandidates) {
+    const signature = await hmacBase64(apiSecret, rawSign);
+    const resp = await fetch(`https://api.bitget.com${fullPath}`, {
+      headers: {
+        'ACCESS-KEY':        apiKey,
+        'ACCESS-SIGN':       signature,
+        'ACCESS-TIMESTAMP':  timestamp,
+        'ACCESS-PASSPHRASE': passphrase,
+      }
+    });
+    data = await parseJsonResponse(resp, 'Bitget balance');
+    if (data?.code === '00000') break;
+
+    const msg = data?.msg || data?.message || data?.error || JSON.stringify(data);
+    errors.push(msg);
+    data = null;
+  }
+
+  if (!data) {
+    throw new Error(`Bitget balance failed: ${errors.join(' | ') || 'unknown error'}`);
+  }
 
   const assets = data.data || [];
   const bal    = assets.find(a => a.coin === asset);
