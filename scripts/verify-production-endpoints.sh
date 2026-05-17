@@ -29,23 +29,32 @@ printf "  /health      -> %s\n" "${health_code}"
 printf "  /api/version -> %s\n" "${version_code}"
 printf "  /dashboard   -> %s\n" "${dashboard_code}"
 
-if [[ "${health_code}" != "200" || "${version_code}" != "200" || "${dashboard_code}" != "200" ]]; then
+if [[ "${health_code}" != "200" || "${version_code}" != "200" ]]; then
   echo "ERROR: Public endpoint checks failed"
   exit 1
 fi
 
-echo "Checking dashboard platform markers"
-if ! grep -q 'id="platformsGrid"' "${dashboard_out}"; then
-  echo "ERROR: dashboard does not contain platformsGrid marker"
+if [[ "${dashboard_code}" != "200" && "${dashboard_code}" != "302" ]]; then
+  echo "ERROR: /dashboard expected 200 or 302, got ${dashboard_code}"
   exit 1
 fi
-if ! grep -q 'id="platformModal"' "${dashboard_out}"; then
-  echo "ERROR: dashboard does not contain platformModal marker"
-  exit 1
-fi
-if ! grep -q 'setInterval(() => loadPlatformsGrid(), PLATFORM_REFRESH_MS)' "${dashboard_out}"; then
-  echo "ERROR: dashboard does not contain platforms auto-refresh marker"
-  exit 1
+
+if [[ "${dashboard_code}" == "200" ]]; then
+  echo "Checking dashboard platform markers"
+  if ! grep -q 'id="platformsGrid"' "${dashboard_out}"; then
+    echo "ERROR: dashboard does not contain platformsGrid marker"
+    exit 1
+  fi
+  if ! grep -q 'id="platformModal"' "${dashboard_out}"; then
+    echo "ERROR: dashboard does not contain platformModal marker"
+    exit 1
+  fi
+  if ! grep -q 'setInterval(() => loadPlatformsGrid(), PLATFORM_REFRESH_MS)' "${dashboard_out}"; then
+    echo "ERROR: dashboard does not contain platforms auto-refresh marker"
+    exit 1
+  fi
+else
+  echo "Skipping dashboard marker checks (302 redirect to auth is expected in production)"
 fi
 
 echo "Checking protected endpoints with admin token"
