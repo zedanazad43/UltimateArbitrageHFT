@@ -49,7 +49,11 @@
     "temporal:worker": "node temporal-worker.js",
     "temporal:dev": "TEMPORAL_ADDRESS=localhost:7233 node temporal-worker.js",
     "setup": "npm install && npm run secret:all && npm run db:migrate && npm run deploy",
-    "setup:local": "npm install && npm run db:migrate:local"
+    "setup:local": "npm install && npm run db:migrate:local",
+    "profile:direct": "bash scripts/switch-profile.sh direct",
+    "profile:mixed": "bash scripts/switch-profile.sh mixed",
+    "profile:strict": "bash scripts/switch-profile.sh strict",
+    "profile:dry": "bash scripts/switch-profile.sh"
   },
   "dependencies": {
     "@langchain/community": "^1.1.28",

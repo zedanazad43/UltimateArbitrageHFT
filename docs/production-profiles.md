@@ -94,7 +94,49 @@ Set only the exchanges you actually trade.
 - Bitmart: `BITMART_API_KEY`, `BITMART_SECRET_KEY`, `BITMART_MEMO`
 - HTX: `HTX_API_KEY`, `HTX_API_SECRET`
 
-## Apply Sequence
+## One-Shot Profile Switch
+
+Use the `scripts/switch-profile.sh` helper or the npm aliases below.
+The script updates `wrangler.toml`, uploads any provided secrets, deploys, and runs a health check — all in one step.
+
+### npm shortcuts
+
+```bash
+# Switch to direct (no proxy)
+npm run profile:direct
+
+# Switch to mixed routing
+npm run profile:mixed
+
+# Switch to strict proxy
+npm run profile:strict
+
+# Dry-run any profile (prints commands without executing)
+npm run profile:dry -- direct
+npm run profile:dry -- mixed
+npm run profile:dry -- strict
+```
+
+### With optional secrets
+
+Pass `--allowed-ips` and/or `--proxy-list` directly via bash:
+
+```bash
+# Direct + IP allowlist
+bash scripts/switch-profile.sh direct \
+  --allowed-ips "203.0.113.10,198.51.100.20"
+
+# Mixed + IP allowlist
+bash scripts/switch-profile.sh mixed \
+  --allowed-ips "203.0.113.10,198.51.100.20"
+
+# Strict proxy + proxy list + IP allowlist
+bash scripts/switch-profile.sh strict \
+  --proxy-list "http://proxy1.example.com:3128,http://proxy2.example.com:3128" \
+  --allowed-ips "203.0.113.10,198.51.100.20"
+```
+
+### Manual apply (step by step)
 
 1. Update vars in `wrangler.toml` for your selected profile.
 2. Upload/rotate secrets with `wrangler secret put`.
