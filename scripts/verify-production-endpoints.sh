@@ -17,6 +17,9 @@ balances_out="${TMP_ROOT}/prod_balances.json"
 status_out="${TMP_ROOT}/prod_status.json"
 proxy_stats_out="${TMP_ROOT}/prod_proxy_stats.json"
 
+bitmart_stats_out="${TMP_ROOT}/prod_bitmart_stats.json"
+control_panel_out="${TMP_ROOT}/prod_control_panel.html"
+
 if [[ -z "${ADMIN_TOKEN_VALUE}" ]]; then
   echo "ERROR: ADMIN_TOKEN is required."
   echo "Usage: ADMIN_TOKEN='<token>' $0 [base_url]"
@@ -72,6 +75,9 @@ balances_code=$(curl -s -o "${balances_out}" -w "%{http_code}" -H "x-admin-token
 status_code=$(curl -s -o "${status_out}" -w "%{http_code}" -H "x-admin-token: ${ADMIN_TOKEN_VALUE}" "${BASE_URL}/api/status")
 proxy_stats_code=$(curl -s -o "${proxy_stats_out}" -w "%{http_code}" -H "x-admin-token: ${ADMIN_TOKEN_VALUE}" "${BASE_URL}/api/proxy-stats")
 
+bitmart_stats_code=$(curl -s -o "${bitmart_stats_out}" -w "%{http_code}" -H "x-admin-token: ${ADMIN_TOKEN_VALUE}" "${BASE_URL}/api/bitmart/stats")
+control_panel_code=$(curl -s -o "${control_panel_out}" -w "%{http_code}" "${BASE_URL}/control-panel")
+
 printf "  /api/performance     -> %s\n" "${perf_code}"
 printf "  /api/analytics       -> %s\n" "${analytics_code}"
 printf "  /api/health          -> %s\n" "${api_health_code}"
@@ -80,6 +86,9 @@ printf "  /api/execution-health-> %s\n" "${exec_health_code}"
 printf "  /api/balances        -> %s\n" "${balances_code}"
 printf "  /api/status          -> %s\n" "${status_code}"
 printf "  /api/proxy-stats     -> %s\n" "${proxy_stats_code}"
+
+printf "  /api/bitmart/stats   -> %s\n" "${bitmart_stats_code}"
+printf "  /control-panel       -> %s\n" "${control_panel_code}"
 
 if [[ "${perf_code}" != "200" || "${analytics_code}" != "200" || "${api_health_code}" != "200" || "${platforms_code}" != "200" ]]; then
   echo "ERROR: One or more core protected endpoint checks failed"

@@ -84,6 +84,8 @@ export default [
         btoa: 'readonly',
         atob: 'readonly',
         setTimeout: 'readonly',
+          AbortController: 'readonly',
+          AbortSignal: 'readonly',
         clearTimeout: 'readonly',
         setInterval: 'readonly',
         clearInterval: 'readonly',

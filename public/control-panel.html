@@ -1,0 +1,473 @@
+<!DOCTYPE html>
+<html dir="rtl" lang="ar">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Nexus Control Panel</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      background: #0b0e14;
+      color: #eee;
+      font-family: 'Segoe UI', Tahoma, sans-serif;
+      min-height: 100vh;
+      padding: 20px;
+    }
+    .container { max-width: 1400px; margin: 0 auto; }
+    header {
+      text-align: center;
+      margin-bottom: 30px;
+      border-bottom: 2px solid #f0b90b;
+      padding-bottom: 15px;
+    }
+    h1 { color: #f0b90b; font-size: 2.2em; }
+    .section-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+      gap: 20px;
+      margin-bottom: 30px;
+    }
+    .card {
+      background: #1a1e26;
+      border-radius: 12px;
+      padding: 20px;
+      border-left: 4px solid #f0b90b;
+      box-shadow: 0 2px 15px rgba(0,0,0,0.3);
+    }
+    .card h2 {
+      color: #f0b90b;
+      font-size: 1.1em;
+      margin-bottom: 12px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .status-dot {
+      display: inline-block;
+      width: 12px;
+      height: 12px;
+      border-radius: 50%;
+      margin-left: 8px;
+    }
+    .status-ok { background: #27ae60; }
+    .status-warning { background: #f39c12; animation: pulse 1s infinite; }
+    .status-error { background: #e74c3c; animation: pulse 0.5s infinite; }
+    @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
+    
+    .endpoint-list {
+      list-style: none;
+      padding: 0;
+      margin: 0;
+    }
+    .endpoint-item {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 8px 0;
+      border-bottom: 1px solid #2a2e38;
+      font-size: 0.9em;
+    }
+    .endpoint-item:last-child { border-bottom: none; }
+    .endpoint-name { flex: 1; }
+    .endpoint-status {
+      display: inline-block;
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      margin-left: 10px;
+    }
+    
+    .stat-row {
+      display: flex;
+      justify-content: space-between;
+      padding: 8px 0;
+      border-bottom: 1px solid #2a2e38;
+      font-size: 0.85em;
+    }
+    .stat-row:last-child { border-bottom: none; }
+    .stat-label { color: #aaa; }
+    .stat-value { color: #f0b90b; font-weight: bold; }
+    
+    .button-group {
+      display: flex;
+      gap: 10px;
+      margin-top: 15px;
+      flex-wrap: wrap;
+    }
+    button {
+      background: #f0b90b;
+      color: #000;
+      border: none;
+      padding: 8px 16px;
+      border-radius: 6px;
+      font-weight: bold;
+      cursor: pointer;
+      font-size: 0.85em;
+      transition: opacity 0.2s;
+    }
+    button:hover { opacity: 0.85; }
+    button:disabled { opacity: 0.5; cursor: not-allowed; }
+    
+    .loading {
+      display: inline-block;
+      animation: spin 1s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    
+    .warning-box {
+      background: #f39c12;
+      color: #000;
+      padding: 12px;
+      border-radius: 6px;
+      margin-top: 10px;
+      font-size: 0.85em;
+    }
+    .error-box {
+      background: #e74c3c;
+      color: #fff;
+      padding: 12px;
+      border-radius: 6px;
+      margin-top: 10px;
+      font-size: 0.85em;
+    }
+    .success-box {
+      background: #27ae60;
+      color: #fff;
+      padding: 12px;
+      border-radius: 6px;
+      margin-top: 10px;
+      font-size: 0.85em;
+    }
+    
+    .code-block {
+      background: #12161e;
+      padding: 10px;
+      border-radius: 6px;
+      font-family: monospace;
+      font-size: 0.75em;
+      overflow-x: auto;
+      margin-top: 8px;
+      white-space: pre-wrap;
+      word-break: break-all;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <header>
+      <h1>🔷 Nexus Control Panel</h1>
+      <p>منظومة التحكم المركزية - مراقبة الخوادم والاستراتيجيات</p>
+    </header>
+
+    <div class="section-grid">
+      <!-- API Health Check -->
+      <div class="card">
+        <h2>
+          🔗 API Endpoints
+          <span class="status-dot" id="api-status-dot"></span>
+        </h2>
+        <ul class="endpoint-list" id="api-list">
+          <li class="endpoint-item">
+            <span class="endpoint-name">Checking...</span>
+            <span class="loading">⟳</span>
+          </li>
+        </ul>
+        <div class="button-group">
+          <button onclick="checkAllEndpoints()">Refresh</button>
+        </div>
+      </div>
+
+      <!-- BitMart Status -->
+      <div class="card">
+        <h2>
+          💳 BitMart Exchange
+          <span class="status-dot" id="bitmart-status-dot"></span>
+        </h2>
+        <div class="stat-row">
+          <span class="stat-label">Circuit Breaker:</span>
+          <span class="stat-value" id="bitmart-circuit">Unknown</span>
+        </div>
+        <div class="stat-row">
+          <span class="stat-label">Rate Limit:</span>
+          <span class="stat-value" id="bitmart-ratelimit">Unknown</span>
+        </div>
+        <div class="stat-row">
+          <span class="stat-label">External Proxy:</span>
+          <span class="stat-value" id="bitmart-proxy">Disabled</span>
+        </div>
+        <div class="button-group">
+          <button onclick="checkBitmartStatus()">Check Status</button>
+          <button onclick="resetBitmartCircuitBreaker()">Reset CB</button>
+        </div>
+      </div>
+
+      <!-- Proxy Configuration -->
+      <div class="card">
+        <h2>
+          🌐 Proxy Configuration
+          <span class="status-dot" id="proxy-status-dot"></span>
+        </h2>
+        <div class="stat-row">
+          <span class="stat-label">Local Pool Mode:</span>
+          <span class="stat-value" id="proxy-local-mode">Unknown</span>
+        </div>
+        <div class="stat-row">
+          <span class="stat-label">Available Proxies:</span>
+          <span class="stat-value" id="proxy-available">Unknown</span>
+        </div>
+        <div class="stat-row">
+          <span class="stat-label">External Provider:</span>
+          <span class="stat-value" id="proxy-external-provider">None</span>
+        </div>
+        <div class="button-group">
+          <button onclick="checkProxyStats()">Check Stats</button>
+        </div>
+      </div>
+
+      <!-- Strategy Execution -->
+      <div class="card">
+        <h2>
+          ⚡ Strategy Execution
+          <span class="status-dot" id="strategy-status-dot"></span>
+        </h2>
+        <div class="stat-row">
+          <span class="stat-label">Mode:</span>
+          <span class="stat-value" id="strategy-mode">Unknown</span>
+        </div>
+        <div class="stat-row">
+          <span class="stat-label">Active Strategies:</span>
+          <span class="stat-value" id="strategy-count">Unknown</span>
+        </div>
+        <div class="stat-row">
+          <span class="stat-label">Portfolio Balance:</span>
+          <span class="stat-value" id="strategy-balance">Unknown</span>
+        </div>
+        <div class="button-group">
+          <button onclick="startExecution()">▶ Start</button>
+          <button onclick="stopExecution()">⏹ Stop</button>
+          <button onclick="checkExecutionHealth()">Status</button>
+        </div>
+      </div>
+
+      <!-- Auto Executor Stats -->
+      <div class="card">
+        <h2>
+          🤖 Auto Executor
+          <span class="status-dot" id="executor-status-dot"></span>
+        </h2>
+        <div class="stat-row">
+          <span class="stat-label">Paper Mode:</span>
+          <span class="stat-value" id="executor-paper">Unknown</span>
+        </div>
+        <div class="stat-row">
+          <span class="stat-label">Max Positions:</span>
+          <span class="stat-value" id="executor-positions">Unknown</span>
+        </div>
+        <div class="stat-row">
+          <span class="stat-label">Strategy Cooldown:</span>
+          <span class="stat-value" id="executor-cooldown">Unknown</span>
+        </div>
+        <div class="button-group">
+          <button onclick="togglePaperMode()">Paper Mode</button>
+          <button onclick="checkExecutorStats()">Stats</button>
+        </div>
+      </div>
+
+      <!-- Frontend Connectivity -->
+      <div class="card">
+        <h2>
+          📡 Frontend Check
+          <span class="status-dot" id="frontend-status-dot"></span>
+        </h2>
+        <div id="frontend-info" class="stat-row">
+          Checking connectivity...
+        </div>
+        <div class="button-group">
+          <button onclick="checkFrontendConnectivity()">Verify</button>
+          <button onclick="location.href='/dashboard'">Dashboard</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Messages Area -->
+    <div id="messages"></div>
+  </div>
+
+  <script>
+    const API_BASE = window.location.origin;
+    const ADMIN_TOKEN = localStorage.getItem('adminToken') || '';
+
+    async function makeRequest(endpoint, options = {}) {
+      try {
+        const resp = await fetch(`${API_BASE}${endpoint}`, {
+          headers: { 'Authorization': `Bearer ${ADMIN_TOKEN}`, ...options.headers },
+          ...options,
+        });
+        return resp.json();
+      } catch (err) {
+        console.error(`Request failed: ${err.message}`);
+        return { error: err.message };
+      }
+    }
+
+    function showMessage(text, type = 'info') {
+      const msg = document.createElement('div');
+      msg.className = `${type}-box`;
+      msg.textContent = text;
+      msg.style.marginTop = '20px';
+      document.getElementById('messages').appendChild(msg);
+      setTimeout(() => msg.remove(), 5000);
+    }
+
+    async function checkAllEndpoints() {
+      const endpoints = [
+        '/api/status',
+        '/api/health',
+        '/api/proxy-stats',
+        '/api/analytics',
+        '/api/performance',
+      ];
+
+      const list = document.getElementById('api-list');
+      list.innerHTML = '';
+
+      for (const ep of endpoints) {
+        const item = document.createElement('li');
+        item.className = 'endpoint-item';
+        const name = document.createElement('span');
+        name.className = 'endpoint-name';
+        name.textContent = ep;
+        const status = document.createElement('span');
+        status.className = 'endpoint-status status-warning';
+        item.appendChild(name);
+        item.appendChild(status);
+        list.appendChild(item);
+
+        try {
+          const resp = await fetch(`${API_BASE}${ep}`, {
+            headers: { 'Authorization': `Bearer ${ADMIN_TOKEN}` }
+          });
+          status.className = `endpoint-status ${resp.ok ? 'status-ok' : 'status-error'}`;
+        } catch {
+          status.className = 'endpoint-status status-error';
+        }
+      }
+
+      document.getElementById('api-status-dot').className = 'status-dot status-ok';
+    }
+
+    async function checkBitmartStatus() {
+      const data = await makeRequest('/api/proxy-stats');
+      if (!data.error) {
+        document.getElementById('bitmart-circuit').textContent = data.circuitBreakerOpen ? '🔴 OPEN' : '🟢 CLOSED';
+        document.getElementById('bitmart-ratelimit').textContent = `${data.rateLimitRequests}/${data.rateLimitMaxPerWindow}`;
+        document.getElementById('bitmart-proxy').textContent = data.externalProxyEnabled ? '🟢 Enabled' : '⚪ Disabled';
+        document.getElementById('bitmart-status-dot').className = 'status-dot status-ok';
+        showMessage('BitMart status checked', 'success');
+      } else {
+        showMessage(`Error: ${data.error}`, 'error');
+      }
+    }
+
+    async function resetBitmartCircuitBreaker() {
+      const resp = await makeRequest('/api/bitmart/reset-circuit-breaker', { method: 'POST' });
+      if (!resp.error) {
+        showMessage('Circuit breaker reset', 'success');
+        checkBitmartStatus();
+      } else {
+        showMessage(`Error: ${resp.error}`, 'error');
+      }
+    }
+
+    async function checkProxyStats() {
+      const data = await makeRequest('/api/proxy-stats');
+      if (!data.error) {
+        document.getElementById('proxy-local-mode').textContent = data.proxyMode || 'Unknown';
+        document.getElementById('proxy-available').textContent = data.availableProxies || '0';
+        document.getElementById('proxy-external-provider').textContent = data.externalProvider || 'None';
+        document.getElementById('proxy-status-dot').className = 'status-dot status-ok';
+        showMessage('Proxy stats checked', 'success');
+      }
+    }
+
+    async function checkExecutionHealth() {
+      const data = await makeRequest('/api/execution-health');
+      if (!data.error) {
+        document.getElementById('strategy-mode').textContent = data.paperMode ? '📄 Paper' : '💰 Live';
+        document.getElementById('strategy-count').textContent = data.strategies?.length || '0';
+        document.getElementById('strategy-balance').textContent = `$${data.portfolioBalance?.toFixed(2) || '0'}`;
+        document.getElementById('strategy-status-dot').className = 'status-dot status-ok';
+        showMessage('Execution health OK', 'success');
+      }
+    }
+
+    async function checkExecutorStats() {
+      const data = await makeRequest('/api/proxy-stats'); // Uses auto-executor
+      if (!data.error) {
+        document.getElementById('executor-paper').textContent = data.paperMode ? '📄 Yes' : '💰 No';
+        document.getElementById('executor-positions').textContent = data.maxOpenPositions || '5';
+        document.getElementById('executor-cooldown').textContent = `${data.strategyCooldownMs || 120000}ms`;
+        document.getElementById('executor-status-dot').className = 'status-dot status-ok';
+        showMessage('Executor stats checked', 'success');
+      }
+    }
+
+    async function startExecution() {
+      const resp = await makeRequest('/start');
+      if (!resp.error) {
+        showMessage('Execution started', 'success');
+        checkExecutionHealth();
+      } else {
+        showMessage(`Error: ${resp.error}`, 'error');
+      }
+    }
+
+    async function stopExecution() {
+      const resp = await makeRequest('/stop');
+      if (!resp.error) {
+        showMessage('Execution stopped', 'success');
+        checkExecutionHealth();
+      } else {
+        showMessage(`Error: ${resp.error}`, 'error');
+      }
+    }
+
+    async function togglePaperMode() {
+      const resp = await makeRequest('/mode/paper', { method: 'POST' });
+      if (!resp.error) {
+        showMessage('Switched to paper mode', 'success');
+        checkExecutionHealth();
+      } else {
+        showMessage(`Error: ${resp.error}`, 'error');
+      }
+    }
+
+    async function checkFrontendConnectivity() {
+      const dot = document.getElementById('frontend-status-dot');
+      try {
+        const resp = await fetch(`${API_BASE}/api/status`);
+        dot.className = `status-dot ${resp.ok ? 'status-ok' : 'status-warning'}`;
+        showMessage(`Frontend connected: HTTP ${resp.status}`, resp.ok ? 'success' : 'warning');
+      } catch (err) {
+        dot.className = 'status-dot status-error';
+        showMessage(`Frontend connection failed: ${err.message}`, 'error');
+      }
+    }
+
+    // Initial checks on page load
+    window.addEventListener('load', () => {
+      checkAllEndpoints();
+      checkProxyStats();
+      checkExecutionHealth();
+      checkFrontendConnectivity();
+    });
+
+    // Auto-refresh every 30 seconds
+    setInterval(() => {
+      checkAllEndpoints();
+      checkProxyStats();
+      checkExecutionHealth();
+    }, 30000);
+  </script>
+</body>
+</html>

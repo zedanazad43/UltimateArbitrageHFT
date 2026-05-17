@@ -425,6 +425,11 @@ app.get('/checklist', async (c) => {
   return renderChecklist(c.env);
 });
 
+app.get('/control-panel', async (c) => {
+  if (c.env.ADMIN_TOKEN && !isAuthorized(c.env, c)) return c.redirect('/login', 302);
+  return c.html((await import('./public/control-panel.html?raw')).default || '<html><body>Control Panel</body></html>');
+});
+
 // ── Admin: Start ──────────────────────────────────────────────────────────────
 app.get('/start', async (c) => {
   const limited = await checkRateLimit(c.env, c);
@@ -672,6 +677,41 @@ app.post('/api/alerts/test', async (c) => {
   }
 
   return c.json({ ok: true, preview: message });
+});
+
+// ── API: BitMart Enhanced Management ────────────────────────────────────────
+app.get('/api/bitmart/stats', async (c) => {
+  if (!isAuthorized(c.env, c)) return authDenied(c.env, c, true);
+  const { getBitmartEnhanced } = await import('./src/infra/bitmart-enhanced.js');
+  const bitmart = getBitmartEnhanced(c.env);
+  return c.json({
+    success: true,
+    data: bitmart.getStats(),
+  });
+});
+
+app.post('/api/bitmart/reset-circuit-breaker', async (c) => {
+  if (!isAuthorized(c.env, c)) return authDenied(c.env, c, true);
+  const { resetBitmartCircuitBreaker } = await import('./src/infra/bitmart-enhanced.js');
+  resetBitmartCircuitBreaker();
+  return c.json({
+    success: true,
+    message: 'BitMart circuit breaker reset',
+  });
+});
+
+// ── API: Execution Health ───────────────────────────────────────────────────
+app.get('/api/execution-health', async (c) => {
+  if (!isAuthorized(c.env, c)) return authDenied(c.env, c, true);
+  const executor = getAutoExecutor(c.env);
+  const stats = executor.getStats();
+  return c.json({
+    success: true,
+    paperMode: stats.paperMode,
+    strategies: stats.strategies,
+    portfolioBalance: stats.portfolioBalance,
+    openPositions: stats.openPositions,
+  });
 });
 
 // ── API: Recent trades ────────────────────────────────────────────────────────
