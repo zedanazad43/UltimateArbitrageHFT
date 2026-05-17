@@ -18,6 +18,7 @@ import { evaluateStrategyBreakdown } from './src/self-evaluation.js';
 import { getEcosystemCatalog, recommendEcosystem, getApiKeySecurityChecklist } from './src/ecosystem.js';
 import { executeAllExecutableIntegrations, executeExecutableIntegration, listExecutableIntegrationIds, probeExecutableIntegrations } from './src/executive-integrations.js';
 import { getAutoExecutor } from './src/strategies/auto-executor.js';
+import { CONTROL_PANEL_HTML } from './src/control-panel-template.js';
 import {
   startWorkflow,
   stopWorkflow,
@@ -427,7 +428,7 @@ app.get('/checklist', async (c) => {
 
 app.get('/control-panel', async (c) => {
   if (c.env.ADMIN_TOKEN && !isAuthorized(c.env, c)) return c.redirect('/login', 302);
-  return c.html((await import('./public/control-panel.html?raw')).default || '<html><body>Control Panel</body></html>');
+  return c.html(CONTROL_PANEL_HTML || '<html><body>Control Panel</body></html>');
 });
 
 // ── Admin: Start ──────────────────────────────────────────────────────────────

@@ -17,7 +17,7 @@ async function hmacHex(secret, message) {
 }
 
 /** Returns HMAC-SHA256 as a base64 string (used by KuCoin, Bitget, Bitmart). */
-async function hmacBase64(secret, message) {
+export async function hmacBase64(secret, message) {
   const encoder = new TextEncoder();
   const key = await crypto.subtle.importKey(
     'raw', encoder.encode(secret), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']
@@ -78,7 +78,7 @@ const MAX_ERROR_SNIPPET_LENGTH = 200;
  * @param {Response} resp     – fetch() Response object
  * @param {string}   context  – short label for the exchange/call (e.g. "Bitget trading")
  */
-async function parseJsonResponse(resp, context = '') {
+export async function parseJsonResponse(resp, context = '') {
   const text = await resp.text();
   try {
     return JSON.parse(text);
