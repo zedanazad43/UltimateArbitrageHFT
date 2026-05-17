@@ -77,7 +77,7 @@ describe('/api/platforms — summary counts', () => {
     const env = {
       MEXC_API_KEY: 'k', MEXC_API_SECRET: 's',
       BINANCE_API_KEY: 'k', BINANCE_API_SECRET: 's',
-      BITGET_API_KEY: 'k', BITGET_API_SECRET: 's',
+      BITGET_API_KEY: 'k', BITGET_API_SECRET: 's', BITGET_API_PASSPHRASE: 'p',
     };
     const res = await buildPlatformsResponse(env);
     assert.equal(res.summary.configured, 4);
