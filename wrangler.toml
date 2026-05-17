@@ -162,6 +162,16 @@ CREWAI_STATUS_URL      = ""
 AUTOGPT_EXECUTE_URL    = ""
 AUTOGPT_STATUS_URL     = ""
 
+# ── Proxy routing behavior ───────────────────────────────────────────────────
+# auto: use proxy when configured, fallback to direct requests when proxy fails
+# off: force direct requests (useful for servers outside proxy)
+# required: require proxy; fail request if proxy is unavailable
+PROXY_MODE = "auto"
+
+# Comma-separated exchanges that should bypass proxy when PROXY_MODE=auto.
+# Example: "bitmart,mexc"
+DIRECT_EXCHANGES = ""
+
 # ── Exchange feature flags ─────────────────────────────────────────────────────
 # bybit and gateio are excluded from live execution (German regulatory law).
 # They remain active as price-data sources only.
@@ -171,7 +181,6 @@ AUTOGPT_STATUS_URL     = ""
 #   MEXC:    MEXC_API_KEY, MEXC_API_SECRET
 #   Binance: BINANCE_API_KEY, BINANCE_API_SECRET
 #   KuCoin:  KUCOIN_API_KEY, KUCOIN_SECRET_KEY, KUCOIN_PASSPHRASE
-## OKX:     OKX_API_KEY, OKX_API_SECRET, OKX_PASSPHRASE (تم حذف الدعم)
 #   Bitget:  BITGET_API_KEY, BITGET_SECRET_KEY, BITGET_API_PASSPHRASE
 #   Bitmart: BITMART_API_KEY, BITMART_SECRET_KEY, BITMART_MEMO
 #   HTX:     HTX_API_KEY, HTX_API_SECRET

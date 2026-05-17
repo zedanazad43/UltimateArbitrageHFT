@@ -111,6 +111,24 @@ have a working bot in paper-trading mode:
 
 Exchange API keys (`MEXC_API_KEY`, etc.) are only required for **live** trading.
 
+### Optional hardening and routing vars
+
+You can also set these vars for production control:
+
+- `ALLOWED_IPS`: comma-separated allowlist for admin endpoints.
+- `PROXY_MODE`: `auto`, `off`, or `required`.
+- `DIRECT_EXCHANGES`: comma-separated exchange list that bypasses proxy in `auto` mode.
+
+Examples:
+
+- Direct-only servers (outside proxy):
+  - `PROXY_MODE=off`
+- Mixed routing:
+  - `PROXY_MODE=auto`
+  - `DIRECT_EXCHANGES=bitmart,mexc`
+- Strict proxy mode:
+  - `PROXY_MODE=required`
+
 ---
 
 ## Step 7 — Deploy the Worker

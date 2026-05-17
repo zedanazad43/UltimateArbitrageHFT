@@ -15,6 +15,9 @@
 # Arbitrary secret used in the x-admin-token header to protect
 # admin routes (/start, /stop, /scan, /config, etc.).
 ADMIN_TOKEN=change-me-local-dev
+# Optional: comma-separated admin IP allowlist.
+# Example: ALLOWED_IPS=203.0.113.10,198.51.100.0
+ALLOWED_IPS=
 
 # ── Telegram notifications ───────────────────────────────────
 # Bot token from @BotFather and your chat/channel ID.

@@ -29,10 +29,33 @@ Add these in your repo → Settings → Secrets and variables → Actions → **
 | `TELEGRAM_CHAT_ID` | Telegram chat/group ID (optional) |
 | `MEXC_API_KEY` + `MEXC_API_SECRET` | MEXC exchange keys (needed for live execution) |
 | `BINANCE_API_KEY` + `BINANCE_API_SECRET` | Binance keys (optional) |
-| `OKX_API_KEY` + `OKX_API_SECRET` + `OKX_PASSPHRASE` | OKX keys (data-only — BaFin restricted, no live execution) |
 | `KUCOIN_API_KEY` + `KUCOIN_SECRET_KEY` + `KUCOIN_PASSPHRASE` | KuCoin keys (optional) |
 | `BITGET_API_KEY` + `BITGET_SECRET_KEY` + `BITGET_API_PASSPHRASE` | Bitget keys (optional) |
 | `BITMART_API_KEY` + `BITMART_SECRET_KEY` + `BITMART_MEMO` | Bitmart keys (optional) |
+| `ALLOWED_IPS` | Optional admin IP allowlist (comma-separated) for hardening protected endpoints |
+
+### Proxy Routing Profiles (Production)
+
+Configure these Worker vars to control how exchange requests are routed:
+
+| Variable | Description |
+|---|---|
+| `PROXY_MODE` | `auto` (default), `off`, or `required` |
+| `DIRECT_EXCHANGES` | Optional comma-separated list of exchanges that bypass proxy in `auto` mode |
+
+Recommended server profiles:
+
+- No proxy / direct servers:
+	- `PROXY_MODE=off`
+	- `DIRECT_EXCHANGES=`
+- Mixed mode (proxy where needed):
+	- `PROXY_MODE=auto`
+	- `DIRECT_EXCHANGES=bitmart,mexc` (example)
+- Strict proxy-compliance mode:
+	- `PROXY_MODE=required`
+	- `DIRECT_EXCHANGES=`
+
+Set non-secret vars in `wrangler.toml` under `[vars]` and redeploy.
 
 ---
 
@@ -228,3 +251,4 @@ Latency note: run the bot and execution services in regions close to exchange in
 
 Secrets (`api_keys.txt`, `.env`) **must not** be committed — see `.gitignore`.
 `ADMIN_TOKEN` must be set before the worker will accept admin commands.
+Use `ALLOWED_IPS` in production to restrict admin route access to trusted IP ranges.
