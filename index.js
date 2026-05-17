@@ -985,10 +985,16 @@ app.get('/api/platforms', async (c) => {
       const configured = hasExchangeCredentials(c.env, name);
       const missingKeys = configured ? [] : getMissingCredentialKeys(c.env, name);
       let balance = null;
+      let error = null;
       if (configured) {
-        try { balance = await getExchangeBalance(c.env, name, 'USDT'); } catch (_) {}
+        try {
+          balance = await getExchangeBalance(c.env, name, 'USDT');
+        } catch (e) {
+          balance = 0;
+          error = e?.message || 'Balance fetch failed';
+        }
       }
-      return { name, type, executionMode, configured, missingKeys, balance, strategies, note };
+      return { name, type, executionMode, configured, missingKeys, balance, error, strategies, note };
     })
   );
 
@@ -1000,6 +1006,7 @@ app.get('/api/platforms', async (c) => {
     configured: true,
     missingKeys: [],
     balance: null,
+    error: null,
     strategies: ['dex-gmx', 'dex-dydx'],
     note: 'Web3 browser wallet; on-chain execution requires browser + MetaMask extension. Server executes via HFT engine private key.'
   });
