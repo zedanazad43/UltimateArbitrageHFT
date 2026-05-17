@@ -619,6 +619,8 @@ export async function placeMarketOrderOKX(env, symbol, side, quantity, sizeUsd) 
 
 // ── Bitget ────────────────────────────────────────────────────────────────────
 
+const BITGET_API_HOSTS = ['api.bitget.com', 'capi.bitget.com'];
+
 /**
  * Fetches the Bitget spot account balance for a given asset (default: USDT).
  */
@@ -642,22 +644,38 @@ export async function getBitgetBalance(env, asset = 'USDT') {
   const errors = [];
   let data = null;
 
-  for (const rawSign of signCandidates) {
-    const signature = await hmacBase64(apiSecret, rawSign);
-    const resp = await fetch(`https://api.bitget.com${fullPath}`, {
-      headers: {
-        'ACCESS-KEY':        apiKey,
-        'ACCESS-SIGN':       signature,
-        'ACCESS-TIMESTAMP':  timestamp,
-        'ACCESS-PASSPHRASE': passphrase,
-      }
-    });
-    data = await parseJsonResponse(resp, 'Bitget balance');
-    if (data?.code === '00000') break;
+  for (const host of BITGET_API_HOSTS) {
+    for (const rawSign of signCandidates) {
+      const signature = await hmacBase64(apiSecret, rawSign);
+      try {
+        const resp = await fetch(`https://${host}${fullPath}`, {
+          headers: {
+            'ACCESS-KEY':        apiKey,
+            'ACCESS-SIGN':       signature,
+            'ACCESS-TIMESTAMP':  timestamp,
+            'ACCESS-PASSPHRASE': passphrase,
+            'Accept':            'application/json',
+            'locale':            'en-US',
+            'User-Agent':        'Mozilla/5.0',
+          }
+        });
+        data = await parseJsonResponse(resp, 'Bitget balance');
+        if (data?.code === '00000') break;
 
-    const msg = data?.msg || data?.message || data?.error || JSON.stringify(data);
-    errors.push(msg);
-    data = null;
+        const msg = data?.msg || data?.message || data?.error || JSON.stringify(data);
+        errors.push(`${host}: ${msg}`);
+
+        // Retry on Cloudflare anti-bot blocks by switching host/sign format.
+        if (data?.cloudflare === 'block') {
+          data = null;
+          continue;
+        }
+      } catch (err) {
+        errors.push(`${host}: ${err.message || String(err)}`);
+      }
+      data = null;
+    }
+    if (data?.code === '00000') break;
   }
 
   if (!data) {
@@ -700,20 +718,34 @@ export async function placeMarketOrderBitget(env, symbol, side, quantity, sizeUs
   const strToSign = timestamp + 'POST' + path + bodyStr;
   const signature = await hmacBase64(apiSecret, strToSign);
 
-  const resp = await fetch(`https://api.bitget.com${path}`, {
-    method: 'POST',
-    headers: {
-      'ACCESS-KEY':        apiKey,
-      'ACCESS-SIGN':       signature,
-      'ACCESS-TIMESTAMP':  timestamp,
-      'ACCESS-PASSPHRASE': passphrase,
-      'Content-Type':      'application/json'
-    },
-    body: bodyStr
-  });
-  const data = await parseJsonResponse(resp, 'Bitget order');
-  if (data.code !== '00000') throw new Error(data.msg || `Bitget order error ${data.code}`);
-  return data;
+  const errors = [];
+  for (const host of BITGET_API_HOSTS) {
+    try {
+      const resp = await fetch(`https://${host}${path}`, {
+        method: 'POST',
+        headers: {
+          'ACCESS-KEY':        apiKey,
+          'ACCESS-SIGN':       signature,
+          'ACCESS-TIMESTAMP':  timestamp,
+          'ACCESS-PASSPHRASE': passphrase,
+          'Content-Type':      'application/json',
+          'Accept':            'application/json',
+          'locale':            'en-US',
+          'User-Agent':        'Mozilla/5.0',
+        },
+        body: bodyStr
+      });
+      const data = await parseJsonResponse(resp, 'Bitget order');
+      if (data?.code === '00000') return data;
+
+      const msg = data?.msg || data?.message || data?.error || JSON.stringify(data);
+      errors.push(`${host}: ${msg}`);
+      if (data?.cloudflare === 'block') continue;
+    } catch (err) {
+      errors.push(`${host}: ${err.message || String(err)}`);
+    }
+  }
+  throw new Error(`Bitget order failed: ${errors.join(' | ') || 'unknown error'}`);
 }
 
 // ── Bitmart ───────────────────────────────────────────────────────────────────
