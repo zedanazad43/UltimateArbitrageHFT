@@ -34,6 +34,7 @@
     "test:all": "node --test tests/unit.test.js tests/exchange.integration.test.js tests/prices.test.js tests/exchange-multi.test.js tests/notifier.test.js tests/dex.test.js tests/hft-client.test.js tests/ai-client.test.js tests/db-schema-init.test.js tests/exchange-fill-metrics.test.js tests/security-auth.test.js tests/dashboard-api-wiring.test.js tests/platforms-api.test.js tests/self-evaluation.test.js",
     "monitor": "node scripts/monitor-performance.js",
     "diagnose:exchanges": "node scripts/diagnose-exchange-readiness.js",
+    "remediate:exchanges": "bash scripts/remediate-all-exchanges.sh",
     "self:evaluate": "node scripts/self-evaluate-strategies.js",
     "backup": "pwsh -NoProfile -File ./scripts/backup-database.ps1",
     "backup:full": "pwsh -NoProfile -File ./scripts/backup-database.ps1 -Full",
