@@ -103,7 +103,7 @@ EOF
 EOF
 
   if [[ -n "$go_bin_path" ]]; then
-    go env | sed -E "s#-ffile-prefix-map=/tmp/go-build[0-9]+=/tmp/go-build#-ffile-prefix-map=/tmp/go-buildXXXX=/tmp/go-build#g"
+    go env | sed -E "s#-ffile-prefix-map=[^[:space:]]*/go-build[0-9]+=/tmp/go-build#-ffile-prefix-map=/tmp/go-buildXXXX=/tmp/go-build#g"
   else
     echo "go command not found"
   fi
