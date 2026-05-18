@@ -18,7 +18,7 @@ import { evaluateStrategyBreakdown } from './src/self-evaluation.js';
 import { getEcosystemCatalog, recommendEcosystem, getApiKeySecurityChecklist } from './src/ecosystem.js';
 import { executeAllExecutableIntegrations, executeExecutableIntegration, listExecutableIntegrationIds, probeExecutableIntegrations } from './src/executive-integrations.js';
 import { getAutoExecutor } from './src/strategies/auto-executor.js';
-import { CONTROL_PANEL_HTML } from './src/control-panel-template.js';
+import { renderControlPanel } from './src/control-panel.js';
 import {
   startWorkflow,
   stopWorkflow,
@@ -95,6 +95,64 @@ async function getState(env) {
 
 async function saveState(env, state) {
   await env.BOT_STATE.put('trading_state', JSON.stringify(state));
+}
+
+function getStateSummary(state) {
+  const totalProfit = Number(state?.total_pnl || 0);
+  const todayProfit = Number(state?.daily_pnl || 0);
+  const totalTrades = Number(state?.total_trades || 0);
+  const initialCapital = Number(state?.initial_capital || 0);
+
+  return {
+    capital: initialCapital + totalProfit,
+    totalProfit,
+    todayProfit,
+    totalTrades,
+    paperMode: state?.paper_trading !== false,
+    tradingEnabled: !!state?.trading_enabled,
+  };
+}
+
+async function probeExecutionExchanges(env, exchanges = ACTIVE_EXECUTION_EXCHANGES) {
+  const exchangeStatus = {};
+  let configuredCount = 0;
+  let authValidatedCount = 0;
+  let authFailureCount = 0;
+
+  for (const exchange of exchanges) {
+    const configured = hasExchangeCredentials(env, exchange);
+    const missing = configured ? [] : getMissingCredentialKeys(env, exchange);
+    let authValidated = false;
+    let authError = null;
+
+    if (configured) {
+      configuredCount++;
+      try {
+        await getExchangeBalance(env, exchange, 'USDT');
+        authValidated = true;
+        authValidatedCount++;
+      } catch (error) {
+        authError = error.message;
+        authFailureCount++;
+      }
+    }
+
+    exchangeStatus[exchange] = {
+      configured,
+      missing,
+      authValidated,
+      authError,
+    };
+  }
+
+  return {
+    exchangeStatus,
+    configuredCount,
+    authValidatedCount,
+    authFailureCount,
+    liveTradingCapable: authValidatedCount > 0,
+    allConfiguredExchangesHealthy: configuredCount > 0 && authFailureCount === 0 && authValidatedCount === configuredCount,
+  };
 }
 
 // ─── Cookie helper ────────────────────────────────────────────────────────────
@@ -428,7 +486,7 @@ app.get('/checklist', async (c) => {
 
 app.get('/control-panel', async (c) => {
   if (c.env.ADMIN_TOKEN && !isAuthorized(c.env, c)) return c.redirect('/login', 302);
-  return c.html(CONTROL_PANEL_HTML || '<html><body>Control Panel</body></html>');
+  return c.html(renderControlPanel());
 });
 
 // ── Admin: Start ──────────────────────────────────────────────────────────────
@@ -631,8 +689,10 @@ app.get('/api/status', async (c) => {
     c.env.BOT_STATE.get('nexus_last_scan', 'json').catch(() => null),
     c.env.BOT_STATE.get('nexus_circuit_breaker', 'json').catch(() => null)
   ]);
+  const summary = getStateSummary(state);
   return c.json({
     ...state,
+    ...summary,
     lastScan,
     circuitBreaker: circuitBreaker || {},
     secretBindings: {
@@ -649,6 +709,14 @@ app.get('/api/proxy-stats', async (c) => {
   if (!isAuthorized(c.env, c)) return authDenied(c.env, c, true);
   const executor = getAutoExecutor(c.env);
   const stats = executor.getStats();
+  let externalProvider = 'none';
+  let externalHealthy = false;
+  try {
+    const { getExternalProxyManager } = await import('./src/infra/external-proxy.js');
+    const externalStats = getExternalProxyManager(c.env).getStats();
+    externalProvider = externalStats.provider ?? 'none';
+    externalHealthy = !!externalStats.healthy;
+  } catch (_) {}
   return c.json({
     success: true,
     proxyRouting: stats.proxyRouting,
@@ -656,6 +724,13 @@ app.get('/api/proxy-stats', async (c) => {
     strategyHealth: stats.strategyHealth,
     executorPaperMode: stats.paperMode,
     openPositions: stats.openPositions,
+    paperMode: stats.paperMode,
+    maxOpenPositions: stats.maxPositions,
+    strategyCooldownMs: stats.strategyCooldownMs,
+    proxyMode: stats.proxyRouting?.mode || 'auto',
+    availableProxies: stats.proxyRouting?.availableProxies ?? 0,
+    externalProvider,
+    externalHealthy,
   });
 });
 
@@ -709,19 +784,21 @@ app.get('/api/readiness', async (c) => {
   if (!isAuthorized(c.env, c)) return authDenied(c.env, c, true);
 
   const state = await getState(c.env);
+  const executionProbe = await probeExecutionExchanges(c.env);
 
   // ---- Exchange credentials -----------------------------------------------
-  const allExchanges = [
-    ...ACTIVE_EXECUTION_EXCHANGES,
-    ...['bybit', 'gateio', 'kraken', 'coinbase'],
-  ];
-  const exchangeStatus = {};
-  let configuredCount = 0;
-  for (const ex of allExchanges) {
+  const exchangeStatus = {
+    ...executionProbe.exchangeStatus,
+  };
+  for (const ex of ['bybit', 'gateio', 'kraken', 'coinbase']) {
     const configured = hasExchangeCredentials(c.env, ex);
-    const missing = configured ? [] : getMissingCredentialKeys(c.env, ex);
-    exchangeStatus[ex] = { configured, missing };
-    if (configured) configuredCount++;
+    exchangeStatus[ex] = {
+      configured,
+      missing: configured ? [] : getMissingCredentialKeys(c.env, ex),
+      authValidated: false,
+      authError: null,
+      dataOnly: true,
+    };
   }
 
   // ---- BitMart circuit breaker --------------------------------------------
@@ -731,9 +808,9 @@ app.get('/api/readiness', async (c) => {
     const bm = getBitmartEnhanced(c.env);
     const bmStats = bm.getStats();
     bitmartCircuitBreaker = {
-      state: bmStats.circuitBreakerState ?? 'UNKNOWN',
-      failures: bmStats.failures ?? 0,
-      rateLimitUsed: bmStats.rateLimitUsed ?? 0,
+      state: bmStats.circuitBreakerOpen ? 'OPEN' : 'CLOSED',
+      failures: bmStats.circuitBreakerFailures ?? 0,
+      rateLimitUsed: bmStats.rateLimitRequests ?? 0,
     };
   } catch (_) {}
 
@@ -742,7 +819,7 @@ app.get('/api/readiness', async (c) => {
   try {
     const { getExternalProxyManager } = await import('./src/infra/external-proxy.js');
     const pm = getExternalProxyManager(c.env);
-    const ps = pm.getStatus();
+    const ps = pm.getStats();
     proxyStatus = {
       provider: ps.provider ?? 'none',
       enabled: ps.enabled ?? false,
@@ -752,10 +829,10 @@ app.get('/api/readiness', async (c) => {
 
   // ---- System flags -------------------------------------------------------
   const adminTokenSet = !!(c.env.ADMIN_TOKEN);
-  const telegramConfigured = !!(c.env.TELEGRAM_TOKEN && c.env.TELEGRAM_CHAT_ID);
+  const telegramConfigured = !!(c.env.TELEGRAM_BOT_TOKEN && c.env.TELEGRAM_CHAT_ID);
   const tradingEnabled = !!state.trading_enabled;
   const paperMode = state.paper_trading !== false;
-  const executionExchangesReady = configuredCount > 0;
+  const executionExchangesReady = executionProbe.allConfiguredExchangesHealthy;
 
   // ---- Live-trading gate: all checks must pass ----------------------------
   const readyForLive = (
@@ -774,7 +851,10 @@ app.get('/api/readiness', async (c) => {
       telegramConfigured,
       tradingEnabled,
       paperMode,
-      configuredExchangeCount: configuredCount,
+      configuredExchangeCount: executionProbe.configuredCount,
+      authValidatedExchangeCount: executionProbe.authValidatedCount,
+      exchangeAuthFailures: executionProbe.authFailureCount,
+      liveTradingCapable: executionProbe.liveTradingCapable,
       executionExchangesReady,
       bitmartCircuitBreaker,
       externalProxy: proxyStatus,
@@ -782,22 +862,12 @@ app.get('/api/readiness', async (c) => {
     exchanges: exchangeStatus,
     note: readyForLive
       ? 'All systems go — live trading is active'
-      : 'One or more pre-requisites are not met; review checks above',
+      : executionProbe.configuredCount === 0
+        ? 'No executable exchange credentials are configured'
+        : executionProbe.authFailureCount > 0
+          ? 'One or more configured exchanges failed authenticated balance checks'
+          : 'One or more pre-requisites are not met; review checks above',
     timestamp: new Date().toISOString(),
-  });
-});
-
-// ── API: Execution Health ───────────────────────────────────────────────────
-app.get('/api/execution-health', async (c) => {
-  if (!isAuthorized(c.env, c)) return authDenied(c.env, c, true);
-  const executor = getAutoExecutor(c.env);
-  const stats = executor.getStats();
-  return c.json({
-    success: true,
-    paperMode: stats.paperMode,
-    strategies: stats.strategies,
-    portfolioBalance: stats.portfolioBalance,
-    openPositions: stats.openPositions,
   });
 });
 
@@ -824,8 +894,19 @@ app.get('/api/report', async (c) => {
   const fromMs = from ? new Date(from).getTime() : 0;
   const toMs   = to   ? new Date(to).getTime()   : Date.now();
   if (isNaN(fromMs) || isNaN(toMs)) return c.json({ error: 'Invalid date parameters' }, 400);
-  const metrics = await getPerformanceMetrics(c.env, fromMs, toMs);
-  return c.json({ success: true, data: metrics });
+  const [state, metrics] = await Promise.all([
+    getState(c.env),
+    getPerformanceMetrics(c.env, fromMs, toMs),
+  ]);
+  const summary = getStateSummary(state);
+  return c.json({
+    success: true,
+    ...summary,
+    metrics,
+    data: metrics,
+    from: fromMs,
+    to: toMs,
+  });
 });
 
 // ── API: Recent admin/bot logs ───────────────────────────────────────────────
@@ -959,6 +1040,7 @@ app.get('/api/execution-health', async (c) => {
     getState(c.env),
     c.env.BOT_STATE.get('nexus_last_scan', 'json').catch(() => null)
   ]);
+  const executorStats = getAutoExecutor(c.env).getStats();
 
   const mexcConfigured = hasExchangeCredentials(c.env, 'mexc');
 
@@ -988,11 +1070,17 @@ app.get('/api/execution-health', async (c) => {
   }
 
   const executionMode = futuresReady ? 'futures+spot' : (spotReady ? 'spot-fallback' : 'blocked');
+  const paperMode = state?.paper_trading !== false;
+  const blockedReasons = [];
+  if (!mexcConfigured) blockedReasons.push('MEXC credentials missing');
+  if (spotError) blockedReasons.push(`Spot: ${spotError}`);
+  if (futuresError) blockedReasons.push(`Futures: ${futuresError}`);
 
   return c.json({
     success: true,
     tradingEnabled: !!state?.trading_enabled,
-    paperTrading: state?.paper_trading !== false,
+    paperMode,
+    paperTrading: paperMode,
     mexcConfigured,
     spotReady,
     futuresReady,
@@ -1001,6 +1089,10 @@ app.get('/api/execution-health', async (c) => {
     futuresBalance,
     spotError,
     futuresError,
+    blockedReasons,
+    strategies: executorStats.strategies,
+    portfolioBalance: Number(executorStats.portfolioBalance || 0),
+    openPositions: executorStats.openPositions,
     lastPerpsOpp: lastScan?.perps || null,
     lastScanTimestamp: lastScan?.timestamp || null,
   });

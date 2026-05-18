@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html dir="rtl" lang="ar">
+<html lang="en">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -155,8 +155,8 @@
 <body>
   <div class="container">
     <header>
-      <h1>🔷 Nexus Control Panel</h1>
-      <p>منظومة التحكم المركزية - مراقبة الخوادم والاستراتيجيات</p>
+      <h1>Nexus Control Panel</h1>
+      <p>Operational view for auth, execution readiness, and exchange health</p>
     </header>
 
     <div class="section-grid">
@@ -297,17 +297,37 @@
     const API_BASE = window.location.origin;
     const ADMIN_TOKEN = localStorage.getItem('adminToken') || '';
 
-    async function makeRequest(endpoint, options = {}) {
-      try {
-        const resp = await fetch(`${API_BASE}${endpoint}`, {
-          headers: { 'Authorization': `Bearer ${ADMIN_TOKEN}`, ...options.headers },
-          ...options,
-        });
-        return resp.json();
-      } catch (err) {
-        console.error(`Request failed: ${err.message}`);
-        return { error: err.message };
+    function getAuthHeaders(extraHeaders = {}) {
+      const headers = new Headers(extraHeaders);
+      if (ADMIN_TOKEN) headers.set('x-admin-token', ADMIN_TOKEN);
+      return headers;
+    }
+
+    function getPayloadBody(payload) {
+      if (payload && typeof payload === 'object' && payload.data && typeof payload.data === 'object') {
+        return payload.data;
       }
+      return payload;
+    }
+
+    async function makeRequest(endpoint, options = {}) {
+      const response = await fetch(`${API_BASE}${endpoint}`, {
+        credentials: 'same-origin',
+        ...options,
+        headers: getAuthHeaders(options.headers),
+      });
+
+      const text = await response.text();
+      let data = null;
+      try {
+        data = text ? JSON.parse(text) : null;
+      } catch (_) {}
+
+      return { ok: response.ok, status: response.status, text, data };
+    }
+
+    function getErrorMessage(result) {
+      return result.data?.error || result.data?.hint || result.text || `HTTP ${result.status}`;
     }
 
     function showMessage(text, type = 'info') {
@@ -322,10 +342,10 @@
     async function checkAllEndpoints() {
       const endpoints = [
         '/api/status',
-        '/api/health',
+        '/api/readiness',
         '/api/proxy-stats',
-        '/api/analytics',
-        '/api/performance',
+        '/api/execution-health',
+        '/api/report',
       ];
 
       const list = document.getElementById('api-list');
@@ -344,10 +364,8 @@
         list.appendChild(item);
 
         try {
-          const resp = await fetch(`${API_BASE}${ep}`, {
-            headers: { 'Authorization': `Bearer ${ADMIN_TOKEN}` }
-          });
-          status.className = `endpoint-status ${resp.ok ? 'status-ok' : 'status-error'}`;
+          const result = await makeRequest(ep);
+          status.className = `endpoint-status ${result.ok ? 'status-ok' : 'status-error'}`;
         } catch {
           status.className = 'endpoint-status status-error';
         }
@@ -357,108 +375,125 @@
     }
 
     async function checkBitmartStatus() {
-      const data = await makeRequest('/api/proxy-stats');
-      if (!data.error) {
-        document.getElementById('bitmart-circuit').textContent = data.circuitBreakerOpen ? '🔴 OPEN' : '🟢 CLOSED';
-        document.getElementById('bitmart-ratelimit').textContent = `${data.rateLimitRequests}/${data.rateLimitMaxPerWindow}`;
-        document.getElementById('bitmart-proxy').textContent = data.externalProxyEnabled ? '🟢 Enabled' : '⚪ Disabled';
-        document.getElementById('bitmart-status-dot').className = 'status-dot status-ok';
-        showMessage('BitMart status checked', 'success');
-      } else {
-        showMessage(`Error: ${data.error}`, 'error');
+      const result = await makeRequest('/api/bitmart/stats');
+      if (!result.ok) {
+        showMessage(`BitMart status error: ${getErrorMessage(result)}`, 'error');
+        return;
       }
+
+      const data = getPayloadBody(result.data) || {};
+      document.getElementById('bitmart-circuit').textContent = data.circuitBreakerOpen ? 'OPEN' : 'CLOSED';
+      document.getElementById('bitmart-ratelimit').textContent = `${data.rateLimitRequests || 0}/${data.rateLimitMaxPerWindow || 0}`;
+      document.getElementById('bitmart-proxy').textContent = data.externalProxyEnabled ? 'Enabled' : 'Disabled';
+      document.getElementById('bitmart-status-dot').className = `status-dot ${data.circuitBreakerOpen ? 'status-warning' : 'status-ok'}`;
+      showMessage('BitMart status refreshed', 'success');
     }
 
     async function resetBitmartCircuitBreaker() {
-      const resp = await makeRequest('/api/bitmart/reset-circuit-breaker', { method: 'POST' });
-      if (!resp.error) {
-        showMessage('Circuit breaker reset', 'success');
-        checkBitmartStatus();
-      } else {
-        showMessage(`Error: ${resp.error}`, 'error');
+      const result = await makeRequest('/api/bitmart/reset-circuit-breaker', { method: 'POST' });
+      if (!result.ok) {
+        showMessage(`Reset failed: ${getErrorMessage(result)}`, 'error');
+        return;
       }
+
+      showMessage('Circuit breaker reset', 'success');
+      checkBitmartStatus();
     }
 
     async function checkProxyStats() {
-      const data = await makeRequest('/api/proxy-stats');
-      if (!data.error) {
-        document.getElementById('proxy-local-mode').textContent = data.proxyMode || 'Unknown';
-        document.getElementById('proxy-available').textContent = data.availableProxies || '0';
-        document.getElementById('proxy-external-provider').textContent = data.externalProvider || 'None';
-        document.getElementById('proxy-status-dot').className = 'status-dot status-ok';
-        showMessage('Proxy stats checked', 'success');
+      const result = await makeRequest('/api/proxy-stats');
+      if (!result.ok) {
+        showMessage(`Proxy stats error: ${getErrorMessage(result)}`, 'error');
+        return;
       }
+
+      const data = result.data || {};
+      document.getElementById('proxy-local-mode').textContent = data.proxyMode || 'Unknown';
+      document.getElementById('proxy-available').textContent = String(data.availableProxies ?? 0);
+      document.getElementById('proxy-external-provider').textContent = data.externalProvider || 'none';
+      document.getElementById('proxy-status-dot').className = `status-dot ${data.externalHealthy === false ? 'status-warning' : 'status-ok'}`;
     }
 
     async function checkExecutionHealth() {
-      const data = await makeRequest('/api/execution-health');
-      if (!data.error) {
-        document.getElementById('strategy-mode').textContent = data.paperMode ? '📄 Paper' : '💰 Live';
-        document.getElementById('strategy-count').textContent = data.strategies?.length || '0';
-        document.getElementById('strategy-balance').textContent = `$${data.portfolioBalance?.toFixed(2) || '0'}`;
-        document.getElementById('strategy-status-dot').className = 'status-dot status-ok';
-        showMessage('Execution health OK', 'success');
+      const result = await makeRequest('/api/execution-health');
+      if (!result.ok) {
+        showMessage(`Execution health error: ${getErrorMessage(result)}`, 'error');
+        return;
+      }
+
+      const data = result.data || {};
+      document.getElementById('strategy-mode').textContent = data.paperMode ? 'Paper' : 'Live';
+      document.getElementById('strategy-count').textContent = String((data.strategies || []).length);
+      document.getElementById('strategy-balance').textContent = `$${Number(data.portfolioBalance || 0).toFixed(2)}`;
+      document.getElementById('strategy-status-dot').className = `status-dot ${data.executionMode === 'blocked' ? 'status-error' : 'status-ok'}`;
+      if (Array.isArray(data.blockedReasons) && data.blockedReasons.length > 0) {
+        showMessage(`Execution blocked: ${data.blockedReasons.join(' | ')}`, 'warning');
       }
     }
 
     async function checkExecutorStats() {
-      const data = await makeRequest('/api/proxy-stats'); // Uses auto-executor
-      if (!data.error) {
-        document.getElementById('executor-paper').textContent = data.paperMode ? '📄 Yes' : '💰 No';
-        document.getElementById('executor-positions').textContent = data.maxOpenPositions || '5';
-        document.getElementById('executor-cooldown').textContent = `${data.strategyCooldownMs || 120000}ms`;
-        document.getElementById('executor-status-dot').className = 'status-dot status-ok';
-        showMessage('Executor stats checked', 'success');
+      const result = await makeRequest('/api/proxy-stats');
+      if (!result.ok) {
+        showMessage(`Executor stats error: ${getErrorMessage(result)}`, 'error');
+        return;
       }
+
+      const data = result.data || {};
+      document.getElementById('executor-paper').textContent = data.paperMode ? 'Yes' : 'No';
+      document.getElementById('executor-positions').textContent = String(data.maxOpenPositions ?? 0);
+      document.getElementById('executor-cooldown').textContent = `${data.strategyCooldownMs ?? 0} ms`;
+      document.getElementById('executor-status-dot').className = 'status-dot status-ok';
     }
 
     async function startExecution() {
-      const resp = await makeRequest('/start');
-      if (!resp.error) {
-        showMessage('Execution started', 'success');
-        checkExecutionHealth();
-      } else {
-        showMessage(`Error: ${resp.error}`, 'error');
+      const result = await makeRequest('/start');
+      if (!result.ok) {
+        showMessage(`Start failed: ${getErrorMessage(result)}`, 'error');
+        return;
       }
+
+      showMessage(result.text || 'Execution started', 'success');
+      checkExecutionHealth();
     }
 
     async function stopExecution() {
-      const resp = await makeRequest('/stop');
-      if (!resp.error) {
-        showMessage('Execution stopped', 'success');
-        checkExecutionHealth();
-      } else {
-        showMessage(`Error: ${resp.error}`, 'error');
+      const result = await makeRequest('/stop');
+      if (!result.ok) {
+        showMessage(`Stop failed: ${getErrorMessage(result)}`, 'error');
+        return;
       }
+
+      showMessage(result.text || 'Execution stopped', 'success');
+      checkExecutionHealth();
     }
 
     async function togglePaperMode() {
-      const resp = await makeRequest('/mode/paper', { method: 'POST' });
-      if (!resp.error) {
-        showMessage('Switched to paper mode', 'success');
-        checkExecutionHealth();
-      } else {
-        showMessage(`Error: ${resp.error}`, 'error');
+      const result = await makeRequest('/mode/paper', { method: 'POST' });
+      if (!result.ok) {
+        showMessage(`Mode switch failed: ${getErrorMessage(result)}`, 'error');
+        return;
       }
+
+      showMessage(result.text || 'Paper mode enabled', 'success');
+      checkExecutionHealth();
+      checkExecutorStats();
     }
 
     async function checkFrontendConnectivity() {
+      const result = await makeRequest('/api/status');
       const dot = document.getElementById('frontend-status-dot');
-      try {
-        const resp = await fetch(`${API_BASE}/api/status`);
-        dot.className = `status-dot ${resp.ok ? 'status-ok' : 'status-warning'}`;
-        showMessage(`Frontend connected: HTTP ${resp.status}`, resp.ok ? 'success' : 'warning');
-      } catch (err) {
-        dot.className = 'status-dot status-error';
-        showMessage(`Frontend connection failed: ${err.message}`, 'error');
-      }
+      const info = document.getElementById('frontend-info');
+      dot.className = `status-dot ${result.ok ? 'status-ok' : 'status-error'}`;
+      info.textContent = result.ok ? `Connected (HTTP ${result.status})` : `Failed (HTTP ${result.status})`;
     }
 
     // Initial checks on page load
     window.addEventListener('load', () => {
       checkAllEndpoints();
+      checkBitmartStatus();
       checkProxyStats();
       checkExecutionHealth();
+      checkExecutorStats();
       checkFrontendConnectivity();
     });
 
@@ -467,6 +502,7 @@
       checkAllEndpoints();
       checkProxyStats();
       checkExecutionHealth();
+      checkExecutorStats();
     }, 30000);
   </script>
 </body>
