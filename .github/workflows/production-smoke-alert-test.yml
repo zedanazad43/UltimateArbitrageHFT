@@ -55,7 +55,7 @@ jobs:
 
           token="$ADMIN_TOKEN_SECRET"
           if [ "$SIMULATE_FAILURE" = "true" ]; then
-            token="invalid-smoke-token"
+            token="invalid-${GITHUB_RUN_ID:-0}-${GITHUB_RUN_ATTEMPT:-0}"
             echo "Simulating failure with invalid admin token"
           fi
 
