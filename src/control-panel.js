@@ -233,6 +233,20 @@ export function renderControlPanel() {
         <button onclick="loadBalances(true)" class="secondary">Force Fresh (bypass cache)</button>
       </div>
     </div>
+
+    <div class="card">
+      <h2>&#8646; Liquidity Rebalancer <span class="status-dot status-idle" id="rebalance-dot"></span></h2>
+      <div class="stat-row"><span class="stat-label">Enabled</span><span class="stat-value" id="rb-enabled">Loading...</span></div>
+      <div class="stat-row"><span class="stat-label">Target / Exchange</span><span class="stat-value" id="rb-target">Loading...</span></div>
+      <div class="stat-row"><span class="stat-label">Estimated Shift</span><span class="stat-value" id="rb-shift">Loading...</span></div>
+      <div class="stat-row"><span class="stat-label">Transfer Suggestions</span><span class="stat-value" id="rb-transfers">Loading...</span></div>
+      <div class="stat-row"><span class="stat-label">Routing Weights</span><span class="stat-value" id="rb-weights" style="font-size:0.78em">---</span></div>
+      <div id="rb-plan" style="margin-top:8px;padding:8px;background:#1a2634;border-radius:6px;font-size:0.78em;color:#9ec4e8">No plan yet</div>
+      <div class="button-group">
+        <button onclick="loadRebalanceStatus()">&#8635; Refresh Plan</button>
+        <button onclick="toggleRebalance()" class="secondary">Enable/Disable</button>
+      </div>
+    </div>
   </div>
 
   <div class="section-grid">
@@ -546,10 +560,61 @@ export function renderControlPanel() {
     setDot('proxy-dot', d.externalHealthy === false ? 'status-warn' : 'status-ok');
   }
 
+  async function loadRebalanceStatus() {
+    setDot('rebalance-dot', 'status-warn');
+    var r = await api('/api/rebalance/status');
+    if (!r.ok) {
+      setDot('rebalance-dot', 'status-error');
+      showToast('Rebalance status error: ' + errMsg(r), 'error');
+      return;
+    }
+
+    var d = r.data || {};
+    var policy = d.policy || {};
+    var plan = d.plan || {};
+    var summary = plan.summary || {};
+    var transfers = plan.estimatedTransfers || [];
+    var weights = d.weights || {};
+
+    setText('rb-enabled', policy.enabled ? 'Enabled' : 'Disabled', policy.enabled ? 'ok' : 'warn');
+    setText('rb-target', usd(plan.targetBalance || 0));
+    setText('rb-shift', usd(summary.estimatedShiftUsd || 0));
+    setText('rb-transfers', String(transfers.length || 0));
+    setText('rb-weights', JSON.stringify(weights));
+
+    var planEl = document.getElementById('rb-plan');
+    if (!transfers.length) {
+      planEl.textContent = 'No transfer suggestions in current buffer range.';
+    } else {
+      planEl.innerHTML = transfers.map(function(t) {
+        return '• Move ' + usd(t.amountUsd) + ' from ' + String(t.from || '').toUpperCase() + ' to ' + String(t.to || '').toUpperCase();
+      }).join('<br>');
+    }
+
+    setDot('rebalance-dot', policy.enabled ? (transfers.length ? 'status-ok' : 'status-warn') : 'status-idle');
+  }
+
+  async function toggleRebalance() {
+    var current = await api('/api/rebalance/status');
+    if (!current.ok) {
+      showToast('Cannot read rebalance policy: ' + errMsg(current), 'error');
+      return;
+    }
+    var enabled = !!(current.data && current.data.policy && current.data.policy.enabled);
+    var next = !enabled;
+    var r = await api('/api/rebalance/policy', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ enabled: next }),
+    });
+    showToast(r.ok ? ('Rebalancer ' + (next ? 'enabled' : 'disabled')) : errMsg(r), r.ok ? 'success' : 'error');
+    if (r.ok) loadRebalanceStatus();
+  }
+
   var ENDPOINTS_TO_CHECK = [
     '/api/status', '/api/readiness', '/api/proxy-stats',
     '/api/execution-health', '/api/report', '/api/balances',
-    '/api/platforms', '/api/bitmart/stats', '/api/perps',
+    '/api/platforms', '/api/bitmart/stats', '/api/perps', '/api/rebalance/status',
     '/health',
   ];
 
@@ -624,6 +689,7 @@ export function renderControlPanel() {
       checkReadiness(),
       checkExecutionHealth(),
       loadBalances(false),
+      loadRebalanceStatus(),
       checkBitmartStatus(),
       checkProxyStats(),
       checkAllEndpoints(),
@@ -640,6 +706,7 @@ export function renderControlPanel() {
     loadStatus();
     checkExecutionHealth();
     checkProxyStats();
+    loadRebalanceStatus();
   }, 30000);
 </script>
 </body>

@@ -19,6 +19,7 @@ import { getEcosystemCatalog, recommendEcosystem, getApiKeySecurityChecklist } f
 import { executeAllExecutableIntegrations, executeExecutableIntegration, listExecutableIntegrationIds, probeExecutableIntegrations } from './src/executive-integrations.js';
 import { getAutoExecutor } from './src/strategies/auto-executor.js';
 import { renderControlPanel } from './src/control-panel.js';
+import { computeRebalancePlan, buildRebalanceWeights, normalizeRebalancePolicy } from './src/rebalancer.js';
 import {
   startWorkflow,
   stopWorkflow,
@@ -58,6 +59,12 @@ const DEFAULT_STATE = {
   paper_trading: false,
   multi_strategy_live: true,
   max_live_trades_per_scan: 5,
+  rebalance_policy: {
+    enabled: false,
+    targetBufferPct: 0.10,
+    minTransferUsd: 25,
+    maxShiftPctPerCycle: 0.25,
+  },
   strategy_flags: {
     cex: true,
     dex: true,
@@ -86,6 +93,10 @@ async function getState(env) {
   return {
     ...DEFAULT_STATE,
     ...state,
+    rebalance_policy: {
+      ...DEFAULT_STATE.rebalance_policy,
+      ...(state?.rebalance_policy || {}),
+    },
     strategy_flags: {
       ...DEFAULT_STATE.strategy_flags,
       ...(state?.strategy_flags || {}),
@@ -95,6 +106,32 @@ async function getState(env) {
 
 async function saveState(env, state) {
   await env.BOT_STATE.put('trading_state', JSON.stringify(state));
+}
+
+async function getExecutionBalancesSnapshot(env) {
+  const results = await Promise.all(
+    ACTIVE_EXECUTION_EXCHANGES.map(async (ex) => {
+      const configured = hasExchangeCredentials(env, ex);
+      if (!configured) {
+        const missing = getMissingCredentialKeys(env, ex);
+        return { exchange: ex, configured: false, balance: null, missing_keys: missing };
+      }
+      try {
+        const balance = await getExchangeBalance(env, ex, 'USDT');
+        return { exchange: ex, configured: true, balance };
+      } catch (e) {
+        console.error(`[balances] ${ex} fetch failed:`, e.message);
+        return { exchange: ex, configured: true, balance: 0, error: e.message };
+      }
+    })
+  );
+
+  const dataOnly = [
+    { exchange: 'bybit', configured: false, balance: null, dataOnly: true, note: 'German law — data feed only' },
+    { exchange: 'gateio', configured: false, balance: null, dataOnly: true, note: 'German law — data feed only' }
+  ];
+
+  return [...results, ...dataOnly];
 }
 
 function getStateSummary(state) {
@@ -952,28 +989,7 @@ app.get('/api/balances', async (c) => {
     }
   }
 
-  const results = await Promise.all(
-    ACTIVE_EXECUTION_EXCHANGES.map(async (ex) => {
-      const configured = hasExchangeCredentials(c.env, ex);
-      if (!configured) {
-        const missing = getMissingCredentialKeys(c.env, ex);
-        return { exchange: ex, configured: false, balance: null, missing_keys: missing };
-      }
-      try {
-        const balance = await getExchangeBalance(c.env, ex, 'USDT');
-        return { exchange: ex, configured: true, balance };
-      } catch (e) {
-        console.error(`[balances] ${ex} fetch failed:`, e.message);
-        return { exchange: ex, configured: true, balance: 0, error: e.message };
-      }
-    })
-  );
-  // Also return data-only feeds (no creds needed, always show)
-  const dataOnly = [
-    { exchange: 'bybit',  configured: false, balance: null, dataOnly: true, note: 'German law — data feed only' },
-    { exchange: 'gateio', configured: false, balance: null, dataOnly: true, note: 'German law — data feed only' }
-  ];
-  const data = [...results, ...dataOnly];
+  const data = await getExecutionBalancesSnapshot(c.env);
 
   // Persist to KV cache in background (don't await — keep response fast)
   if (c.env.BOT_STATE) {
@@ -984,6 +1000,52 @@ app.get('/api/balances', async (c) => {
   }
 
   return c.json({ success: true, data, cached: false });
+});
+
+// ── API: Rebalance status/plan (auth-protected) ─────────────────────────────
+// Computes an environment-agnostic rebalance plan based on currently fetched
+// exchange balances and returns routing weights used by live execution scoring.
+app.get('/api/rebalance/status', async (c) => {
+  if (!isAuthorized(c.env, c)) return authDenied(c.env, c, true);
+
+  const state = await getState(c.env);
+  const policy = normalizeRebalancePolicy(state.rebalance_policy || {});
+  const balances = await getExecutionBalancesSnapshot(c.env);
+  const plan = computeRebalancePlan(balances, policy);
+  const weights = buildRebalanceWeights(balances, policy);
+
+  return c.json({
+    success: true,
+    policy,
+    plan,
+    weights: weights.weights,
+    generatedAt: new Date().toISOString(),
+  });
+});
+
+// ── API: Rebalance policy update (auth-protected) ───────────────────────────
+app.post('/api/rebalance/policy', async (c) => {
+  const limited = await checkRateLimit(c.env, c);
+  if (limited) return limited;
+  if (!isAuthorized(c.env, c)) return authDenied(c.env, c, true);
+
+  const body = await c.req.json().catch(() => ({}));
+  const state = await getState(c.env);
+
+  const nextPolicy = normalizeRebalancePolicy({
+    ...(state.rebalance_policy || {}),
+    ...body,
+  });
+
+  state.rebalance_policy = nextPolicy;
+  await saveState(c.env, state);
+  await logAdminEvent(c.env, 'rebalance:policy', c.req.raw);
+
+  return c.json({
+    success: true,
+    policy: nextPolicy,
+    message: 'Rebalance policy updated',
+  });
 });
 
 // ── API: Perps status ─────────────────────────────────────────────────────────
