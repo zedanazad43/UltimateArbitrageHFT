@@ -32,7 +32,7 @@ gopls: redacted (environment-dependent)
 
 ## Go env
 
-Workspace Folder (UltimateArbitrageHFT): /workspaces/UltimateArbitrageHFT/hft
+Workspace Folder (UltimateArbitrageHFT): redacted (environment-dependent)
 
 ```text
 redacted (environment-dependent)

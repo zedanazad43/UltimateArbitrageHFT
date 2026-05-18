@@ -55,7 +55,7 @@ EOF
 
 EOF
 
-  printf "Workspace Folder (UltimateArbitrageHFT): %s\n\n" "$ROOT_DIR"
+  printf "Workspace Folder (UltimateArbitrageHFT): %s\n\n" "redacted (environment-dependent)"
 
   cat <<'EOF'
 ```text
