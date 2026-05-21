@@ -19,6 +19,7 @@ import { getEcosystemCatalog, recommendEcosystem, getApiKeySecurityChecklist } f
 import { executeAllExecutableIntegrations, executeExecutableIntegration, listExecutableIntegrationIds, probeExecutableIntegrations } from './src/executive-integrations.js';
 import { getAutoExecutor } from './src/strategies/auto-executor.js';
 import { CONTROL_PANEL_HTML } from './src/control-panel-template.js';
+import { loadBotMemory, saveBotMemory, recordEvaluation, summarizeMemory } from './src/bot-memory.js';
 import {
   startWorkflow,
   stopWorkflow,
@@ -74,7 +75,10 @@ const DEFAULT_STATE = {
   max_per_trade_loss_pct: 0.02,
   max_spread_pct: 5.0,
   win_rate: 0.55,
-  risk_reward_ratio: 2.0
+  risk_reward_ratio: 2.0,
+  position_size_usd: 5,       // default small position size (5 USDT)
+  position_size_min_usd: 1,   // hard floor
+  position_size_max_usd: 500, // hard ceiling
 };
 
 async function getState(env) {
@@ -594,6 +598,13 @@ app.post('/config', async (c) => {
   if (num(body.max_spread_pct))               state.max_spread_pct               = body.max_spread_pct;
   if (num(body.win_rate))                     state.win_rate                     = body.win_rate;
   if (num(body.risk_reward_ratio))            state.risk_reward_ratio            = body.risk_reward_ratio;
+  // Position size — clamped to safe bounds (1–500 USDT)
+  if (typeof body.position_size_usd === 'number' && body.position_size_usd > 0) {
+    state.position_size_usd = Math.max(
+      state.position_size_min_usd ?? 1,
+      Math.min(state.position_size_max_usd ?? 500, body.position_size_usd)
+    );
+  }
   if (typeof body.multi_strategy_live === 'boolean') {
     state.multi_strategy_live = body.multi_strategy_live;
   }
@@ -1171,27 +1182,30 @@ app.get('/api/platforms', async (c) => {
       type: 'cex',
       executionMode: 'spot+futures',
       strategies: ['cex', 'perps', 'funding', 'triangular'],
-      note: 'Primary execution exchange — spot and MEXC futures'
+      note: 'Primary execution exchange — spot and MEXC futures',
+      priority: 1,
     },
     {
       name: 'binance',
       type: 'cex',
       executionMode: 'spot',
       strategies: ['cex', 'triangular'],
-      note: 'Spot execution + USDM perps price feed'
+      note: 'Spot execution + USDM perps price feed',
+      priority: 2,
     },
     {
       name: 'bitget',
       type: 'cex',
       executionMode: 'spot',
       strategies: ['cex'],
-      note: 'Spot execution'
-    }
+      note: 'Spot execution',
+      priority: 3,
+    },
   ];
 
   // Fetch live USDT balances in parallel for configured CEX platforms
   const platformResults = await Promise.all(
-    PLATFORM_META.map(async ({ name, type, executionMode, strategies, note }) => {
+    PLATFORM_META.map(async ({ name, type, executionMode, strategies, note, priority }) => {
       const configured = hasExchangeCredentials(c.env, name);
       const missingKeys = configured ? [] : getMissingCredentialKeys(c.env, name);
       let balance = null;
@@ -1204,9 +1218,62 @@ app.get('/api/platforms', async (c) => {
           error = e?.message || 'Balance fetch failed';
         }
       }
-      return { name, type, executionMode, configured, missingKeys, balance, error, strategies, note };
+      return { name, type, executionMode, configured, missingKeys, balance, error, strategies, note, priority };
     })
   );
+
+  // Public data-only platforms — no credentials required
+  const DATA_ONLY_PLATFORMS = [
+    {
+      name: 'bybit',
+      type: 'cex',
+      executionMode: 'data-only',
+      configured: true,
+      missingKeys: [],
+      balance: null,
+      error: null,
+      strategies: ['cex-price-feed', 'perps-price-feed'],
+      note: 'بيانات أسعار عامة فقط (قيود تنظيمية BaFin الألمانية — لا تنفيذ)',
+      dataOnly: true,
+    },
+    {
+      name: 'gateio',
+      type: 'cex',
+      executionMode: 'data-only',
+      configured: true,
+      missingKeys: [],
+      balance: null,
+      error: null,
+      strategies: ['cex-price-feed'],
+      note: 'بيانات أسعار عامة فقط (قيود تنظيمية BaFin الألمانية — لا تنفيذ)',
+      dataOnly: true,
+    },
+    {
+      name: 'kraken',
+      type: 'cex',
+      executionMode: 'data-only',
+      configured: true,
+      missingKeys: [],
+      balance: null,
+      error: null,
+      strategies: ['cex-price-feed'],
+      note: 'بيانات أسعار عامة فقط — لا يلزم مفتاح API',
+      dataOnly: true,
+    },
+    {
+      name: 'coinbase',
+      type: 'cex',
+      executionMode: 'data-only',
+      configured: true,
+      missingKeys: [],
+      balance: null,
+      error: null,
+      strategies: ['cex-price-feed'],
+      note: 'بيانات أسعار عامة فقط — لا يلزم مفتاح API',
+      dataOnly: true,
+    },
+  ];
+  platformResults.push(...DATA_ONLY_PLATFORMS);
 
   // MetaMask is browser-only — always considered "configured" on the server side
   platformResults.push({
@@ -1413,6 +1480,53 @@ app.post('/api/ai', async (c) => {
       usage:      { input_tokens: 0, output_tokens: 0, total_tokens: 0 },
       error:      e.message,
     }, 500);
+  }
+});
+
+// ── API: AI Analysis — opportunity-focused endpoint for dashboard ─────────────
+// Accepts { opportunity: { symbol, strategy, direction, buyPrice, sellPrice, netPct } }
+// Translates to AIWORKER format and returns { analysis, provider }.
+app.post('/api/ai-analysis', async (c) => {
+  if (!isAuthorized(c.env, c)) return authDenied(c.env, c, true);
+
+  let body;
+  try { body = await c.req.json(); } catch (_) { return c.json({ error: 'Invalid JSON' }, 400); }
+
+  const opp = body.opportunity;
+  if (!opp || typeof opp !== 'object') {
+    return c.json({ error: 'Missing required field: opportunity' }, 400);
+  }
+
+  const prompt = [
+    `You are an expert crypto arbitrage analyst. Analyze the following trading opportunity and provide a concise recommendation (2–4 sentences) covering: whether to execute, key risks, and any concerns about liquidity or timing.`,
+    ``,
+    `Opportunity:`,
+    `- Symbol: ${opp.symbol || '—'}`,
+    `- Strategy: ${opp.strategy || '—'}`,
+    `- Direction: ${opp.direction || '—'}`,
+    `- Buy Price: $${opp.buyPrice || 0}`,
+    `- Sell Price: $${opp.sellPrice || 0}`,
+    `- Net Profit %: ${opp.netPct || 0}%`,
+  ].join('\n');
+
+  // Fallback if no AIWORKER binding
+  if (!c.env.AIWORKER) {
+    const fallback = opp.netPct > 0.3
+      ? `✅ Potential opportunity: net spread of ${opp.netPct}% is above threshold. Verify liquidity and fee structure before executing. Monitor for slippage — position size should remain small (≤$5 for initial trades).`
+      : `⚠️ Low spread: net spread of ${opp.netPct}% may not cover execution costs after slippage. Consider waiting for a higher-quality opportunity.`;
+    return c.json({ analysis: fallback, provider: 'fallback' });
+  }
+
+  try {
+    const result = await c.env.AIWORKER.run('@cf/meta/llama-3.1-8b-instruct', {
+      messages: [{ role: 'user', content: prompt }],
+      max_tokens: 256,
+    });
+    const analysis = result?.response ?? result?.text ?? JSON.stringify(result);
+    return c.json({ analysis, provider: 'workers-ai' });
+  } catch (e) {
+    console.error('[AI /api/ai-analysis] error:', e.message);
+    return c.json({ error: e.message }, 500);
   }
 });
 
@@ -1786,6 +1900,14 @@ app.post('/api/strategies/self-evaluate', async (c) => {
       run_param_sweep: true,
     });
     const evaluation = evaluateStrategyBreakdown(backtest.strategy_breakdown || {});
+
+    // Persist evaluation results to bot memory (non-blocking)
+    recordEvaluation(c.env, evaluation, {
+      period_days: days,
+      trade_count: backtest.trade_count,
+      return_pct: backtest.return_pct,
+    }).catch(err => console.warn('[self-evaluate] memory persist error:', err.message));
+
     return c.json({
       period_days: days,
       trade_count: backtest.trade_count,
@@ -1794,6 +1916,42 @@ app.post('/api/strategies/self-evaluate', async (c) => {
       rankings: evaluation.rankings,
       generated_at: evaluation.generatedAt,
     });
+  } catch (e) {
+    return c.json({ error: e.message }, 500);
+  }
+});
+
+// ── API: Bot Memory — long-term learning and strategy memory ───────────────────
+// GET  /api/memory — returns memory summary for dashboard display
+// POST /api/memory/reset — clears the memory (irreversible, requires auth)
+app.get('/api/memory', async (c) => {
+  if (!isAuthorized(c.env, c)) return authDenied(c.env, c, true);
+  try {
+    const memory = await loadBotMemory(c.env);
+    const summary = summarizeMemory(memory);
+    return c.json({ success: true, summary, updatedAt: memory.updatedAt });
+  } catch (e) {
+    return c.json({ error: e.message }, 500);
+  }
+});
+
+app.post('/api/memory/reset', async (c) => {
+  const limited = await checkRateLimit(c.env, c);
+  if (limited) return limited;
+  if (!isAuthorized(c.env, c)) return authDenied(c.env, c, true);
+  try {
+    await saveBotMemory(c.env, {
+      version: 1,
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+      evaluations: [],
+      strategyOutcomes: {},
+      strategyWeights: { cex: 1.0, dex: 1.0, perps: 1.0, triangular: 1.0, statistical: 1.0, funding: 1.0 },
+      autoTuning: { appliedAt: null, adjustments: [] },
+      recommendations: [],
+    });
+    await logAdminEvent(c.env, 'memory:reset', c.req.raw);
+    return c.json({ success: true, message: 'Bot memory cleared' });
   } catch (e) {
     return c.json({ error: e.message }, 500);
   }

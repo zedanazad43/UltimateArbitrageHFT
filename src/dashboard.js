@@ -74,6 +74,7 @@ export async function renderDashboard(env) {
   const maxLoss         = state.max_daily_loss_usd           ?? DEFAULT_RISK.MAX_DAILY_LOSS_USD;
   const minSec          = state.min_seconds_between_trades   ?? DEFAULT_RISK.MIN_SECONDS_BETWEEN_TRADES;
   const maxPerTrade     = state.max_per_trade_loss_pct       ?? DEFAULT_RISK.MAX_PER_TRADE_LOSS_PCT;
+  const positionSizeUsd = state.position_size_usd            ?? 5;
   const multiStrategyLive = state.multi_strategy_live !== false;
   const maxLiveTradesPerScan = Math.max(1, Math.min(5, Math.floor(state.max_live_trades_per_scan ?? 3)));
   const strategyFlags   = {
@@ -333,6 +334,11 @@ ${autoStopBanner}
       <input id="initialCapital" type="number" value="${initialCapital}" min="1" step="1">
     </div>
     <div class="risk-item">
+      <label>حجم المركز الافتراضي ($)</label>
+      <input id="positionSizeUsd" type="number" value="${positionSizeUsd}" min="1" max="500" step="1" title="الحد الأدنى 1 USDT — الحد الأقصى 500 USDT">
+      <span style="font-size:.72em;color:#888">ابتدئ بـ 5 USDT لاختبار آمن</span>
+    </div>
+    <div class="risk-item">
       <label>تعدد الاستراتيجيات (LIVE)</label>
       <label style="color:#eee;font-size:.85em;display:flex;align-items:center;gap:6px">
         <input id="multiStrategyLive" type="checkbox" ${multiStrategyLive ? 'checked' : ''}>
@@ -561,6 +567,25 @@ ${autoStopBanner}
   </div>
 </div>
 
+<!-- ── 🧠 Bot Memory & Self-Learning Panel ─────────────────────────────── -->
+<div class="panel">
+  <h2 style="margin-top:0">🧠 الذاكرة والتعلم الذاتي</h2>
+  <div style="font-size:.82em;color:#aaa;margin-bottom:12px">
+    يراكم البوت الخبرة عبر تقييمات دورية ذاتية. نتائج كل تقييم تُحفظ وتُستخدم لضبط أوزان الاستراتيجيات تلقائياً ضمن حدود أمان محددة.
+    كل تعديل ذاتي مقيّد بحدود (<strong style="color:#f0b90b">+0.1 / -0.1</strong> لكل دورة، بين 0.2 و 2.0).
+  </div>
+  <div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:14px">
+    <button class="btn btn-blue" data-admin-action="1" onclick="runSelfEvaluate()">🔬 تشغيل تقييم ذاتي</button>
+    <button class="btn" onclick="loadBotMemory()">📂 تحميل الذاكرة</button>
+    <button class="btn btn-red" data-admin-action="1" onclick="resetBotMemory()">🗑️ مسح الذاكرة</button>
+  </div>
+  <div id="selfEvalResult" style="font-size:.82em;color:#888;background:#12161e;border-radius:8px;padding:12px;white-space:pre-wrap;display:none;margin-bottom:12px"></div>
+  <div id="botMemoryPanel" style="display:none">
+    <div class="grid" id="botMemoryStats"></div>
+    <div id="botMemoryRecommendations" style="margin-top:12px;font-size:.82em;color:#aaa;background:#12161e;border-radius:8px;padding:12px"></div>
+  </div>
+</div>
+
 <!-- ── AI Analysis Panel ─────────────────────────────────────────────────── -->
 <div class="panel">
   <h2 style="margin-top:0">🤖 تحليل الفرصة بالذكاء الاصطناعي</h2>
@@ -726,6 +751,7 @@ ${autoStopBanner}
       max_per_trade_loss_pct:     parseFloat(document.getElementById('maxPerTrade').value),
       min_seconds_between_trades: parseFloat(document.getElementById('minSeconds').value),
       initial_capital:            parseFloat(document.getElementById('initialCapital').value),
+      position_size_usd:          parseFloat(document.getElementById('positionSizeUsd')?.value || '5'),
       multi_strategy_live:        !!document.getElementById('multiStrategyLive')?.checked,
       max_live_trades_per_scan:   parseInt(document.getElementById('maxLiveTradesPerScan')?.value || '3', 10),
       strategy_flags: {
@@ -737,10 +763,14 @@ ${autoStopBanner}
         statistical: !!document.getElementById('flag_statistical')?.checked,
       }
     };
-    const numericKeys=['max_daily_loss_usd','max_per_trade_loss_pct','min_seconds_between_trades','initial_capital','max_live_trades_per_scan'];
+    const numericKeys=['max_daily_loss_usd','max_per_trade_loss_pct','min_seconds_between_trades','initial_capital','max_live_trades_per_scan','position_size_usd'];
     for(const k of numericKeys){
       const v=Number(body[k]);
       if(!Number.isFinite(v)||v<=0){ alert('❌ قيمة غير صحيحة: '+k); return; }
+    }
+    // Enforce position size safety bounds in the UI
+    if (body.position_size_usd < 1 || body.position_size_usd > 500) {
+      alert('❌ حجم المركز يجب أن يكون بين 1 و 500 USDT'); return;
     }
     setButtonsBusy(true);
     try{
@@ -1361,8 +1391,7 @@ ${autoStopBanner}
   }
 
   // ── AI Analysis ──────────────────────────────────────────────────────────────
-  async function runAiAnalysis() {
-    const el = document.getElementById('aiResult');
+  async function runAiAnalysis() {    const el = document.getElementById('aiResult');
     const opportunity = {
       symbol:    document.getElementById('ai_symbol').value.trim(),
       strategy:  document.getElementById('ai_strategy').value,
@@ -1389,6 +1418,66 @@ ${autoStopBanner}
       el.style.color = '#e74c3c';
       el.textContent = '❌ ' + e.message;
     } finally { setButtonsBusy(false); }
+  }
+
+  // ── Bot Memory & Self-Learning ───────────────────────────────────────────────
+  async function runSelfEvaluate() {
+    const el = document.getElementById('selfEvalResult');
+    el.style.display = 'block'; el.style.color = '#888'; el.textContent = '⏳ جارٍ التقييم الذاتي...';
+    setButtonsBusy(true);
+    try {
+      const res  = await callAdminApi('/api/strategies/self-evaluate', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
+      const data = JSON.parse(res.text);
+      el.style.color = '#2ecc71';
+      const recs = (data.recommendations || []).join('\\n• ') || 'لا توجد توصيات';
+      el.textContent = \`✅ اكتمل التقييم الذاتي\\nالنتيجة: \${data.score ?? '—'} | الحالة: \${data.status || '—'}\\n\\nالتوصيات:\\n• \${recs}\`;
+    } catch(e) { el.style.color = '#e74c3c'; el.textContent = '❌ ' + e.message; }
+    finally { setButtonsBusy(false); }
+  }
+
+  async function loadBotMemory() {
+    const panel = document.getElementById('botMemoryPanel');
+    const stats = document.getElementById('botMemoryStats');
+    const recs  = document.getElementById('botMemoryRecommendations');
+    panel.style.display = 'block';
+    stats.innerHTML = '<span style="color:#888">⏳ جارٍ تحميل الذاكرة...</span>';
+    try {
+      const res  = await callAdminApi('/api/memory');
+      const data = JSON.parse(res.text);
+      const m    = data.memory || {};
+      const weights = m.strategyWeights || {};
+      const wKeys = Object.keys(weights);
+      if (!data.hasData) {
+        stats.innerHTML = '<span style="color:#888">لا توجد بيانات ذاكرة بعد — شغّل تقييماً ذاتياً لبدء التعلم.</span>';
+        recs.innerHTML = '';
+        return;
+      }
+      stats.innerHTML = wKeys.map(k => \`
+        <div class="card">
+          <div class="card-label">🎯 \${k}</div>
+          <div style="font-size:1.3em;font-weight:bold;color:\${(weights[k]||1) >= 1 ? '#2ecc71' : '#e74c3c'}">\${(weights[k] ?? 1).toFixed(2)}</div>
+          <div style="font-size:.75em;color:#888">وزن الاستراتيجية</div>
+        </div>
+      \`).join('') || '<span style="color:#888">لا توجد أوزان محفوظة بعد</span>';
+      const recList = (m.recommendations || []);
+      recs.innerHTML = recList.length
+        ? '<strong style="color:#f0b90b">📋 آخر التوصيات:</strong><br>' + recList.map(r => '• ' + r).join('<br>')
+        : '<span style="color:#888">لا توجد توصيات محفوظة</span>';
+    } catch(e) {
+      stats.innerHTML = '<span style="color:#e74c3c">❌ ' + e.message + '</span>';
+    }
+  }
+
+  async function resetBotMemory() {
+    if (!confirm('⚠️ هل أنت متأكد من مسح كامل ذاكرة البوت والتعلم المتراكم؟')) return;
+    setButtonsBusy(true);
+    try {
+      await callAdminApi('/api/memory/reset', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
+      document.getElementById('botMemoryPanel').style.display = 'none';
+      document.getElementById('selfEvalResult').style.display = 'none';
+      alert('✅ تم مسح الذاكرة');
+    } catch(e) { alert('❌ ' + e.message); }
+    finally { setButtonsBusy(false); }
   }
 
   // ── Temporal Workflow ────────────────────────────────────────────────────────
