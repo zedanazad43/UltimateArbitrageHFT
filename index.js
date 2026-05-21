@@ -1497,6 +1497,9 @@ app.post('/api/ai-analysis', async (c) => {
     return c.json({ error: 'Missing required field: opportunity' }, 400);
   }
 
+  // Minimum net-spread % considered viable for a real trade after fees
+  const MIN_VIABLE_SPREAD_PCT = 0.3;
+
   const prompt = [
     `You are an expert crypto arbitrage analyst. Analyze the following trading opportunity and provide a concise recommendation (2–4 sentences) covering: whether to execute, key risks, and any concerns about liquidity or timing.`,
     ``,
@@ -1511,7 +1514,7 @@ app.post('/api/ai-analysis', async (c) => {
 
   // Fallback if no AIWORKER binding
   if (!c.env.AIWORKER) {
-    const fallback = opp.netPct > 0.3
+    const fallback = opp.netPct > MIN_VIABLE_SPREAD_PCT
       ? `✅ Potential opportunity: net spread of ${opp.netPct}% is above threshold. Verify liquidity and fee structure before executing. Monitor for slippage — position size should remain small (≤$5 for initial trades).`
       : `⚠️ Low spread: net spread of ${opp.netPct}% may not cover execution costs after slippage. Consider waiting for a higher-quality opportunity.`;
     return c.json({ analysis: fallback, provider: 'fallback' });

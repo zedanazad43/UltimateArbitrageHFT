@@ -2,17 +2,16 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   loadBotMemory,
-  saveBotMemory,
   recordStrategyOutcome,
   recordEvaluation,
   summarizeMemory,
 } from '../src/bot-memory.js';
 
-// Minimal KV mock
+// Minimal KV mock: stores one value, round-trips through JSON
 function makeKvMock(initial = null) {
-  let stored = initial;
+  let stored = initial ? JSON.stringify(initial) : null;
   return {
-    async get(key, opts) {
+    async get(_key, opts) {
       if (stored === null) return null;
       return opts === 'json' ? JSON.parse(stored) : stored;
     },
@@ -46,7 +45,7 @@ describe('bot-memory: loadBotMemory', () => {
       autoTuning: {},
       recommendations: ['test rec'],
     };
-    const env = makeEnv(JSON.stringify(data));
+    const env = makeEnv(data);
     const mem = await loadBotMemory(env);
     assert.strictEqual(mem.strategyWeights.cex, 1.2);
     assert.strictEqual(mem.recommendations[0], 'test rec');
@@ -56,8 +55,8 @@ describe('bot-memory: loadBotMemory', () => {
 describe('bot-memory: recordStrategyOutcome', () => {
   it('creates new strategy entry on first outcome', async () => {
     const env = makeEnv(null);
+    await recordStrategyOutcome(env, 'cex', { success: true, pnlUsd: 1.5 });
     const mem = await loadBotMemory(env);
-    recordStrategyOutcome(mem, 'cex', { success: true, profitUsd: 1.5 });
     assert.ok(mem.strategyOutcomes.cex);
     assert.strictEqual(mem.strategyOutcomes.cex.wins, 1);
     assert.strictEqual(mem.strategyOutcomes.cex.losses, 0);
@@ -65,74 +64,69 @@ describe('bot-memory: recordStrategyOutcome', () => {
 
   it('increments losses on failed outcome', async () => {
     const env = makeEnv(null);
+    await recordStrategyOutcome(env, 'dex', { success: false, pnlUsd: -2 });
     const mem = await loadBotMemory(env);
-    recordStrategyOutcome(mem, 'dex', { success: false, profitUsd: -2 });
     assert.strictEqual(mem.strategyOutcomes.dex.losses, 1);
     assert.strictEqual(mem.strategyOutcomes.dex.wins, 0);
   });
 
   it('accumulates total profit correctly', async () => {
     const env = makeEnv(null);
+    await recordStrategyOutcome(env, 'cex', { success: true, pnlUsd: 3.0 });
+    await recordStrategyOutcome(env, 'cex', { success: true, pnlUsd: 1.5 });
     const mem = await loadBotMemory(env);
-    recordStrategyOutcome(mem, 'cex', { success: true, profitUsd: 3.0 });
-    recordStrategyOutcome(mem, 'cex', { success: true, profitUsd: 1.5 });
     assert.strictEqual(mem.strategyOutcomes.cex.wins, 2);
-    assert.ok(Math.abs(mem.strategyOutcomes.cex.totalProfitUsd - 4.5) < 0.001);
+    assert.ok(Math.abs(mem.strategyOutcomes.cex.totalPnlUsd - 4.5) < 0.001);
   });
 });
 
 describe('bot-memory: recordEvaluation', () => {
   it('stores evaluation snapshot', async () => {
     const env = makeEnv(null);
+    await recordEvaluation(env, { recommendations: ['improve cex spread filter'] });
     const mem = await loadBotMemory(env);
-    recordEvaluation(mem, { score: 72, status: 'ok', recommendations: ['improve cex spread filter'] });
     assert.strictEqual(mem.evaluations.length, 1);
-    assert.strictEqual(mem.evaluations[0].score, 72);
+    assert.ok(mem.evaluations[0].ts > 0);
   });
 
-  it('adjusts strategy weight upward for high score', async () => {
+  it('adjusts strategy weight upward when scale recommendation present', async () => {
     const env = makeEnv(null);
+    await recordEvaluation(env, { recommendations: ['scale cex'] });
     const mem = await loadBotMemory(env);
-    mem.strategyWeights.cex = 1.0;
-    recordEvaluation(mem, { score: 85, status: 'ok', recommendations: [], strategyScores: { cex: 0.9 } });
-    assert.ok(mem.strategyWeights.cex > 1.0, 'weight should increase for high score');
+    assert.ok(mem.strategyWeights.cex > 1.0, 'weight should increase');
   });
 
-  it('adjusts strategy weight downward for low score', async () => {
+  it('adjusts strategy weight downward when de-risk recommendation present', async () => {
     const env = makeEnv(null);
+    await recordEvaluation(env, { recommendations: ['de-risk cex'] });
     const mem = await loadBotMemory(env);
-    mem.strategyWeights.cex = 1.0;
-    recordEvaluation(mem, { score: 30, status: 'poor', recommendations: [], strategyScores: { cex: 0.2 } });
-    assert.ok(mem.strategyWeights.cex < 1.0, 'weight should decrease for low score');
+    assert.ok(mem.strategyWeights.cex < 1.0, 'weight should decrease');
   });
 
   it('never pushes weight below WEIGHT_MIN (0.2)', async () => {
     const env = makeEnv(null);
-    const mem = await loadBotMemory(env);
-    mem.strategyWeights.cex = 0.2;
-    // Multiple poor evaluations
-    for (let i = 0; i < 10; i++) {
-      recordEvaluation(mem, { score: 10, status: 'poor', recommendations: [], strategyScores: { cex: 0.0 } });
+    for (let i = 0; i < 15; i++) {
+      await recordEvaluation(env, { recommendations: ['de-risk cex'] });
     }
+    const mem = await loadBotMemory(env);
     assert.ok(mem.strategyWeights.cex >= 0.2, 'weight must not drop below 0.2');
   });
 
   it('never pushes weight above WEIGHT_MAX (2.0)', async () => {
     const env = makeEnv(null);
-    const mem = await loadBotMemory(env);
-    mem.strategyWeights.cex = 2.0;
-    for (let i = 0; i < 10; i++) {
-      recordEvaluation(mem, { score: 99, status: 'excellent', recommendations: [], strategyScores: { cex: 1.0 } });
+    for (let i = 0; i < 15; i++) {
+      await recordEvaluation(env, { recommendations: ['scale cex'] });
     }
+    const mem = await loadBotMemory(env);
     assert.ok(mem.strategyWeights.cex <= 2.0, 'weight must not exceed 2.0');
   });
 
   it('caps evaluations array at MAX_EVALUATIONS (50)', async () => {
     const env = makeEnv(null);
-    const mem = await loadBotMemory(env);
     for (let i = 0; i < 60; i++) {
-      recordEvaluation(mem, { score: 50, status: 'ok', recommendations: [] });
+      await recordEvaluation(env, { recommendations: [] });
     }
+    const mem = await loadBotMemory(env);
     assert.ok(mem.evaluations.length <= 50, 'evaluations must be capped at 50');
   });
 });
@@ -147,8 +141,8 @@ describe('bot-memory: summarizeMemory', () => {
 
   it('returns hasData=true with evaluation data', async () => {
     const env = makeEnv(null);
+    await recordEvaluation(env, { recommendations: [] });
     const mem = await loadBotMemory(env);
-    recordEvaluation(mem, { score: 60, status: 'ok', recommendations: [] });
     const summary = summarizeMemory(mem);
     assert.strictEqual(summary.hasData, true);
     assert.ok(summary.evaluationCount >= 1);
@@ -156,28 +150,26 @@ describe('bot-memory: summarizeMemory', () => {
 
   it('includes strategy win rate when outcomes exist', async () => {
     const env = makeEnv(null);
+    await recordStrategyOutcome(env, 'cex', { success: true, pnlUsd: 2 });
+    await recordStrategyOutcome(env, 'cex', { success: false, pnlUsd: -1 });
+    await recordEvaluation(env, { recommendations: [] });
     const mem = await loadBotMemory(env);
-    recordStrategyOutcome(mem, 'cex', { success: true, profitUsd: 2 });
-    recordStrategyOutcome(mem, 'cex', { success: false, profitUsd: -1 });
     const summary = summarizeMemory(mem);
     assert.ok(summary.strategyStats);
-    assert.ok(summary.strategyStats.cex);
-    assert.ok(Math.abs(summary.strategyStats.cex.winRate - 0.5) < 0.01);
+    const cexStat = summary.strategyStats.find(s => s.strategy === 'cex');
+    assert.ok(cexStat, 'cex stat should exist');
+    assert.ok(Math.abs(cexStat.winRate - 50) < 0.1, 'win rate should be ~50%');
   });
 });
 
 describe('bot-memory: saveBotMemory round-trip', () => {
   it('persists and reloads data correctly', async () => {
-    const kv = makeKvMock(null);
-    const env = { BOT_STATE: kv };
-    const mem = await loadBotMemory(env);
-    recordStrategyOutcome(mem, 'triangular', { success: true, profitUsd: 0.8 });
-    recordEvaluation(mem, { score: 77, status: 'ok', recommendations: ['increase spread threshold'] });
-    await saveBotMemory(env, mem);
-
+    const env = makeEnv(null);
+    await recordStrategyOutcome(env, 'triangular', { success: true, pnlUsd: 0.8 });
+    await recordEvaluation(env, { recommendations: ['increase spread threshold'] });
     const reloaded = await loadBotMemory(env);
     assert.strictEqual(reloaded.strategyOutcomes.triangular?.wins, 1);
-    assert.strictEqual(reloaded.evaluations[0].score, 77);
-    assert.strictEqual(reloaded.recommendations[0], 'increase spread threshold');
+    assert.ok(reloaded.evaluations.length >= 1);
+    assert.ok(reloaded.recommendations.includes('increase spread threshold'));
   });
 });
