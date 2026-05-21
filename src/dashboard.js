@@ -1201,7 +1201,7 @@ ${autoStopBanner}
         callAdminApi('/api/trades?limit=20'),
         callAdminApi('/api/pnl'),
         callAdminApi('/api/report'),
-        callAdminApi('/api/logs/archives')
+        callAdminApi('/api/logs')
       ]);
       const statusOk = statusSettle.status === 'fulfilled';
       const tradesOk = tradesSettle.status === 'fulfilled';
@@ -1230,9 +1230,14 @@ ${autoStopBanner}
       reportEl.textContent = reportOk
         ? ('WinRate ' + ((((reportJson?.data || {}).win_rate || 0) * 100).toFixed(1)) + '% | PF ' + ((reportJson?.data || {}).profit_factor ? Number((reportJson?.data || {}).profit_factor).toFixed(2) : '—'))
         : 'خطأ';
-      logsEl.textContent = logsOk
-        ? ((Array.isArray(logsJson?.objects) ? logsJson.objects.length : 0) + ' ملف')
-        : 'خطأ';
+      if (logsOk) {
+        const archiveCount = Array.isArray(logsJson?.objects) ? logsJson.objects.length : null;
+        const adminCount = Array.isArray(logsJson?.data?.admin) ? logsJson.data.admin.length : 0;
+        const botCount = Array.isArray(logsJson?.data?.bot) ? logsJson.data.bot.length : 0;
+        logsEl.textContent = archiveCount != null ? (archiveCount + ' ملف') : ((adminCount + botCount) + ' حدث');
+      } else {
+        logsEl.textContent = 'خطأ';
+      }
 
       const okCount = [statusOk, tradesOk, pnlOk, reportOk, logsOk].filter(Boolean).length;
       syncEl.style.color = okCount === 5 ? '#2ecc71' : (okCount > 0 ? '#f0b90b' : '#e74c3c');
