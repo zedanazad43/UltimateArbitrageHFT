@@ -856,6 +856,35 @@ app.get('/api/logs', async (c) => {
   }
 });
 
+// ── API: R2 log archives list ────────────────────────────────────────────────
+app.get('/api/logs/archives', async (c) => {
+  if (!isAuthorized(c.env, c)) return authDenied(c.env, c, true);
+  if (!c.env.TRADE_LOGS) return c.json({ success: true, objects: [], truncated: false, note: 'TRADE_LOGS binding not configured' });
+
+  const limit = Math.min(parseInt(c.req.query('limit') || '50', 10), 200);
+  const prefix = c.req.query('prefix') || 'exports/';
+  const cursor = c.req.query('cursor') || undefined;
+
+  try {
+    const result = await c.env.TRADE_LOGS.list({ prefix, limit, cursor });
+    const objects = (result.objects || []).map((obj) => ({
+      key: obj.key,
+      size: obj.size,
+      uploaded: obj.uploaded,
+      customMetadata: obj.customMetadata || {},
+    }));
+    return c.json({
+      success: true,
+      objects,
+      truncated: !!result.truncated,
+      cursor: result.cursor || null,
+    });
+  } catch (e) {
+    console.error('[api/logs/archives] list failed:', e.message);
+    return c.json({ error: 'Failed to list log archives', detail: e.message }, 500);
+  }
+});
+
 // ── API: Exchange balances (auth-protected) ───────────────────────────────────
 app.get('/api/balances', async (c) => {
   if (!isAuthorized(c.env, c)) return authDenied(c.env, c, true);

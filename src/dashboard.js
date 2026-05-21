@@ -1201,7 +1201,7 @@ ${autoStopBanner}
         callAdminApi('/api/trades?limit=20'),
         callAdminApi('/api/pnl'),
         callAdminApi('/api/report'),
-        callAdminApi('/api/logs')
+        callAdminApi('/api/logs/archives')
       ]);
       const statusOk = statusSettle.status === 'fulfilled';
       const tradesOk = tradesSettle.status === 'fulfilled';
@@ -1230,7 +1230,9 @@ ${autoStopBanner}
       reportEl.textContent = reportOk
         ? ('WinRate ' + ((((reportJson?.data || {}).win_rate || 0) * 100).toFixed(1)) + '% | PF ' + ((reportJson?.data || {}).profit_factor ? Number((reportJson?.data || {}).profit_factor).toFixed(2) : '—'))
         : 'خطأ';
-      logsEl.textContent = logsOk ? ((Array.isArray(logsJson?.objects) ? logsJson.objects.length : 0) + ' ملف') : 'خطأ';
+      logsEl.textContent = logsOk
+        ? ((Array.isArray(logsJson?.objects) ? logsJson.objects.length : 0) + ' ملف')
+        : 'خطأ';
 
       const okCount = [statusOk, tradesOk, pnlOk, reportOk, logsOk].filter(Boolean).length;
       syncEl.style.color = okCount === 5 ? '#2ecc71' : (okCount > 0 ? '#f0b90b' : '#e74c3c');
@@ -1445,7 +1447,7 @@ ${autoStopBanner}
     panel.style.display = 'block';
     tbody.innerHTML = '<tr><td colspan="4" style="color:#888;text-align:center">جارٍ التحميل…</td></tr>';
     try {
-      const res  = await callAdminApi('/api/logs');
+      const res  = await callAdminApi('/api/logs/archives');
       const data = JSON.parse(res.text);
       const objs = data.objects || [];
       if (!objs.length) { tbody.innerHTML = '<tr><td colspan="4" style="color:#888;text-align:center">لا يوجد أرشيف</td></tr>'; return; }
