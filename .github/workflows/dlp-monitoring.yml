@@ -84,9 +84,9 @@ jobs:
           
           found_sensitive=false
           for pattern in "${SENSITIVE_PATTERNS[@]}"; do
-            if find . -name "$pattern" -not -path "./.git/*" -not -path "./node_modules/*" 2>/dev/null | grep -q .; then
+            if find . -name "$pattern" -not -path "./.git/*" -not -path "./node_modules/*" -not -name "*.example" 2>/dev/null | grep -q .; then
               echo "⚠️  Found sensitive file pattern: $pattern"
-              find . -name "$pattern" -not -path "./.git/*" -not -path "./node_modules/*" 2>/dev/null
+              find . -name "$pattern" -not -path "./.git/*" -not -path "./node_modules/*" -not -name "*.example" 2>/dev/null
               found_sensitive=true
             fi
           done

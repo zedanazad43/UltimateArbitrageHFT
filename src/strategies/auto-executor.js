@@ -457,6 +457,7 @@ export class AutoExecutor {
       winRate: `${winRate}%`,
       openPositions: openPositions.length,
       maxPositions: this.config.maxOpenPositions,
+      strategyCooldownMs: this.config.strategyCooldownMs,
       strategies: Object.entries(this.config.strategies)
         .filter(([, v]) => v.enabled)
         .map(([k]) => k),

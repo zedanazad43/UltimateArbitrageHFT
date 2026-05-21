@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html dir="rtl" lang="ar">
+<html lang="en">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -155,8 +155,8 @@
 <body>
   <div class="container">
     <header>
-      <h1>🔷 Nexus Control Panel</h1>
-      <p>منظومة التحكم المركزية - مراقبة الخوادم والاستراتيجيات</p>
+      <h1>Nexus Control Panel</h1>
+      <p>Operational view for auth, execution readiness, and exchange health</p>
     </header>
 
     <div class="section-grid">
@@ -297,7 +297,28 @@
     const API_BASE = window.location.origin;
     const ADMIN_TOKEN = localStorage.getItem('adminToken') || '';
 
+    function getAuthHeaders(extraHeaders = {}) {
+      const headers = new Headers(extraHeaders);
+      if (ADMIN_TOKEN) headers.set('x-admin-token', ADMIN_TOKEN);
+      return headers;
+    }
+
+    function getPayloadBody(payload) {
+      if (payload && typeof payload === 'object' && payload.data && typeof payload.data === 'object') {
+        return payload.data;
+      }
+      return payload;
+    }
+
     async function makeRequest(endpoint, options = {}) {
+      const response = await fetch(`${API_BASE}${endpoint}`, {
+        credentials: 'same-origin',
+        ...options,
+        headers: getAuthHeaders(options.headers),
+      });
+
+      const text = await response.text();
+      let data = null;
       try {
         const resp = await fetch(`${API_BASE}${endpoint}`, {
           headers: { 'Authorization': `Bearer ${ADMIN_TOKEN}`, ...options.headers },
@@ -338,7 +359,7 @@
     async function checkAllEndpoints() {
       const endpoints = [
         '/api/status',
-        '/api/health',
+        '/api/readiness',
         '/api/proxy-stats',
         '/api/balances',
         '/api/platforms',
@@ -398,16 +419,24 @@
       } else {
         showMessage(`Error: ${payload.error || data.error}`, 'error');
       }
+
+      const data = getPayloadBody(result.data) || {};
+      document.getElementById('bitmart-circuit').textContent = data.circuitBreakerOpen ? 'OPEN' : 'CLOSED';
+      document.getElementById('bitmart-ratelimit').textContent = `${data.rateLimitRequests || 0}/${data.rateLimitMaxPerWindow || 0}`;
+      document.getElementById('bitmart-proxy').textContent = data.externalProxyEnabled ? 'Enabled' : 'Disabled';
+      document.getElementById('bitmart-status-dot').className = `status-dot ${data.circuitBreakerOpen ? 'status-warning' : 'status-ok'}`;
+      showMessage('BitMart status refreshed', 'success');
     }
 
     async function resetBitmartCircuitBreaker() {
-      const resp = await makeRequest('/api/bitmart/reset-circuit-breaker', { method: 'POST' });
-      if (!resp.error) {
-        showMessage('Circuit breaker reset', 'success');
-        checkBitmartStatus();
-      } else {
-        showMessage(`Error: ${resp.error}`, 'error');
+      const result = await makeRequest('/api/bitmart/reset-circuit-breaker', { method: 'POST' });
+      if (!result.ok) {
+        showMessage(`Reset failed: ${getErrorMessage(result)}`, 'error');
+        return;
       }
+
+      showMessage('Circuit breaker reset', 'success');
+      checkBitmartStatus();
     }
 
     async function checkProxyStats() {
@@ -419,6 +448,12 @@
         document.getElementById('proxy-status-dot').className = 'status-dot status-ok';
         showMessage('Proxy stats checked', 'success');
       }
+
+      const data = result.data || {};
+      document.getElementById('proxy-local-mode').textContent = data.proxyMode || 'Unknown';
+      document.getElementById('proxy-available').textContent = String(data.availableProxies ?? 0);
+      document.getElementById('proxy-external-provider').textContent = data.externalProvider || 'none';
+      document.getElementById('proxy-status-dot').className = `status-dot ${data.externalHealthy === false ? 'status-warning' : 'status-ok'}`;
     }
 
     async function checkExecutionHealth() {
@@ -448,26 +483,34 @@
         document.getElementById('executor-status-dot').className = 'status-dot status-ok';
         showMessage('Executor stats checked', 'success');
       }
+
+      const data = result.data || {};
+      document.getElementById('executor-paper').textContent = data.paperMode ? 'Yes' : 'No';
+      document.getElementById('executor-positions').textContent = String(data.maxOpenPositions ?? 0);
+      document.getElementById('executor-cooldown').textContent = `${data.strategyCooldownMs ?? 0} ms`;
+      document.getElementById('executor-status-dot').className = 'status-dot status-ok';
     }
 
     async function startExecution() {
-      const resp = await makeRequest('/start');
-      if (!resp.error) {
-        showMessage('Execution started', 'success');
-        checkExecutionHealth();
-      } else {
-        showMessage(`Error: ${resp.error}`, 'error');
+      const result = await makeRequest('/start');
+      if (!result.ok) {
+        showMessage(`Start failed: ${getErrorMessage(result)}`, 'error');
+        return;
       }
+
+      showMessage(result.text || 'Execution started', 'success');
+      checkExecutionHealth();
     }
 
     async function stopExecution() {
-      const resp = await makeRequest('/stop');
-      if (!resp.error) {
-        showMessage('Execution stopped', 'success');
-        checkExecutionHealth();
-      } else {
-        showMessage(`Error: ${resp.error}`, 'error');
+      const result = await makeRequest('/stop');
+      if (!result.ok) {
+        showMessage(`Stop failed: ${getErrorMessage(result)}`, 'error');
+        return;
       }
+
+      showMessage(result.text || 'Execution stopped', 'success');
+      checkExecutionHealth();
     }
 
     async function togglePaperMode() {
@@ -484,9 +527,14 @@
       } else {
         showMessage(`Error: ${resp.error}`, 'error');
       }
+
+      showMessage(result.text || 'Paper mode enabled', 'success');
+      checkExecutionHealth();
+      checkExecutorStats();
     }
 
     async function checkFrontendConnectivity() {
+      const result = await makeRequest('/api/status');
       const dot = document.getElementById('frontend-status-dot');
       const data = await makeRequest('/api/status');
       const ok = !data.error;
@@ -497,8 +545,10 @@
     // Initial checks on page load
     window.addEventListener('load', () => {
       checkAllEndpoints();
+      checkBitmartStatus();
       checkProxyStats();
       checkExecutionHealth();
+      checkExecutorStats();
       checkFrontendConnectivity();
     });
 
@@ -507,6 +557,7 @@
       checkAllEndpoints();
       checkProxyStats();
       checkExecutionHealth();
+      checkExecutorStats();
     }, 30000);
   </script>
 </body>

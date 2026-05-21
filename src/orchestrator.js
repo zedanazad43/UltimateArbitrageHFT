@@ -35,6 +35,7 @@ import {
 } from './exchange.js';
 import { isHFTEngineConfigured, scanFromHFT, executeViaHFT } from './hft-client.js';
 import { filterOpportunityWithAI } from './ai-client.js';
+import { buildRebalanceWeights } from './rebalancer.js';
 
 const SUPPORTED_SYMBOLS = [
   // Top-cap majors
@@ -69,6 +70,22 @@ function getStrategyFlags(state) {
     triangular: raw.triangular !== false,
     statistical: raw.statistical !== false,
   };
+}
+
+async function getRebalanceWeightsFromCache(env, state) {
+  const policy = state?.rebalance_policy;
+  if (!policy?.enabled) return null;
+  if (!env?.BOT_STATE) return null;
+
+  try {
+    const cached = await env.BOT_STATE.get('balances_cache_v1', 'json');
+    const balances = cached?.data;
+    if (!Array.isArray(balances) || balances.length === 0) return null;
+    const { weights } = buildRebalanceWeights(balances, policy);
+    return weights;
+  } catch (_) {
+    return null;
+  }
 }
 
 // ── Circuit Breaker (KV-backed, 5-minute window) ──────────────────────────────
@@ -502,6 +519,27 @@ export async function runScan(env, state, sendAlert) {
         .map(opp => ({ ...opp, _futuresReady: futuresReady }))
     : allOpportunities;
 
+  let prioritizedExecPool = execPool;
+  let rebalanceWeights = null;
+  if (!paperMode && execPool.length > 0) {
+    rebalanceWeights = await getRebalanceWeightsFromCache(env, state);
+    if (rebalanceWeights && Object.keys(rebalanceWeights).length > 0) {
+      prioritizedExecPool = execPool
+        .map((opp) => {
+          const buyWeight = rebalanceWeights[opp.buyExchange] ?? 1;
+          const sellWeight = rebalanceWeights[opp.sellExchange] ?? 1;
+          // Positive bias when buying from deficit exchanges and selling from surplus.
+          const rebalanceBias = ((buyWeight - 1) + (1 - sellWeight)) * 0.15;
+          return {
+            ...opp,
+            _rebalanceBias: rebalanceBias,
+            _rebalanceAdjustedNet: (opp.netPct || 0) + rebalanceBias,
+          };
+        })
+        .sort((a, b) => (b._rebalanceAdjustedNet || b.netPct || 0) - (a._rebalanceAdjustedNet || a.netPct || 0));
+    }
+  }
+
   if (!paperMode) {
     const byStrategy = allOpportunities.reduce((acc, opp) => {
       acc[opp.strategy] = (acc[opp.strategy] || 0) + 1;
@@ -511,6 +549,9 @@ export async function runScan(env, state, sendAlert) {
       `[Scan] candidates=${allOpportunities.length} executable=${execPool.length} ` +
       `byStrategy=${JSON.stringify(byStrategy)} strategyFlags=${JSON.stringify(strategyFlags)}`
     );
+    if (rebalanceWeights) {
+      console.log(`[Scan] rebalance enabled: weights=${JSON.stringify(rebalanceWeights)}`);
+    }
     if (!futuresReady) {
       console.warn('[Scan] MEXC futures auth unavailable: restricting perps execution to SHORT fallback routes');
     }
@@ -525,7 +566,7 @@ export async function runScan(env, state, sendAlert) {
   // filterOpportunityWithAI ranks candidates by safety factor, net profit,
   // strategy reliability, and asset liquidity.  Falls back to highest netPct
   // when AI is unavailable or returns an unrecognised response.
-  let best = await filterOpportunityWithAI(env, execPool);
+  let best = await filterOpportunityWithAI(env, prioritizedExecPool);
   if (!best) {
     // Defensive guard: filterOpportunityWithAI only returns null for an empty list,
     // which is already handled above; this branch prevents any future regression.
@@ -599,9 +640,9 @@ export async function runScan(env, state, sendAlert) {
 
     const fallbackQueue = [
       best,
-      ...execPool
+      ...prioritizedExecPool
         .filter(o => o !== best)
-        .sort((a, b) => b.netPct - a.netPct),
+        .sort((a, b) => (b._rebalanceAdjustedNet || b.netPct) - (a._rebalanceAdjustedNet || a.netPct)),
     ];
 
     const usedStrategies = new Set();
