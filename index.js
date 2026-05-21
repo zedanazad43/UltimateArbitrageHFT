@@ -18,8 +18,9 @@ import { evaluateStrategyBreakdown } from './src/self-evaluation.js';
 import { getEcosystemCatalog, recommendEcosystem, getApiKeySecurityChecklist } from './src/ecosystem.js';
 import { executeAllExecutableIntegrations, executeExecutableIntegration, listExecutableIntegrationIds, probeExecutableIntegrations } from './src/executive-integrations.js';
 import { getAutoExecutor } from './src/strategies/auto-executor.js';
-import { CONTROL_PANEL_HTML } from './src/control-panel-template.js';
+import { renderControlPanel } from './src/control-panel.js';
 import { loadBotMemory, saveBotMemory, recordEvaluation, summarizeMemory } from './src/bot-memory.js';
+import { normalizeRebalancePolicy, computeRebalancePlan, buildRebalanceWeights } from './src/rebalancer.js';
 import {
   startWorkflow,
   stopWorkflow,
