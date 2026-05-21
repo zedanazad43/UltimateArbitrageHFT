@@ -49,15 +49,16 @@ jobs:
         run: node scripts/monitor-performance.js
 
       - name: Upload metrics artifact
-        if: always()
+        if: always() && steps.monitor.outcome != 'skipped'
         uses: actions/upload-artifact@v4
         with:
           name: production-metrics-${{ github.run_id }}
           path: metrics.json
+          if-no-files-found: ignore
           retention-days: 30
 
       - name: Create or update outage issue
-        if: failure()
+        if: failure() && steps.monitor.outcome == 'failure'
         uses: actions/github-script@v7
         with:
           script: |
