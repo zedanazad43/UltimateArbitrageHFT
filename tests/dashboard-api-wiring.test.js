@@ -36,4 +36,39 @@ describe('dashboard frontend API wiring', () => {
     assert.match(html, /href="\/api\/export"/);
     assert.match(html, /callAdminApi\('\/api\/logs'\)/);
   });
+
+  test('dashboard wires AI analysis button to /api/ai-analysis', async () => {
+    const env = {
+      ADMIN_TOKEN: 'secret-token',
+      BOT_STATE: { async get() { return null; } },
+      DB: createDbMock(),
+    };
+    const response = await renderDashboard(env);
+    const html = await response.text();
+    assert.match(html, /\/api\/ai-analysis/);
+  });
+
+  test('dashboard wires bot memory buttons to /api/memory and /api/strategies/self-evaluate', async () => {
+    const env = {
+      ADMIN_TOKEN: 'secret-token',
+      BOT_STATE: { async get() { return null; } },
+      DB: createDbMock(),
+    };
+    const response = await renderDashboard(env);
+    const html = await response.text();
+    assert.match(html, /\/api\/memory/);
+    assert.match(html, /\/api\/strategies\/self-evaluate/);
+  });
+
+  test('dashboard includes position_size_usd input field', async () => {
+    const env = {
+      ADMIN_TOKEN: 'secret-token',
+      BOT_STATE: { async get() { return null; } },
+      DB: createDbMock(),
+    };
+    const response = await renderDashboard(env);
+    const html = await response.text();
+    assert.match(html, /positionSizeUsd/);
+    assert.match(html, /position_size_usd/);
+  });
 });

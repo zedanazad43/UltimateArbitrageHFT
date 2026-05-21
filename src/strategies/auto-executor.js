@@ -33,7 +33,9 @@ import { getGlobalProxyPool } from '../infra/proxy-pool.js';
 // ── Configuration ─────────────────────────────────────────────────────────────
 
 const DEFAULT_CONFIG = {
-  maxPositionUsd: 100,           // Max single position size
+  maxPositionUsd: 5,             // Default small position size (5 USDT)
+  minPositionUsd: 1,             // Hard floor for any position
+  safePositionMaxUsd: 500,       // Hard ceiling — never exceeded regardless of config
   maxPortfolioRiskPct: 0.05,     // Max 5% of portfolio at risk
   stopLossPct: 0.02,             // 2% stop-loss per position
   takeProfitPct: 0.05,           // 5% take-profit per position
@@ -176,6 +178,7 @@ export class AutoExecutor {
 
   /**
    * Calculates the maximum position size based on portfolio balance and risk.
+   * Always clamps between minPositionUsd and safePositionMaxUsd.
    */
   calculatePositionSize(opportunity) {
     const strategyConfig = this.config.strategies[opportunity.strategy];
@@ -183,13 +186,19 @@ export class AutoExecutor {
 
     const maxRisk = this._portfolioBalance * this.config.maxPortfolioRiskPct;
     const maxByRisk = Math.max(0, maxRisk / (this.config.stopLossPct || 0.02));
-    const maxSize = Math.min(
+    const rawMax = Math.min(
       this.config.maxPositionUsd,
       maxByRisk,
       this._portfolioBalance * 0.1 // Never more than 10% in one position
     );
 
-    return Math.max(0, Math.min(maxSize, opportunity.suggestedSize || maxSize));
+    const clamped = Math.max(0, Math.min(rawMax, opportunity.suggestedSize || rawMax));
+
+    // Apply hard safety bounds regardless of config
+    const minUsd = this.config.minPositionUsd ?? 1;
+    const maxUsd = this.config.safePositionMaxUsd ?? 500;
+    if (clamped <= 0) return 0;
+    return Math.max(minUsd, Math.min(maxUsd, clamped));
   }
 
   /**

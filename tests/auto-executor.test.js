@@ -44,7 +44,9 @@ describe('AutoExecutor — constructor', () => {
     assert.equal(exe.config.strategyCooldownMs, 120000);
     assert.equal(exe.config.strategyFailureLimit, 3);
     assert.equal(exe.config.minSpreadPct, 0.15);
-    assert.equal(exe.config.maxPositionUsd, 100);
+    assert.equal(exe.config.maxPositionUsd, 5);
+    assert.equal(exe.config.minPositionUsd, 1);
+    assert.equal(exe.config.safePositionMaxUsd, 500);
   });
 
   test('allows config overrides', () => {

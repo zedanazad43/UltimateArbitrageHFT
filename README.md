@@ -127,6 +127,27 @@ npm run setup:local
 # then:  npm run dev
 ```
 
+### One-command automation (PowerShell)
+
+Run the end-to-end automation script for setup, validation, paper smoke test, and safe rollback:
+
+```powershell
+pwsh -NoProfile -File ./scripts/automation-smoke.ps1 -StartLocalDev
+```
+
+Run against production URL (optional deploy + optional live smoke with explicit safety switch):
+
+```powershell
+pwsh -NoProfile -File ./scripts/automation-smoke.ps1 `
+  -BaseUrl "https://ultimatearbitragehft.zedanazad43.workers.dev" `
+  -AdminToken "<ADMIN_TOKEN>" `
+  -DeployProduction `
+  -RunLiveSmoke `
+  -AllowLiveOrder
+```
+
+> Live smoke is blocked on local URLs by default; use `-AllowLocalLiveOrder` only if you explicitly want that behavior.
+
 ### HFT Go quick verification
 
 Use these commands after any Go dependency or engine changes:

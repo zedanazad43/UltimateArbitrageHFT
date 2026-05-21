@@ -1198,7 +1198,8 @@ export function getConfiguredExchanges(env) {
 /**
  * Selects the best available exchange for execution based on:
  * 1. Credential availability
- * 2. USDT balance (picks highest balance)
+ * 2. Priority order (mexc → bitget → others) as tiebreaker
+ * 3. USDT balance (picks highest balance among exchanges that meet the requirement)
  * Returns null if no exchange has sufficient balance.
  *
  * @param {object} env        — Cloudflare Worker env bindings
@@ -1206,11 +1207,23 @@ export function getConfiguredExchanges(env) {
  * @returns {Promise<string|null>} exchange name or null
  */
 export async function selectBestExchange(env, requiredUsd) {
+  // Priority order: mexc first, bitget second, others sorted alphabetically
+  const PRIORITY = ['mexc', 'bitget'];
   const configured = getConfiguredExchanges(env);
   if (configured.length === 0) return null;
 
+  // Sort configured exchanges by priority then name
+  const sorted = [...configured].sort((a, b) => {
+    const pa = PRIORITY.indexOf(a);
+    const pb = PRIORITY.indexOf(b);
+    if (pa !== -1 && pb !== -1) return pa - pb;
+    if (pa !== -1) return -1;
+    if (pb !== -1) return 1;
+    return a.localeCompare(b);
+  });
+
   const balances = await Promise.allSettled(
-    configured.map(async ex => ({ ex, bal: await getExchangeBalance(env, ex, 'USDT') }))
+    sorted.map(async ex => ({ ex, bal: await getExchangeBalance(env, ex, 'USDT') }))
   );
 
   let bestEx  = null;
@@ -1219,7 +1232,16 @@ export async function selectBestExchange(env, requiredUsd) {
   for (const result of balances) {
     if (result.status !== 'fulfilled') continue;
     const { ex, bal } = result.value;
-    if (bal >= requiredUsd && bal > bestBal) {
+    if (bal < requiredUsd) continue;
+    // Prefer higher balance, but honour priority: among ties keep the higher-priority exchange
+    const currentPriority = bestEx ? PRIORITY.indexOf(bestEx) : -2;
+    const candidatePriority = PRIORITY.indexOf(ex);
+    const higherBalance = bal > bestBal;
+    const samePriorityOrBetter =
+      bestEx === null ||
+      (candidatePriority !== -1 && (currentPriority === -1 || candidatePriority < currentPriority)) ||
+      (candidatePriority === currentPriority && higherBalance);
+    if (higherBalance || samePriorityOrBetter) {
       bestEx  = ex;
       bestBal = bal;
     }

@@ -320,14 +320,31 @@
       const text = await response.text();
       let data = null;
       try {
-        data = text ? JSON.parse(text) : null;
-      } catch (_) {}
-
-      return { ok: response.ok, status: response.status, text, data };
-    }
-
-    function getErrorMessage(result) {
-      return result.data?.error || result.data?.hint || result.text || `HTTP ${result.status}`;
+        const resp = await fetch(`${API_BASE}${endpoint}`, {
+          headers: { 'Authorization': `Bearer ${ADMIN_TOKEN}`, ...options.headers },
+          credentials: 'same-origin',
+          ...options,
+        });
+        const text = await resp.text();
+        let data = {};
+        try {
+          data = text ? JSON.parse(text) : {};
+        } catch {
+          data = { message: text };
+        }
+        if (!resp.ok) {
+          return {
+            error: data.error || data.message || text || `HTTP ${resp.status}`,
+            status: resp.status,
+            data,
+          };
+        }
+        if (data && typeof data === 'object') return data;
+        return { success: true, message: text };
+      } catch (err) {
+        console.error(`Request failed: ${err.message}`);
+        return { error: err.message };
+      }
     }
 
     function showMessage(text, type = 'info') {
@@ -344,13 +361,17 @@
         '/api/status',
         '/api/readiness',
         '/api/proxy-stats',
+        '/api/balances',
+        '/api/platforms',
         '/api/execution-health',
-        '/api/report',
+        '/api/analytics',
+        '/api/performance',
       ];
 
       const list = document.getElementById('api-list');
       list.innerHTML = '';
 
+      let successCount = 0;
       for (const ep of endpoints) {
         const item = document.createElement('li');
         item.className = 'endpoint-item';
@@ -364,21 +385,39 @@
         list.appendChild(item);
 
         try {
-          const result = await makeRequest(ep);
-          status.className = `endpoint-status ${result.ok ? 'status-ok' : 'status-error'}`;
+          const resp = await fetch(`${API_BASE}${ep}`, {
+            headers: { 'Authorization': `Bearer ${ADMIN_TOKEN}` }
+          });
+          status.className = `endpoint-status ${resp.ok ? 'status-ok' : 'status-error'}`;
+          if (resp.ok) successCount += 1;
         } catch {
           status.className = 'endpoint-status status-error';
         }
       }
 
-      document.getElementById('api-status-dot').className = 'status-dot status-ok';
+      const dotState = successCount === endpoints.length
+        ? 'status-ok'
+        : successCount > 0
+          ? 'status-warning'
+          : 'status-error';
+      document.getElementById('api-status-dot').className = `status-dot ${dotState}`;
     }
 
     async function checkBitmartStatus() {
-      const result = await makeRequest('/api/bitmart/stats');
-      if (!result.ok) {
-        showMessage(`BitMart status error: ${getErrorMessage(result)}`, 'error');
-        return;
+      const payload = await makeRequest('/api/bitmart/stats');
+      const data = payload?.data || {};
+      if (!data.error) {
+        const circuitState = String(data.circuitBreakerState || '').toUpperCase();
+        document.getElementById('bitmart-circuit').textContent = circuitState === 'OPEN' ? '🔴 OPEN' : '🟢 CLOSED';
+        const used = data.rateLimitUsed ?? data.rateLimitRequests ?? 0;
+        const max = data.rateLimitLimit ?? data.rateLimitMaxPerWindow ?? 'N/A';
+        document.getElementById('bitmart-ratelimit').textContent = `${used}/${max}`;
+        const proxyOn = data.externalProxyEnabled ?? data.externalProxyActive ?? false;
+        document.getElementById('bitmart-proxy').textContent = proxyOn ? '🟢 Enabled' : '⚪ Disabled';
+        document.getElementById('bitmart-status-dot').className = 'status-dot status-ok';
+        showMessage('BitMart status checked', 'success');
+      } else {
+        showMessage(`Error: ${payload.error || data.error}`, 'error');
       }
 
       const data = getPayloadBody(result.data) || {};
@@ -401,10 +440,13 @@
     }
 
     async function checkProxyStats() {
-      const result = await makeRequest('/api/proxy-stats');
-      if (!result.ok) {
-        showMessage(`Proxy stats error: ${getErrorMessage(result)}`, 'error');
-        return;
+      const data = await makeRequest('/api/proxy-stats');
+      if (!data.error) {
+        document.getElementById('proxy-local-mode').textContent = data.proxyRouting?.mode || data.proxyRouting?.routingMode || 'Unknown';
+        document.getElementById('proxy-available').textContent = data.proxyRouting?.availableProxies ?? data.proxyRouting?.totalProxies ?? '0';
+        document.getElementById('proxy-external-provider').textContent = data.proxyRouting?.externalProvider || (data.proxyRouting?.externalEnabled ? 'Enabled' : 'None');
+        document.getElementById('proxy-status-dot').className = 'status-dot status-ok';
+        showMessage('Proxy stats checked', 'success');
       }
 
       const data = result.data || {};
@@ -415,27 +457,31 @@
     }
 
     async function checkExecutionHealth() {
-      const result = await makeRequest('/api/execution-health');
-      if (!result.ok) {
-        showMessage(`Execution health error: ${getErrorMessage(result)}`, 'error');
-        return;
-      }
-
-      const data = result.data || {};
-      document.getElementById('strategy-mode').textContent = data.paperMode ? 'Paper' : 'Live';
-      document.getElementById('strategy-count').textContent = String((data.strategies || []).length);
-      document.getElementById('strategy-balance').textContent = `$${Number(data.portfolioBalance || 0).toFixed(2)}`;
-      document.getElementById('strategy-status-dot').className = `status-dot ${data.executionMode === 'blocked' ? 'status-error' : 'status-ok'}`;
-      if (Array.isArray(data.blockedReasons) && data.blockedReasons.length > 0) {
-        showMessage(`Execution blocked: ${data.blockedReasons.join(' | ')}`, 'warning');
+      const data = await makeRequest('/api/execution-health');
+      if (!data.error) {
+        const isPaper = data.paperMode ?? data.paperTrading ?? true;
+        const strategyCount = Array.isArray(data.strategies) ? data.strategies.length : (data.executionMode ? 1 : 0);
+        const rawBalance = data.portfolioBalance ?? data.spotBalance?.free ?? data.spotBalance?.total ?? 0;
+        const balance = Number(rawBalance) || 0;
+        document.getElementById('strategy-mode').textContent = isPaper ? '📄 Paper' : '💰 Live';
+        document.getElementById('strategy-count').textContent = String(strategyCount);
+        document.getElementById('strategy-balance').textContent = `$${balance.toFixed(2)}`;
+        document.getElementById('strategy-status-dot').className = 'status-dot status-ok';
+        showMessage('Execution health OK', 'success');
       }
     }
 
     async function checkExecutorStats() {
-      const result = await makeRequest('/api/proxy-stats');
-      if (!result.ok) {
-        showMessage(`Executor stats error: ${getErrorMessage(result)}`, 'error');
-        return;
+      const data = await makeRequest('/api/proxy-stats'); // Uses auto-executor
+      if (!data.error) {
+        const paperMode = data.executorPaperMode ?? data.paperMode ?? true;
+        const openPositions = Array.isArray(data.openPositions) ? data.openPositions.length : (data.openPositions ?? 0);
+        const cooldown = data.strategyHealth?.defaultCooldownMs ?? data.strategyHealth?.cooldownMs ?? 120000;
+        document.getElementById('executor-paper').textContent = paperMode ? '📄 Yes' : '💰 No';
+        document.getElementById('executor-positions').textContent = String(openPositions);
+        document.getElementById('executor-cooldown').textContent = `${cooldown}ms`;
+        document.getElementById('executor-status-dot').className = 'status-dot status-ok';
+        showMessage('Executor stats checked', 'success');
       }
 
       const data = result.data || {};
@@ -468,10 +514,18 @@
     }
 
     async function togglePaperMode() {
-      const result = await makeRequest('/mode/paper', { method: 'POST' });
-      if (!result.ok) {
-        showMessage(`Mode switch failed: ${getErrorMessage(result)}`, 'error');
+      const status = await makeRequest('/api/status');
+      if (status.error) {
+        showMessage(`Error: ${status.error}`, 'error');
         return;
+      }
+      const toPaper = status.paper_trading === false;
+      const resp = await makeRequest(toPaper ? '/mode/paper' : '/mode/live', { method: 'POST' });
+      if (!resp.error) {
+        showMessage(toPaper ? 'Switched to paper mode' : 'Switched to live mode', 'success');
+        checkExecutionHealth();
+      } else {
+        showMessage(`Error: ${resp.error}`, 'error');
       }
 
       showMessage(result.text || 'Paper mode enabled', 'success');
@@ -482,9 +536,10 @@
     async function checkFrontendConnectivity() {
       const result = await makeRequest('/api/status');
       const dot = document.getElementById('frontend-status-dot');
-      const info = document.getElementById('frontend-info');
-      dot.className = `status-dot ${result.ok ? 'status-ok' : 'status-error'}`;
-      info.textContent = result.ok ? `Connected (HTTP ${result.status})` : `Failed (HTTP ${result.status})`;
+      const data = await makeRequest('/api/status');
+      const ok = !data.error;
+      dot.className = `status-dot ${ok ? 'status-ok' : 'status-error'}`;
+      showMessage(ok ? 'Frontend connected to backend API' : `Frontend connection failed: ${data.error}`, ok ? 'success' : 'error');
     }
 
     // Initial checks on page load
