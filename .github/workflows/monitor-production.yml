@@ -58,7 +58,7 @@ jobs:
           retention-days: 30
 
       - name: Create or update outage issue
-        if: failure() && steps.monitor.outcome == 'failure'
+        if: steps.monitor.outcome == 'failure'
         uses: actions/github-script@v7
         with:
           script: |
