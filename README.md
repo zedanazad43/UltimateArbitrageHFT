@@ -146,6 +146,8 @@ pwsh -NoProfile -File ./scripts/automation-smoke.ps1 `
   -AllowLiveOrder
 ```
 
+> Live smoke is blocked on local URLs by default; use `-AllowLocalLiveOrder` only if you explicitly want that behavior.
+
 ### HFT Go quick verification
 
 Use these commands after any Go dependency or engine changes:

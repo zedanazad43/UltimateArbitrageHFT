@@ -23,6 +23,7 @@ param(
     [switch] $DeployProduction,
     [switch] $RunLiveSmoke,
     [switch] $AllowLiveOrder,
+    [switch] $AllowLocalLiveOrder,
     [string] $Exchange = 'binance',
     [string] $Symbol = 'BTCUSDT',
     [double] $Quantity = 0.0001,
@@ -54,7 +55,7 @@ function Invoke-Npm {
     try {
         & npm @Arguments
         if ($LASTEXITCODE -ne 0) {
-            throw "npm $($Arguments -join ' ') failed with exit code $LASTEXITCODE"
+            throw "npm $($Arguments -join ' ') failed with exit code $LASTEXITCODE in '$RepoRoot'. Check package.json scripts and installed dependencies."
         }
     }
     finally {
@@ -109,6 +110,11 @@ function Invoke-AdminApi {
 
 if ($RunLiveSmoke -and -not $AllowLiveOrder) {
     throw 'Refusing live smoke order without -AllowLiveOrder switch.'
+}
+
+$isLocalBaseUrl = $BaseUrl -match '^https?://(127\.0\.0\.1|localhost|0\.0\.0\.0)(:\d+)?/?$'
+if ($RunLiveSmoke -and $isLocalBaseUrl -and -not $AllowLocalLiveOrder) {
+    throw 'Refusing live smoke order against local URL without -AllowLocalLiveOrder switch.'
 }
 
 $devProcess = $null
