@@ -530,6 +530,25 @@ describe('getBitgetBalance', () => {
     );
     assert.equal(bal.free, 250.0);
   });
+
+  test('falls back to legacy Bitget balance endpoint when v2 endpoint fails', async () => {
+    installMockFetch(({ url }) => {
+      if (String(url).includes('/api/v2/spot/account/assets')) {
+        return makeJsonResponse({ code: '40404', msg: 'path not found' });
+      }
+      return makeJsonResponse({
+        code: '00000',
+        data: [{ coinName: 'USDT', availableAmount: '17.50', freeze: '1.25' }]
+      });
+    });
+    const bal = await getBitgetBalance(
+      { BITGET_API_KEY: 'k', BITGET_SECRET_KEY: 's', BITGET_API_PASSPHRASE: 'p' },
+      'USDT'
+    );
+    assert.equal(bal.free, 17.5);
+    assert.equal(bal.locked, 1.25);
+    assert.ok(capturedRequests.some(r => String(r.url).includes('/api/spot/v1/account/assets')));
+  });
 });
 
 // ─────────────────────────────────────────────────────────────────────────────

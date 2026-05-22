@@ -538,6 +538,14 @@ export async function placeMarketOrderKuCoin(env, symbol, side, quantity, sizeUs
 // ── Bitget ────────────────────────────────────────────────────────────────────
 
 const BITGET_API_HOSTS = ['api.bitget.com', 'capi.bitget.com'];
+const BITGET_BALANCE_ENDPOINTS = ['/api/v2/spot/account/assets', '/api/spot/v1/account/assets'];
+
+function normalizeBitgetAssets(data) {
+  if (Array.isArray(data?.data)) return data.data;
+  if (Array.isArray(data?.data?.assets)) return data.data.assets;
+  if (Array.isArray(data?.data?.list)) return data.data.list;
+  return [];
+}
 
 /**
  * Fetches the Bitget spot account balance for a given asset (default: USDT).
@@ -550,45 +558,50 @@ export async function getBitgetBalance(env, asset = 'USDT') {
   if (!apiSecret)  throw new Error(missingCredError('BITGET_SECRET_KEY'));
   if (!passphrase) throw new Error('BITGET_API_PASSPHRASE is not configured');
 
-  const timestamp = Date.now().toString();
-  const requestPath = '/api/v2/spot/account/assets';
-  // V2 API: signature is timestamp + method + requestPath (without query params)
-  const signature = await hmacBase64(apiSecret, timestamp + 'GET' + requestPath);
-
   const errors = [];
-  let data = null;
+  const targetAsset = asset.toUpperCase();
 
-  for (const host of BITGET_API_HOSTS) {
-    try {
-      const resp = await exchangeFetch(`https://${host}${requestPath}`, {
-        headers: {
-          'ACCESS-KEY':        apiKey,
-          'ACCESS-SIGN':       signature,
-          'ACCESS-TIMESTAMP':  timestamp,
-          'ACCESS-PASSPHRASE': passphrase,
+  for (const requestPath of BITGET_BALANCE_ENDPOINTS) {
+    for (const host of BITGET_API_HOSTS) {
+      try {
+        const timestamp = Date.now().toString();
+        // Bitget signature: timestamp + method + requestPath (no query/body for GET)
+        const signature = await hmacBase64(apiSecret, timestamp + 'GET' + requestPath);
+        const resp = await exchangeFetch(`https://${host}${requestPath}`, {
+          headers: {
+            'ACCESS-KEY':        apiKey,
+            'ACCESS-SIGN':       signature,
+            'ACCESS-TIMESTAMP':  timestamp,
+            'ACCESS-PASSPHRASE': passphrase,
+            'Content-Type':      'application/json',
+            locale:              'en-US',
+          }
+        });
+        const data = await parseJsonResponse(resp, 'Bitget balance');
+        if (data?.code !== '00000') {
+          const msg = data?.msg || data?.message || data?.error || JSON.stringify(data);
+          errors.push(`${host}${requestPath}: ${msg}`);
+          continue;
         }
-      });
-      data = await parseJsonResponse(resp, 'Bitget balance');
-      if (data?.code === '00000') break;
 
-      const msg = data?.msg || data?.message || data?.error || JSON.stringify(data);
-      errors.push(`${host}: ${msg}`);
-    } catch (err) {
-      const errMsg = (err?.cause?.message || err?.message || String(err) || 'unknown fetch error');
-      errors.push(`${host}: ${errMsg}`);
+        const assets = normalizeBitgetAssets(data);
+        const bal = assets.find((a) => {
+          const coin = String(a?.coin ?? a?.coinName ?? a?.asset ?? a?.currency ?? '').toUpperCase();
+          return coin === targetAsset;
+        });
+
+        return {
+          free: parseFloat(bal?.available ?? bal?.availableAmount ?? bal?.usable ?? '0'),
+          locked: parseFloat(bal?.frozen ?? bal?.locked ?? bal?.freeze ?? '0')
+        };
+      } catch (err) {
+        const errMsg = (err?.cause?.message || err?.message || String(err) || 'unknown fetch error');
+        errors.push(`${host}${requestPath}: ${errMsg}`);
+      }
     }
   }
 
-  if (!data || data.code !== '00000') {
-    throw new Error(`Bitget balance failed: ${errors.join(' | ') || 'unknown error'}`);
-  }
-
-  const assets = data.data || [];
-  const bal    = assets.find(a => a.coin === asset);
-  return {
-    free:   parseFloat(bal?.available || '0'),
-    locked: parseFloat(bal?.frozen    || '0')
-  };
+  throw new Error(`Bitget balance failed: ${errors.join(' | ') || 'unknown error'}`);
 }
 
 /**
@@ -1368,5 +1381,4 @@ export function extractFillMetrics(orderResult) {
     feeQty: sumFillFees(root.fills),
   };
 }
-
 
