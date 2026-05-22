@@ -530,6 +530,30 @@ describe('getBitgetBalance', () => {
     );
     assert.equal(bal.free, 250.0);
   });
+
+  test('falls back to legacy Bitget balance endpoint when v2 endpoint fails', async () => {
+    installMockFetch(({ url }) => {
+      if (String(url).includes('/api/v2/spot/account/assets')) {
+        return makeJsonResponse({ code: '40404', msg: 'path not found' });
+      }
+      return makeJsonResponse({
+        code: '00000',
+        data: [{ coinName: 'USDT', availableAmount: '17.50', freeze: '1.25' }]
+      });
+    });
+    const bal = await getBitgetBalance(
+      { BITGET_API_KEY: 'k', BITGET_SECRET_KEY: 's', BITGET_API_PASSPHRASE: 'p' },
+      'USDT'
+    );
+    assert.equal(bal.free, 17.5);
+    assert.equal(bal.locked, 1.25);
+    const requestedPaths = capturedRequests.map(r => new URL(r.url).pathname);
+    const v2Index = requestedPaths.indexOf('/api/v2/spot/account/assets');
+    const v1Index = requestedPaths.indexOf('/api/spot/v1/account/assets');
+    assert.notEqual(v2Index, -1, 'v2 endpoint should be attempted first');
+    assert.notEqual(v1Index, -1, 'v1 endpoint should be attempted as fallback');
+    assert.ok(v1Index > v2Index, 'fallback to v1 should occur after v2 fails');
+  });
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
