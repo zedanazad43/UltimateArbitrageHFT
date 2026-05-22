@@ -131,17 +131,33 @@ export async function renderDashboard(env) {
   // HTML attribute escaper — prevents XSS in server-interpolated input value="…"
   const esc = (v) => String(v ?? '').replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
 
+  function formatMoneyAdaptive(value) {
+    const n = Number(value);
+    if (!Number.isFinite(n)) return '—';
+    const abs = Math.abs(n);
+    if (abs >= 1) return n.toFixed(2);
+    if (abs >= 0.01) return n.toFixed(4);
+    if (abs >= 0.0001) return n.toFixed(6);
+    return n.toFixed(8);
+  }
+
   // Opportunity card HTML helper
   function oppCard(opp) {
     if (!opp) return `<div style="color:#888;font-size:.85em">لا توجد فرصة في آخر مسح</div>`;
+    const netPct = Number(opp.netPct);
+    const safetyFactor = Number(opp.safetyFactor);
+    const buyPrice = opp.buyPrice ?? opp.buy_price ?? opp.entryPrice;
+    const sellPrice = opp.sellPrice ?? opp.sell_price ?? opp.exitPrice;
+    const netPctLabel = Number.isFinite(netPct) ? netPct.toFixed(4) : '0.0000';
+    const safetyLabel = Number.isFinite(safetyFactor) ? (safetyFactor * 100).toFixed(1) : '0.0';
     return `
-      <div style="font-size:.82em;color:#aaa">${opp.symbol} | ${opp.direction}</div>
+      <div style="font-size:.82em;color:#aaa">${opp.symbol || '—'} | ${opp.direction || '—'}</div>
       <div style="font-size:.88em;margin-top:4px">
-        صافي: <strong style="color:#2ecc71">${opp.netPct.toFixed(4)}%</strong>
-        &nbsp;|&nbsp; أمان: ${(opp.safetyFactor * 100).toFixed(1)}%
+        صافي: <strong style="color:#2ecc71">${netPctLabel}%</strong>
+        &nbsp;|&nbsp; أمان: ${safetyLabel}%
       </div>
       <div style="font-size:.78em;color:#888;margin-top:2px">
-        شراء: $${Number(opp.buyPrice).toFixed(2)} &nbsp;→&nbsp; بيع: $${Number(opp.sellPrice).toFixed(2)}
+        شراء: $${formatMoneyAdaptive(buyPrice)} &nbsp;→&nbsp; بيع: $${formatMoneyAdaptive(sellPrice)}
       </div>`;
   }
 
@@ -227,7 +243,7 @@ export async function renderDashboard(env) {
 <!-- ── Top bar ─────────────────────────────────────────────────────── -->
 <div class="token-panel">
   <span style="flex:1"></span>
-  <div id="refreshBar"><span id="countdownLabel">تحديث تلقائي:</span> <strong id="countdown">30</strong>ث &nbsp;|&nbsp; <button class="btn btn-sm btn-blue" onclick="location.reload()">🔄 تحديث الآن</button></div>
+  <div id="refreshBar"><span id="countdownLabel">تحديث تلقائي:</span> <strong id="countdown">30</strong>ث &nbsp;|&nbsp; <button class="btn btn-sm btn-blue" onclick="triggerRefresh(true)">🔄 تحديث الآن</button></div>
   <a class="btn btn-sm btn-red" href="/logout" style="text-decoration:none;margin-right:6px">🔓 خروج</a>
 </div>
 
@@ -303,7 +319,7 @@ ${autoStopBanner}
   <button class="btn btn-green" data-admin-action="1" onclick="adminAction('start')">▶️ تشغيل</button>
   <button class="btn btn-red"   data-admin-action="1" onclick="adminAction('stop')">⏸️ إيقاف</button>
   <button class="btn"           data-admin-action="1" onclick="adminAction('scan')">🔍 مسح فوري</button>
-  <button class="btn btn-blue"  onclick="location.reload()">🔄 تحديث</button>
+  <button class="btn btn-blue"  onclick="triggerRefresh(true)">🔄 تحديث</button>
   <button class="btn"           onclick="window.open('/checklist','_blank')">✅ قائمة التشغيل</button>
   <button class="btn btn-red"   data-admin-action="1" onclick="resetDaily()">🔄 إعادة تعيين اليوم</button>
 </div>
@@ -698,13 +714,49 @@ ${autoStopBanner}
 
 <script>
   // ── Auto-refresh countdown ───────────────────────────────────────────────────
-  let _cd=30;
-  setInterval(()=>{
-    _cd--;
-    const el=document.getElementById('countdown');
-    if(el) el.textContent=_cd;
-    if(_cd<=0) location.reload();
-  },1000);
+  const AUTO_REFRESH_SECONDS = 30;
+  let _cd = AUTO_REFRESH_SECONDS;
+  let _refreshBusy = false;
+
+  function _setCountdown(value){
+    const el = document.getElementById('countdown');
+    if (el) el.textContent = String(value);
+  }
+
+  function _setCountdownLabel(text){
+    const el = document.getElementById('countdownLabel');
+    if (el) el.textContent = text;
+  }
+
+  function _logSettledFailures(results, scope){
+    results.forEach((res) => {
+      if (res.status === 'rejected') {
+        console.error('[' + scope + '] refresh task failed:', res.reason?.message || res.reason);
+      }
+    });
+  }
+
+  async function triggerRefresh(manual = false){
+    if (_refreshBusy) return;
+    _refreshBusy = true;
+    _setCountdownLabel(manual ? '⏳ جاري التحديث…' : '🔄 تحديث تلقائي…');
+    try {
+      const results = await Promise.allSettled([loadDynamic(), loadApiSnapshot()]);
+      _logSettledFailures(results, 'dashboard');
+    } finally {
+      _refreshBusy = false;
+      _cd = AUTO_REFRESH_SECONDS;
+      _setCountdown(_cd);
+      _setCountdownLabel('تحديث تلقائي:');
+    }
+  }
+
+  setInterval(() => {
+    if (_refreshBusy) return;
+    _cd -= 1;
+    _setCountdown(_cd);
+    if (_cd <= 0) triggerRefresh(false);
+  }, 1000);
 
   // ── Shared API helper ────────────────────────────────────────────────────────
   // When ADMIN_TOKEN is configured, auth is handled via HttpOnly session cookie.
@@ -1116,7 +1168,17 @@ ${autoStopBanner}
     }, delayMs);
   }
 
-  function loadDynamic(){ disableAdminUi(); loadBalances(); loadCircuitBreaker(); loadPerpsStatus(); loadExecutableIntegrationsStatus(); loadPlatformsGrid({ force: true }); }
+  async function loadDynamic(){
+    disableAdminUi();
+    const results = await Promise.allSettled([
+      loadBalances(),
+      loadCircuitBreaker(),
+      loadPerpsStatus(),
+      loadExecutableIntegrationsStatus(),
+      loadPlatformsGrid({ force: true }),
+    ]);
+    _logSettledFailures(results, 'dynamic-panels');
+  }
   loadDynamic();
 
   // ── Platform cards — dynamic refresh every 30 s ─────────────────────────────
