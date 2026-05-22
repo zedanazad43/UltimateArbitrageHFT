@@ -297,28 +297,7 @@
     const API_BASE = window.location.origin;
     const ADMIN_TOKEN = localStorage.getItem('adminToken') || '';
 
-    function getAuthHeaders(extraHeaders = {}) {
-      const headers = new Headers(extraHeaders);
-      if (ADMIN_TOKEN) headers.set('x-admin-token', ADMIN_TOKEN);
-      return headers;
-    }
-
-    function getPayloadBody(payload) {
-      if (payload && typeof payload === 'object' && payload.data && typeof payload.data === 'object') {
-        return payload.data;
-      }
-      return payload;
-    }
-
     async function makeRequest(endpoint, options = {}) {
-      const response = await fetch(`${API_BASE}${endpoint}`, {
-        credentials: 'same-origin',
-        ...options,
-        headers: getAuthHeaders(options.headers),
-      });
-
-      const text = await response.text();
-      let data = null;
       try {
         const resp = await fetch(`${API_BASE}${endpoint}`, {
           headers: { 'Authorization': `Bearer ${ADMIN_TOKEN}`, ...options.headers },
@@ -417,21 +396,15 @@
         document.getElementById('bitmart-status-dot').className = 'status-dot status-ok';
         showMessage('BitMart status checked', 'success');
       } else {
+        document.getElementById('bitmart-status-dot').className = 'status-dot status-error';
         showMessage(`Error: ${payload.error || data.error}`, 'error');
       }
-
-      const data = getPayloadBody(result.data) || {};
-      document.getElementById('bitmart-circuit').textContent = data.circuitBreakerOpen ? 'OPEN' : 'CLOSED';
-      document.getElementById('bitmart-ratelimit').textContent = `${data.rateLimitRequests || 0}/${data.rateLimitMaxPerWindow || 0}`;
-      document.getElementById('bitmart-proxy').textContent = data.externalProxyEnabled ? 'Enabled' : 'Disabled';
-      document.getElementById('bitmart-status-dot').className = `status-dot ${data.circuitBreakerOpen ? 'status-warning' : 'status-ok'}`;
-      showMessage('BitMart status refreshed', 'success');
     }
 
     async function resetBitmartCircuitBreaker() {
       const result = await makeRequest('/api/bitmart/reset-circuit-breaker', { method: 'POST' });
-      if (!result.ok) {
-        showMessage(`Reset failed: ${getErrorMessage(result)}`, 'error');
+      if (result.error) {
+        showMessage(`Reset failed: ${result.error}`, 'error');
         return;
       }
 
@@ -447,13 +420,10 @@
         document.getElementById('proxy-external-provider').textContent = data.proxyRouting?.externalProvider || (data.proxyRouting?.externalEnabled ? 'Enabled' : 'None');
         document.getElementById('proxy-status-dot').className = 'status-dot status-ok';
         showMessage('Proxy stats checked', 'success');
+      } else {
+        document.getElementById('proxy-status-dot').className = 'status-dot status-error';
+        showMessage(`Proxy stats error: ${data.error}`, 'error');
       }
-
-      const data = result.data || {};
-      document.getElementById('proxy-local-mode').textContent = data.proxyMode || 'Unknown';
-      document.getElementById('proxy-available').textContent = String(data.availableProxies ?? 0);
-      document.getElementById('proxy-external-provider').textContent = data.externalProvider || 'none';
-      document.getElementById('proxy-status-dot').className = `status-dot ${data.externalHealthy === false ? 'status-warning' : 'status-ok'}`;
     }
 
     async function checkExecutionHealth() {
@@ -482,34 +452,31 @@
         document.getElementById('executor-cooldown').textContent = `${cooldown}ms`;
         document.getElementById('executor-status-dot').className = 'status-dot status-ok';
         showMessage('Executor stats checked', 'success');
+      } else {
+        document.getElementById('executor-status-dot').className = 'status-dot status-error';
+        showMessage(`Executor stats error: ${data.error}`, 'error');
       }
-
-      const data = result.data || {};
-      document.getElementById('executor-paper').textContent = data.paperMode ? 'Yes' : 'No';
-      document.getElementById('executor-positions').textContent = String(data.maxOpenPositions ?? 0);
-      document.getElementById('executor-cooldown').textContent = `${data.strategyCooldownMs ?? 0} ms`;
-      document.getElementById('executor-status-dot').className = 'status-dot status-ok';
     }
 
     async function startExecution() {
       const result = await makeRequest('/start');
-      if (!result.ok) {
-        showMessage(`Start failed: ${getErrorMessage(result)}`, 'error');
+      if (result.error) {
+        showMessage(`Start failed: ${result.error}`, 'error');
         return;
       }
 
-      showMessage(result.text || 'Execution started', 'success');
+      showMessage(result.message || 'Execution started', 'success');
       checkExecutionHealth();
     }
 
     async function stopExecution() {
       const result = await makeRequest('/stop');
-      if (!result.ok) {
-        showMessage(`Stop failed: ${getErrorMessage(result)}`, 'error');
+      if (result.error) {
+        showMessage(`Stop failed: ${result.error}`, 'error');
         return;
       }
 
-      showMessage(result.text || 'Execution stopped', 'success');
+      showMessage(result.message || 'Execution stopped', 'success');
       checkExecutionHealth();
     }
 
@@ -524,17 +491,13 @@
       if (!resp.error) {
         showMessage(toPaper ? 'Switched to paper mode' : 'Switched to live mode', 'success');
         checkExecutionHealth();
+        checkExecutorStats();
       } else {
         showMessage(`Error: ${resp.error}`, 'error');
       }
-
-      showMessage(result.text || 'Paper mode enabled', 'success');
-      checkExecutionHealth();
-      checkExecutorStats();
     }
 
     async function checkFrontendConnectivity() {
-      const result = await makeRequest('/api/status');
       const dot = document.getElementById('frontend-status-dot');
       const data = await makeRequest('/api/status');
       const ok = !data.error;
