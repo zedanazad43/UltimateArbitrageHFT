@@ -728,12 +728,21 @@ ${autoStopBanner}
     if (el) el.textContent = text;
   }
 
+  function _logSettledFailures(results, scope){
+    results.forEach((res) => {
+      if (res.status === 'rejected') {
+        console.error('[' + scope + '] refresh task failed:', res.reason?.message || res.reason);
+      }
+    });
+  }
+
   async function triggerRefresh(manual = false){
     if (_refreshBusy) return;
     _refreshBusy = true;
     _setCountdownLabel(manual ? '⏳ جاري التحديث…' : '🔄 تحديث تلقائي…');
     try {
-      await Promise.allSettled([loadDynamic(), loadApiSnapshot()]);
+      const results = await Promise.allSettled([loadDynamic(), loadApiSnapshot()]);
+      _logSettledFailures(results, 'dashboard');
     } finally {
       _refreshBusy = false;
       _cd = AUTO_REFRESH_SECONDS;
@@ -1161,13 +1170,14 @@ ${autoStopBanner}
 
   async function loadDynamic(){
     disableAdminUi();
-    await Promise.allSettled([
+    const results = await Promise.allSettled([
       loadBalances(),
       loadCircuitBreaker(),
       loadPerpsStatus(),
       loadExecutableIntegrationsStatus(),
       loadPlatformsGrid({ force: true }),
     ]);
+    _logSettledFailures(results, 'dynamic-panels');
   }
   loadDynamic();
 
