@@ -10,19 +10,8 @@ account_id = "652e53f35781522e2745784cc4425d9d"
 binding = "BOT_STATE"
 id = "ac954cedbedd48f8aa4452975e5fc2a1"
 
-# Dashboard alias for the same KV namespace (name shown in Cloudflare UI).
-[[kv_namespaces]]
-binding = "KV_STORAGE"
-id = "ac954cedbedd48f8aa4452975e5fc2a1"
-
 [[d1_databases]]
 binding = "DB"
-database_name = "ultimate-arbitrage-db"
-database_id = "cd726538-9c41-456c-b172-15fcc3a63a0c"
-
-# Dashboard alias for the same database (binding name shown in Cloudflare UI).
-[[d1_databases]]
-binding = "MY_D1"
 database_name = "ultimate-arbitrage-db"
 database_id = "cd726538-9c41-456c-b172-15fcc3a63a0c"
 
@@ -50,11 +39,6 @@ dataset = "arbitrage_events"
 binding = "TRADE_LOGS"
 bucket_name = "ultimate-arbitrage-logs"
 
-# Dashboard alias for the same bucket (binding name shown in Cloudflare UI).
-[[r2_buckets]]
-binding = "R2"
-bucket_name = "ultimate-arbitrage-logs"
-
 # ── Workers AI ────────────────────────────────────────────────────────────────
 # Runs LLM-powered opportunity analysis and market summaries entirely on
 # Cloudflare's GPU fleet — no external API keys required.
@@ -69,11 +53,6 @@ binding = "AIWORKER"
 
 [[queues.producers]]
 binding = "TRADE_QUEUE"
-queue = "ultimate-arbitrage-queue"
-
-# Dashboard alias for the same queue (binding name shown in Cloudflare UI).
-[[queues.producers]]
-binding = "ULTIMATEARBITRAGEQUEUE"
 queue = "ultimate-arbitrage-queue"
 
 [[queues.consumers]]
@@ -101,7 +80,7 @@ binding = "METADATA"
 # ── Observability ──────────────────────────────────────────────────────────────
 
 [observability]
-enabled = false
+enabled = true
 head_sampling_rate = 1
 
 [observability.logs]
