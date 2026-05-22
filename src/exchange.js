@@ -540,6 +540,11 @@ export async function placeMarketOrderKuCoin(env, symbol, side, quantity, sizeUs
 const BITGET_API_HOSTS = ['api.bitget.com', 'capi.bitget.com'];
 const BITGET_BALANCE_ENDPOINTS = ['/api/v2/spot/account/assets', '/api/spot/v1/account/assets'];
 
+/**
+ * Normalizes Bitget balance payloads across API versions:
+ * - v2: { data: [{ coin, available, frozen }] }
+ * - legacy variants: { data: { assets|list: [...] } } or entries with coinName/availableAmount/freeze fields
+ */
 function normalizeBitgetAssets(data) {
   if (Array.isArray(data?.data)) return data.data;
   if (Array.isArray(data?.data?.assets)) return data.data.assets;
@@ -559,7 +564,8 @@ export async function getBitgetBalance(env, asset = 'USDT') {
   if (!passphrase) throw new Error('BITGET_API_PASSPHRASE is not configured');
 
   const errors = [];
-  const targetAsset = asset.toUpperCase();
+  const targetAsset = String(asset ?? '').trim().toUpperCase();
+  if (!targetAsset) throw new Error('asset is required');
 
   for (const requestPath of BITGET_BALANCE_ENDPOINTS) {
     for (const host of BITGET_API_HOSTS) {
@@ -589,6 +595,7 @@ export async function getBitgetBalance(env, asset = 'USDT') {
           const coin = String(a?.coin ?? a?.coinName ?? a?.asset ?? a?.currency ?? '').toUpperCase();
           return coin === targetAsset;
         });
+        if (!bal) return { free: 0, locked: 0 };
 
         return {
           free: parseFloat(bal?.available ?? bal?.availableAmount ?? bal?.usable ?? '0'),
@@ -1381,4 +1388,3 @@ export function extractFillMetrics(orderResult) {
     feeQty: sumFillFees(root.fills),
   };
 }
-

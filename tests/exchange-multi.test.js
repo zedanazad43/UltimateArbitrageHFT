@@ -547,7 +547,12 @@ describe('getBitgetBalance', () => {
     );
     assert.equal(bal.free, 17.5);
     assert.equal(bal.locked, 1.25);
-    assert.ok(capturedRequests.some(r => String(r.url).includes('/api/spot/v1/account/assets')));
+    const requestedPaths = capturedRequests.map(r => new URL(r.url).pathname);
+    const v2Index = requestedPaths.indexOf('/api/v2/spot/account/assets');
+    const v1Index = requestedPaths.indexOf('/api/spot/v1/account/assets');
+    assert.notEqual(v2Index, -1, 'v2 endpoint should be attempted first');
+    assert.notEqual(v1Index, -1, 'v1 endpoint should be attempted as fallback');
+    assert.ok(v1Index > v2Index, 'fallback to v1 should occur after v2 fails');
   });
 });
 
