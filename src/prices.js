@@ -15,6 +15,20 @@ function formatUnits(value, decimals) {
 const FETCH_CF = { cf: { cacheTtl: 2, cacheEverything: true } };
 const PRICE_FETCH_TIMEOUT_MS = 2500;
 const SYMBOL_DISCOVERY_TIMEOUT_MS = 5000;
+const BINANCE_EXCHANGE_INFO_ENDPOINTS = [
+  'https://api.binance.com/api/v3/exchangeInfo',
+  'https://api1.binance.com/api/v3/exchangeInfo',
+  'https://api2.binance.com/api/v3/exchangeInfo',
+  'https://api3.binance.com/api/v3/exchangeInfo',
+  'https://data-api.binance.vision/api/v3/exchangeInfo',
+];
+const BINANCE_TICKER_ENDPOINTS = [
+  'https://api.binance.com/api/v3/ticker/price',
+  'https://api1.binance.com/api/v3/ticker/price',
+  'https://api2.binance.com/api/v3/ticker/price',
+  'https://api3.binance.com/api/v3/ticker/price',
+  'https://data-api.binance.vision/api/v3/ticker/price',
+];
 
 const DEFAULT_SCAN_SYMBOLS = [
   'BTCUSDT', 'ETHUSDT', 'SOLUSDT', 'XRPUSDT', 'DOGEUSDT',
@@ -78,20 +92,24 @@ export async function discoverMEXCSpotSymbols() {
  * Discover all currently tradeable Binance spot USDT pairs.
  */
 export async function discoverBinanceSpotSymbols() {
-  try {
-    const data = await fetchJsonWithTimeout('https://api.binance.com/api/v3/exchangeInfo', FETCH_CF);
-    const symbols = (data?.symbols || [])
-      .filter((s) => {
-        const quote = String(s?.quoteAsset || '').toUpperCase();
-        const status = String(s?.status || '').toUpperCase();
-        return quote === 'USDT' && status === 'TRADING';
-      })
-      .map((s) => String(s?.symbol || '').toUpperCase())
-      .filter(isLikelyTradeableUsdtSymbol);
-    return uniqSortedSymbols(symbols);
-  } catch (_) {
-    return [];
+  for (const endpoint of BINANCE_EXCHANGE_INFO_ENDPOINTS) {
+    try {
+      const data = await fetchJsonWithTimeout(endpoint, FETCH_CF);
+      const symbols = (data?.symbols || [])
+        .filter((s) => {
+          const quote = String(s?.quoteAsset || '').toUpperCase();
+          const status = String(s?.status || '').toUpperCase();
+          return quote === 'USDT' && status === 'TRADING';
+        })
+        .map((s) => String(s?.symbol || '').toUpperCase())
+        .filter(isLikelyTradeableUsdtSymbol);
+      if (symbols.length > 0) return uniqSortedSymbols(symbols);
+    } catch (_) {
+      // Continue to next Binance endpoint.
+    }
   }
+
+  return [];
 }
 
 /**
@@ -291,17 +309,23 @@ export async function getMEXCSpotPrice(symbol) {
 }
 
 export async function getBinancePrice(symbol) {
-  try {
-    const resp = await fetchWithRetry(
-      `https://api.binance.com/api/v3/ticker/price?symbol=${symbol}`,
-      FETCH_CF
-    );
-    if (!resp || !resp.ok) { await resp?.body?.cancel(); return null; }
-    const data = await resp.json();
-    const price = parseFloat(data.price);
-    if (!price || isNaN(price)) return null;
-    return { price, exchange: 'binance', fee: 0.001 };
-  } catch (_) { return null; }
+  for (const baseUrl of BINANCE_TICKER_ENDPOINTS) {
+    try {
+      const resp = await fetchWithRetry(`${baseUrl}?symbol=${symbol}`, FETCH_CF);
+      if (!resp || !resp.ok) {
+        await resp?.body?.cancel();
+        continue;
+      }
+      const data = await resp.json();
+      const price = parseFloat(data.price);
+      if (!price || isNaN(price)) continue;
+      return { price, exchange: 'binance', fee: 0.001 };
+    } catch (_) {
+      // Continue to next Binance endpoint.
+    }
+  }
+
+  return null;
 }
 
 export async function getKuCoinPrice(symbol) {
