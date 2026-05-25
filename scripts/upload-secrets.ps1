@@ -37,6 +37,7 @@ $RequiredSecretsBySection = @{
     'BITGET'  = @('BITGET_API_KEY', 'BITGET_SECRET_KEY', 'BITGET_API_PASSPHRASE')
     'BITMART' = @('BITMART_API_KEY', 'BITMART_SECRET_KEY', 'BITMART_MEMO')
     'HTX'     = @('HTX_API_KEY', 'HTX_API_SECRET')
+    'AI'      = @('AI_GATEWAY_TOKEN')
 }
 
 function Resolve-SecretKey {

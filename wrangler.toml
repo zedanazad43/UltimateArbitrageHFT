@@ -113,7 +113,7 @@ TEMPORAL_NAMESPACE  = "default"
 # Leave blank to connect to a local dev server (localhost:7233)
 TEMPORAL_ADDRESS    = ""
 # Set to your deployed Worker URL, e.g. https://ultimatearbitragehft.workers.dev
-TEMPORAL_WORKER_URL = ""
+TEMPORAL_WORKER_URL = "https://ultimatearbitragehft.zedanazad43.workers.dev"
 
 # ── Go HFT engine — non-sensitive connection config ───────────────────────────
 # The Go engine exposes a REST API (GET /api/scan, POST /api/execute) that the
@@ -150,6 +150,18 @@ PROXY_MODE = "auto"
 # Comma-separated exchanges that should bypass proxy when PROXY_MODE=auto.
 # Example: "bitmart,mexc"
 DIRECT_EXCHANGES = ""
+
+# ── LLM model and optional AI Gateway routing ───────────────────────────────
+# LLM_MODEL can be any Workers AI model ID, for example:
+#   @cf/meta/llama-3.1-8b-instruct
+#   @cf/meta/llama-3.1-70b-instruct
+LLM_MODEL = "@cf/meta/llama-3.1-8b-instruct"
+
+# Set one of these to route /api/ai and /api/ai-analysis through AI Gateway:
+# 1) AI_GATEWAY_URL: full gateway base URL or chat-completions URL
+# 2) AI_GATEWAY_ID:  gateway ID (auto-builds URL from CLOUDFLARE_ACCOUNT_ID)
+AI_GATEWAY_URL = ""
+AI_GATEWAY_ID = ""
 
 # ── Exchange feature flags ─────────────────────────────────────────────────────
 # bybit and gateio are excluded from live execution (German regulatory law).

@@ -32,6 +32,7 @@ Add these in your repo → Settings → Secrets and variables → Actions → **
 | `KUCOIN_API_KEY` + `KUCOIN_SECRET_KEY` + `KUCOIN_PASSPHRASE` | KuCoin keys (optional) |
 | `BITGET_API_KEY` + `BITGET_SECRET_KEY` + `BITGET_API_PASSPHRASE` | Bitget keys (optional) |
 | `BITMART_API_KEY` + `BITMART_SECRET_KEY` + `BITMART_MEMO` | Bitmart keys (optional) |
+| `AI_GATEWAY_TOKEN` | Optional bearer token for AI gateway auth |
 | `ALLOWED_IPS` | Optional admin IP allowlist (comma-separated) for hardening protected endpoints |
 
 ### Proxy Routing Profiles (Production)
@@ -72,6 +73,39 @@ The workflow will:
 2. Run the full test suite
 3. Deploy the Cloudflare Worker
 4. Upload all exchange secrets to the Worker
+
+## LLM Model + AI Gateway Setup
+
+The Worker AI endpoints now support both direct Workers AI and optional gateway routing:
+
+- POST /api/ai
+- POST /api/ai-analysis
+- GET /api/ai/health
+
+1. Configure model in wrangler vars
+	- LLM_MODEL="@cf/meta/llama-3.1-8b-instruct"
+
+2. Configure gateway (optional)
+	- Set AI_GATEWAY_URL to your gateway URL (base or chat-completions URL), or
+	- Set AI_GATEWAY_ID and keep CLOUDFLARE_ACCOUNT_ID set
+
+3. Upload gateway token (if your gateway requires bearer auth)
+
+```powershell
+npx wrangler secret put AI_GATEWAY_TOKEN
+```
+
+4. Deploy
+
+```powershell
+npm run deploy
+```
+
+5. Verify
+
+```powershell
+curl -H "x-admin-token: <ADMIN_TOKEN>" https://<your-worker-domain>/api/ai/health
+```
 
 ---
 
@@ -281,8 +315,128 @@ Optional integration auth secrets (set with `wrangler secret put`):
 
 Latency note: run the bot and execution services in regions close to exchange infrastructure to improve arbitrage fill quality.
 
+## Cloudflare Workers AI + Gateway Setup (LLM)
+
+The Worker now includes built-in LLM inference via Cloudflare Workers AI with optional external gateway support for production scaling.
+
+### Default Configuration (Workers AI)
+
+By default, the Worker uses Cloudflare's on-device model:
+- **Model**: `@cf/meta/llama-3.1-8b-instruct` (8B parameters, fast inference)
+- **Provider**: Cloudflare Workers AI (no external API calls)
+- **Endpoints**:
+  - `GET /api/ai/health` → LLM status + model info + token usage
+  - `POST /api/ai` → OpenAI Responses API compatible chat
+  - `POST /api/ai-analysis` → Arbitrage opportunity analysis
+
+### LLM API Usage
+
+#### Health Check
+
+```bash
+curl -H "x-admin-token: <ADMIN_TOKEN>" \
+  https://ultimatearbitragehft.zedanazad43.workers.dev/api/ai/health
+```
+
+Response:
+```json
+{
+  "ok": true,
+  "provider": "workers-ai",
+  "model": "@cf/meta/llama-3.1-8b-instruct",
+  "gatewayConfigured": false,
+  "usage": { "input_tokens": 37, "output_tokens": 8, "total_tokens": 45 }
+}
+```
+
+#### Chat Inference
+
+```bash
+curl -X POST -H "x-admin-token: <ADMIN_TOKEN>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "input": "Explain cryptocurrency arbitrage",
+    "instructions": "Be concise",
+    "max_output_tokens": 256,
+    "temperature": 0.7
+  }' \
+  https://ultimatearbitragehft.zedanazad43.workers.dev/api/ai
+```
+
+Response:
+```json
+{
+  "id": "resp_...",
+  "model": "@cf/meta/llama-3.1-8b-instruct",
+  "provider": "workers-ai",
+  "output_text": "Cryptocurrency arbitrage is the practice of buying an asset on one exchange...",
+  "usage": { "input_tokens": 58, "output_tokens": 40, "total_tokens": 98 }
+}
+```
+
+#### Arbitrage Analysis
+
+```bash
+curl -X POST -H "x-admin-token: <ADMIN_TOKEN>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "opportunity": {
+      "symbol": "BTC/USDT",
+      "strategy": "Spot Arbitrage",
+      "direction": "Long",
+      "buyPrice": 65000,
+      "sellPrice": 65500,
+      "netPct": 0.77
+    }
+  }' \
+  https://ultimatearbitragehft.zedanazad43.workers.dev/api/ai-analysis
+```
+
+### Production Configuration (External Gateway)
+
+For higher throughput or larger models, configure an external AI gateway:
+
+1. **Edit `wrangler.toml`**:
+   ```toml
+   [vars]
+   AI_GATEWAY_URL = "https://your-gateway.example.com"
+   AI_GATEWAY_ID = "your-gateway-id"
+   ```
+
+2. **Set auth secret** (if gateway requires bearer token):
+   ```bash
+   npx wrangler secret put AI_GATEWAY_TOKEN
+   # Paste your gateway bearer token when prompted
+   ```
+
+3. **Deploy**:
+   ```bash
+   npm run deploy
+   ```
+
+The Worker will now route all LLM requests to your external gateway with automatic fallback to Workers AI if the gateway is unavailable.
+
+### Model Options
+
+| Model | Speed | Size | Quality | Use Case |
+|-------|-------|------|---------|----------|
+| `@cf/meta/llama-3.1-8b-instruct` | ⚡ Fast | 8B | Good | Real-time analysis (default) |
+| `@cf/meta/llama-3.1-70b-instruct` | Medium | 70B | Excellent | Complex strategic decisions |
+
+To use the 70B model, update `wrangler.toml`:
+```toml
+LLM_MODEL = "@cf/meta/llama-3.1-70b-instruct"
+```
+
+### Monitoring & Limits
+
+- **Rate limiting**: Worker enforces 20 req/60s per IP (configurable in Worker binding)
+- **Token tracking**: Each response includes `input_tokens`, `output_tokens`, `total_tokens`
+- **Cost estimate**: Cloudflare Workers AI is included in the Worker subscription; external gateways bill separately
+
 ## Security
 
 Secrets (`api_keys.txt`, `.env`) **must not** be committed — see `.gitignore`.
 `ADMIN_TOKEN` must be set before the worker will accept admin commands.
 Use `ALLOWED_IPS` in production to restrict admin route access to trusted IP ranges.
+`AI_GATEWAY_TOKEN` should be rotated monthly and stored as a Cloudflare secret (never in source code).

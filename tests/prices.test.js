@@ -19,6 +19,12 @@ import {
   getAllSpotPrices,
   getDEXScreenerPrice,
   getCoinGeckoSimplePrice,
+  discoverMEXCSpotSymbols,
+  discoverBinanceSpotSymbols,
+  discoverBitgetSpotSymbols,
+  discoverMetaMaskReadableSymbols,
+  discoverSymbolCatalog,
+  resolveDynamicScanSymbols,
 } from '../src/prices.js';
 
 // ── Mock fetch helpers ────────────────────────────────────────────────────────
@@ -41,6 +47,94 @@ function makeResponse(body, status = 200) {
     body: { cancel: async () => {} }
   };
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Symbol discovery
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('symbol discovery', () => {
+  test('discovers USDT spot symbols from MEXC/Binance/Bitget and normalizes MetaMask tokens', async () => {
+    globalThis.fetch = async (url) => {
+      if (url.includes('mexc.com/api/v3/exchangeInfo')) {
+        return makeResponse({
+          symbols: [
+            { symbol: 'BTCUSDT', quoteAsset: 'USDT', status: 'TRADING' },
+            { symbol: 'ETHUSDT', quoteAsset: 'USDT', status: 'TRADING' },
+            { symbol: 'FOOBTC', quoteAsset: 'BTC', status: 'TRADING' }
+          ]
+        });
+      }
+      if (url.includes('binance.com/api/v3/exchangeInfo')) {
+        return makeResponse({
+          symbols: [
+            { symbol: 'BTCUSDT', quoteAsset: 'USDT', status: 'TRADING' },
+            { symbol: 'SOLUSDT', quoteAsset: 'USDT', status: 'TRADING' },
+            { symbol: 'BADPAIR', quoteAsset: 'USD', status: 'TRADING' }
+          ]
+        });
+      }
+      if (url.includes('bitget.com/api/v2/spot/public/symbols')) {
+        return makeResponse({
+          data: [
+            { symbol: 'BTCUSDT', quoteCoin: 'USDT', status: 'online' },
+            { symbol: 'XRPUSDT', quoteCoin: 'USDT', status: 'online' },
+            { symbol: 'ETHBTC', quoteCoin: 'BTC', status: 'online' }
+          ]
+        });
+      }
+      if (url.includes('tokens.coingecko.com/uniswap/all.json')) {
+        return makeResponse({
+          tokens: [
+            { symbol: 'btc' },
+            { symbol: 'eth' },
+            { symbol: 'usdt' },
+            { symbol: 'xrp' }
+          ]
+        });
+      }
+      return makeResponse({}, 404);
+    };
+
+    const [mexc, binance, bitget, metamask] = await Promise.all([
+      discoverMEXCSpotSymbols(),
+      discoverBinanceSpotSymbols(),
+      discoverBitgetSpotSymbols(),
+      discoverMetaMaskReadableSymbols(100),
+    ]);
+
+    assert.deepEqual(mexc, ['BTCUSDT', 'ETHUSDT']);
+    assert.deepEqual(binance, ['BTCUSDT', 'SOLUSDT']);
+    assert.deepEqual(bitget, ['BTCUSDT', 'XRPUSDT']);
+    assert.deepEqual(metamask, ['BTCUSDT', 'ETHUSDT', 'XRPUSDT']);
+  });
+
+  test('builds catalog aggregates and resolves capped scan symbols', async () => {
+    globalThis.fetch = async (url) => {
+      if (url.includes('mexc.com/api/v3/exchangeInfo')) {
+        return makeResponse({ symbols: [{ symbol: 'BTCUSDT', quoteAsset: 'USDT', status: 'TRADING' }, { symbol: 'ETHUSDT', quoteAsset: 'USDT', status: 'TRADING' }] });
+      }
+      if (url.includes('binance.com/api/v3/exchangeInfo')) {
+        return makeResponse({ symbols: [{ symbol: 'BTCUSDT', quoteAsset: 'USDT', status: 'TRADING' }, { symbol: 'SOLUSDT', quoteAsset: 'USDT', status: 'TRADING' }] });
+      }
+      if (url.includes('bitget.com/api/v2/spot/public/symbols')) {
+        return makeResponse({ data: [{ symbol: 'BTCUSDT', quoteCoin: 'USDT', status: 'online' }, { symbol: 'XRPUSDT', quoteCoin: 'USDT', status: 'online' }] });
+      }
+      if (url.includes('tokens.coingecko.com/uniswap/all.json')) {
+        return makeResponse({ tokens: [{ symbol: 'btc' }, { symbol: 'eth' }, { symbol: 'sol' }, { symbol: 'xrp' }] });
+      }
+      return makeResponse({}, 404);
+    };
+
+    const catalog = await discoverSymbolCatalog({ metaMaskLimit: 100 });
+    assert.deepEqual(catalog.aggregate.cexIntersection, ['BTCUSDT']);
+    assert.ok(catalog.aggregate.cexUnion.includes('ETHUSDT'));
+    assert.ok(catalog.aggregate.walletReadableCex.includes('XRPUSDT'));
+
+    const scanSymbols = await resolveDynamicScanSymbols({ max_dynamic_symbols: 2, max_metamask_symbols: 100 });
+    assert.equal(scanSymbols.length, 1);
+    assert.equal(scanSymbols[0], 'BTCUSDT');
+  });
+});
 
 // ─────────────────────────────────────────────────────────────────────────────
 // getMEXCSpotPrice

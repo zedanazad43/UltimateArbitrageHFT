@@ -129,7 +129,7 @@ Features:
 
 4. **Test endpoints:**
    ```bash
-   ADMIN_TOKEN='your_token' bash scripts/verify-production-endpoints.sh
+   ADMIN_TOKEN='YOUR_ADMIN_TOKEN' bash scripts/verify-production-endpoints.sh
    ```
 
 5. **Monitor:**

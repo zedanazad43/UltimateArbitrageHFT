@@ -47,7 +47,7 @@ function isPlaceholder(value) {
   const trimmed = value.trim();
   if (!trimmed) return true;
   if (trimmed === '""' || trimmed === "''") return true;
-  if (trimmed.startsWith('YOUR_')) return true;
+  if (trimmed.toUpperCase().startsWith('YOUR_')) return true;
   if (trimmed.startsWith('<') && trimmed.endsWith('>')) return true;
   if (trimmed.includes('example') || trimmed.includes('EXAMPLE')) return true;
   if (trimmed.startsWith('${') || trimmed.startsWith('$(')) return true;
