@@ -40,6 +40,8 @@
     "backup:full": "pwsh -NoProfile -File ./scripts/backup-database.ps1 -Full",
     "check:secrets": "node scripts/security-audit.js --secrets-only",
     "scan:secrets": "node scripts/secret-scan.js",
+    "refresh:bitget-fallback": "node scripts/refresh-bitget-fallback.js",
+    "check:symbol-catalog": "node scripts/check-symbol-catalog.js",
     "check:static": "node scripts/static-check.js",
     "verify:all": "npm run scan:secrets && npm run check:static && npm run test:all",
     "audit:security": "node scripts/security-audit.js --with-audit",

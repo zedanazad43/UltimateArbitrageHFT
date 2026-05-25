@@ -21,6 +21,7 @@ import { getAutoExecutor } from './src/strategies/auto-executor.js';
 import { renderControlPanel } from './src/control-panel.js';
 import { loadBotMemory, saveBotMemory, recordEvaluation, summarizeMemory } from './src/bot-memory.js';
 import { normalizeRebalancePolicy, computeRebalancePlan, buildRebalanceWeights } from './src/rebalancer.js';
+import { discoverSymbolCatalog, resolveDynamicScanSymbols } from './src/prices.js';
 import {
   startWorkflow,
   stopWorkflow,
@@ -687,12 +688,20 @@ app.post('/config', async (c) => {
   const state = await getState(c.env);
   const num = (v) => (typeof v === 'number' && v > 0 ? v : undefined);
   if (num(body.max_daily_loss_usd))           state.max_daily_loss_usd           = body.max_daily_loss_usd;
+  if (num(body.daily_limit_usd))              state.daily_limit_usd              = body.daily_limit_usd;
   if (num(body.max_per_trade_loss_pct))       state.max_per_trade_loss_pct       = body.max_per_trade_loss_pct;
   if (num(body.min_seconds_between_trades))   state.min_seconds_between_trades   = body.min_seconds_between_trades;
   if (num(body.initial_capital))              state.initial_capital              = body.initial_capital;
   if (num(body.max_spread_pct))               state.max_spread_pct               = body.max_spread_pct;
   if (num(body.win_rate))                     state.win_rate                     = body.win_rate;
   if (num(body.risk_reward_ratio))            state.risk_reward_ratio            = body.risk_reward_ratio;
+  if (num(body.position_size_min_usd))        state.position_size_min_usd        = Math.max(1, Math.min(500, body.position_size_min_usd));
+  if (num(body.position_size_max_usd))        state.position_size_max_usd        = Math.max(1, Math.min(500, body.position_size_max_usd));
+  if (state.position_size_min_usd > state.position_size_max_usd) {
+    const tmp = state.position_size_min_usd;
+    state.position_size_min_usd = state.position_size_max_usd;
+    state.position_size_max_usd = tmp;
+  }
   // Position size — clamped to safe bounds (1–500 USDT)
   if (typeof body.position_size_usd === 'number' && body.position_size_usd > 0) {
     state.position_size_usd = Math.max(
@@ -744,6 +753,7 @@ app.get('/api/status', async (c) => {
     lastScan,
     circuitBreaker: circuitBreaker || {},
     secretBindings: {
+      adminTokenConfigured: !!c.env.ADMIN_TOKEN,
       telegramConfigured: !!c.env.TELEGRAM_BOT_TOKEN && !!c.env.TELEGRAM_CHAT_ID,
       vscodeApiTokenConfigured: !!c.env.VSCODE_API_TOKEN,
     },
@@ -1451,6 +1461,48 @@ app.get('/api/platforms', async (c) => {
   });
 });
 
+// ── API: Symbol catalog discovery (MEXC/Binance/Bitget/MetaMask) ────────────
+// GET /api/symbols/catalog
+// Optional query params:
+//   includeMetaMask=true|false (default true)
+//   maxMetaMask=5000
+//   maxScan=150
+app.get('/api/symbols/catalog', async (c) => {
+  if (!isAuthorized(c.env, c)) return authDenied(c.env, c, true);
+
+  const includeMetaMask = (c.req.query('includeMetaMask') || 'true').toLowerCase() !== 'false';
+  const maxMetaMask = Math.max(100, Math.min(20000, parseInt(c.req.query('maxMetaMask') || '5000', 10)));
+  const maxScan = Math.max(15, Math.min(500, parseInt(c.req.query('maxScan') || '150', 10)));
+
+  const catalog = await discoverSymbolCatalog({ metaMaskLimit: includeMetaMask ? maxMetaMask : 0 });
+  const scanSymbols = await resolveDynamicScanSymbols({ max_dynamic_symbols: maxScan, max_metamask_symbols: maxMetaMask });
+
+  const filteredSources = includeMetaMask
+    ? catalog.sources
+    : { ...catalog.sources, metamask: [] };
+
+  return c.json({
+    success: true,
+    summary: {
+      mexc: filteredSources.mexc.length,
+      binance: filteredSources.binance.length,
+      bitget: filteredSources.bitget.length,
+      metamask: filteredSources.metamask.length,
+      cexUnion: catalog.aggregate.cexUnion.length,
+      cexIntersection: catalog.aggregate.cexIntersection.length,
+      walletReadableCex: includeMetaMask ? catalog.aggregate.walletReadableCex.length : 0,
+      scanSymbols: scanSymbols.length,
+    },
+    sources: filteredSources,
+    aggregate: {
+      cexUnion: catalog.aggregate.cexUnion,
+      cexIntersection: catalog.aggregate.cexIntersection,
+      walletReadableCex: includeMetaMask ? catalog.aggregate.walletReadableCex : [],
+      scanSymbols,
+    },
+  });
+});
+
 // ── Admin: Reset daily stats ──────────────────────────────────────────────────
 app.post('/reset-daily', async (c) => {
   const limited = await checkRateLimit(c.env, c);
@@ -1512,6 +1564,131 @@ app.get('/api/export', async (c) => {
   });
 });
 
+const DEFAULT_LLM_MODEL = '@cf/meta/llama-3.1-8b-instruct';
+
+function getConfiguredLlmModel(env) {
+  const model = typeof env.LLM_MODEL === 'string' ? env.LLM_MODEL.trim() : '';
+  return model || DEFAULT_LLM_MODEL;
+}
+
+function trimTrailingSlash(value) {
+  return value.endsWith('/') ? value.slice(0, -1) : value;
+}
+
+function resolveAiGatewayChatUrl(env) {
+  const explicit = typeof env.AI_GATEWAY_URL === 'string' ? env.AI_GATEWAY_URL.trim() : '';
+  if (explicit) {
+    const normalized = trimTrailingSlash(explicit);
+    if (normalized.endsWith('/chat/completions')) return normalized;
+    if (normalized.endsWith('/v1')) return `${normalized}/chat/completions`;
+    return `${normalized}/v1/chat/completions`;
+  }
+
+  const gatewayId = typeof env.AI_GATEWAY_ID === 'string' ? env.AI_GATEWAY_ID.trim() : '';
+  const accountId = typeof env.CLOUDFLARE_ACCOUNT_ID === 'string' ? env.CLOUDFLARE_ACCOUNT_ID.trim() : '';
+  if (gatewayId && accountId) {
+    return `https://gateway.ai.cloudflare.com/v1/${accountId}/${gatewayId}/workers-ai/v1/chat/completions`;
+  }
+
+  return '';
+}
+
+async function runConfiguredLlm(env, aiParams) {
+  const model = getConfiguredLlmModel(env);
+  const gatewayUrl = resolveAiGatewayChatUrl(env);
+
+  if (gatewayUrl) {
+    const payload = {
+      model,
+      messages: aiParams.messages,
+      max_tokens: aiParams.max_tokens,
+    };
+    if (typeof aiParams.temperature === 'number') payload.temperature = aiParams.temperature;
+    if (typeof aiParams.top_p === 'number') payload.top_p = aiParams.top_p;
+
+    const headers = { 'Content-Type': 'application/json' };
+    if (typeof env.AI_GATEWAY_TOKEN === 'string' && env.AI_GATEWAY_TOKEN.trim()) {
+      headers.Authorization = `Bearer ${env.AI_GATEWAY_TOKEN.trim()}`;
+    }
+
+    const response = await fetch(gatewayUrl, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(payload),
+    });
+
+    const responseText = await response.text();
+    let data = null;
+    try {
+      data = responseText ? JSON.parse(responseText) : null;
+    } catch (_) {}
+
+    if (!response.ok) {
+      const detail = data?.error?.message || data?.error || responseText || `Gateway HTTP ${response.status}`;
+      throw new Error(`AI gateway request failed: ${detail}`);
+    }
+
+    const text = data?.choices?.[0]?.message?.content
+      ?? data?.output_text
+      ?? data?.response
+      ?? (typeof data === 'string' ? data : JSON.stringify(data));
+
+    const usage = {
+      input_tokens: data?.usage?.prompt_tokens ?? 0,
+      output_tokens: data?.usage?.completion_tokens ?? 0,
+      total_tokens: data?.usage?.total_tokens ?? 0,
+    };
+
+    return { model, text, usage, provider: 'ai-gateway' };
+  }
+
+  if (!env.AIWORKER) {
+    throw new Error('Workers AI binding not configured and AI gateway is not set');
+  }
+
+  const result = await env.AIWORKER.run(model, aiParams);
+  const text = result?.response ?? result?.text ?? (typeof result === 'string' ? result : JSON.stringify(result));
+  const usage = {
+    input_tokens: result?.usage?.prompt_tokens ?? 0,
+    output_tokens: result?.usage?.completion_tokens ?? 0,
+    total_tokens: result?.usage?.total_tokens ?? 0,
+  };
+  return { model, text, usage, provider: 'workers-ai' };
+}
+
+app.get('/api/ai/health', async (c) => {
+  if (!isAuthorized(c.env, c)) return authDenied(c.env, c, true);
+
+  const model = getConfiguredLlmModel(c.env);
+  const gatewayUrl = resolveAiGatewayChatUrl(c.env);
+
+  try {
+    const result = await runConfiguredLlm(c.env, {
+      messages: [{ role: 'user', content: 'healthcheck' }],
+      max_tokens: 8,
+      temperature: 0,
+    });
+    return c.json({
+      ok: true,
+      provider: result.provider,
+      model: result.model,
+      gatewayConfigured: !!gatewayUrl,
+      gatewayUrl: gatewayUrl || null,
+      preview: String(result.text || '').slice(0, 80),
+      usage: result.usage,
+    });
+  } catch (e) {
+    return c.json({
+      ok: false,
+      provider: gatewayUrl ? 'ai-gateway' : 'workers-ai',
+      model,
+      gatewayConfigured: !!gatewayUrl,
+      gatewayUrl: gatewayUrl || null,
+      error: e.message,
+    }, 500);
+  }
+});
+
 // ── API: Generic AI inference (OpenAI Responses API schema) ──────────────────
 // Accepts a JSON body that conforms to the Responses API request schema and
 // returns a response that conforms to the Responses API response schema.
@@ -1532,7 +1709,6 @@ app.get('/api/export', async (c) => {
 //   id, object:"response", created_at, model, output, output_text, status, usage
 app.post('/api/ai', async (c) => {
   if (!isAuthorized(c.env, c)) return authDenied(c.env, c, true);
-  if (!c.env.AIWORKER) return c.json({ error: 'Workers AI binding not configured' }, 503);
 
   let body;
   try { body = await c.req.json(); } catch (_) { return c.json({ error: 'Invalid JSON' }, 400); }
@@ -1583,44 +1759,28 @@ app.post('/api/ai', async (c) => {
   if (typeof body.temperature === 'number') aiParams.temperature = body.temperature;
   if (typeof body.top_p       === 'number') aiParams.top_p       = body.top_p;
 
-  const MODEL = '@cf/meta/llama-3.1-8b-instruct';
   const createdAt = Math.floor(Date.now() / 1000);
   const responseId = `resp_${crypto.randomUUID().replace(/-/g, '')}`;
 
   try {
-    const result = await c.env.AIWORKER.run(MODEL, aiParams);
-
-    const rawText = result?.response ?? result?.text;
-    const text = rawText !== undefined
-      ? rawText
-      : (typeof result === 'string'
-          ? result
-          : (() => {
-              console.warn('[AI /api/ai] unexpected result format; serialising to JSON:', JSON.stringify(result).slice(0, 200));
-              return JSON.stringify(result);
-            })());
+    const ai = await runConfiguredLlm(c.env, aiParams);
 
     const outputItem = {
       type: 'message',
       role: 'assistant',
-      content: [{ type: 'output_text', text }],
-    };
-
-    const usage = {
-      input_tokens:  result?.usage?.prompt_tokens     ?? 0,
-      output_tokens: result?.usage?.completion_tokens ?? 0,
-      total_tokens:  result?.usage?.total_tokens      ?? 0,
+      content: [{ type: 'output_text', text: ai.text }],
     };
 
     return c.json({
       id:          responseId,
       object:      'response',
       created_at:  createdAt,
-      model:       MODEL,
+      model:       ai.model,
+      provider:    ai.provider,
       output:      [outputItem],
-      output_text: text,
+      output_text: ai.text,
       status:      'completed',
-      usage,
+      usage:       ai.usage,
     });
   } catch (e) {
     console.error('[AI /api/ai] run error:', e.message);
@@ -1628,7 +1788,7 @@ app.post('/api/ai', async (c) => {
       id:         responseId,
       object:     'response',
       created_at: createdAt,
-      model:      MODEL,
+      model:      getConfiguredLlmModel(c.env),
       output:     [],
       status:     'failed',
       usage:      { input_tokens: 0, output_tokens: 0, total_tokens: 0 },
@@ -1666,8 +1826,8 @@ app.post('/api/ai-analysis', async (c) => {
     `- Net Profit %: ${opp.netPct || 0}%`,
   ].join('\n');
 
-  // Fallback if no AIWORKER binding
-  if (!c.env.AIWORKER) {
+  // Fallback if no Workers AI binding or gateway config
+  if (!c.env.AIWORKER && !resolveAiGatewayChatUrl(c.env)) {
     const fallback = opp.netPct > MIN_VIABLE_SPREAD_PCT
       ? `✅ Potential opportunity: net spread of ${opp.netPct}% is above threshold. Verify liquidity and fee structure before executing. Monitor for slippage — position size should remain small (≤$5 for initial trades).`
       : `⚠️ Low spread: net spread of ${opp.netPct}% may not cover execution costs after slippage. Consider waiting for a higher-quality opportunity.`;
@@ -1675,12 +1835,11 @@ app.post('/api/ai-analysis', async (c) => {
   }
 
   try {
-    const result = await c.env.AIWORKER.run('@cf/meta/llama-3.1-8b-instruct', {
+    const ai = await runConfiguredLlm(c.env, {
       messages: [{ role: 'user', content: prompt }],
       max_tokens: 256,
     });
-    const analysis = result?.response ?? result?.text ?? JSON.stringify(result);
-    return c.json({ analysis, provider: 'workers-ai' });
+    return c.json({ analysis: ai.text, provider: ai.provider, model: ai.model });
   } catch (e) {
     console.error('[AI /api/ai-analysis] error:', e.message);
     return c.json({ error: e.message }, 500);

@@ -1,5 +1,7 @@
 // nexus/src/prices.js — Unified price fetching layer
 
+import { BITGET_SPOT_SYMBOLS_FALLBACK } from './data/bitget-symbols-fallback.js';
+
 // ── Minimal BigInt unit helpers (replaces ethers.parseUnits / formatUnits) ────
 function parseUnits(value, decimals) {
   // Use string-based multiplication to avoid floating-point precision loss
@@ -12,6 +14,213 @@ function formatUnits(value, decimals) {
 
 const FETCH_CF = { cf: { cacheTtl: 2, cacheEverything: true } };
 const PRICE_FETCH_TIMEOUT_MS = 2500;
+const SYMBOL_DISCOVERY_TIMEOUT_MS = 5000;
+
+const DEFAULT_SCAN_SYMBOLS = [
+  'BTCUSDT', 'ETHUSDT', 'SOLUSDT', 'XRPUSDT', 'DOGEUSDT',
+  'BNBUSDT', 'AVAXUSDT', 'MATICUSDT', 'LINKUSDT', 'UNIUSDT',
+  'ADAUSDT', 'DOTUSDT', 'LTCUSDT', 'TRXUSDT', 'NEARUSDT'
+];
+
+function uniqSortedSymbols(values) {
+  return [...new Set(values.filter(Boolean))].sort((a, b) => a.localeCompare(b));
+}
+
+function isLikelyTradeableUsdtSymbol(value) {
+  if (typeof value !== 'string') return false;
+  if (!value.endsWith('USDT')) return false;
+  const base = value.slice(0, -4);
+  if (!base) return false;
+  return /^[A-Z0-9]{2,15}$/.test(base);
+}
+
+function toUsdtSymbolFromToken(raw) {
+  if (!raw || typeof raw !== 'string') return null;
+  const symbol = raw.toUpperCase().replace(/[^A-Z0-9]/g, '');
+  if (!symbol || symbol.length < 2 || symbol.length > 15) return null;
+  if (symbol === 'USDT') return null;
+  return `${symbol}USDT`;
+}
+
+async function fetchJsonWithTimeout(url, options = {}, timeoutMs = SYMBOL_DISCOVERY_TIMEOUT_MS) {
+  const timeoutPromise = new Promise((_, reject) => {
+    setTimeout(() => reject(new Error('symbol-discovery-timeout')), timeoutMs);
+  });
+  const resp = await Promise.race([fetch(url, options), timeoutPromise]);
+  if (!resp.ok) {
+    await resp.body?.cancel();
+    throw new Error(`HTTP ${resp.status}`);
+  }
+  return resp.json();
+}
+
+/**
+ * Discover all currently tradeable MEXC spot USDT pairs.
+ */
+export async function discoverMEXCSpotSymbols() {
+  try {
+    const data = await fetchJsonWithTimeout('https://api.mexc.com/api/v3/exchangeInfo', FETCH_CF);
+    const symbols = (data?.symbols || [])
+      .filter((s) => {
+        const quote = String(s?.quoteAsset || '').toUpperCase();
+        const status = String(s?.status || '').toUpperCase();
+        return quote === 'USDT' && (status === 'TRADING' || status === '1' || status === 'ENABLED');
+      })
+      .map((s) => String(s?.symbol || '').toUpperCase())
+      .filter(isLikelyTradeableUsdtSymbol);
+    return uniqSortedSymbols(symbols);
+  } catch (_) {
+    return [];
+  }
+}
+
+/**
+ * Discover all currently tradeable Binance spot USDT pairs.
+ */
+export async function discoverBinanceSpotSymbols() {
+  try {
+    const data = await fetchJsonWithTimeout('https://api.binance.com/api/v3/exchangeInfo', FETCH_CF);
+    const symbols = (data?.symbols || [])
+      .filter((s) => {
+        const quote = String(s?.quoteAsset || '').toUpperCase();
+        const status = String(s?.status || '').toUpperCase();
+        return quote === 'USDT' && status === 'TRADING';
+      })
+      .map((s) => String(s?.symbol || '').toUpperCase())
+      .filter(isLikelyTradeableUsdtSymbol);
+    return uniqSortedSymbols(symbols);
+  } catch (_) {
+    return [];
+  }
+}
+
+/**
+ * Discover all currently tradeable Bitget spot USDT pairs.
+ */
+export async function discoverBitgetSpotSymbols() {
+  const bitgetRequestOptions = {
+    ...FETCH_CF,
+    headers: {
+      Accept: 'application/json',
+      'Accept-Language': 'en-US,en;q=0.9',
+      Referer: 'https://www.bitget.com/',
+    },
+  };
+
+  const parseV2 = (rows) => (rows || [])
+    .filter((s) => {
+      const symbol = String(s?.symbol || '').toUpperCase();
+      const quote = String(s?.quoteCoin || '').toUpperCase();
+      const status = String(s?.status || '').toLowerCase();
+      const enabled = String(s?.enableStatus || '').toLowerCase();
+      const listed = status.includes('online') || status.includes('normal') || status.includes('trading') || enabled.includes('online');
+      return (quote === 'USDT' || symbol.endsWith('USDT')) && listed;
+    })
+    .map((s) => String(s?.symbol || '').toUpperCase())
+    .filter(isLikelyTradeableUsdtSymbol);
+
+  const parseV1 = (rows) => (rows || [])
+    .filter((s) => {
+      const symbol = String(s?.symbol || '').toUpperCase();
+      const quote = String(s?.quoteCoin || '').toUpperCase();
+      const status = String(s?.status || '').toLowerCase();
+      const listed = status.includes('online') || status.includes('normal') || status.includes('trading');
+      return (quote === 'USDT' || symbol.endsWith('USDT')) && listed;
+    })
+    .map((s) => String(s?.symbol || '').toUpperCase())
+    .filter(isLikelyTradeableUsdtSymbol);
+
+  const endpoints = [
+    { url: 'https://api.bitget.com/api/v2/spot/public/symbols', parser: (d) => parseV2(d?.data) },
+    { url: 'https://capi.bitget.com/api/v2/spot/public/symbols', parser: (d) => parseV2(d?.data) },
+    { url: 'https://api.bitget.com/api/spot/v1/public/products', parser: (d) => parseV1(d?.data) },
+    { url: 'https://capi.bitget.com/api/spot/v1/public/products', parser: (d) => parseV1(d?.data) },
+  ];
+
+  for (const endpoint of endpoints) {
+    try {
+      const data = await fetchJsonWithTimeout(endpoint.url, bitgetRequestOptions);
+      const symbols = endpoint.parser(data);
+      if (symbols.length > 0) return uniqSortedSymbols(symbols);
+    } catch (_) {
+      // Continue to fallback endpoint.
+    }
+  }
+
+  return BITGET_SPOT_SYMBOLS_FALLBACK;
+}
+
+/**
+ * Discover broad MetaMask-readable token symbols from a public Ethereum token list.
+ * Returns symbols normalized to *USDT form* so they can be compared with CEX pairs.
+ */
+export async function discoverMetaMaskReadableSymbols(limit = 5000) {
+  try {
+    const data = await fetchJsonWithTimeout('https://tokens.coingecko.com/uniswap/all.json', FETCH_CF);
+    const symbols = (data?.tokens || [])
+      .map((t) => toUsdtSymbolFromToken(t?.symbol))
+      .filter(isLikelyTradeableUsdtSymbol);
+    return uniqSortedSymbols(symbols).slice(0, Math.max(1, limit));
+  } catch (_) {
+    return [];
+  }
+}
+
+/**
+ * Discover symbol catalogs per venue and aggregate union/intersection sets.
+ */
+export async function discoverSymbolCatalog(options = {}) {
+  const metaMaskLimit = Number.isFinite(options.metaMaskLimit) ? options.metaMaskLimit : 5000;
+  const [mexc, binance, bitget, metamask] = await Promise.all([
+    discoverMEXCSpotSymbols(),
+    discoverBinanceSpotSymbols(),
+    discoverBitgetSpotSymbols(),
+    discoverMetaMaskReadableSymbols(metaMaskLimit),
+  ]);
+
+  const cexUnion = uniqSortedSymbols([...mexc, ...binance, ...bitget]);
+  const cexIntersection = mexc.filter((s) => binance.includes(s) && bitget.includes(s));
+  const walletReadableCex = cexUnion.filter((s) => metamask.includes(s));
+
+  return {
+    sources: {
+      mexc,
+      binance,
+      bitget,
+      metamask,
+    },
+    aggregate: {
+      cexUnion,
+      cexIntersection,
+      walletReadableCex,
+    },
+  };
+}
+
+/**
+ * Resolves symbols used by scan cycles when no static supported_symbols are set.
+ * Uses CEX intersection first for reliability, then broadens to CEX union.
+ */
+export async function resolveDynamicScanSymbols(state = {}) {
+  const maxSymbols = Math.max(15, Math.min(500, Number(state.max_dynamic_symbols || 150)));
+  const catalog = await discoverSymbolCatalog({
+    metaMaskLimit: Number(state.max_metamask_symbols || 5000),
+  });
+
+  const preferred = catalog.aggregate.cexIntersection.length > 0
+    ? catalog.aggregate.cexIntersection
+    : catalog.aggregate.cexUnion;
+
+  if (!preferred.length) return DEFAULT_SCAN_SYMBOLS;
+
+  const priority = new Set(DEFAULT_SCAN_SYMBOLS);
+  const prioritized = [
+    ...preferred.filter((s) => priority.has(s)),
+    ...preferred.filter((s) => !priority.has(s)),
+  ];
+
+  return prioritized.slice(0, maxSymbols);
+}
 
 // ── Retry / rate-limit helper ─────────────────────────────────────────────────
 
