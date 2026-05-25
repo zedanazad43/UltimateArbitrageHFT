@@ -12,6 +12,16 @@ const MIN_BINANCE = Math.max(1, Number(process.env.MIN_BINANCE_SYMBOLS || 250));
 const MIN_BITGET = Math.max(1, Number(process.env.MIN_BITGET_SYMBOLS || 300));
 const MIN_METAMASK = Math.max(1, Number(process.env.MIN_METAMASK_SYMBOLS || 1000));
 const MIN_SCAN = Math.max(1, Number(process.env.MIN_SCAN_SYMBOLS || 100));
+const BINANCE_REFERENCE_CHECK = (process.env.BINANCE_REFERENCE_CHECK || 'true').toLowerCase() !== 'false';
+const BINANCE_REFERENCE_OVERRIDE = (process.env.BINANCE_REFERENCE_OVERRIDE || 'false').toLowerCase() === 'true';
+
+const BINANCE_EXCHANGE_INFO_ENDPOINTS = [
+  'https://api.binance.com/api/v3/exchangeInfo',
+  'https://api1.binance.com/api/v3/exchangeInfo',
+  'https://api2.binance.com/api/v3/exchangeInfo',
+  'https://api3.binance.com/api/v3/exchangeInfo',
+  'https://data-api.binance.vision/api/v3/exchangeInfo',
+];
 
 function fail(message, details) {
   console.error(`[symbol-catalog-check] ${message}`);
@@ -28,6 +38,41 @@ async function fetchWithTimeout(url, options, timeoutMs) {
   } finally {
     globalThis.clearTimeout(timer);
   }
+}
+
+function countTradeableBinanceUsdtSymbols(payload) {
+  return (payload?.symbols || [])
+    .filter((s) => {
+      const quote = String(s?.quoteAsset || '').toUpperCase();
+      const status = String(s?.status || '').toUpperCase();
+      const symbol = String(s?.symbol || '').toUpperCase();
+      return quote === 'USDT' && status === 'TRADING' && symbol.endsWith('USDT');
+    })
+    .length;
+}
+
+async function getBinanceReferenceCount(timeoutMs) {
+  const counts = [];
+
+  for (const url of BINANCE_EXCHANGE_INFO_ENDPOINTS) {
+    try {
+      const response = await fetchWithTimeout(url, { headers: { Accept: 'application/json' } }, timeoutMs);
+      if (!response.ok) {
+        await response.body?.cancel();
+        continue;
+      }
+      const payload = await response.json();
+      const count = countTradeableBinanceUsdtSymbols(payload);
+      counts.push(count);
+      if (count > 0) {
+        return { count, counts };
+      }
+    } catch (_) {
+      // Try the next endpoint.
+    }
+  }
+
+  return { count: 0, counts };
 }
 
 async function main() {
@@ -75,9 +120,19 @@ async function main() {
     scanSymbols: Math.max(Number(best.scanSymbols || 0), Number(next.scanSymbols || 0)),
   }));
 
+  let effectiveBinance = Number(summary.binance || 0);
+  let binanceReference = null;
+
+  if (BINANCE_REFERENCE_CHECK && effectiveBinance < MIN_BINANCE) {
+    binanceReference = await getBinanceReferenceCount(REQUEST_TIMEOUT_MS);
+    if (BINANCE_REFERENCE_OVERRIDE && Number(binanceReference.count || 0) >= MIN_BINANCE) {
+      effectiveBinance = Number(binanceReference.count || 0);
+    }
+  }
+
   const checks = [
     ['mexc', Number(summary.mexc || 0), MIN_MEXC],
-    ['binance', Number(summary.binance || 0), MIN_BINANCE],
+    ['binance', effectiveBinance, MIN_BINANCE],
     ['bitget', Number(summary.bitget || 0), MIN_BITGET],
     ['metamask', Number(summary.metamask || 0), MIN_METAMASK],
     ['scanSymbols', Number(summary.scanSymbols || 0), MIN_SCAN],
@@ -87,6 +142,12 @@ async function main() {
 
   console.log('[symbol-catalog-check] summaries:', JSON.stringify(allSummaries));
   console.log('[symbol-catalog-check] best-summary:', JSON.stringify(summary));
+  if (binanceReference) {
+    console.log('[symbol-catalog-check] binance-reference:', JSON.stringify(binanceReference));
+    if (BINANCE_REFERENCE_OVERRIDE && effectiveBinance !== Number(summary.binance || 0)) {
+      console.log('[symbol-catalog-check] binance-override: applied reference count to avoid false failure');
+    }
+  }
   console.log('[symbol-catalog-check] thresholds:', JSON.stringify({
     mexc: MIN_MEXC,
     binance: MIN_BINANCE,

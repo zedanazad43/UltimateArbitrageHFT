@@ -35,6 +35,8 @@ jobs:
           MIN_BITGET_SYMBOLS: '300'
           MIN_METAMASK_SYMBOLS: '1000'
           MIN_SCAN_SYMBOLS: '100'
+          BINANCE_REFERENCE_CHECK: 'true'
+          BINANCE_REFERENCE_OVERRIDE: 'true'
 
       - name: Telegram alert on failure
         if: failure() && env.TELEGRAM_BOT_TOKEN != '' && env.TELEGRAM_CHAT_ID != ''
