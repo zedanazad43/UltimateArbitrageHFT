@@ -38,6 +38,15 @@ describe('API auth hardening', () => {
     assert.equal(res.status, 200);
   });
 
+  test('allows /api/status with valid workflow token header', async () => {
+    const env = { WORKFLOW_ADMIN_TOKEN: 'workflow-token', BOT_STATE: createKvMock() };
+    const req = new globalThis.Request('https://example.com/api/status', {
+      headers: { 'x-admin-token': 'workflow-token' }
+    });
+    const res = await worker.fetch(req, env, {});
+    assert.equal(res.status, 200);
+  });
+
   test('blocks /api/alerts/test without admin token', async () => {
     const env = { ADMIN_TOKEN: 'secret-token' };
     const req = new globalThis.Request('https://example.com/api/alerts/test', {

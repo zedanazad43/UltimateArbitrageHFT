@@ -41,7 +41,7 @@ jobs:
         id: smoke
         continue-on-error: true
         env:
-          ADMIN_TOKEN_SECRET: ${{ secrets.ADMIN_TOKEN }}
+          WORKFLOW_ADMIN_TOKEN_SECRET: ${{ secrets.WORKFLOW_ADMIN_TOKEN }}
           SIMULATE_FAILURE: ${{ inputs.simulate_failure || 'false' }}
           BASE_URL: ${{ inputs.base_url || 'https://ultimatearbitragehft.zedanazad43.workers.dev' }}
           EVENT_NAME: ${{ github.event_name }}
@@ -53,13 +53,13 @@ jobs:
             SIMULATE_FAILURE="false"
           fi
 
-          token="$ADMIN_TOKEN_SECRET"
+          token="$WORKFLOW_ADMIN_TOKEN_SECRET"
           if [ "$SIMULATE_FAILURE" = "true" ]; then
             token="invalid-${GITHUB_RUN_ID:-0}-${GITHUB_RUN_ATTEMPT:-0}"
             echo "Simulating failure with invalid admin token"
           fi
 
-          ADMIN_TOKEN="$token" ./scripts/verify-production-endpoints.sh "$BASE_URL"
+          WORKFLOW_ADMIN_TOKEN="$token" ./scripts/verify-production-endpoints.sh "$BASE_URL"
 
       - name: Telegram alert when smoke test fails
         if: steps.smoke.outcome == 'failure'

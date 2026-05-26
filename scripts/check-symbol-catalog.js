@@ -2,7 +2,7 @@
 
 const BASE_URL = (process.env.SYMBOL_CATALOG_URL || 'https://ultimatearbitragehft.zedanazad43.workers.dev')
   .replace(/\/+$/, '');
-const ADMIN_TOKEN = process.env.ADMIN_TOKEN || '';
+const ADMIN_TOKEN = process.env.WORKFLOW_ADMIN_TOKEN || process.env.ADMIN_TOKEN || '';
 const REQUEST_TIMEOUT_MS = Math.max(3000, Number(process.env.SYMBOL_CHECK_TIMEOUT_MS || 15000));
 const CHECK_ATTEMPTS = Math.max(1, Number(process.env.SYMBOL_CHECK_ATTEMPTS || 3));
 const RETRY_DELAY_MS = Math.max(250, Number(process.env.SYMBOL_CHECK_RETRY_DELAY_MS || 2000));

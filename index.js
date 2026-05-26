@@ -61,6 +61,8 @@ const DEFAULT_STATE = {
   paper_trading: false,
   multi_strategy_live: true,
   max_live_trades_per_scan: 5,
+  daily_volume_usd: 0,
+  daily_limit_usd: 500,
   rebalance_policy: {
     enabled: false,
     targetBufferPct: 0.10,
@@ -78,7 +80,7 @@ const DEFAULT_STATE = {
   daily_pnl: 0, daily_trades: 0,
   total_pnl: 0, total_trades: 0,
   initial_capital: 1000,
-  max_daily_loss_usd: 100,
+  max_daily_loss_usd: 25,
   min_seconds_between_trades: 3,
   max_per_trade_loss_pct: 0.02,
   max_spread_pct: 5.0,
@@ -232,12 +234,18 @@ function constantTimeEquals(a, b) {
 //   2. nexus_session HttpOnly cookie  — for browser sessions after /login.
 function isAuthorized(env, c) {
   const token = env.ADMIN_TOKEN;
+  const workflowToken = env.WORKFLOW_ADMIN_TOKEN;
   // Open setup mode: if ADMIN_TOKEN is not configured yet, allow access so
   // the dashboard can be fully wired during initial bootstrap.
-  if (!token) return true;
-  if (constantTimeEquals(c.req.header('x-admin-token') || '', token)) return true;
+  if (!token && !workflowToken) return true;
+
+  const headerToken = c.req.header('x-admin-token') || c.req.header('x-workflow-token') || '';
+  if ((token && constantTimeEquals(headerToken, token)) || (workflowToken && constantTimeEquals(headerToken, workflowToken))) {
+    return true;
+  }
+
   const cookie = getCookieValue(c, 'nexus_session');
-  return constantTimeEquals(cookie || '', token);
+  return !!token && constantTimeEquals(cookie || '', token);
 }
 
 // Returns a descriptive 401 response that distinguishes "secret not configured" from
@@ -671,6 +679,9 @@ app.post('/mode/live', async (c) => {
   if (limited) return limited;
   if (!isAuthorized(c.env, c)) return authDenied(c.env, c);
   const state = await getState(c.env);
+  if (!Number.isFinite(state.daily_limit_usd) || state.daily_limit_usd <= 0) {
+    return c.text('❌ يجب ضبط daily_limit_usd قبل تفعيل Live', 400);
+  }
   state.paper_trading = false;
   await saveState(c.env, state);
   await logAdminEvent(c.env, 'mode:live', c.req.raw);
@@ -1511,6 +1522,7 @@ app.post('/reset-daily', async (c) => {
   const state = await getState(c.env);
   state.daily_pnl    = 0;
   state.daily_trades = 0;
+  state.daily_volume_usd = 0;
   state.last_daily_reset = Date.now();
   if (state.auto_stopped) {
     state.auto_stopped      = false;
@@ -2290,6 +2302,7 @@ async function runScheduledCycle(env) {
 
     state.daily_pnl = 0;
     state.daily_trades = 0;
+    state.daily_volume_usd = 0;
     state.last_daily_reset = now;
     if (state.auto_stopped) {
       state.auto_stopped = false;
@@ -2304,7 +2317,7 @@ async function runScheduledCycle(env) {
     return null;
   }
 
-  const maxDailyLoss = state.max_daily_loss_usd || 25;
+  const maxDailyLoss = state.max_daily_loss_usd ?? 25;
   if (state.daily_pnl <= -maxDailyLoss) {
     state.auto_stopped = true;
     state.auto_stop_reason = `تجاوز حد الخسارة اليومية $${maxDailyLoss}`;
