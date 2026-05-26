@@ -2,7 +2,7 @@
 set -euo pipefail
 
 BASE_URL="${1:-https://ultimatearbitragehft.zedanazad43.workers.dev}"
-ADMIN_TOKEN_VALUE="${ADMIN_TOKEN:-}"
+ADMIN_TOKEN_VALUE="${WORKFLOW_ADMIN_TOKEN:-${ADMIN_TOKEN:-}}"
 TMP_ROOT="${TMPDIR:-/tmp}"
 
 health_out="${TMP_ROOT}/prod_health.json"
@@ -21,8 +21,8 @@ bitmart_stats_out="${TMP_ROOT}/prod_bitmart_stats.json"
 control_panel_out="${TMP_ROOT}/prod_control_panel.html"
 
 if [[ -z "${ADMIN_TOKEN_VALUE}" ]]; then
-  echo "ERROR: ADMIN_TOKEN is required."
-  echo "Usage: ADMIN_TOKEN='<token>' $0 [base_url]"
+  echo "ERROR: WORKFLOW_ADMIN_TOKEN or ADMIN_TOKEN is required."
+  echo "Usage: WORKFLOW_ADMIN_TOKEN='<token>' $0 [base_url]"
   exit 1
 fi
 
