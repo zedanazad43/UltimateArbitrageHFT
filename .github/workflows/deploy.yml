@@ -90,7 +90,7 @@ jobs:
             "HTX_API_KEY", "HTX_API_SECRET",
             "ZEROX_API_KEY", "ALCHEMY_API_KEY",
             "TELEGRAM_BOT_TOKEN", "TELEGRAM_CHAT_ID",
-            "ADMIN_TOKEN",
+            "ADMIN_TOKEN", "WORKFLOW_ADMIN_TOKEN",
             "GITHUB_TOKEN",
             "HFT_ENGINE_SECRET",
             "TEMPORAL_API_KEY",
@@ -128,6 +128,7 @@ jobs:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
           ADMIN_TOKEN: ${{ secrets.ADMIN_TOKEN }}
+          WORKFLOW_ADMIN_TOKEN: ${{ secrets.WORKFLOW_ADMIN_TOKEN }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TEMPORAL_API_KEY: ${{ secrets.TEMPORAL_API_KEY }}
 
@@ -135,9 +136,9 @@ jobs:
         id: smoke_test
         run: |
           chmod +x ./scripts/verify-production-endpoints.sh
-          ADMIN_TOKEN="${ADMIN_TOKEN}" ./scripts/verify-production-endpoints.sh
+          WORKFLOW_ADMIN_TOKEN="${WORKFLOW_ADMIN_TOKEN}" ./scripts/verify-production-endpoints.sh
         env:
-          ADMIN_TOKEN: ${{ secrets.ADMIN_TOKEN }}
+          WORKFLOW_ADMIN_TOKEN: ${{ secrets.WORKFLOW_ADMIN_TOKEN }}
 
       - name: Telegram alert on smoke test failure
         if: ${{ failure() && steps.smoke_test.outcome == 'failure' }}
