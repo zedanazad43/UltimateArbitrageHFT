@@ -348,7 +348,19 @@ jobs:
       - name: Post-deploy endpoint smoke test
         id: smoke_test
         run: |
-          node ./scripts/verify-production-endpoints.js
+          for attempt in 1 2 3 4; do
+            echo "--- Smoke check attempt $attempt/4 ---"
+            if node ./scripts/verify-production-endpoints.js; then
+              echo "✅ Smoke check passed on attempt $attempt"
+              exit 0
+            fi
+            if [ $attempt -lt 4 ]; then
+              echo "⚠️ Smoke check failed, retrying in 15s..."
+              sleep 15
+            fi
+          done
+          echo "::error::Smoke check failed after 4 attempts."
+          exit 1
         env:
           WORKFLOW_ADMIN_TOKEN: ${{ secrets.WORKFLOW_ADMIN_TOKEN }}
           EXPECTED_WORKER_NAME: ultimatearbitragehft
