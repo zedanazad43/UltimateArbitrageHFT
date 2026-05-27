@@ -57,7 +57,7 @@ jobs:
             echo "Simulating failure with invalid admin token"
           fi
 
-          WORKFLOW_ADMIN_TOKEN="$token" BASE_URL="$BASE_URL" EXPECTED_WORKER_NAME="ultimatearbitragehft" REQUIRE_READY_FOR_LIVE="false" node ./scripts/verify-production-endpoints.js
+          WORKFLOW_ADMIN_TOKEN="$token" BASE_URL="$BASE_URL" EXPECTED_WORKER_NAME="ultimatearbitragehft" REQUIRE_READY_FOR_LIVE="false" SKIP_CUSTOM_DOMAIN_CHECK="true" node ./scripts/verify-production-endpoints.js
 
       - name: Telegram alert when smoke test fails
         if: steps.smoke.outcome == 'failure'

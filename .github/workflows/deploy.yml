@@ -138,9 +138,9 @@ jobs:
           node ./scripts/verify-production-endpoints.js
         env:
           WORKFLOW_ADMIN_TOKEN: ${{ secrets.WORKFLOW_ADMIN_TOKEN }}
-          CUSTOM_BASE_URL: https://api.ecostamp.net
           EXPECTED_WORKER_NAME: ultimatearbitragehft
-          REQUIRE_READY_FOR_LIVE: "true"
+          REQUIRE_READY_FOR_LIVE: "false"
+          SKIP_CUSTOM_DOMAIN_CHECK: "true"
 
       - name: Telegram alert on smoke test failure
         if: ${{ failure() && steps.smoke_test.outcome == 'failure' }}

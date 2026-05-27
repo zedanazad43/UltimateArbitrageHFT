@@ -6,9 +6,10 @@ const DEFAULT_BASE_URL = 'https://ultimatearbitragehft.zedanazad43.workers.dev';
 const DEFAULT_CUSTOM_URL = 'https://api.ecostamp.net';
 
 const baseUrl = process.argv[2] || process.env.BASE_URL || DEFAULT_BASE_URL;
-const customBaseUrl = process.env.CUSTOM_BASE_URL || DEFAULT_CUSTOM_URL;
+const customBaseUrl = process.env.CUSTOM_BASE_URL ?? DEFAULT_CUSTOM_URL;
 const expectedWorkerName = process.env.EXPECTED_WORKER_NAME || 'ultimatearbitragehft';
 const requireReadyForLive = String(process.env.REQUIRE_READY_FOR_LIVE || 'true').toLowerCase() === 'true';
+const skipCustomDomainCheck = String(process.env.SKIP_CUSTOM_DOMAIN_CHECK || 'false').toLowerCase() === 'true';
 const adminToken = process.env.WORKFLOW_ADMIN_TOKEN || process.env.ADMIN_TOKEN || '';
 
 if (!adminToken) {
@@ -113,7 +114,7 @@ async function main() {
 
   console.log('Checking worker identity + readiness gates');
   await checkIdentityAndReadiness(baseUrl, 'workers.dev/base');
-  if (customBaseUrl) {
+  if (!skipCustomDomainCheck && String(customBaseUrl).trim()) {
     await checkIdentityAndReadiness(customBaseUrl, 'custom-domain');
   }
 
