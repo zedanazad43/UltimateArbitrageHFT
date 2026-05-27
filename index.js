@@ -21,7 +21,8 @@ import { getAutoExecutor } from './src/strategies/auto-executor.js';
 import { renderControlPanel } from './src/control-panel.js';
 import { loadBotMemory, saveBotMemory, recordEvaluation, summarizeMemory } from './src/bot-memory.js';
 import { normalizeRebalancePolicy, computeRebalancePlan, buildRebalanceWeights } from './src/rebalancer.js';
-import { discoverSymbolCatalog, resolveDynamicScanSymbols } from './src/prices.js';
+import { discoverSymbolCatalog, resolveDynamicScanSymbols, getAllSpotPrices, isLikelyTradeableSymbol } from './src/prices.js';
+import { SUPPORTED_BROKERS, hasBrokerCredentials, getMissingBrokerCredentialKeys, getBrokerAccountSummary, placeBrokerMarketOrder } from './src/brokerage.js';
 import {
   startWorkflow,
   stopWorkflow,
@@ -59,6 +60,11 @@ async function sendTelegramAlert(env, message) {
 const DEFAULT_STATE = {
   trading_enabled: true,
   paper_trading: false,
+  supported_symbols: [],
+  scan_symbol_mode: 'cex_union',
+  scan_quote_assets: ['USDT', 'USDC', 'FDUSD', 'BUSD', 'DAI', 'TUSD', 'BTC', 'ETH'],
+  max_dynamic_symbols: 500,
+  max_metamask_symbols: 10000,
   multi_strategy_live: true,
   max_live_trades_per_scan: 5,
   daily_volume_usd: 0,
@@ -162,6 +168,21 @@ async function probeExecutionExchanges(env, exchanges = ACTIVE_EXECUTION_EXCHANG
   let configuredCount = 0;
   let authValidatedCount = 0;
   let authFailureCount = 0;
+  let readinessConfiguredCount = 0;
+  let readinessAuthValidatedCount = 0;
+
+  const isBitgetCloudflareBlock = (exchange, message) => {
+    if (exchange !== 'bitget') return false;
+    const msg = String(message || '').toLowerCase();
+    return (
+      msg.includes('cloudflare') ||
+      msg.includes('<!doctype') ||
+      msg.includes('not valid json') ||
+      msg.includes('unexpected token') ||
+      msg.includes('"block"') ||
+      msg.includes('access denied')
+    );
+  };
 
   for (const exchange of exchanges) {
     const configured = hasExchangeCredentials(env, exchange);
@@ -175,9 +196,14 @@ async function probeExecutionExchanges(env, exchanges = ACTIVE_EXECUTION_EXCHANG
         await getExchangeBalance(env, exchange, 'USDT');
         authValidated = true;
         authValidatedCount++;
+        readinessConfiguredCount++;
+        readinessAuthValidatedCount++;
       } catch (error) {
         authError = error.message;
-        authFailureCount++;
+        if (!isBitgetCloudflareBlock(exchange, authError)) {
+          authFailureCount++;
+          readinessConfiguredCount++;
+        }
       }
     }
 
@@ -186,6 +212,7 @@ async function probeExecutionExchanges(env, exchanges = ACTIVE_EXECUTION_EXCHANG
       missing,
       authValidated,
       authError,
+      readinessIgnored: configured && !authValidated && isBitgetCloudflareBlock(exchange, authError),
     };
   }
 
@@ -194,8 +221,11 @@ async function probeExecutionExchanges(env, exchanges = ACTIVE_EXECUTION_EXCHANG
     configuredCount,
     authValidatedCount,
     authFailureCount,
-    liveTradingCapable: authValidatedCount > 0,
-    allConfiguredExchangesHealthy: configuredCount > 0 && authFailureCount === 0 && authValidatedCount === configuredCount,
+    liveTradingCapable: readinessAuthValidatedCount > 0,
+    allConfiguredExchangesHealthy:
+      readinessConfiguredCount > 0 &&
+      authFailureCount === 0 &&
+      readinessAuthValidatedCount === readinessConfiguredCount,
   };
 }
 
@@ -583,7 +613,7 @@ app.get('/debug-futures', async (c) => {
     return Array.from(new Uint8Array(buf)).map(b=>b.toString(16).padStart(2,'0')).join('');
   }
 
-  // Test 1: contract.mexc.com with primary key (mx0vglBt)
+  // Test 1: contract.mexc.com with primary key.
   try {
     results.futuresBalance = await getMEXCFuturesBalance(c.env);
   } catch (e) {
@@ -591,8 +621,8 @@ app.get('/debug-futures', async (c) => {
   }
 
   // Test 2: optional secondary credentials from env (if provided)
-  const apiKey2 = c.env.MEXC_API_KEY_2;
-  const apiSec2 = c.env.MEXC_API_SECRET_2;
+  const apiKey2 = c.env.MEXC_API_KEY_2; // gitleaks:allow
+  const apiSec2 = c.env.MEXC_API_SECRET_2; // gitleaks:allow
   if (apiKey2 && apiSec2) {
     try {
       const ts2 = Date.now();
@@ -706,6 +736,39 @@ app.post('/config', async (c) => {
   if (num(body.max_spread_pct))               state.max_spread_pct               = body.max_spread_pct;
   if (num(body.win_rate))                     state.win_rate                     = body.win_rate;
   if (num(body.risk_reward_ratio))            state.risk_reward_ratio            = body.risk_reward_ratio;
+  if (Number.isFinite(body.max_dynamic_symbols)) {
+    state.max_dynamic_symbols = Math.max(15, Math.min(2000, Math.floor(body.max_dynamic_symbols)));
+  }
+  if (Number.isFinite(body.max_metamask_symbols)) {
+    state.max_metamask_symbols = Math.max(100, Math.min(20000, Math.floor(body.max_metamask_symbols)));
+  }
+  if (typeof body.scan_symbol_mode === 'string') {
+    const normalizedMode = body.scan_symbol_mode.toLowerCase();
+    const allowedModes = new Set(['cex_union', 'cex_intersection', 'wallet_readable']);
+    if (allowedModes.has(normalizedMode)) state.scan_symbol_mode = normalizedMode;
+  }
+  if (Array.isArray(body.scan_quote_assets) || typeof body.scan_quote_assets === 'string') {
+    const rawQuotes = Array.isArray(body.scan_quote_assets)
+      ? body.scan_quote_assets
+      : String(body.scan_quote_assets || '').split(',');
+    const quotes = [...new Set(rawQuotes
+      .map((v) => String(v || '').toUpperCase().replace(/[^A-Z0-9]/g, ''))
+      .filter((q) => q.length >= 3 && q.length <= 10)
+    )];
+    if (quotes.length > 0) state.scan_quote_assets = quotes;
+  }
+  if (typeof body.use_dynamic_symbols === 'boolean') {
+    if (body.use_dynamic_symbols) {
+      state.supported_symbols = [];
+    }
+  }
+  if (Array.isArray(body.supported_symbols)) {
+    const normalizedSymbols = [...new Set(body.supported_symbols
+      .map((v) => String(v || '').toUpperCase().replace(/[^A-Z0-9]/g, ''))
+      .filter((s) => isLikelyTradeableSymbol(s, state.scan_quote_assets || []))
+    )].slice(0, 2000);
+    state.supported_symbols = normalizedSymbols;
+  }
   if (num(body.position_size_min_usd))        state.position_size_min_usd        = Math.max(1, Math.min(500, body.position_size_min_usd));
   if (num(body.position_size_max_usd))        state.position_size_max_usd        = Math.max(1, Math.min(500, body.position_size_max_usd));
   if (state.position_size_min_usd > state.position_size_max_usd) {
@@ -1253,6 +1316,30 @@ app.get('/api/exchange/:exchange', async (c) => {
   }
 });
 
+// GET /api/market/price/:symbol — fetches all currently available spot quotes
+// for a symbol, including optional free providers (Alpha Vantage / Twelve Data).
+app.get('/api/market/price/:symbol', async (c) => {
+  if (!isAuthorized(c.env, c)) return authDenied(c.env, c, true);
+
+  const rawSymbol = String(c.req.param('symbol') || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+  if (!isLikelyTradeableSymbol(rawSymbol)) {
+    return c.json({ error: 'invalid market symbol. examples: BTCUSDT, ETHUSDC, ETHBTC' }, 400);
+  }
+
+  const quotes = await getAllSpotPrices(c.env, rawSymbol);
+  const best = quotes.length
+    ? quotes.reduce((prev, next) => (Number(next.price || 0) > Number(prev.price || 0) ? next : prev), quotes[0])
+    : null;
+
+  return c.json({
+    success: true,
+    symbol: rawSymbol,
+    quoteCount: quotes.length,
+    bestQuote: best,
+    quotes,
+  });
+});
+
 // ── API: Manual order placement on a specific exchange ────────────────────────
 // POST /api/exchange/:exchange/order — places a market order on the named
 // exchange.  Auth-protected.  Respects paper_trading mode.
@@ -1305,6 +1392,162 @@ app.post('/api/exchange/:exchange/order', async (c) => {
     return c.json({ success: true, paper: false, exchange, symbol, side: side.toUpperCase(), result });
   } catch (e) {
     return c.json({ success: false, error: e.message }, 502);
+  }
+});
+
+// GET /api/broker/:broker — returns broker account readiness and account summary.
+app.get('/api/broker/:broker', async (c) => {
+  if (!isAuthorized(c.env, c)) return authDenied(c.env, c, true);
+
+  const broker = String(c.req.param('broker') || '').toLowerCase();
+  if (!SUPPORTED_BROKERS.includes(broker)) {
+    return c.json({ error: `Unsupported broker: ${broker}` }, 404);
+  }
+
+  const configured = hasBrokerCredentials(c.env, broker);
+  if (!configured) {
+    return c.json({
+      success: true,
+      broker,
+      configured: false,
+      missing: getMissingBrokerCredentialKeys(c.env, broker),
+    });
+  }
+
+  try {
+    const account = await getBrokerAccountSummary(c.env, broker);
+    return c.json({ success: true, broker, configured: true, account });
+  } catch (e) {
+    return c.json({ success: false, broker, configured: true, error: e.message }, 502);
+  }
+});
+
+// GET /api/brokers — returns readiness summary for all broker adapters.
+app.get('/api/brokers', async (c) => {
+  if (!isAuthorized(c.env, c)) return authDenied(c.env, c, true);
+
+  const results = await Promise.all(
+    SUPPORTED_BROKERS.map(async (broker) => {
+      const configured = hasBrokerCredentials(c.env, broker);
+      if (!configured) {
+        return {
+          broker,
+          configured: false,
+          missing: getMissingBrokerCredentialKeys(c.env, broker),
+          account: null,
+        };
+      }
+
+      try {
+        const account = await getBrokerAccountSummary(c.env, broker);
+        return { broker, configured: true, missing: [], account };
+      } catch (e) {
+        return { broker, configured: true, missing: [], account: null, error: e.message };
+      }
+    })
+  );
+
+  return c.json({ success: true, brokers: results });
+});
+
+// GET /api/free-sources — returns status of free/open-source market integrations.
+app.get('/api/free-sources', async (c) => {
+  if (!isAuthorized(c.env, c)) return authDenied(c.env, c, true);
+
+  const sources = [
+    {
+      id: 'tradingview_widget',
+      name: 'TradingView Advanced Widget',
+      type: 'open-source-ui',
+      configured: true,
+      requiresApiKey: false,
+      note: 'Free embedded widget for visual market analysis',
+    },
+    {
+      id: 'lightweight_charts',
+      name: 'TradingView Lightweight Charts',
+      type: 'open-source-ui',
+      configured: true,
+      requiresApiKey: false,
+      note: 'MIT-licensed charting library rendered from bot price API',
+    },
+    {
+      id: 'alphavantage',
+      name: 'Alpha Vantage',
+      type: 'free-data-provider',
+      configured: !!c.env.ALPHA_VANTAGE_API_KEY,
+      requiresApiKey: true,
+      note: 'Optional free key for extra pricing fallback',
+      missing: c.env.ALPHA_VANTAGE_API_KEY ? [] : ['ALPHA_VANTAGE_API_KEY'],
+    },
+    {
+      id: 'twelve_data',
+      name: 'Twelve Data',
+      type: 'free-data-provider',
+      configured: !!c.env.TWELVE_DATA_API_KEY,
+      requiresApiKey: true,
+      note: 'Optional free key for extra pricing fallback',
+      missing: c.env.TWELVE_DATA_API_KEY ? [] : ['TWELVE_DATA_API_KEY'],
+    },
+    {
+      id: 'paper_broker',
+      name: 'Internal Paper Broker Adapter',
+      type: 'open-source-execution',
+      configured: true,
+      requiresApiKey: false,
+      note: 'Zero-cost simulated execution for backtesting and paper mode',
+    },
+  ];
+
+  return c.json({ success: true, sources });
+});
+
+// POST /api/broker/:broker/order — places a broker market order through unified adapter.
+// Body: { symbol, side, quantity, sizeUsd }
+app.post('/api/broker/:broker/order', async (c) => {
+  const limited = await checkRateLimit(c.env, c);
+  if (limited) return limited;
+  if (!isAuthorized(c.env, c)) return authDenied(c.env, c, true);
+
+  const broker = String(c.req.param('broker') || '').toLowerCase();
+  if (!SUPPORTED_BROKERS.includes(broker)) {
+    return c.json({ error: `Unsupported broker: ${broker}` }, 404);
+  }
+  if (!hasBrokerCredentials(c.env, broker)) {
+    return c.json({
+      error: `${broker} credentials are not configured`,
+      missing: getMissingBrokerCredentialKeys(c.env, broker),
+    }, 503);
+  }
+
+  let body;
+  try { body = await c.req.json(); } catch (_) { return c.json({ error: 'Invalid JSON body' }, 400); }
+
+  const { symbol, side, quantity, sizeUsd } = body || {};
+  if (!symbol || !side) {
+    return c.json({ error: 'Required fields: symbol, side (quantity/sizeUsd optional by broker rule)' }, 400);
+  }
+
+  const state = await getState(c.env);
+  if (state.paper_trading) {
+    return c.json({
+      success: true,
+      paper: true,
+      broker,
+      symbol,
+      side: String(side || '').toUpperCase(),
+      quantity,
+      sizeUsd,
+      note: 'Paper trading mode — broker order skipped',
+    });
+  }
+
+  try {
+    const result = await placeBrokerMarketOrder(c.env, broker, { symbol, side, quantity, sizeUsd });
+    await logAdminEvent(c.env, `broker-order:${broker}`, c.req.raw);
+    return c.json({ success: true, paper: false, broker, result });
+  } catch (e) {
+    return c.json({ success: false, broker, error: e.message }, 502);
   }
 });
 
@@ -1482,11 +1725,21 @@ app.get('/api/symbols/catalog', async (c) => {
   if (!isAuthorized(c.env, c)) return authDenied(c.env, c, true);
 
   const includeMetaMask = (c.req.query('includeMetaMask') || 'true').toLowerCase() !== 'false';
+  const quoteAssets = (c.req.query('quotes') || '').trim();
   const maxMetaMask = Math.max(100, Math.min(20000, parseInt(c.req.query('maxMetaMask') || '5000', 10)));
   const maxScan = Math.max(15, Math.min(500, parseInt(c.req.query('maxScan') || '150', 10)));
 
-  const catalog = await discoverSymbolCatalog({ metaMaskLimit: includeMetaMask ? maxMetaMask : 0 });
-  const scanSymbols = await resolveDynamicScanSymbols({ max_dynamic_symbols: maxScan, max_metamask_symbols: maxMetaMask });
+  const state = await getState(c.env);
+  const scanQuoteAssets = quoteAssets || state.scan_quote_assets;
+  const catalog = await discoverSymbolCatalog({
+    metaMaskLimit: includeMetaMask ? maxMetaMask : 0,
+    quoteAssets: scanQuoteAssets,
+  });
+  const scanSymbols = await resolveDynamicScanSymbols({
+    max_dynamic_symbols: maxScan,
+    max_metamask_symbols: maxMetaMask,
+    scan_quote_assets: scanQuoteAssets,
+  });
 
   const filteredSources = includeMetaMask
     ? catalog.sources
