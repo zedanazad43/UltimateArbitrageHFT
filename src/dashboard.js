@@ -1526,7 +1526,8 @@ ${autoStopBanner}
     if (_platformsState.inFlight && !opts.force) return;
     _platformsState.inFlight = true;
     try {
-      const res  = await callAdminApi('/api/platforms');
+      const cacheBuster = 't=' + Date.now();
+      const res  = await callAdminApi('/api/platforms?' + cacheBuster);
       const data = JSON.parse(res.text);
       if (!data || data.success !== true) {
         throw new Error('استجابة غير صالحة من /api/platforms');
