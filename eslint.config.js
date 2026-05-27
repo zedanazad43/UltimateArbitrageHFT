@@ -4,6 +4,7 @@ export default [
   {
     ignores: [
       'node_modules/**',
+      '.venv/**',
       '.wrangler/**',
       'public/**',
       'UltimateArbitrageHFT/**',

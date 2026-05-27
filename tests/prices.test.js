@@ -96,10 +96,10 @@ describe('symbol discovery', () => {
     };
 
     const [mexc, binance, bitget, metamask] = await Promise.all([
-      discoverMEXCSpotSymbols(),
-      discoverBinanceSpotSymbols(),
-      discoverBitgetSpotSymbols(),
-      discoverMetaMaskReadableSymbols(100),
+      discoverMEXCSpotSymbols({ quoteAssets: ['USDT'] }),
+      discoverBinanceSpotSymbols({ quoteAssets: ['USDT'] }),
+      discoverBitgetSpotSymbols({ quoteAssets: ['USDT'] }),
+      discoverMetaMaskReadableSymbols(100, ['USDT']),
     ]);
 
     assert.deepEqual(mexc, ['BTCUSDT', 'ETHUSDT']);
@@ -125,12 +125,17 @@ describe('symbol discovery', () => {
       return makeResponse({}, 404);
     };
 
-    const catalog = await discoverSymbolCatalog({ metaMaskLimit: 100 });
+    const catalog = await discoverSymbolCatalog({ metaMaskLimit: 100, quoteAssets: ['USDT'] });
     assert.deepEqual(catalog.aggregate.cexIntersection, ['BTCUSDT']);
     assert.ok(catalog.aggregate.cexUnion.includes('ETHUSDT'));
     assert.ok(catalog.aggregate.walletReadableCex.includes('XRPUSDT'));
 
-    const scanSymbols = await resolveDynamicScanSymbols({ max_dynamic_symbols: 2, max_metamask_symbols: 100 });
+    const scanSymbols = await resolveDynamicScanSymbols({
+      max_dynamic_symbols: 2,
+      max_metamask_symbols: 100,
+      scan_symbol_mode: 'cex_intersection',
+      scan_quote_assets: 'USDT',
+    });
     assert.equal(scanSymbols.length, 1);
     assert.equal(scanSymbols[0], 'BTCUSDT');
   });

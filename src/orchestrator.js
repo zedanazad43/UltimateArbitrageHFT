@@ -8,12 +8,45 @@ import { getAllSpotPrices, getMEXCPerpPrice, get0xPrice, resolveDynamicScanSymbo
 import { scanCEX }   from './strategies/cex.js';
 import { scanDEX }   from './strategies/dex.js';
 import { scanPerps } from './strategies/perps.js';
-import { logTrade, openPaperPosition, getOpenPaperPositions, closePaperPosition } from './db.js';
+import { logTrade, openPaperPosition, getOpenPaperPositions, closePaperPosition, logBotEvent } from './db.js';
 import { calculateAdaptiveLeverage, calculatePositionSize, MAX_POSITION_EQUITY_FRACTION } from './risk.js';
 import {
   placeMEXCFuturesOrder, hasSufficientUSDT,
   hasExchangeCredentials, getRequiredCredentialKeys, getExchangeBalance, placeExchangeMarketOrder
 } from './exchange.js';
+
+const QUOTE_ASSETS = ['USDT', 'USDC', 'FDUSD', 'BUSD', 'DAI', 'TUSD', 'BTC', 'ETH'];
+const STABLE_QUOTES = new Set(['USDT', 'USDC', 'FDUSD', 'BUSD', 'DAI', 'TUSD']);
+
+function splitSymbol(symbol) {
+  const normalized = String(symbol || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+  const sortedQuotes = [...QUOTE_ASSETS].sort((a, b) => b.length - a.length);
+  for (const quote of sortedQuotes) {
+    if (!normalized.endsWith(quote)) continue;
+    const base = normalized.slice(0, -quote.length);
+    if (!base || base.length < 2) continue;
+    return { symbol: normalized, base, quote };
+  }
+  return null;
+}
+
+async function getQuoteToUsdRate(env, quoteAsset, openCircuits = new Set()) {
+  const quote = String(quoteAsset || '').toUpperCase();
+  if (!quote || quote === 'USD') return 1;
+  if (STABLE_QUOTES.has(quote)) return 1;
+
+  const symbol = `${quote}USDT`;
+  try {
+    const prices = await getAllSpotPrices(env, symbol, openCircuits);
+    const best = prices.length
+      ? prices.reduce((a, b) => (Number(a.price || 0) > Number(b.price || 0) ? a : b), prices[0])
+      : null;
+    const px = Number(best?.price || 0);
+    return Number.isFinite(px) && px > 0 ? px : 0;
+  } catch (_) {
+    return 0;
+  }
+}
 
 const SUPPORTED_SYMBOLS = [
   'BTCUSDT', 'ETHUSDT', 'SOLUSDT', 'XRPUSDT', 'DOGEUSDT',
@@ -77,12 +110,19 @@ export async function getLiveExecutionCapUsd(env, opp) {
     return safeBalance('mexc', 'USDT');
   }
 
-  const buyBalance = await safeBalance(opp.buyExchange, 'USDT');
-  const baseAsset = opp.symbol.replace(/USDT$/, '');
-  const sellBalance = await safeBalance(opp.sellExchange, baseAsset);
-  const sellValueUsd = sellBalance * Math.max(0, Number(opp.buyPrice || 0));
+  const parsed = splitSymbol(opp.symbol);
+  if (!parsed) return 0;
 
-  return Math.max(0, Math.min(buyBalance, sellValueUsd));
+  const quoteToUsd = await getQuoteToUsdRate(env, parsed.quote);
+  if (!Number.isFinite(quoteToUsd) || quoteToUsd <= 0) return 0;
+
+  const buyBalance = await safeBalance(opp.buyExchange, parsed.quote);
+  const sellBalance = await safeBalance(opp.sellExchange, parsed.base);
+  const sellValueQuote = sellBalance * Math.max(0, Number(opp.buyPrice || 0));
+  const buyValueUsd = buyBalance * quoteToUsd;
+  const sellValueUsd = sellValueQuote * quoteToUsd;
+
+  return Math.max(0, Math.min(buyValueUsd, sellValueUsd));
 }
 
 function sleep(ms) {
@@ -198,6 +238,12 @@ async function getCircuitBreaker(env) {
 async function saveCircuitBreaker(env, cb) {
   try { await env.BOT_STATE.put(CB_KEY, JSON.stringify(cb), { expirationTtl: 600 }); }
   catch (_) {}
+}
+
+async function saveState(env, state) {
+  try {
+    await env.BOT_STATE.put('trading_state', JSON.stringify(state));
+  } catch (_) {}
 }
 
 function isCircuitOpen(cb, exchange) {
@@ -412,6 +458,17 @@ export async function runScan(env, state, sendAlert) {
   const requestedSizeUsd = Math.min(baseSize * leverage, equity * MAX_POSITION_EQUITY_FRACTION);
   const liveBalanceCapUsd = paperMode ? Number.POSITIVE_INFINITY : await getLiveExecutionCapUsd(env, best);
   const sizeUsd = Math.min(requestedSizeUsd, liveBalanceCapUsd);
+  const dailyLimitUsd = Number.isFinite(state.daily_limit_usd) ? state.daily_limit_usd : 500;
+  const dailyVolumeUsd = Number(state.daily_volume_usd || 0);
+
+  if (dailyLimitUsd > 0 && dailyVolumeUsd + sizeUsd > dailyLimitUsd) {
+    state.auto_stopped = true;
+    state.auto_stop_reason = `تجاوز حد الحجم اليومي $${dailyLimitUsd}`;
+    await saveState(env, state);
+    await logBotEvent(env, 'auto_stop', { reason: state.auto_stop_reason });
+    await sendAlert(env, `🛑 *إيقاف تلقائي*\n${state.auto_stop_reason}`);
+    return null;
+  }
 
   if (!Number.isFinite(sizeUsd) || sizeUsd <= 0) {
     console.log(`🔍 Nexus: live size capped to zero by available balances for ${best.symbol}`);
@@ -430,6 +487,7 @@ export async function runScan(env, state, sendAlert) {
     // Open a virtual position that will be settled at current price on the next cycle.
     // We do NOT update state.total_pnl or logTrade here; settlement happens later.
     await openPaperPosition(env, best, sizeUsd);
+    state.daily_volume_usd = (state.daily_volume_usd || 0) + sizeUsd;
     state.last_trade_timestamp = Date.now(); // Still update throttle
 
     await sendAlert(
@@ -448,6 +506,7 @@ export async function runScan(env, state, sendAlert) {
       state.daily_pnl          = (state.daily_pnl   || 0) + tradePnl;
       state.total_pnl          = (state.total_pnl   || 0) + tradePnl;
       state.daily_trades       = (state.daily_trades || 0) + 1;
+      state.daily_volume_usd   = (state.daily_volume_usd || 0) + sizeUsd;
       state.total_trades       = (state.total_trades || 0) + 1;
       state.last_trade_timestamp = Date.now();
 
@@ -495,10 +554,16 @@ async function executeTrade(env, opp, sizeUsd, leverage) {
     );
   }
 
-  const amount = (sizeUsd / opp.buyPrice).toFixed(6);
+  const parsed = splitSymbol(opp.symbol);
+  if (!parsed) {
+    throw new Error(`Unsupported symbol format: ${opp.symbol}`);
+  }
 
   // ── Perpetuals ────────────────────────────────────────────────────────────
   if (opp.isPerp) {
+    if (!String(opp.symbol || '').toUpperCase().endsWith('USDT')) {
+      throw new Error(`Perps execution currently requires USDT-margined symbols. Received: ${opp.symbol}`);
+    }
     if (!hasExchangeCredentials(env, 'mexc')) {
       throw new Error('MEXC_API_KEY / MEXC_API_SECRET required for perps trading');
     }
@@ -506,6 +571,7 @@ async function executeTrade(env, opp, sizeUsd, leverage) {
     if (!sufficient) {
       throw new Error(`Insufficient USDT balance for $${sizeUsd.toFixed(2)} trade`);
     }
+    const amount = (sizeUsd / opp.buyPrice).toFixed(6);
     const side = opp.sellExchange === 'mexc_perp' ? 'SHORT' : 'LONG';
     await placeMEXCFuturesOrder(env, opp.symbol, side, amount, leverage);
     return;
@@ -529,30 +595,35 @@ async function executeTrade(env, opp, sizeUsd, leverage) {
   }
 
   // Pre-flight balance checks
-  const baseAsset = opp.symbol.replace(/USDT$/, '');
+  const quoteToUsd = await getQuoteToUsdRate(env, parsed.quote);
+  if (!Number.isFinite(quoteToUsd) || quoteToUsd <= 0) {
+    throw new Error(`Cannot value quote asset ${parsed.quote} in USD for execution sizing`);
+  }
+  const requiredQuote = sizeUsd / quoteToUsd;
+  const amount = (requiredQuote / opp.buyPrice).toFixed(6);
 
-  // USDT on buy exchange
-  const buyBalance = await getExchangeBalance(env, buyExch, 'USDT');
-  if (buyBalance < sizeUsd) {
+  // Quote asset balance on buy exchange
+  const buyBalance = await getExchangeBalance(env, buyExch, parsed.quote);
+  if (buyBalance < requiredQuote) {
     throw new Error(
-      `Insufficient USDT on ${buyExch}: ` +
-      `$${buyBalance.toFixed(2)} available, $${sizeUsd.toFixed(2)} needed`
+      `Insufficient ${parsed.quote} on ${buyExch}: ` +
+      `${buyBalance.toFixed(6)} available, ${requiredQuote.toFixed(6)} needed`
     );
   }
 
   // Base asset on sell exchange (must be pre-positioned for hedged execution)
-  const sellBalance = await getExchangeBalance(env, sellExch, baseAsset);
+  const sellBalance = await getExchangeBalance(env, sellExch, parsed.base);
   const minSellQty  = parseFloat(amount);
   if (sellBalance < minSellQty) {
     throw new Error(
-      `Insufficient ${baseAsset} on ${sellExch}: ` +
+      `Insufficient ${parsed.base} on ${sellExch}: ` +
       `${sellBalance.toFixed(6)} available, ${amount} needed`
     );
   }
 
   // Execute both legs simultaneously to minimise execution slippage.
   await Promise.all([
-    placeExchangeMarketOrder(env, buyExch,  opp.symbol, 'BUY',  amount, sizeUsd),
-    placeExchangeMarketOrder(env, sellExch, opp.symbol, 'SELL', amount, sizeUsd)
+    placeExchangeMarketOrder(env, buyExch,  opp.symbol, 'BUY',  amount, requiredQuote),
+    placeExchangeMarketOrder(env, sellExch, opp.symbol, 'SELL', amount, requiredQuote)
   ]);
 }
