@@ -230,11 +230,8 @@ jobs:
             COINBASE_API_KEY COINBASE_SECRET_KEY \
             BITGET_API_KEY BITGET_SECRET_KEY BITGET_API_PASSPHRASE \
             BITMART_API_KEY BITMART_SECRET_KEY BITMART_MEMO \
-            BYBIT_API_KEY BYBIT_API_SECRET \
-            GATEIO_API_KEY GATEIO_API_SECRET \
-            HTX_API_KEY HTX_API_SECRET \
             ZEROX_API_KEY ALCHEMY_API_KEY \
-            HFT_ENGINE_SECRET TEMPORAL_API_KEY
+            TEMPORAL_API_KEY
           do
             if [ -z "${!key}" ]; then
               optional_missing+=("$key")
@@ -271,19 +268,55 @@ jobs:
           BITMART_API_KEY: ${{ secrets.BITMART_API_KEY }}
           BITMART_SECRET_KEY: ${{ secrets.BITMART_SECRET_KEY }}
           BITMART_MEMO: ${{ secrets.BITMART_MEMO }}
-          BYBIT_API_KEY: ${{ secrets.BYBIT_API_KEY }}
-          BYBIT_API_SECRET: ${{ secrets.BYBIT_API_SECRET }}
-          GATEIO_API_KEY: ${{ secrets.GATEIO_API_KEY }}
-          GATEIO_API_SECRET: ${{ secrets.GATEIO_API_SECRET }}
-          HTX_API_KEY: ${{ secrets.HTX_API_KEY }}
-          HTX_API_SECRET: ${{ secrets.HTX_API_SECRET }}
           ZEROX_API_KEY: ${{ secrets.ZEROX_API_KEY }}
           ALCHEMY_API_KEY: ${{ secrets.ALCHEMY_API_KEY }}
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
           WORKFLOW_ADMIN_TOKEN: ${{ secrets.WORKFLOW_ADMIN_TOKEN }}
-          HFT_ENGINE_SECRET: ${{ secrets.HFT_ENGINE_SECRET }}
           TEMPORAL_API_KEY: ${{ secrets.TEMPORAL_API_KEY }}
+
+      - name: Verify Cloudflare-only optional secret names
+        run: |
+          raw="$(npx --yes wrangler@4 secret list --name ultimatearbitragehft)"
+          export WORKER_SECRETS_RAW="$raw"
+          node - <<'NODE'
+          const raw = process.env.WORKER_SECRETS_RAW || '';
+          const start = raw.indexOf('[');
+          const end = raw.lastIndexOf(']');
+          if (start === -1 || end === -1 || end <= start) {
+            console.log('::warning::Unable to parse Cloudflare secret list output.');
+            process.exit(0);
+          }
+
+          let list;
+          try {
+            list = JSON.parse(raw.slice(start, end + 1));
+          } catch {
+            console.log('::warning::Cloudflare secret list is not valid JSON payload.');
+            process.exit(0);
+          }
+
+          const have = new Set((list || []).map((x) => x && x.name).filter(Boolean));
+          const required = [
+            'BYBIT_API_KEY',
+            'BYBIT_API_SECRET',
+            'GATEIO_API_KEY',
+            'GATEIO_API_SECRET',
+            'HTX_API_KEY',
+            'HTX_API_SECRET',
+            'HFT_ENGINE_SECRET'
+          ];
+
+          const missing = required.filter((name) => !have.has(name));
+          if (missing.length) {
+            console.log(`::notice::Cloudflare optional secret names missing (${missing.length}): ${missing.join(' ')}`);
+          } else {
+            console.log('✅ Cloudflare-only optional secret names are present.');
+          }
+          NODE
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
 
       - name: Enable live trading in KV
         run: |

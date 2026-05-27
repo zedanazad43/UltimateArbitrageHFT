@@ -225,10 +225,13 @@ export function renderControlPanel() {
   <div class="section-grid">
     <div class="card card-wide">
       <h2>&#36; Exchange Balances (USDT) <span class="status-dot status-idle" id="balances-dot"></span></h2>
+      <div class="stat-row"><span class="stat-label">Assets</span><span class="stat-value" id="balances-assets-label">USDT</span></div>
       <div class="balance-grid" id="balances-grid">
         <div class="balance-chip"><div class="ex-name">Loading</div><div class="ex-balance"><span class="spin">&#8635;</span></div></div>
       </div>
       <div class="button-group">
+        <input id="balanceAssetsInput" type="text" placeholder="USDT,USDC,BTC,ETH" style="background:#1a1e26;color:#eee;border:1px solid #3a3e48;border-radius:6px;padding:7px 10px;font-size:.8em;min-width:220px">
+        <button onclick="applyBalanceAssetsFilter()" class="secondary">Apply Assets</button>
         <button onclick="loadBalances(false)">&#8635; Refresh Balances</button>
         <button onclick="loadBalances(true)" class="secondary">Force Fresh (bypass cache)</button>
       </div>
@@ -382,6 +385,33 @@ export function renderControlPanel() {
     if (cls) el.className = 'stat-value ' + cls;
   }
 
+  function getSelectedBalanceAssets() {
+    var raw = (localStorage.getItem('nexus_balance_assets') || 'USDT,USDC,BTC,ETH').trim();
+    var parsed = raw.split(',')
+      .map(function(v) { return String(v || '').trim().toUpperCase(); })
+      .filter(Boolean)
+      .slice(0, 8);
+    if (!parsed.length) parsed = ['USDT'];
+    return parsed;
+  }
+
+  function syncBalanceAssetsUi() {
+    var assets = getSelectedBalanceAssets();
+    var input = document.getElementById('balanceAssetsInput');
+    if (input) input.value = assets.join(',');
+    var label = document.getElementById('balances-assets-label');
+    if (label) label.textContent = assets.join(', ');
+  }
+
+  function applyBalanceAssetsFilter() {
+    var input = document.getElementById('balanceAssetsInput');
+    if (!input) return;
+    var val = String(input.value || '').trim();
+    localStorage.setItem('nexus_balance_assets', val || 'USDT');
+    syncBalanceAssetsUi();
+    loadBalances(true);
+  }
+
   async function loadStatus() {
     var r = await api('/api/status');
     if (!r.ok) { setDot('trading-dot', 'status-error'); return; }
@@ -485,7 +515,11 @@ export function renderControlPanel() {
 
   async function loadBalances(fresh) {
     setDot('balances-dot', 'status-warn');
-    var path = '/api/balances' + (fresh ? '?fresh=1' : '');
+    var assets = getSelectedBalanceAssets();
+    var params = new URLSearchParams();
+    params.set('assets', assets.join(','));
+    if (fresh) params.set('fresh', '1');
+    var path = '/api/balances?' + params.toString();
     var r = await api(path);
     if (!r.ok) {
       setDot('balances-dot', 'status-error');
@@ -503,6 +537,11 @@ export function renderControlPanel() {
     var hasLive = false;
     for (var i = 0; i < items.length; i++) {
       var ex = items[i];
+      var balances = ex.balances || {};
+      var assetsHtml = assets.map(function(asset) {
+        var v = Number(balances[asset] || 0);
+        return '<div style="font-size:.72em;color:#aaa">' + asset + ': <span style="color:#f0b90b">' + v.toFixed(4) + '</span></div>';
+      }).join('');
       if (!ex.configured && !ex.dataOnly) {
         html += '<div class="balance-chip unconfigured"><div class="ex-name">' + ex.exchange.toUpperCase() + '</div>' +
           '<div class="ex-balance" style="color:#555">---</div>' +
@@ -519,6 +558,7 @@ export function renderControlPanel() {
         hasLive = true;
         html += '<div class="balance-chip"><div class="ex-name">' + ex.exchange.toUpperCase() + '</div>' +
           '<div class="ex-balance">' + usd(ex.balance) + '</div>' +
+          '<div style="margin-top:4px">' + assetsHtml + '</div>' +
           '<div class="ex-status" style="color:#27ae60">&#10003; Live</div></div>';
       }
     }
@@ -697,6 +737,7 @@ export function renderControlPanel() {
   }
 
   window.addEventListener('load', function() {
+    syncBalanceAssetsUi();
     refreshAll();
     loadTrades();
     loadReport();

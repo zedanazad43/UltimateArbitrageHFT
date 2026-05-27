@@ -121,27 +121,66 @@ async function saveState(env, state) {
   await env.BOT_STATE.put('trading_state', JSON.stringify(state));
 }
 
-async function getExecutionBalancesSnapshot(env) {
+function normalizeRequestedAssets(rawAssets) {
+  const defaults = ['USDT'];
+  if (!rawAssets || typeof rawAssets !== 'string') return defaults;
+
+  const parsed = rawAssets
+    .split(',')
+    .map((a) => String(a || '').trim().toUpperCase())
+    .filter(Boolean)
+    .slice(0, 8);
+
+  return parsed.length ? parsed : defaults;
+}
+
+async function getExecutionBalancesSnapshot(env, assets = ['USDT']) {
+  const requestedAssets = Array.isArray(assets) && assets.length ? assets : ['USDT'];
+  const primaryAsset = requestedAssets[0];
   const results = await Promise.all(
     ACTIVE_EXECUTION_EXCHANGES.map(async (ex) => {
       const configured = hasExchangeCredentials(env, ex);
       if (!configured) {
         const missing = getMissingCredentialKeys(env, ex);
-        return { exchange: ex, configured: false, balance: null, missing_keys: missing };
+        return {
+          exchange: ex,
+          configured: false,
+          asset: primaryAsset,
+          balance: null,
+          balances: {},
+          missing_keys: missing,
+        };
       }
       try {
-        const balance = await getExchangeBalance(env, ex, 'USDT');
-        return { exchange: ex, configured: true, balance };
+        const balances = {};
+        await Promise.all(requestedAssets.map(async (asset) => {
+          const value = await getExchangeBalance(env, ex, asset);
+          balances[asset] = Number(value || 0);
+        }));
+        return {
+          exchange: ex,
+          configured: true,
+          asset: primaryAsset,
+          balance: Number(balances[primaryAsset] || 0),
+          balances,
+        };
       } catch (e) {
         console.error(`[balances] ${ex} fetch failed:`, e.message);
-        return { exchange: ex, configured: true, balance: 0, error: e.message };
+        return {
+          exchange: ex,
+          configured: true,
+          asset: primaryAsset,
+          balance: 0,
+          balances: {},
+          error: e.message,
+        };
       }
     })
   );
 
   const dataOnly = [
-    { exchange: 'bybit', configured: false, balance: null, dataOnly: true, note: 'German law — data feed only' },
-    { exchange: 'gateio', configured: false, balance: null, dataOnly: true, note: 'German law — data feed only' }
+    { exchange: 'bybit', configured: false, asset: primaryAsset, balance: null, balances: {}, dataOnly: true, note: 'German law — data feed only' },
+    { exchange: 'gateio', configured: false, asset: primaryAsset, balance: null, balances: {}, dataOnly: true, note: 'German law — data feed only' }
   ];
 
   return [...results, ...dataOnly];
@@ -1102,7 +1141,9 @@ app.get('/api/logs/archives', async (c) => {
 app.get('/api/balances', async (c) => {
   if (!isAuthorized(c.env, c)) return authDenied(c.env, c, true);
 
-  const CACHE_KEY = 'balances_cache_v1';
+  const assets = normalizeRequestedAssets(c.req.query('assets') || 'USDT');
+  const cacheSuffix = assets.join('_');
+  const CACHE_KEY = `balances_cache_v2_${cacheSuffix}`;
   const CACHE_TTL = 60_000; // 60 s
   const forceFresh = c.req.query('fresh') === '1';
 
@@ -1113,7 +1154,7 @@ app.get('/api/balances', async (c) => {
     }
   }
 
-  const data = await getExecutionBalancesSnapshot(c.env);
+  const data = await getExecutionBalancesSnapshot(c.env, assets);
 
   // Persist to KV cache in background (don't await — keep response fast)
   if (c.env.BOT_STATE) {
@@ -1123,7 +1164,7 @@ app.get('/api/balances', async (c) => {
     );
   }
 
-  return c.json({ success: true, data, cached: false });
+  return c.json({ success: true, assets, data, cached: false });
 });
 
 // ── API: Rebalance status/plan (auth-protected) ─────────────────────────────
