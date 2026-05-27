@@ -129,7 +129,7 @@ function normalizeRequestedAssets(rawAssets) {
     .split(',')
     .map((a) => String(a || '').trim().toUpperCase())
     .filter(Boolean)
-    .slice(0, 8);
+    .slice(0, 40);
 
   return parsed.length ? parsed : defaults;
 }

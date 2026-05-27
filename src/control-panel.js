@@ -232,6 +232,8 @@ export function renderControlPanel() {
       <div class="button-group">
         <input id="balanceAssetsInput" type="text" placeholder="USDT,USDC,BTC,ETH" style="background:#1a1e26;color:#eee;border:1px solid #3a3e48;border-radius:6px;padding:7px 10px;font-size:.8em;min-width:220px">
         <button onclick="applyBalanceAssetsFilter()" class="secondary">Apply Assets</button>
+        <button onclick="setBalanceAssetPreset('core')" class="secondary">Core</button>
+        <button onclick="setBalanceAssetPreset('majors')" class="secondary">All Majors</button>
         <button onclick="loadBalances(false)">&#8635; Refresh Balances</button>
         <button onclick="loadBalances(true)" class="secondary">Force Fresh (bypass cache)</button>
       </div>
@@ -386,14 +388,19 @@ export function renderControlPanel() {
   }
 
   function getSelectedBalanceAssets() {
-    var raw = (localStorage.getItem('nexus_balance_assets') || 'USDT,USDC,BTC,ETH').trim();
+    var raw = (localStorage.getItem('nexus_balance_assets') || 'USDT,USDC,BTC,ETH,BNB,SOL,XRP,ADA,DOGE,TRX,LTC,AVAX,DOT,LINK,MATIC').trim();
     var parsed = raw.split(',')
       .map(function(v) { return String(v || '').trim().toUpperCase(); })
       .filter(Boolean)
-      .slice(0, 8);
+      .slice(0, 40);
     if (!parsed.length) parsed = ['USDT'];
     return parsed;
   }
+
+  var BALANCE_ASSET_PRESETS = {
+    core: 'USDT,USDC,BTC,ETH',
+    majors: 'USDT,USDC,BTC,ETH,BNB,SOL,XRP,ADA,DOGE,TRX,LTC,AVAX,DOT,LINK,MATIC,BCH,ETC,ATOM,UNI,NEAR,FIL,APT,ARB,OP,SUI,PEPE,SHIB'
+  };
 
   function syncBalanceAssetsUi() {
     var assets = getSelectedBalanceAssets();
@@ -408,6 +415,14 @@ export function renderControlPanel() {
     if (!input) return;
     var val = String(input.value || '').trim();
     localStorage.setItem('nexus_balance_assets', val || 'USDT');
+    syncBalanceAssetsUi();
+    loadBalances(true);
+  }
+
+  function setBalanceAssetPreset(kind) {
+    var next = BALANCE_ASSET_PRESETS[kind];
+    if (!next) return;
+    localStorage.setItem('nexus_balance_assets', next);
     syncBalanceAssetsUi();
     loadBalances(true);
   }
