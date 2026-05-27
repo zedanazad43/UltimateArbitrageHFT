@@ -1336,7 +1336,7 @@ ${autoStopBanner}
         const status=item.reachable===true?'متصل':(item.reachable===false?'غير متصل':'غير مفحوص');
         return \`\${cfg} \${item.integration.toUpperCase()} | configured=\${item.configured?'yes':'no'} | status=\${status}\`;
       });
-      el.textContent=lines.join('\n')||'لا توجد بيانات';
+      el.textContent=lines.join('\\n')||'لا توجد بيانات';
     }catch(e){
       el.textContent='❌ '+e.message;
     }
