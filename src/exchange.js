@@ -2,6 +2,7 @@
 
 import { getGlobalProxyPool } from './infra/proxy-pool.js';
 import { auditLog, secureFetch } from './infra/security.js';
+import { getExternalProxyManager } from './infra/external-proxy.js';
 
 // ── HMAC-SHA256 helpers ───────────────────────────────────────────────────────
 
@@ -34,6 +35,7 @@ export async function hmacBase64(secret, message) {
  * Canonical key is tried first; aliases are tried in order.
  */
 const CRED_ALIASES = {
+  BINANCE_API_SECRET: ['BINANC_API_SECRET'],
   KUCOIN_SECRET_KEY:  ['KUCOIN_API_SECRET'],
   BITGET_SECRET_KEY:  ['BITGET_API_SECRET'],
   BITMART_SECRET_KEY: ['BITMART_API_SECRET'],
@@ -46,9 +48,17 @@ const CRED_ALIASES = {
  * alias is set in env.
  */
 function resolveEnvKey(env, canonicalKey) {
-  if (env[canonicalKey]) return env[canonicalKey];
+  const normalize = (v) => {
+    if (typeof v !== 'string') return v;
+    const trimmed = v.trim();
+    return trimmed.length > 0 ? trimmed : undefined;
+  };
+
+  const canonical = normalize(env[canonicalKey]);
+  if (canonical) return canonical;
   for (const alias of (CRED_ALIASES[canonicalKey] || [])) {
-    if (env[alias]) return env[alias];
+    const aliased = normalize(env[alias]);
+    if (aliased) return aliased;
   }
   return undefined;
 }
@@ -61,6 +71,20 @@ function missingCredError(canonicalKey) {
   return aliases?.length
     ? `${canonicalKey} (or ${aliases.join(' or ')}) is not configured`
     : `${canonicalKey} is not configured`;
+}
+
+const KNOWN_QUOTES = ['USDT', 'USDC', 'FDUSD', 'BUSD', 'DAI', 'TUSD', 'BTC', 'ETH'];
+
+function splitTradingSymbol(symbol) {
+  const normalized = String(symbol || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+  const quotes = [...KNOWN_QUOTES].sort((a, b) => b.length - a.length);
+  for (const quote of quotes) {
+    if (!normalized.endsWith(quote)) continue;
+    const base = normalized.slice(0, -quote.length);
+    if (!base || base.length < 2) continue;
+    return { symbol: normalized, base, quote };
+  }
+  return null;
 }
 
 // ── Safe JSON parsing ─────────────────────────────────────────────────────────
@@ -102,7 +126,7 @@ function _detectExchangeFromUrl(url) {
   if (/api\.mexc\.com/i.test(url) || /contract\.mexc\.com/i.test(url)) return 'mexc';
   if (/api\.binance\.com/i.test(url) || /api-futures\.binance\.com/i.test(url)) return 'binance';
   if (/api\.kucoin\.com/i.test(url)) return 'kucoin';
-  if (/api\.bitget\.com/i.test(url)) return 'bitget';
+  if (/(?:^|\.)c?api\.bitget\.com/i.test(url) || /api\.bitget\.com/i.test(url)) return 'bitget';
   if (/api-cloud\.bitmart\.com/i.test(url)) return 'bitmart';
   if (/api\.htx\.com/i.test(url)) return 'htx';
   if (/api\.bybit\.com/i.test(url)) return 'bybit';
@@ -126,12 +150,30 @@ export async function exchangeFetch(url, options = {}, exchange, maxRetries = 2)
 }
 
 /**
+ * Bitget-aware fetch helper.
+ * Uses external proxy manager when configured; otherwise falls back to
+ * exchangeFetch for normal secure/rate-limited routing.
+ */
+async function bitgetFetch(env, url, options = {}, maxRetries = 2) {
+  try {
+    const proxyManager = getExternalProxyManager(env);
+    const stats = proxyManager.getStats();
+    if (stats?.enabled) {
+      return proxyManager.fetchWithFallback(url, options, 15000);
+    }
+  } catch (_) {
+    // Fallback to standard exchange path if proxy manager is unavailable.
+  }
+  return exchangeFetch(url, options, 'bitget', maxRetries);
+}
+
+/**
  * Fetches the MEXC spot account balance for a given asset (default: USDT).
  * Returns { free: number, locked: number } or throws on error.
  */
 export async function getMEXCBalance(env, asset = 'USDT') {
-  const apiKey    = env.MEXC_API_KEY;
-  const apiSecret = env.MEXC_API_SECRET;
+  const apiKey    = resolveEnvKey(env, 'MEXC_API_KEY');
+  const apiSecret = resolveEnvKey(env, 'MEXC_API_SECRET');
   if (!apiKey)    throw new Error('MEXC_API_KEY is not configured');
   if (!apiSecret) throw new Error('MEXC_API_SECRET is not configured');
 
@@ -177,7 +219,7 @@ function getMEXCFuturesCredentialCandidates(env) {
       env.MEXC_API_KEY_2 === env.MEXC_API_KEY &&
       env.MEXC_API_SECRET_2 === env.MEXC_API_SECRET;
     if (!duplicatePrimary) {
-      candidates.push({ label: 'secondary', apiKey: env.MEXC_API_KEY_2, apiSecret: env.MEXC_API_SECRET_2 });
+      candidates.push({ label: 'secondary', apiKey: env.MEXC_API_KEY_2, apiSecret: env.MEXC_API_SECRET_2 }); // gitleaks:allow
     }
   }
   return candidates;
@@ -382,10 +424,10 @@ export async function placeMEXCFuturesOrder(env, symbol, side, quantity, leverag
  * the Cloudflare Worker and Binance servers (default 5 s is often too tight).
  */
 export async function getBinanceBalance(env, asset = 'USDT') {
-  const apiKey    = env.BINANCE_API_KEY;
-  const apiSecret = env.BINANCE_API_SECRET;
+  const apiKey    = resolveEnvKey(env, 'BINANCE_API_KEY');
+  const apiSecret = resolveEnvKey(env, 'BINANCE_API_SECRET');
   if (!apiKey)    throw new Error('BINANCE_API_KEY is not configured');
-  if (!apiSecret) throw new Error('BINANCE_API_SECRET is not configured');
+  if (!apiSecret) throw new Error(missingCredError('BINANCE_API_SECRET'));
 
   const timestamp = Date.now().toString();
   const query     = `timestamp=${timestamp}&recvWindow=10000`;
@@ -411,9 +453,9 @@ export async function getBinanceBalance(env, asset = 'USDT') {
  */
 export async function placeMarketOrderBinance(env, symbol, side, quantity, sizeUsd) {
   const apiKey    = env.BINANCE_API_KEY;
-  const apiSecret = env.BINANCE_API_SECRET;
+  const apiSecret = resolveEnvKey(env, 'BINANCE_API_SECRET');
   if (!apiKey)    throw new Error('BINANCE_API_KEY is not configured');
-  if (!apiSecret) throw new Error('BINANCE_API_SECRET is not configured');
+  if (!apiSecret) throw new Error(missingCredError('BINANCE_API_SECRET'));
 
   const timestamp = Date.now().toString();
   const params    = { symbol, side: side.toUpperCase(), type: 'MARKET', timestamp };
@@ -453,9 +495,9 @@ export async function placeMarketOrderBinance(env, symbol, side, quantity, sizeU
  * the locked amount.
  */
 export async function getKuCoinBalance(env, asset = 'USDT') {
-  const apiKey     = env.KUCOIN_API_KEY;
+  const apiKey     = resolveEnvKey(env, 'KUCOIN_API_KEY');
   const apiSecret  = resolveEnvKey(env, 'KUCOIN_SECRET_KEY');
-  const passphrase = env.KUCOIN_PASSPHRASE;
+  const passphrase = resolveEnvKey(env, 'KUCOIN_PASSPHRASE');
   if (!apiKey)     throw new Error('KUCOIN_API_KEY is not configured');
   if (!apiSecret)  throw new Error(missingCredError('KUCOIN_SECRET_KEY'));
   if (!passphrase) throw new Error('KUCOIN_PASSPHRASE is not configured');
@@ -497,7 +539,9 @@ export async function placeMarketOrderKuCoin(env, symbol, side, quantity, sizeUs
   if (!apiSecret)  throw new Error(missingCredError('KUCOIN_SECRET_KEY'));
   if (!passphrase) throw new Error('KUCOIN_PASSPHRASE is not configured');
 
-  const kuSymbol  = symbol.replace(/USDT$/, '-USDT');
+  const parsed = splitTradingSymbol(symbol);
+  if (!parsed) throw new Error(`Unsupported symbol format: ${symbol}`);
+  const kuSymbol  = `${parsed.base}-${parsed.quote}`;
   const timestamp = Date.now().toString();
   const path      = '/api/v1/orders';
 
@@ -539,6 +583,13 @@ export async function placeMarketOrderKuCoin(env, symbol, side, quantity, sizeUs
 
 const BITGET_API_HOSTS = ['api.bitget.com', 'capi.bitget.com'];
 const BITGET_BALANCE_ENDPOINTS = ['/api/v2/spot/account/assets', '/api/spot/v1/account/assets'];
+const BITGET_BROWSER_HEADERS = {
+  'Accept': 'application/json, text/plain, */*',
+  'Accept-Language': 'en-US,en;q=0.9',
+  'Origin': 'https://www.bitget.com',
+  'Referer': 'https://www.bitget.com/',
+  'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36',
+};
 
 /**
  * Normalizes Bitget balance payloads across API versions:
@@ -556,9 +607,9 @@ function normalizeBitgetAssets(data) {
  * Fetches the Bitget spot account balance for a given asset (default: USDT).
  */
 export async function getBitgetBalance(env, asset = 'USDT') {
-  const apiKey     = env.BITGET_API_KEY;
+  const apiKey     = resolveEnvKey(env, 'BITGET_API_KEY');
   const apiSecret  = resolveEnvKey(env, 'BITGET_SECRET_KEY');
-  const passphrase = env.BITGET_API_PASSPHRASE;
+  const passphrase = resolveEnvKey(env, 'BITGET_API_PASSPHRASE');
   if (!apiKey)     throw new Error('BITGET_API_KEY is not configured');
   if (!apiSecret)  throw new Error(missingCredError('BITGET_SECRET_KEY'));
   if (!passphrase) throw new Error('BITGET_API_PASSPHRASE is not configured');
@@ -573,7 +624,7 @@ export async function getBitgetBalance(env, asset = 'USDT') {
         const timestamp = Date.now().toString();
         // Bitget signature: timestamp + method + requestPath (no query/body for GET)
         const signature = await hmacBase64(apiSecret, timestamp + 'GET' + requestPath);
-        const resp = await exchangeFetch(`https://${host}${requestPath}`, {
+        const resp = await bitgetFetch(env, `https://${host}${requestPath}`, {
           headers: {
             'ACCESS-KEY':        apiKey,
             'ACCESS-SIGN':       signature,
@@ -581,6 +632,7 @@ export async function getBitgetBalance(env, asset = 'USDT') {
             'ACCESS-PASSPHRASE': passphrase,
             'Content-Type':      'application/json',
             locale:              'en-US',
+            ...BITGET_BROWSER_HEADERS,
           }
         });
         const data = await parseJsonResponse(resp, 'Bitget balance');
@@ -642,7 +694,7 @@ export async function placeMarketOrderBitget(env, symbol, side, quantity, sizeUs
   const errors = [];
   for (const host of BITGET_API_HOSTS) {
     try {
-      const resp = await exchangeFetch(`https://${host}${path}`, {
+      const resp = await bitgetFetch(env, `https://${host}${path}`, {
         method: 'POST',
         headers: {
           'ACCESS-KEY':        apiKey,
@@ -650,9 +702,8 @@ export async function placeMarketOrderBitget(env, symbol, side, quantity, sizeUs
           'ACCESS-TIMESTAMP':  timestamp,
           'ACCESS-PASSPHRASE': passphrase,
           'Content-Type':      'application/json',
-          'Accept':            'application/json',
           'locale':            'en-US',
-          'User-Agent':        'Mozilla/5.0',
+          ...BITGET_BROWSER_HEADERS,
         },
         body: bodyStr
       });
@@ -676,9 +727,9 @@ export async function placeMarketOrderBitget(env, symbol, side, quantity, sizeUs
  * Requires BITMART_MEMO (generated when creating the API key on Bitmart).
  */
 export async function getBitmartBalance(env, asset = 'USDT') {
-  const apiKey    = env.BITMART_API_KEY;
+  const apiKey    = resolveEnvKey(env, 'BITMART_API_KEY');
   const apiSecret = resolveEnvKey(env, 'BITMART_SECRET_KEY');
-  const memo      = env.BITMART_MEMO;
+  const memo      = resolveEnvKey(env, 'BITMART_MEMO');
   if (!apiKey)    throw new Error('BITMART_API_KEY is not configured');
   if (!apiSecret) throw new Error(missingCredError('BITMART_SECRET_KEY'));
   if (!memo)      throw new Error('BITMART_MEMO is not configured');
@@ -748,8 +799,9 @@ export async function placeMarketOrderBitmart(env, symbol, side, quantity, sizeU
   if (!apiSecret) throw new Error(missingCredError('BITMART_SECRET_KEY'));
   if (!memo)      throw new Error('BITMART_MEMO is not configured');
 
-  // BitMart uses underscore symbol format: BTC_USDT, SHIB_USDT, etc.
-  const bmSymbol = symbol.replace(/USDT$/, '_USDT');
+  const parsed = splitTradingSymbol(symbol);
+  if (!parsed) throw new Error(`Unsupported symbol format: ${symbol}`);
+  const bmSymbol = `${parsed.base}_${parsed.quote}`;
 
   // BitMart order placement — proxy + retry with exponential backoff
   const proxyPool = getGlobalProxyPool(env);
@@ -984,7 +1036,9 @@ export async function placeMarketOrderGateio(env, symbol, side, quantity, sizeUs
   if (!apiKey)    throw new Error('GATEIO_API_KEY is not configured');
   if (!apiSecret) throw new Error('GATEIO_API_SECRET is not configured');
 
-  const gateSymbol = symbol.replace(/USDT$/, '_USDT');
+  const parsed = splitTradingSymbol(symbol);
+  if (!parsed) throw new Error(`Unsupported symbol format: ${symbol}`);
+  const gateSymbol = `${parsed.base}_${parsed.quote}`;
   const method     = 'POST';
   const path       = '/api/v4/spot/orders';
   const query      = '';
@@ -1098,7 +1152,7 @@ export async function placeMarketOrderHTX(env, symbol, side, quantity, sizeUsd) 
   // Determine order type: buy-market or sell-market
   const orderType  = side.toUpperCase() === 'BUY' ? 'buy-market' : 'sell-market';
   // buy-market amount is in quote currency (USDT), sell-market in base currency
-  const amount     = side.toUpperCase() === 'BUY' ? sizeUsd.toFixed(2) : quantity;
+  const amount     = side.toUpperCase() === 'BUY' ? sizeUsd.toFixed(8) : quantity;
 
   // Step 1: get spot account ID (cached in practice; fetched once per request here)
   const acctPath  = '/v1/account/accounts';
@@ -1299,7 +1353,7 @@ export async function getExchangeBalance(env, exchange, asset = 'USDT') {
  * @param {string} symbol    — trading pair, e.g. 'BTCUSDT'
  * @param {string} side      — 'BUY' | 'SELL'
  * @param {string} quantity  — base asset amount (used for SELL)
- * @param {number} sizeUsd   — quote amount in USDT (used for BUY)
+ * @param {number} sizeUsd   — quote amount in quote asset (used for BUY)
  */
 export async function placeExchangeMarketOrder(env, exchange, symbol, side, quantity, sizeUsd) {
   switch (exchange?.toLowerCase()) {
