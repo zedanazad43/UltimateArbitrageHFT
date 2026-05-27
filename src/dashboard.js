@@ -859,12 +859,27 @@ ${autoStopBanner}
       crosshair: { mode: 0 }
     });
 
-    const series = chart.addAreaSeries({
+    const areaSeriesOptions = {
       lineColor: '#2ecc71',
       topColor: 'rgba(46, 204, 113, 0.34)',
       bottomColor: 'rgba(46, 204, 113, 0.03)',
       lineWidth: 2,
-    });
+    };
+    const lineSeriesOptions = {
+      color: '#2ecc71',
+      lineWidth: 2,
+    };
+
+    let series;
+    if (typeof chart.addAreaSeries === 'function') {
+      series = chart.addAreaSeries(areaSeriesOptions);
+    } else if (typeof chart.addSeries === 'function' && window.LightweightCharts?.AreaSeries) {
+      series = chart.addSeries(window.LightweightCharts.AreaSeries, areaSeriesOptions);
+    } else if (typeof chart.addLineSeries === 'function') {
+      series = chart.addLineSeries(lineSeriesOptions);
+    } else {
+      throw new Error('نسخة Lightweight Charts الحالية لا تدعم إنشاء السلسلة المطلوبة');
+    }
 
     _ossChart = chart;
     _ossSeries = series;
@@ -1265,6 +1280,10 @@ ${autoStopBanner}
           const hint=missingKeysList?\`<div style="font-size:.72em;color:#e67e22;margin-top:4px;word-break:break-all">🔑 أضف: \${missingKeysList}</div>\`:'';
           return \`<div class="bal-card" style="border:1px solid #e67e22"><div class="bal-name">\${b.exchange.toUpperCase()}</div><div class="bal-value" style="color:#888;font-size:.85em">غير مُهيأ</div>\${hint}</div>\`;
         }
+        if (b.error) {
+          const msg = String(b.error || 'Balance fetch failed').slice(0, 120);
+          return \`<div class="bal-card" style="border:1px solid #e67e22"><div class="bal-name">\${b.exchange.toUpperCase()}</div><div class="bal-value" style="color:#e67e22;font-size:.82em">تعذر جلب الرصيد</div><div style="font-size:.72em;color:#888;margin-top:4px;word-break:break-word">\${msg}</div></div>\`;
+        }
         const color=b.balance>0?'#2ecc71':'#888';
         return \`<div class="bal-card"><div class="bal-name">\${b.exchange.toUpperCase()}</div><div class="bal-value" style="color:\${color}">$\${Number(b.balance).toFixed(2)}</div></div>\`;
       }).join('');
@@ -1469,10 +1488,14 @@ ${autoStopBanner}
 
   // ── Platform cards — dynamic refresh every 30 s ─────────────────────────────
   function _renderPlatformCard(p){
-    const isConfigured = p.configured;
-    const borderColor  = isConfigured ? '#2ecc71' : '#e67e22';
-    const balLine      = p.type === 'web3'
+    const isConfigured = !!p.configured;
+    const isDataOnly = !!p.dataOnly;
+    const isWeb3 = p.type === 'web3';
+    const borderColor  = isWeb3 ? '#3498db' : isDataOnly ? '#888' : (isConfigured ? '#2ecc71' : '#e67e22');
+    const balLine      = isWeb3
       ? \`<div style="font-size:.8em;color:#3498db;margin-top:4px">🌐 Web3 only</div>\`
+      : isDataOnly
+        ? \`<div style="font-size:.78em;color:#888;margin-top:4px">📊 بيانات فقط</div>\`
       : isConfigured && p.error
         ? \`<div style="font-size:.8em;color:#e67e22;margin-top:4px">❌ تعذر جلب الرصيد</div>\`
       : isConfigured && p.balance != null
@@ -1480,9 +1503,13 @@ ${autoStopBanner}
         : isConfigured
           ? \`<div style="font-size:.8em;color:#888;margin-top:4px">جارٍ جلب الرصيد…</div>\`
           : \`<div style="font-size:.72em;color:#e67e22;margin-top:4px">🔑 غير مُهيأ</div>\`;
-    const statusLabel = isConfigured
-      ? \`<span style="color:#2ecc71">✅ مُهيأ</span>\`
-      : \`<span style="color:#e67e22">⚠️ غير مُهيأ</span>\`;
+    const statusLabel = isWeb3
+      ? \`<span style="color:#3498db">✅ Web3</span>\`
+      : isDataOnly
+        ? \`<span style="color:#888">📊 بيانات فقط</span>\`
+      : isConfigured
+        ? \`<span style="color:#2ecc71">✅ مُهيأ</span>\`
+        : \`<span style="color:#e67e22">⚠️ غير مُهيأ</span>\`;
     const updatedLine = \`<div style="font-size:.72em;color:#888;margin-top:4px">آخر تحديث: \${p._fetchedAt || '—'}</div>\`;
     const safeData = JSON.stringify(p).replace(/'/g,"&#39;");
     return \`<div class="bal-card" style="border:1px solid \${borderColor};cursor:pointer" onclick="showPlatformModal('\${safeData}')">
