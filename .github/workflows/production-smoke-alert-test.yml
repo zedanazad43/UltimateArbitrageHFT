@@ -46,8 +46,6 @@ jobs:
           BASE_URL: ${{ inputs.base_url || 'https://ultimatearbitragehft.zedanazad43.workers.dev' }}
           EVENT_NAME: ${{ github.event_name }}
         run: |
-          chmod +x ./scripts/verify-production-endpoints.sh
-
           # Scheduled runs should always execute a real smoke check.
           if [ "$EVENT_NAME" = "schedule" ]; then
             SIMULATE_FAILURE="false"
@@ -59,7 +57,7 @@ jobs:
             echo "Simulating failure with invalid admin token"
           fi
 
-          WORKFLOW_ADMIN_TOKEN="$token" ./scripts/verify-production-endpoints.sh "$BASE_URL"
+          WORKFLOW_ADMIN_TOKEN="$token" BASE_URL="$BASE_URL" EXPECTED_WORKER_NAME="ultimatearbitragehft" REQUIRE_READY_FOR_LIVE="false" node ./scripts/verify-production-endpoints.js
 
       - name: Telegram alert when smoke test fails
         if: steps.smoke.outcome == 'failure'

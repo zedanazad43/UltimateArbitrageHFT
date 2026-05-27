@@ -8,6 +8,35 @@ import {
   getRequiredCredentialKeys
 } from '../exchange.js';
 
+const QUOTES = ['USDT', 'USDC', 'FDUSD', 'BUSD', 'DAI', 'TUSD', 'BTC', 'ETH'];
+const STABLE_QUOTES = new Set(['USDT', 'USDC', 'FDUSD', 'BUSD', 'DAI', 'TUSD']);
+
+function splitSymbol(symbol) {
+  const normalized = String(symbol || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+  const quotes = [...QUOTES].sort((a, b) => b.length - a.length);
+  for (const quote of quotes) {
+    if (!normalized.endsWith(quote)) continue;
+    const base = normalized.slice(0, -quote.length);
+    if (!base || base.length < 2) continue;
+    return { base, quote };
+  }
+  return null;
+}
+
+async function getQuoteToUsdRate(env, quote) {
+  if (!quote || quote === 'USD') return 1;
+  if (STABLE_QUOTES.has(quote)) return 1;
+  try {
+    const r = await fetch(`https://api.mexc.com/api/v3/ticker/price?symbol=${quote}USDT`);
+    if (!r.ok) return 0;
+    const d = await r.json();
+    const px = Number(d?.price || 0);
+    return Number.isFinite(px) && px > 0 ? px : 0;
+  } catch (_) {
+    return 0;
+  }
+}
+
 /**
  * Executes trades for a given set of signals (OpportunityObjects from the scanner).
  *
@@ -51,7 +80,8 @@ async function _executeOne(env, opp) {
 
   const sizeUsd  = opp.sizeUsd  ?? 100;
   const leverage = opp.leverage ?? 1;
-  const amount   = (sizeUsd / opp.buyPrice).toFixed(6);
+  const parsed = splitSymbol(opp.symbol);
+  if (!parsed) throw new Error(`Unsupported symbol format: ${opp.symbol}`);
 
   // ── Perpetuals ──────────────────────────────────────────────────────────────
   if (opp.isPerp) {
@@ -65,6 +95,7 @@ async function _executeOne(env, opp) {
     if (!sufficient) {
       throw new Error(`Insufficient USDT on MEXC for $${sizeUsd.toFixed(2)} perps trade`);
     }
+    const amount = (sizeUsd / opp.buyPrice).toFixed(6);
     // buyExchange === 'mexc_perp' → LONG (buying on perps); otherwise SELL leg is on perps → SHORT
     const side = opp.buyExchange === 'mexc_perp' ? 'LONG' : 'SHORT';
     return placeMEXCFuturesOrder(env, opp.symbol, side, amount, leverage);
@@ -87,25 +118,31 @@ async function _executeOne(env, opp) {
     );
   }
 
-  const baseAsset  = opp.symbol.replace(/USDT$/, '');
-  const buyBalance = await getExchangeBalance(env, buyExch, 'USDT');
-  if (buyBalance < sizeUsd) {
+  const quoteToUsd = await getQuoteToUsdRate(env, parsed.quote);
+  if (!Number.isFinite(quoteToUsd) || quoteToUsd <= 0) {
+    throw new Error(`Cannot value quote asset ${parsed.quote} in USD`);
+  }
+  const requiredQuote = sizeUsd / quoteToUsd;
+  const amount = (requiredQuote / opp.buyPrice).toFixed(6);
+
+  const buyBalance = await getExchangeBalance(env, buyExch, parsed.quote);
+  if (buyBalance < requiredQuote) {
     throw new Error(
-      `Insufficient USDT on ${buyExch}: ` +
-      `$${buyBalance.toFixed(2)} available, $${sizeUsd.toFixed(2)} needed`
+      `Insufficient ${parsed.quote} on ${buyExch}: ` +
+      `${buyBalance.toFixed(6)} available, ${requiredQuote.toFixed(6)} needed`
     );
   }
-  const sellBalance = await getExchangeBalance(env, sellExch, baseAsset);
+  const sellBalance = await getExchangeBalance(env, sellExch, parsed.base);
   if (sellBalance < parseFloat(amount)) {
     throw new Error(
-      `Insufficient ${baseAsset} on ${sellExch}: ` +
+      `Insufficient ${parsed.base} on ${sellExch}: ` +
       `${sellBalance.toFixed(6)} available, ${amount} needed`
     );
   }
 
   // Execute both legs simultaneously to minimise slippage.
   return Promise.all([
-    placeExchangeMarketOrder(env, buyExch,  opp.symbol, 'BUY',  amount, sizeUsd),
-    placeExchangeMarketOrder(env, sellExch, opp.symbol, 'SELL', amount, sizeUsd)
+    placeExchangeMarketOrder(env, buyExch,  opp.symbol, 'BUY',  amount, requiredQuote),
+    placeExchangeMarketOrder(env, sellExch, opp.symbol, 'SELL', amount, requiredQuote)
   ]);
 }

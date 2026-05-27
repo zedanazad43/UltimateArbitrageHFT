@@ -129,7 +129,7 @@ Features:
 
 4. **Test endpoints:**
    ```bash
-   ADMIN_TOKEN='YOUR_ADMIN_TOKEN' bash scripts/verify-production-endpoints.sh
+   WORKFLOW_ADMIN_TOKEN='YOUR_ADMIN_TOKEN' node scripts/verify-production-endpoints.js
    ```
 
 5. **Monitor:**

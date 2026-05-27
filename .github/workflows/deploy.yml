@@ -135,10 +135,12 @@ jobs:
       - name: Post-deploy endpoint smoke test
         id: smoke_test
         run: |
-          chmod +x ./scripts/verify-production-endpoints.sh
-          WORKFLOW_ADMIN_TOKEN="${WORKFLOW_ADMIN_TOKEN}" ./scripts/verify-production-endpoints.sh
+          node ./scripts/verify-production-endpoints.js
         env:
           WORKFLOW_ADMIN_TOKEN: ${{ secrets.WORKFLOW_ADMIN_TOKEN }}
+          CUSTOM_BASE_URL: https://api.ecostamp.net
+          EXPECTED_WORKER_NAME: ultimatearbitragehft
+          REQUIRE_READY_FOR_LIVE: "true"
 
       - name: Telegram alert on smoke test failure
         if: ${{ failure() && steps.smoke_test.outcome == 'failure' }}

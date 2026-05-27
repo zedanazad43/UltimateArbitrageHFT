@@ -5,6 +5,7 @@ import { calculateAdaptiveLeverage }                               from './risk.
 
 const DEFAULT_RISK = {
   MAX_DAILY_LOSS_USD:          25,
+  DAILY_LIMIT_USD:             500,
   MIN_SECONDS_BETWEEN_TRADES:  30,
   MAX_PER_TRADE_LOSS_PCT:      0.02,
   MAX_SPREAD_PCT:              5.0
@@ -72,9 +73,17 @@ export async function renderDashboard(env) {
   const modeLabel       = paperMode ? '📄 PAPER' : '🔴 LIVE';
   const statusColor     = state.trading_enabled ? '#2ecc71' : '#e74c3c';
   const maxLoss         = state.max_daily_loss_usd           ?? DEFAULT_RISK.MAX_DAILY_LOSS_USD;
+  const dailyLimit      = state.daily_limit_usd             ?? DEFAULT_RISK.DAILY_LIMIT_USD;
   const minSec          = state.min_seconds_between_trades   ?? DEFAULT_RISK.MIN_SECONDS_BETWEEN_TRADES;
   const maxPerTrade     = state.max_per_trade_loss_pct       ?? DEFAULT_RISK.MAX_PER_TRADE_LOSS_PCT;
   const positionSizeUsd = state.position_size_usd            ?? 5;
+  const scanSymbolMode = String(state.scan_symbol_mode || 'cex_union');
+  const maxDynamicSymbols = Math.max(15, Math.min(2000, Number(state.max_dynamic_symbols || 500)));
+  const maxMetaMaskSymbols = Math.max(100, Math.min(20000, Number(state.max_metamask_symbols || 10000)));
+  const scanQuoteAssets = Array.isArray(state.scan_quote_assets) && state.scan_quote_assets.length
+    ? state.scan_quote_assets.join(',')
+    : 'USDT,USDC,FDUSD,BUSD,DAI,TUSD,BTC,ETH';
+  const useDynamicSymbols = !Array.isArray(state.supported_symbols) || state.supported_symbols.length === 0;
   const multiStrategyLive = state.multi_strategy_live !== false;
   const maxLiveTradesPerScan = Math.max(1, Math.min(5, Math.floor(state.max_live_trades_per_scan ?? 3)));
   const strategyFlags   = {
@@ -88,6 +97,10 @@ export async function renderDashboard(env) {
   const lastScanTime    = lastScan?.timestamp
     ? formatDateTimeAr(lastScan.timestamp)
     : 'لم يتم المسح بعد';
+  const tvBaseSymbol = String(lastScan?.cex?.symbol || lastScan?.perps?.symbol || 'BTCUSDT')
+    .toUpperCase()
+    .replace(/[^A-Z0-9]/g, '');
+  const tvSymbol = `BINANCE:${tvBaseSymbol}`;
 
   const autoStopBanner = state.auto_stopped
     ? `<div style="background:#e74c3c;color:#fff;padding:12px 20px;border-radius:8px;margin-bottom:18px;font-weight:bold">
@@ -201,6 +214,7 @@ export async function renderDashboard(env) {
     .subtitle{color:#888;font-size:.85em;margin-bottom:18px}
     h2{color:#f0b90b;font-size:1.1em;margin:18px 0 10px}
     .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:14px;margin-bottom:18px}
+    .grid-two{display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:14px}
     .card{background:#1a1e26;padding:16px;border-radius:12px}
     .card-label{color:#888;font-size:.78em;margin-bottom:4px}
     .card-value{font-size:1.35em;font-weight:bold}
@@ -338,6 +352,11 @@ ${autoStopBanner}
       <input id="maxDailyLoss" type="number" value="${maxLoss}" min="1" step="1">
     </div>
     <div class="risk-item">
+      <label>حد الحجم اليومي ($)</label>
+      <input id="dailyLimitUsd" type="number" value="${dailyLimit}" min="1" step="1" title="إجمالي الحجم المسموح تداوله يومياً">
+      <span style="font-size:.72em;color:#888">يُستخدم كفرامل أمان قبل التنفيذ الحي</span>
+    </div>
+    <div class="risk-item">
       <label>أقصى خسارة للصفقة (%)</label>
       <input id="maxPerTrade" type="number" value="${maxPerTrade}" min="0.001" step="0.001">
     </div>
@@ -365,9 +384,39 @@ ${autoStopBanner}
       <label>أقصى صفقات لكل دورة LIVE</label>
       <input id="maxLiveTradesPerScan" type="number" value="${maxLiveTradesPerScan}" min="1" max="5" step="1">
     </div>
+    <div class="risk-item">
+      <label>وضع اختيار الرموز</label>
+      <select id="scanSymbolMode" style="background:#2a2e38;color:#eee;border:1px solid #444;border-radius:6px;padding:7px 10px">
+        <option value="cex_union" ${scanSymbolMode === 'cex_union' ? 'selected' : ''}>CEX Union (أوسع تغطية)</option>
+        <option value="cex_intersection" ${scanSymbolMode === 'cex_intersection' ? 'selected' : ''}>CEX Intersection (أكثر تحفظاً)</option>
+        <option value="wallet_readable" ${scanSymbolMode === 'wallet_readable' ? 'selected' : ''}>Wallet Readable (ملائم لـ MetaMask)</option>
+      </select>
+    </div>
+    <div class="risk-item">
+      <label>عدد الرموز الديناميكية</label>
+      <input id="maxDynamicSymbols" type="number" value="${maxDynamicSymbols}" min="15" max="2000" step="5" title="عدد أزواج USDT المفحوصة ديناميكياً">
+    </div>
+    <div class="risk-item">
+      <label>سقف رموز MetaMask</label>
+      <input id="maxMetaMaskSymbols" type="number" value="${maxMetaMaskSymbols}" min="100" max="20000" step="50" title="سقف الرموز المقروءة من قوائم Web3 العامة">
+    </div>
+    <div class="risk-item">
+      <label>Quote Assets للمسح</label>
+      <input id="scanQuoteAssets" type="text" value="${scanQuoteAssets}" placeholder="USDT,USDC,BTC,ETH" style="min-width:240px">
+      <span style="font-size:.72em;color:#888">مثال: USDT,USDC,BTC,ETH</span>
+    </div>
+    <div class="risk-item">
+      <label>استخدام اكتشاف ديناميكي</label>
+      <label style="color:#eee;font-size:.85em;display:flex;align-items:center;gap:6px">
+        <input id="useDynamicSymbols" type="checkbox" ${useDynamicSymbols ? 'checked' : ''}>
+        تفعيل المسح على كل رموز CEX المتاحة (بدلاً من قائمة ثابتة)
+      </label>
+    </div>
   </div>
+  <div style="margin-top:8px;font-size:.75em;color:#888">ملاحظة: المسح الشامل جدًا يرفع الحمل. القيمة المقترحة للبداية: 300–500 رمز.</div>
   <div style="margin-top:14px">
     <button class="btn" data-admin-action="1" onclick="saveConfig()">💾 حفظ الإعدادات</button>
+    <button class="btn btn-blue" data-admin-action="1" onclick="enableFullUniversePreset()">🌐 تفعيل وضع كل الرموز (MEXC/BINANCE/BITGET + MetaMask)</button>
   </div>
 </div>
 
@@ -442,6 +491,43 @@ ${autoStopBanner}
       <a href="/api/report" style="color:#3498db;font-size:.85em;text-decoration:none;margin-top:4px;display:block">📊 تقرير JSON</a>
     </div>
   </div>
+</div>
+
+<!-- ── TradingView Live Chart (free widget) ───────────────────────────── -->
+<div class="panel">
+  <h2 style="margin-top:0">📉 TradingView Live Chart</h2>
+  <div style="font-size:.8em;color:#888;margin-bottom:10px">
+    عرض مباشر مجاني للسعر على الرمز الأكثر نشاطاً حالياً (${tvBaseSymbol}).
+  </div>
+  <div class="grid-two">
+    <div class="tradingview-widget-container" style="height:420px;min-height:420px;background:#12161e;border:1px solid #2a2e38;border-radius:10px;overflow:hidden">
+      <div id="tvChartWidget" style="height:100%;width:100%"></div>
+    </div>
+    <div style="background:#12161e;border:1px solid #2a2e38;border-radius:10px;padding:14px;line-height:1.9;color:#ccc">
+      <div style="font-weight:bold;color:#f0b90b;margin-bottom:6px">Market Intelligence</div>
+      <div>• المصدر الأساسي للتنفيذ الفعلي يبقى من مزودي الأسعار داخل البوت.</div>
+      <div>• TradingView هنا للقراءة والتحليل السريع قبل التشغيل الحي.</div>
+      <div>• يمكنك اختبار الاستراتيجية على Paper أولاً ثم تفعيل Live.</div>
+      <div style="margin-top:10px;font-size:.8em;color:#888">رمز الرسم الحالي: ${tvSymbol}</div>
+    </div>
+  </div>
+</div>
+
+<div class="panel">
+  <h2 style="margin-top:0">📈 Open Source Live Chart (Lightweight Charts)</h2>
+  <div style="font-size:.8em;color:#888;margin-bottom:10px">
+    مخطط مباشر مجاني ومفتوح المصدر (MIT) مبني على TradingView Lightweight Charts ويقرأ السعر من API البوت.
+  </div>
+  <div id="ossChart" style="height:300px;min-height:300px;background:#12161e;border:1px solid #2a2e38;border-radius:10px;overflow:hidden"></div>
+  <div id="ossChartMeta" style="margin-top:10px;font-size:.78em;color:#888">الرمز: ${tvBaseSymbol} | المصدر: /api/market/price/${tvBaseSymbol}</div>
+</div>
+
+<div class="panel">
+  <h2 style="margin-top:0">🧩 تكاملات مجانية ومفتوحة المصدر</h2>
+  <div style="font-size:.8em;color:#888;margin-bottom:10px">
+    حالة مزودي البيانات/الرسم/التنفيذ المجانيين المستخدمين لتقوية البوت.
+  </div>
+  <div id="freeSourcesGrid" class="bal-grid"><span style="color:#888">جارٍ التحميل...</span></div>
 </div>
 
 <!-- ── Backtesting Panel ──────────────────────────────────────────────── -->
@@ -572,6 +658,7 @@ ${autoStopBanner}
           <option value="ETH/USD">ETH/USD</option>
           <option value="SOL/USD">SOL/USD</option>
         </select>
+        <div style="font-size:.72em;color:#888;margin-top:4px">يتم تحميل الأزواج تلقائياً من كتالوج /api/symbols/catalog</div>
       </div>
     </div>
     <div style="margin-top:12px">
@@ -713,6 +800,162 @@ ${autoStopBanner}
 </table>
 
 <script>
+  // Free TradingView widget for quick visual validation before execution.
+  (function initTradingViewWidget(){
+    const script = document.createElement('script');
+    script.src = 'https://s3.tradingview.com/external-embedding/embed-widget-advanced-chart.js';
+    script.async = true;
+    script.innerHTML = JSON.stringify({
+      autosize: true,
+      symbol: '${tvSymbol}',
+      interval: '15',
+      timezone: 'Etc/UTC',
+      theme: 'dark',
+      style: '1',
+      locale: 'en',
+      allow_symbol_change: true,
+      support_host: 'https://www.tradingview.com',
+      container_id: 'tvChartWidget'
+    });
+    const target = document.getElementById('tvChartWidget');
+    if (target) target.appendChild(script);
+  })();
+
+  const OPEN_SOURCE_SYMBOL = '${tvBaseSymbol}';
+  let _ossChart = null;
+  let _ossSeries = null;
+  let _ossLoaded = false;
+
+  function _loadLightweightChartsLib(){
+    return new Promise((resolve, reject) => {
+      if (window.LightweightCharts) {
+        resolve();
+        return;
+      }
+      const script = document.createElement('script');
+      script.src = 'https://unpkg.com/lightweight-charts/dist/lightweight-charts.standalone.production.js';
+      script.async = true;
+      script.onload = () => resolve();
+      script.onerror = () => reject(new Error('تعذر تحميل مكتبة Lightweight Charts'));
+      document.head.appendChild(script);
+    });
+  }
+
+  async function initOpenSourceChart(){
+    if (_ossLoaded) return;
+    const container = document.getElementById('ossChart');
+    if (!container) return;
+
+    await _loadLightweightChartsLib();
+
+    const chart = window.LightweightCharts.createChart(container, {
+      layout: { background: { color: '#12161e' }, textColor: '#cfd3dc' },
+      grid: {
+        vertLines: { color: 'rgba(255,255,255,0.06)' },
+        horzLines: { color: 'rgba(255,255,255,0.06)' }
+      },
+      rightPriceScale: { borderColor: '#2a2e38' },
+      timeScale: { borderColor: '#2a2e38', timeVisible: true, secondsVisible: false },
+      crosshair: { mode: 0 }
+    });
+
+    const series = chart.addAreaSeries({
+      lineColor: '#2ecc71',
+      topColor: 'rgba(46, 204, 113, 0.34)',
+      bottomColor: 'rgba(46, 204, 113, 0.03)',
+      lineWidth: 2,
+    });
+
+    _ossChart = chart;
+    _ossSeries = series;
+    _ossLoaded = true;
+
+    const resize = () => {
+      const width = container.clientWidth || 600;
+      const height = container.clientHeight || 300;
+      chart.applyOptions({ width, height });
+      chart.timeScale().fitContent();
+    };
+    resize();
+    window.addEventListener('resize', resize);
+  }
+
+  function _bestPriceFromPayload(payload){
+    const data = payload?.data || {};
+    const picks = [
+      data.binance,
+      data.bybit,
+      data.okx,
+      data.bitget,
+      data.coinbase,
+      data.kraken,
+      data.alpaca,
+      data.ibkr,
+      data.alpha_vantage,
+      data.twelve_data,
+    ];
+    for (const p of picks) {
+      const n = Number(p);
+      if (Number.isFinite(n) && n > 0) return n;
+    }
+    return null;
+  }
+
+  async function updateOpenSourceChartPrice(){
+    if (!_ossSeries) return;
+    try {
+      const res = await callAdminApi('/api/market/price/' + encodeURIComponent(OPEN_SOURCE_SYMBOL));
+      const payload = JSON.parse(res.text);
+      const price = _bestPriceFromPayload(payload);
+      if (!Number.isFinite(price) || price <= 0) return;
+
+      const point = {
+        time: Math.floor(Date.now() / 1000),
+        value: Number(price),
+      };
+      _ossSeries.update(point);
+
+      const meta = document.getElementById('ossChartMeta');
+      if (meta) {
+        meta.textContent = 'الرمز: ' + OPEN_SOURCE_SYMBOL + ' | آخر سعر: ' + Number(price).toFixed(6) + ' | آخر تحديث: ' + new Date().toLocaleTimeString('ar');
+      }
+    } catch (e) {
+      console.warn('[oss-chart] update failed:', e.message || e);
+    }
+  }
+
+  function _renderFreeSourceCard(source){
+    const ok = !!source.configured;
+    const border = ok ? '#2ecc71' : '#e67e22';
+    const status = ok ? '<span style="color:#2ecc71">✅ جاهز</span>' : '<span style="color:#e67e22">⚠️ يحتاج تهيئة</span>';
+    const missing = Array.isArray(source.missing) && source.missing.length
+      ? '<div style="font-size:.74em;color:#e67e22;margin-top:6px">Missing: ' + source.missing.join(', ') + '</div>'
+      : '';
+
+    return '<div class="bal-card" style="border:1px solid ' + border + '">' +
+      '<div class="bal-name">' + String(source.name || source.id || '').toUpperCase() + '</div>' +
+      '<div style="font-size:.78em;color:#888;margin-top:4px">' + (source.type || 'integration') + '</div>' +
+      '<div style="margin-top:8px;font-size:.82em">' + status + '</div>' +
+      '<div style="font-size:.76em;color:#aaa;margin-top:4px">' + (source.note || '') + '</div>' +
+      missing +
+    '</div>';
+  }
+
+  async function loadFreeSources(){
+    const grid = document.getElementById('freeSourcesGrid');
+    if (!grid) return;
+    try {
+      const res = await callAdminApi('/api/free-sources');
+      const payload = JSON.parse(res.text);
+      const sources = Array.isArray(payload?.sources) ? payload.sources : [];
+      grid.innerHTML = sources.length
+        ? sources.map(_renderFreeSourceCard).join('')
+        : '<span style="color:#888">لا توجد تكاملات مجانية معروضة</span>';
+    } catch (e) {
+      grid.innerHTML = '<span style="color:#e74c3c">❌ ' + (e.message || 'تعذر تحميل التكاملات') + '</span>';
+    }
+  }
+
   // ── Auto-refresh countdown ───────────────────────────────────────────────────
   const AUTO_REFRESH_SECONDS = 30;
   let _cd = AUTO_REFRESH_SECONDS;
@@ -741,7 +984,7 @@ ${autoStopBanner}
     _refreshBusy = true;
     _setCountdownLabel(manual ? '⏳ جاري التحديث…' : '🔄 تحديث تلقائي…');
     try {
-      const results = await Promise.allSettled([loadDynamic(), loadApiSnapshot()]);
+      const results = await Promise.allSettled([loadDynamic(), loadApiSnapshot(), loadFreeSources(), updateOpenSourceChartPrice()]);
       _logSettledFailures(results, 'dashboard');
     } finally {
       _refreshBusy = false;
@@ -800,12 +1043,18 @@ ${autoStopBanner}
   async function saveConfig(){
     const body={
       max_daily_loss_usd:         parseFloat(document.getElementById('maxDailyLoss').value),
+      daily_limit_usd:            parseFloat(document.getElementById('dailyLimitUsd').value),
       max_per_trade_loss_pct:     parseFloat(document.getElementById('maxPerTrade').value),
       min_seconds_between_trades: parseFloat(document.getElementById('minSeconds').value),
       initial_capital:            parseFloat(document.getElementById('initialCapital').value),
       position_size_usd:          parseFloat(document.getElementById('positionSizeUsd')?.value || '5'),
       multi_strategy_live:        !!document.getElementById('multiStrategyLive')?.checked,
       max_live_trades_per_scan:   parseInt(document.getElementById('maxLiveTradesPerScan')?.value || '3', 10),
+      scan_symbol_mode:           document.getElementById('scanSymbolMode')?.value || 'cex_union',
+      max_dynamic_symbols:        parseInt(document.getElementById('maxDynamicSymbols')?.value || '500', 10),
+      max_metamask_symbols:       parseInt(document.getElementById('maxMetaMaskSymbols')?.value || '10000', 10),
+      scan_quote_assets:          String(document.getElementById('scanQuoteAssets')?.value || '').split(',').map(v=>v.trim()).filter(Boolean),
+      use_dynamic_symbols:        !!document.getElementById('useDynamicSymbols')?.checked,
       strategy_flags: {
         cex:         !!document.getElementById('flag_cex')?.checked,
         dex:         !!document.getElementById('flag_dex')?.checked,
@@ -815,7 +1064,7 @@ ${autoStopBanner}
         statistical: !!document.getElementById('flag_statistical')?.checked,
       }
     };
-    const numericKeys=['max_daily_loss_usd','max_per_trade_loss_pct','min_seconds_between_trades','initial_capital','max_live_trades_per_scan','position_size_usd'];
+    const numericKeys=['max_daily_loss_usd','daily_limit_usd','max_per_trade_loss_pct','min_seconds_between_trades','initial_capital','max_live_trades_per_scan','position_size_usd','max_dynamic_symbols','max_metamask_symbols'];
     for(const k of numericKeys){
       const v=Number(body[k]);
       if(!Number.isFinite(v)||v<=0){ alert('❌ قيمة غير صحيحة: '+k); return; }
@@ -830,6 +1079,35 @@ ${autoStopBanner}
       alert('✅ تم حفظ الإعدادات'); location.reload();
     }catch(e){ alert('❌ '+e.message); }
     finally{ setButtonsBusy(false); }
+  }
+
+  async function enableFullUniversePreset(){
+    if (!confirm('⚠️ تفعيل مسح واسع لكل الرموز يزيد الحمل وقد يرفع زمن الدورة. المتابعة؟')) return;
+    setButtonsBusy(true);
+    try {
+      const body = {
+        use_dynamic_symbols: true,
+        scan_symbol_mode: 'cex_union',
+        max_dynamic_symbols: 500,
+        max_metamask_symbols: 20000,
+        scan_quote_assets: ['USDT', 'USDC', 'FDUSD', 'BUSD', 'DAI', 'TUSD', 'BTC', 'ETH'],
+        strategy_flags: {
+          cex: true,
+          dex: true,
+          perps: true,
+          funding: true,
+          triangular: true,
+          statistical: true,
+        }
+      };
+      await callAdminApi('/config', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+      alert('✅ تم تفعيل وضع كل الرموز بنجاح');
+      location.reload();
+    } catch (e) {
+      alert('❌ ' + e.message);
+    } finally {
+      setButtonsBusy(false);
+    }
   }
   async function resetDaily(){
     if(!confirm('⚠️ إعادة تعيين إحصائيات اليوم (PnL + عدد الصفقات)؟')) return;
@@ -1176,10 +1454,18 @@ ${autoStopBanner}
       loadPerpsStatus(),
       loadExecutableIntegrationsStatus(),
       loadPlatformsGrid({ force: true }),
+      loadFreeSources(),
+      updateOpenSourceChartPrice(),
     ]);
     _logSettledFailures(results, 'dynamic-panels');
   }
+  initOpenSourceChart().then(() => updateOpenSourceChartPrice()).catch((e) => {
+    const meta = document.getElementById('ossChartMeta');
+    if (meta) meta.textContent = '❌ تعذر تهيئة المخطط المفتوح المصدر: ' + (e.message || e);
+  });
   loadDynamic();
+  setInterval(() => updateOpenSourceChartPrice(), 15000);
+  setInterval(() => loadFreeSources(), 60000);
 
   // ── Platform cards — dynamic refresh every 30 s ─────────────────────────────
   function _renderPlatformCard(p){
@@ -1408,6 +1694,47 @@ ${autoStopBanner}
     document.getElementById('walletConnected').style.display = 'none';
     document.getElementById('walletStatus').textContent = 'تم فصل المحفظة';
   }
+
+  function _toDexPair(symbol){
+    const normalized = String(symbol || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+    const quotes = ['USDT', 'USDC', 'FDUSD', 'BUSD', 'DAI', 'TUSD', 'BTC', 'ETH'];
+    for (const quote of quotes) {
+      if (!normalized.endsWith(quote) || normalized.length <= quote.length) continue;
+      const base = normalized.slice(0, -quote.length);
+      const mappedQuote = (quote === 'USDT' || quote === 'USDC' || quote === 'FDUSD' || quote === 'BUSD' || quote === 'DAI' || quote === 'TUSD')
+        ? 'USD'
+        : quote;
+      return base + '/' + mappedQuote;
+    }
+    return null;
+  }
+
+  async function loadWalletPairsCatalog(){
+    const pairEl = document.getElementById('w3pair');
+    if (!pairEl) return;
+    try {
+      const quotesRaw = String(document.getElementById('scanQuoteAssets')?.value || 'USDT,USDC,BTC,ETH');
+      const quotes = encodeURIComponent(quotesRaw);
+      const res = await callAdminApi('/api/symbols/catalog?includeMetaMask=true&maxMetaMask=20000&maxScan=500&quotes=' + quotes);
+      const payload = JSON.parse(res.text);
+      const preferred = Array.isArray(payload?.aggregate?.walletReadableCex) && payload.aggregate.walletReadableCex.length
+        ? payload.aggregate.walletReadableCex
+        : (Array.isArray(payload?.aggregate?.cexUnion) ? payload.aggregate.cexUnion : []);
+
+      const top = preferred.slice(0, 300)
+        .map(_toDexPair)
+        .filter(Boolean);
+
+      if (!top.length) return;
+      const current = pairEl.value;
+      pairEl.innerHTML = top.map((p) => '<option value="' + p + '">' + p + '</option>').join('');
+      if (current && top.includes(current)) pairEl.value = current;
+    } catch (e) {
+      console.warn('[wallet-pairs] catalog load failed:', e.message || e);
+    }
+  }
+
+  loadWalletPairsCatalog();
 
   async function signAndSendPerp(protocol) {
     const resultEl = document.getElementById('w3TxResult');
@@ -1663,15 +1990,15 @@ export async function renderChecklist(env) {
     // { name: 'Perps — OKX Swap Feed',    ok: true,                        critical: false, note: 'بيانات أسعار OKX Perpetuals (مجاني، لا مفتاح مطلوب)' },
     { name: 'وضع Live مفعّل',           ok: state.paper_trading === false, critical: true, note: 'التداول الحقيقي' },
     { name: 'حد الخسارة اليومية',       ok: !!(state.max_daily_loss_usd), critical: true, note: `الحالي: $${state.max_daily_loss_usd ?? 25}` },
+    { name: 'حد الحجم اليومي',          ok: !!(state.daily_limit_usd),    critical: true, note: `الحالي: $${state.daily_limit_usd ?? 500}` },
     { name: 'التداول مفعّل',            ok: state.trading_enabled !== false, critical: false, note: 'يجب التشغيل قبل المسح' },
     { name: 'لا إيقاف تلقائي نشط',     ok: !state.auto_stopped,         critical: false, note: state.auto_stop_reason || '' }
   ];
   const criticalOk = checks.filter(c => c.critical).every(c => c.ok);
-  const allOk      = checks.every(c => c.ok);
-  const color      = allOk ? '#2ecc71' : criticalOk ? '#f0b90b' : '#e74c3c';
-  const label      = allOk
-    ? '✅ جاهز للتداول الحقيقي'
-    : criticalOk ? '⚠️ المتطلبات الأساسية مكتملة — يُنصح بمزيد من اختبار Paper'
+  const optionalOk = checks.filter(c => !c.critical).every(c => c.ok);
+  const color      = criticalOk ? (optionalOk ? '#2ecc71' : '#f0b90b') : '#e74c3c';
+  const label      = criticalOk
+    ? (optionalOk ? '✅ جاهز للتداول الحقيقي' : '⚠️ جاهز للتداول الحقيقي — بعض العناصر الاختيارية غير مكتملة')
     : '🔴 غير جاهز — يُرجى إكمال المتطلبات الحرجة';
   const rows = checks.map(c =>
     `<tr>

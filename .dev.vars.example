@@ -42,6 +42,8 @@ KUCOIN_PASSPHRASE=
 BITGET_API_KEY=
 BITGET_SECRET_KEY=
 BITGET_API_PASSPHRASE=
+BITGET_UID=
+BITGET_USERNAME=
 # Alias also accepted for the secret:  BITGET_API_SECRET=
 
 # ── Bitmart ──────────────────────────────────────────────────
@@ -69,6 +71,29 @@ DIRECT_EXCHANGES=
 # Cloudflare Workers AI (AIWORKER binding).
 # Production: `npx wrangler secret put GITHUB_TOKEN`
 GITHUB_TOKEN=
+
+# ── Optional Free Price Providers ───────────────────────────
+# Used as supplementary fallback feeds in /api/market/price/:symbol
+# and scan aggregation (when keys are present).
+ALPHA_VANTAGE_API_KEY=
+TWELVE_DATA_API_KEY=
+
+# ── Unified Brokerage (Alpaca) ─────────────────────────────
+# Free paper-trading compatible broker adapter.
+# Defaults to paper endpoint when ALPACA_BASE_URL is blank.
+APCA_API_KEY_ID=
+APCA_API_SECRET_KEY=
+# Optional aliases accepted by broker adapter:
+ALPACA_API_KEY=
+ALPACA_API_SECRET=
+ALPACA_BASE_URL=https://paper-api.alpaca.markets
+
+# Optional IBKR bridge adapter (connects to your own IBKR gateway bridge).
+# The worker calls this bridge for account summary and order placement.
+IBKR_BRIDGE_URL=
+IBKR_BRIDGE_TOKEN=
+IBKR_ACCOUNT_ID=
+IBKR_BRIDGE_TIMEOUT_MS=15000
 
 # ── Temporal Cloud ────────────────────────────────────────────
 # Temporal orchestrates durable trading sessions that survive

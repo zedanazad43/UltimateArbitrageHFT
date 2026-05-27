@@ -17,8 +17,11 @@ FROM alpine:3.20
 # ca-certificates is needed for TLS connections to exchanges and RPC nodes.
 RUN apk add --no-cache ca-certificates tzdata
 
+RUN addgroup -S hft && adduser -S hft -G hft
+
 WORKDIR /app
 COPY --from=builder /hft /app/hft
+RUN chown -R hft:hft /app
 
 # Default environment (all overridable at runtime via -e or docker-compose env_file).
 ENV PAPER_TRADING=true \
@@ -35,5 +38,7 @@ ENV PAPER_TRADING=true \
     MAX_GAS_COST_PCT=0.30
 
 EXPOSE 9090
+
+USER hft
 
 ENTRYPOINT ["/app/hft"]

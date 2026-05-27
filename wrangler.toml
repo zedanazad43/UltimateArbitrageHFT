@@ -3,6 +3,7 @@ main = "index.js"
 compatibility_date = "2025-04-18"
 compatibility_flags = ["nodejs_compat"]
 account_id = "652e53f35781522e2745784cc4425d9d"
+workers_dev = true
 
 # ── Existing bindings ──────────────────────────────────────────────────────────
 
@@ -96,6 +97,10 @@ head_sampling_rate = 1
 
 [triggers]
 crons = ["* * * * *"]
+
+[[routes]]
+pattern = "api.ecostamp.net"
+custom_domain = true
 
 # ── Temporal Cloud — non-sensitive config vars ────────────────────────────────
 # These are plain (non-secret) configuration values exposed to the Worker.

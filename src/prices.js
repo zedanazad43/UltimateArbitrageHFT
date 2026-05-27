@@ -36,24 +36,45 @@ const DEFAULT_SCAN_SYMBOLS = [
   'ADAUSDT', 'DOTUSDT', 'LTCUSDT', 'TRXUSDT', 'NEARUSDT'
 ];
 
+export const DEFAULT_QUOTE_ASSETS = ['USDT', 'USDC', 'FDUSD', 'BUSD', 'DAI', 'TUSD', 'BTC', 'ETH'];
+const STABLE_QUOTES = new Set(['USDT', 'USDC', 'FDUSD', 'BUSD', 'DAI', 'TUSD']);
+
+function normalizeQuoteAssets(values) {
+  const raw = Array.isArray(values)
+    ? values
+    : String(values || '')
+        .split(',')
+        .map((v) => v.trim())
+        .filter(Boolean);
+
+  const normalized = [...new Set(raw.map((q) => String(q).toUpperCase().replace(/[^A-Z0-9]/g, '')))]
+    .filter((q) => q.length >= 3 && q.length <= 10);
+
+  return normalized.length ? normalized : [...DEFAULT_QUOTE_ASSETS];
+}
+
+export function splitTradingSymbol(symbol, quoteAssets = DEFAULT_QUOTE_ASSETS) {
+  const normalized = String(symbol || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+  if (!normalized || normalized.length < 5) return null;
+
+  const quotes = normalizeQuoteAssets(quoteAssets).sort((a, b) => b.length - a.length);
+  for (const quote of quotes) {
+    if (!normalized.endsWith(quote)) continue;
+    const base = normalized.slice(0, -quote.length);
+    if (!base || base.length < 2 || base.length > 15) continue;
+    if (!/^[A-Z0-9]{2,15}$/.test(base)) continue;
+    return { symbol: normalized, base, quote };
+  }
+
+  return null;
+}
+
 function uniqSortedSymbols(values) {
   return [...new Set(values.filter(Boolean))].sort((a, b) => a.localeCompare(b));
 }
 
-function isLikelyTradeableUsdtSymbol(value) {
-  if (typeof value !== 'string') return false;
-  if (!value.endsWith('USDT')) return false;
-  const base = value.slice(0, -4);
-  if (!base) return false;
-  return /^[A-Z0-9]{2,15}$/.test(base);
-}
-
-function toUsdtSymbolFromToken(raw) {
-  if (!raw || typeof raw !== 'string') return null;
-  const symbol = raw.toUpperCase().replace(/[^A-Z0-9]/g, '');
-  if (!symbol || symbol.length < 2 || symbol.length > 15) return null;
-  if (symbol === 'USDT') return null;
-  return `${symbol}USDT`;
+export function isLikelyTradeableSymbol(value, quoteAssets = DEFAULT_QUOTE_ASSETS) {
+  return !!splitTradingSymbol(value, quoteAssets);
 }
 
 async function fetchJsonWithTimeout(url, options = {}, timeoutMs = SYMBOL_DISCOVERY_TIMEOUT_MS) {
@@ -71,17 +92,18 @@ async function fetchJsonWithTimeout(url, options = {}, timeoutMs = SYMBOL_DISCOV
 /**
  * Discover all currently tradeable MEXC spot USDT pairs.
  */
-export async function discoverMEXCSpotSymbols() {
+export async function discoverMEXCSpotSymbols(options = {}) {
+  const quoteAssets = normalizeQuoteAssets(options.quoteAssets || DEFAULT_QUOTE_ASSETS);
   try {
     const data = await fetchJsonWithTimeout('https://api.mexc.com/api/v3/exchangeInfo', FETCH_CF);
     const symbols = (data?.symbols || [])
       .filter((s) => {
         const quote = String(s?.quoteAsset || '').toUpperCase();
         const status = String(s?.status || '').toUpperCase();
-        return quote === 'USDT' && (status === 'TRADING' || status === '1' || status === 'ENABLED');
+        return quoteAssets.includes(quote) && (status === 'TRADING' || status === '1' || status === 'ENABLED');
       })
       .map((s) => String(s?.symbol || '').toUpperCase())
-      .filter(isLikelyTradeableUsdtSymbol);
+      .filter((sym) => isLikelyTradeableSymbol(sym, quoteAssets));
     return uniqSortedSymbols(symbols);
   } catch (_) {
     return [];
@@ -91,7 +113,8 @@ export async function discoverMEXCSpotSymbols() {
 /**
  * Discover all currently tradeable Binance spot USDT pairs.
  */
-export async function discoverBinanceSpotSymbols() {
+export async function discoverBinanceSpotSymbols(options = {}) {
+  const quoteAssets = normalizeQuoteAssets(options.quoteAssets || DEFAULT_QUOTE_ASSETS);
   for (const endpoint of BINANCE_EXCHANGE_INFO_ENDPOINTS) {
     try {
       const data = await fetchJsonWithTimeout(endpoint, FETCH_CF);
@@ -99,10 +122,10 @@ export async function discoverBinanceSpotSymbols() {
         .filter((s) => {
           const quote = String(s?.quoteAsset || '').toUpperCase();
           const status = String(s?.status || '').toUpperCase();
-          return quote === 'USDT' && status === 'TRADING';
+          return quoteAssets.includes(quote) && status === 'TRADING';
         })
         .map((s) => String(s?.symbol || '').toUpperCase())
-        .filter(isLikelyTradeableUsdtSymbol);
+        .filter((sym) => isLikelyTradeableSymbol(sym, quoteAssets));
       if (symbols.length > 0) return uniqSortedSymbols(symbols);
     } catch (_) {
       // Continue to next Binance endpoint.
@@ -115,7 +138,8 @@ export async function discoverBinanceSpotSymbols() {
 /**
  * Discover all currently tradeable Bitget spot USDT pairs.
  */
-export async function discoverBitgetSpotSymbols() {
+export async function discoverBitgetSpotSymbols(options = {}) {
+  const quoteAssets = normalizeQuoteAssets(options.quoteAssets || DEFAULT_QUOTE_ASSETS);
   const bitgetRequestOptions = {
     ...FETCH_CF,
     headers: {
@@ -132,10 +156,10 @@ export async function discoverBitgetSpotSymbols() {
       const status = String(s?.status || '').toLowerCase();
       const enabled = String(s?.enableStatus || '').toLowerCase();
       const listed = status.includes('online') || status.includes('normal') || status.includes('trading') || enabled.includes('online');
-      return (quote === 'USDT' || symbol.endsWith('USDT')) && listed;
+      return (quoteAssets.includes(quote) || isLikelyTradeableSymbol(symbol, quoteAssets)) && listed;
     })
     .map((s) => String(s?.symbol || '').toUpperCase())
-    .filter(isLikelyTradeableUsdtSymbol);
+    .filter((sym) => isLikelyTradeableSymbol(sym, quoteAssets));
 
   const parseV1 = (rows) => (rows || [])
     .filter((s) => {
@@ -143,10 +167,10 @@ export async function discoverBitgetSpotSymbols() {
       const quote = String(s?.quoteCoin || '').toUpperCase();
       const status = String(s?.status || '').toLowerCase();
       const listed = status.includes('online') || status.includes('normal') || status.includes('trading');
-      return (quote === 'USDT' || symbol.endsWith('USDT')) && listed;
+      return (quoteAssets.includes(quote) || isLikelyTradeableSymbol(symbol, quoteAssets)) && listed;
     })
     .map((s) => String(s?.symbol || '').toUpperCase())
-    .filter(isLikelyTradeableUsdtSymbol);
+    .filter((sym) => isLikelyTradeableSymbol(sym, quoteAssets));
 
   const endpoints = [
     { url: 'https://api.bitget.com/api/v2/spot/public/symbols', parser: (d) => parseV2(d?.data) },
@@ -172,12 +196,21 @@ export async function discoverBitgetSpotSymbols() {
  * Discover broad MetaMask-readable token symbols from a public Ethereum token list.
  * Returns symbols normalized to *USDT form* so they can be compared with CEX pairs.
  */
-export async function discoverMetaMaskReadableSymbols(limit = 5000) {
+export async function discoverMetaMaskReadableSymbols(limit = 5000, quoteAssets = DEFAULT_QUOTE_ASSETS) {
   try {
     const data = await fetchJsonWithTimeout('https://tokens.coingecko.com/uniswap/all.json', FETCH_CF);
+    const quotes = normalizeQuoteAssets(quoteAssets).filter((q) => STABLE_QUOTES.has(q));
     const symbols = (data?.tokens || [])
-      .map((t) => toUsdtSymbolFromToken(t?.symbol))
-      .filter(isLikelyTradeableUsdtSymbol);
+      .flatMap((t) => {
+        const raw = String(t?.symbol || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+        if (!raw || raw.length < 2 || raw.length > 15 || raw === 'USDT') return [];
+        const out = [];
+        for (const quote of quotes.length ? quotes : ['USDT']) {
+          out.push(`${raw}${quote}`);
+        }
+        return out;
+      })
+      .filter((sym) => isLikelyTradeableSymbol(sym, quoteAssets));
     return uniqSortedSymbols(symbols).slice(0, Math.max(1, limit));
   } catch (_) {
     return [];
@@ -189,11 +222,12 @@ export async function discoverMetaMaskReadableSymbols(limit = 5000) {
  */
 export async function discoverSymbolCatalog(options = {}) {
   const metaMaskLimit = Number.isFinite(options.metaMaskLimit) ? options.metaMaskLimit : 5000;
+  const quoteAssets = normalizeQuoteAssets(options.quoteAssets || DEFAULT_QUOTE_ASSETS);
   const [mexc, binance, bitget, metamask] = await Promise.all([
-    discoverMEXCSpotSymbols(),
-    discoverBinanceSpotSymbols(),
-    discoverBitgetSpotSymbols(),
-    discoverMetaMaskReadableSymbols(metaMaskLimit),
+    discoverMEXCSpotSymbols({ quoteAssets }),
+    discoverBinanceSpotSymbols({ quoteAssets }),
+    discoverBitgetSpotSymbols({ quoteAssets }),
+    discoverMetaMaskReadableSymbols(metaMaskLimit, quoteAssets),
   ]);
 
   const cexUnion = uniqSortedSymbols([...mexc, ...binance, ...bitget]);
@@ -220,14 +254,27 @@ export async function discoverSymbolCatalog(options = {}) {
  * Uses CEX intersection first for reliability, then broadens to CEX union.
  */
 export async function resolveDynamicScanSymbols(state = {}) {
-  const maxSymbols = Math.max(15, Math.min(500, Number(state.max_dynamic_symbols || 150)));
+  const maxSymbols = Math.max(15, Math.min(2000, Number(state.max_dynamic_symbols || 500)));
+  const quoteAssets = normalizeQuoteAssets(state.scan_quote_assets || state.quote_assets || DEFAULT_QUOTE_ASSETS);
   const catalog = await discoverSymbolCatalog({
-    metaMaskLimit: Number(state.max_metamask_symbols || 5000),
+    metaMaskLimit: Number(state.max_metamask_symbols || 10000),
+    quoteAssets,
   });
 
-  const preferred = catalog.aggregate.cexIntersection.length > 0
-    ? catalog.aggregate.cexIntersection
-    : catalog.aggregate.cexUnion;
+  const mode = String(state.scan_symbol_mode || '').toLowerCase();
+  let preferred;
+  if (mode === 'cex_intersection') {
+    preferred = catalog.aggregate.cexIntersection;
+  } else if (mode === 'wallet_readable') {
+    preferred = catalog.aggregate.walletReadableCex;
+  } else {
+    // Default: broadest venue coverage for "all crypto tokens" scanning.
+    preferred = catalog.aggregate.cexUnion;
+  }
+
+  if (!preferred.length && mode !== 'cex_union') {
+    preferred = catalog.aggregate.cexUnion;
+  }
 
   if (!preferred.length) return DEFAULT_SCAN_SYMBOLS;
 
@@ -330,7 +377,9 @@ export async function getBinancePrice(symbol) {
 
 export async function getKuCoinPrice(symbol) {
   try {
-    const kuSymbol = symbol.endsWith('USDT') ? symbol.slice(0, -4) + '-USDT' : symbol;
+    const parsed = splitTradingSymbol(symbol);
+    if (!parsed) return null;
+    const kuSymbol = `${parsed.base}-${parsed.quote}`;
     const resp = await fetchWithRetry(
       `https://api.kucoin.com/api/v1/market/orderbook/level1?symbol=${kuSymbol}`,
       FETCH_CF
@@ -597,9 +646,10 @@ export async function getKrakenPrice(symbol) {
 
 export async function getCoinbasePrice(symbol) {
   try {
-    // Convert e.g. BTCUSDT → BTC-USDT
-    const base = symbol.endsWith('USDT') ? symbol.slice(0, -4) : symbol.slice(0, -3);
-    const quote = symbol.endsWith('USDT') ? 'USD' : 'BTC'; // Coinbase uses USD not USDT
+    const parsed = splitTradingSymbol(symbol);
+    if (!parsed) return null;
+    const base = parsed.base;
+    const quote = parsed.quote === 'USDT' ? 'USD' : parsed.quote;
     const resp = await fetchWithRetry(
       `https://api.coinbase.com/v2/prices/${base}-${quote}/spot`,
       FETCH_CF
@@ -610,6 +660,68 @@ export async function getCoinbasePrice(symbol) {
     if (!price || isNaN(price)) return null;
     return { price, exchange: 'coinbase', fee: 0.006 }; // 0.6% taker fee (advanced trade)
   } catch (_) { return null; }
+}
+
+/**
+ * Free provider fallback (optional): Alpha Vantage currency exchange rate.
+ * Requires ALPHA_VANTAGE_API_KEY.
+ */
+export async function getAlphaVantagePrice(env, symbol) {
+  const apiKey = String(env?.ALPHA_VANTAGE_API_KEY || '').trim();
+  if (!apiKey) return null;
+
+  const parsed = splitTradingSymbol(symbol);
+  if (!parsed) return null;
+  const base = parsed.base;
+  const quote = parsed.quote === 'USDT' ? 'USD' : parsed.quote;
+
+  try {
+    const endpoint = new URL('https://www.alphavantage.co/query');
+    endpoint.searchParams.set('function', 'CURRENCY_EXCHANGE_RATE');
+    endpoint.searchParams.set('from_currency', base);
+    endpoint.searchParams.set('to_currency', quote);
+    endpoint.searchParams.set('apikey', apiKey);
+
+    const resp = await fetchWithRetry(endpoint.toString(), FETCH_CF, 1);
+    if (!resp || !resp.ok) { await resp?.body?.cancel(); return null; }
+
+    const data = await resp.json();
+    const rate = parseFloat(data?.['Realtime Currency Exchange Rate']?.['5. Exchange Rate']);
+    if (!rate || isNaN(rate)) return null;
+    return { price: rate, exchange: 'alpha_vantage', fee: 0.0015 };
+  } catch (_) {
+    return null;
+  }
+}
+
+/**
+ * Free provider fallback (optional): Twelve Data spot price.
+ * Requires TWELVE_DATA_API_KEY.
+ */
+export async function getTwelveDataPrice(env, symbol) {
+  const apiKey = String(env?.TWELVE_DATA_API_KEY || '').trim();
+  if (!apiKey) return null;
+
+  const parsed = splitTradingSymbol(symbol);
+  if (!parsed) return null;
+  const base = parsed.base;
+  const quote = parsed.quote === 'USDT' ? 'USD' : parsed.quote;
+
+  try {
+    const endpoint = new URL('https://api.twelvedata.com/price');
+    endpoint.searchParams.set('symbol', `${base}/${quote}`);
+    endpoint.searchParams.set('apikey', apiKey);
+
+    const resp = await fetchWithRetry(endpoint.toString(), FETCH_CF, 1);
+    if (!resp || !resp.ok) { await resp?.body?.cancel(); return null; }
+
+    const data = await resp.json();
+    const rate = parseFloat(data?.price);
+    if (!rate || isNaN(rate)) return null;
+    return { price: rate, exchange: 'twelve_data', fee: 0.0015 };
+  } catch (_) {
+    return null;
+  }
 }
 
 
@@ -635,8 +747,9 @@ export async function getBitgetPrice(symbol) {
 
 export async function getBitmartPrice(symbol) {
   try {
-    // Bitmart uses underscore separator: BTC_USDT, SHIB_USDT, etc.
-    const bmSymbol = symbol.replace(/USDT$/, '_USDT');
+    const parsed = splitTradingSymbol(symbol);
+    if (!parsed) return null;
+    const bmSymbol = `${parsed.base}_${parsed.quote}`;
     const resp = await fetchWithRetry(
       `https://api-cloud.bitmart.com/spot/v1/ticker?symbol=${bmSymbol}`,
       FETCH_CF
@@ -719,9 +832,9 @@ export async function getHTXPrice(symbol) {
 
 export async function getGateioPrice(symbol) {
   try {
-    const gateSymbol = symbol.endsWith('USDT')
-      ? symbol.slice(0, -4) + '_USDT'
-      : symbol;
+    const parsed = splitTradingSymbol(symbol);
+    if (!parsed) return null;
+    const gateSymbol = `${parsed.base}_${parsed.quote}`;
     const resp = await fetchWithRetry(
       `https://api.gateio.ws/api/v4/spot/tickers?currency_pair=${gateSymbol}`,
       FETCH_CF
@@ -875,6 +988,8 @@ export async function getAllSpotPrices(env, symbol, openCircuits = new Set()) {
     ['htx',      () => getHTXPrice(symbol)],                // (*) public
     ['kraken',   () => getKrakenPrice(symbol)],             // (*) public — no IP restriction
     ['coinbase', () => getCoinbasePrice(symbol)],           // (*) public — no IP restriction
+    ['alpha_vantage', () => getAlphaVantagePrice(env, symbol)], // optional free API key
+    ['twelve_data', () => getTwelveDataPrice(env, symbol)],     // optional free API key
   ];
 
   const tasks = exchangeFetchers.map(([name, fetcher]) =>

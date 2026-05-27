@@ -103,6 +103,11 @@ describe('hasExchangeCredentials', () => {
     const env = { BITMART_API_KEY: 'k', BITMART_API_SECRET: 's', BITMART_MEMO: 'm' };
     assert.equal(hasExchangeCredentials(env, 'bitmart'), true);
   });
+
+  test('returns true when legacy BINANC_API_SECRET alias is used instead of BINANCE_API_SECRET', () => {
+    const env = { BINANCE_API_KEY: 'k', BINANC_API_SECRET: 'legacy-secret' };
+    assert.equal(hasExchangeCredentials(env, 'binance'), true);
+  });
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -180,6 +185,11 @@ describe('getMissingCredentialKeys', () => {
     assert.deepEqual(getMissingCredentialKeys(env, 'bitmart'), []);
   });
 
+  test('returns empty array for binance when legacy BINANC_API_SECRET alias is set', () => {
+    const env = { BINANCE_API_KEY: 'k', BINANC_API_SECRET: 'legacy-secret' };
+    assert.deepEqual(getMissingCredentialKeys(env, 'binance'), []);
+  });
+
   test('returns empty array for unknown exchange', () => {
     assert.deepEqual(getMissingCredentialKeys({}, 'unknown'), []);
   });
@@ -200,8 +210,18 @@ describe('getBinanceBalance', () => {
   test('throws when BINANCE_API_SECRET is missing', async () => {
     await assert.rejects(
       () => getBinanceBalance({ BINANCE_API_KEY: 'k' }),
-      /BINANCE_API_SECRET is not configured/
+      /BINANCE_API_SECRET.*is not configured/
     );
+  });
+
+  test('accepts legacy BINANC_API_SECRET alias in place of BINANCE_API_SECRET', async () => {
+    installMockFetch(() => makeJsonResponse({ balances: [{ asset: 'USDT', free: '12.50', locked: '1.25' }] }));
+    const bal = await getBinanceBalance(
+      { BINANCE_API_KEY: 'k', BINANC_API_SECRET: 'legacy-secret' },
+      'USDT'
+    );
+    assert.equal(bal.free, 12.5);
+    assert.equal(bal.locked, 1.25);
   });
 
   test('returns free and locked balance for the requested asset', async () => {
@@ -263,7 +283,7 @@ describe('placeMarketOrderBinance', () => {
   test('throws when BINANCE_API_SECRET is missing', async () => {
     await assert.rejects(
       () => placeMarketOrderBinance({ BINANCE_API_KEY: 'k' }, 'BTCUSDT', 'BUY', '0.001', 100),
-      /BINANCE_API_SECRET is not configured/
+      /BINANCE_API_SECRET.*is not configured/
     );
   });
 

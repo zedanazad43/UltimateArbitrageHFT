@@ -456,7 +456,7 @@ export class ProxyPool {
       { pattern: /api\.binance\.com/i, exchange: 'binance' },
       { pattern: /api-futures\.binance\.com/i, exchange: 'binance' },
       { pattern: /api\.kucoin\.com/i, exchange: 'kucoin' },
-      { pattern: /api\.bitget\.com/i, exchange: 'bitget' },
+      { pattern: /(?:^|\.)c?api\.bitget\.com/i, exchange: 'bitget' },
       { pattern: /api-cloud\.bitmart\.com/i, exchange: 'bitmart' },
       { pattern: /api\.htx\.com/i, exchange: 'htx' },
       { pattern: /api\.bybit\.com/i, exchange: 'bybit' },

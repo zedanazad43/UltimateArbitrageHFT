@@ -102,7 +102,7 @@ if [[ "$SKIP_PUSH_TRIGGER" -eq 0 ]]; then
 fi
 
 echo "== Verify production endpoints =="
-ADMIN_TOKEN="$ADMIN_TOKEN" bash scripts/verify-production-endpoints.sh
+WORKFLOW_ADMIN_TOKEN="$ADMIN_TOKEN" REQUIRE_READY_FOR_LIVE="false" node scripts/verify-production-endpoints.js
 
 echo
 echo "== Exchange readiness diagnostic =="

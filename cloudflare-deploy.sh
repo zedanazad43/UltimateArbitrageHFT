@@ -101,6 +101,14 @@ if npx wrangler deploy; then
     echo "   1. Test endpoints: npm run test"
     echo "   2. Monitor logs: npm run tail"
     echo "   3. View dashboard: https://dash.cloudflare.com"
+        echo ""
+        if [ -n "$WORKFLOW_ADMIN_TOKEN" ] || [ -n "$ADMIN_TOKEN" ]; then
+            echo "🧪 Running post-deploy smoke checks (workers.dev + custom domain)..."
+            CUSTOM_BASE_URL="https://api.ecostamp.net" EXPECTED_WORKER_NAME="$WORKER_NAME" WORKFLOW_ADMIN_TOKEN="${WORKFLOW_ADMIN_TOKEN:-$ADMIN_TOKEN}" REQUIRE_READY_FOR_LIVE="false" node ./scripts/verify-production-endpoints.js
+            echo "✅ Smoke checks passed"
+        else
+            echo "⚠️ Skipping smoke checks (set WORKFLOW_ADMIN_TOKEN or ADMIN_TOKEN to enable)"
+        fi
     echo ""
     exit 0
 else

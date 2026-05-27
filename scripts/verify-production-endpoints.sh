@@ -2,7 +2,10 @@
 set -euo pipefail
 
 BASE_URL="${1:-https://ultimatearbitragehft.zedanazad43.workers.dev}"
+CUSTOM_BASE_URL="${CUSTOM_BASE_URL:-https://api.ecostamp.net}"
 ADMIN_TOKEN_VALUE="${WORKFLOW_ADMIN_TOKEN:-${ADMIN_TOKEN:-}}"
+EXPECTED_WORKER_NAME="${EXPECTED_WORKER_NAME:-ultimatearbitragehft}"
+REQUIRE_READY_FOR_LIVE="${REQUIRE_READY_FOR_LIVE:-true}"
 TMP_ROOT="${TMPDIR:-/tmp}"
 
 health_out="${TMP_ROOT}/prod_health.json"
@@ -15,6 +18,7 @@ platforms_out="${TMP_ROOT}/prod_platforms.json"
 exec_health_out="${TMP_ROOT}/prod_exec_health.json"
 balances_out="${TMP_ROOT}/prod_balances.json"
 status_out="${TMP_ROOT}/prod_status.json"
+readiness_out="${TMP_ROOT}/prod_readiness.json"
 proxy_stats_out="${TMP_ROOT}/prod_proxy_stats.json"
 
 bitmart_stats_out="${TMP_ROOT}/prod_bitmart_stats.json"
@@ -25,6 +29,44 @@ if [[ -z "${ADMIN_TOKEN_VALUE}" ]]; then
   echo "Usage: WORKFLOW_ADMIN_TOKEN='<token>' $0 [base_url]"
   exit 1
 fi
+
+check_identity_and_readiness() {
+  local url="$1"
+  local label="$2"
+  local version_file="$3"
+  local readiness_file="$4"
+
+  local version_code
+  local readiness_code
+  version_code=$(curl -s -o "${version_file}" -w "%{http_code}" "${url}/api/version")
+  readiness_code=$(curl -s -o "${readiness_file}" -w "%{http_code}" -H "x-admin-token: ${ADMIN_TOKEN_VALUE}" "${url}/api/readiness")
+
+  printf "  [%s] /api/version   -> %s\n" "${label}" "${version_code}"
+  printf "  [%s] /api/readiness -> %s\n" "${label}" "${readiness_code}"
+
+  if [[ "${version_code}" != "200" ]]; then
+    echo "ERROR: ${label} /api/version check failed"
+    exit 1
+  fi
+  if [[ "${readiness_code}" != "200" ]]; then
+    echo "ERROR: ${label} /api/readiness check failed"
+    exit 1
+  fi
+
+  if ! grep -q '"worker":"'"${EXPECTED_WORKER_NAME}"'"' "${version_file}"; then
+    echo "ERROR: ${label} is not serving expected worker ${EXPECTED_WORKER_NAME}"
+    echo "Observed /api/version payload:"
+    cat "${version_file}"
+    exit 1
+  fi
+
+  if [[ "${REQUIRE_READY_FOR_LIVE}" == "true" ]] && ! grep -q '"readyForLive":true' "${readiness_file}"; then
+    echo "ERROR: ${label} readiness is not green (readyForLive=true required)"
+    echo "Observed /api/readiness payload:"
+    cat "${readiness_file}"
+    exit 1
+  fi
+}
 
 echo "Checking public endpoints on ${BASE_URL}"
 
@@ -62,6 +104,14 @@ if [[ "${dashboard_code}" == "200" ]]; then
   fi
 else
   echo "Skipping dashboard marker checks (302 redirect to auth is expected in production)"
+fi
+
+echo "Checking worker identity + readiness gates"
+check_identity_and_readiness "${BASE_URL}" "workers.dev/base" "${version_out}" "${readiness_out}"
+if [[ -n "${CUSTOM_BASE_URL}" ]]; then
+  custom_version_out="${TMP_ROOT}/prod_custom_version.json"
+  custom_readiness_out="${TMP_ROOT}/prod_custom_readiness.json"
+  check_identity_and_readiness "${CUSTOM_BASE_URL}" "custom-domain" "${custom_version_out}" "${custom_readiness_out}"
 fi
 
 echo "Checking protected endpoints with admin token"

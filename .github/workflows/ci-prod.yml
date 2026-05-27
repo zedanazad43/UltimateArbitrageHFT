@@ -215,7 +215,7 @@ jobs:
           critical_missing=0
           optional_missing=()
 
-          for key in ADMIN_TOKEN TELEGRAM_BOT_TOKEN TELEGRAM_CHAT_ID; do
+          for key in WORKFLOW_ADMIN_TOKEN TELEGRAM_BOT_TOKEN TELEGRAM_CHAT_ID; do
             if [ -z "${!key}" ]; then
               echo "::warning::Missing critical GitHub environment secret: $key"
               critical_missing=1
@@ -281,7 +281,7 @@ jobs:
           ALCHEMY_API_KEY: ${{ secrets.ALCHEMY_API_KEY }}
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-          ADMIN_TOKEN: ${{ secrets.ADMIN_TOKEN }}
+          WORKFLOW_ADMIN_TOKEN: ${{ secrets.WORKFLOW_ADMIN_TOKEN }}
           HFT_ENGINE_SECRET: ${{ secrets.HFT_ENGINE_SECRET }}
           TEMPORAL_API_KEY: ${{ secrets.TEMPORAL_API_KEY }}
 
@@ -348,10 +348,11 @@ jobs:
       - name: Post-deploy endpoint smoke test
         id: smoke_test
         run: |
-          chmod +x ./scripts/verify-production-endpoints.sh
-          ADMIN_TOKEN="${ADMIN_TOKEN}" ./scripts/verify-production-endpoints.sh
+          node ./scripts/verify-production-endpoints.js
         env:
-          ADMIN_TOKEN: ${{ secrets.ADMIN_TOKEN }}
+          WORKFLOW_ADMIN_TOKEN: ${{ secrets.WORKFLOW_ADMIN_TOKEN }}
+          EXPECTED_WORKER_NAME: ultimatearbitragehft
+          REQUIRE_READY_FOR_LIVE: "true"
 
       - name: Telegram alert on smoke test failure
         if: ${{ failure() && steps.smoke_test.outcome == 'failure' }}

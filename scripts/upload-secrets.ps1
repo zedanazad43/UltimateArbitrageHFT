@@ -37,6 +37,9 @@ $RequiredSecretsBySection = @{
     'BITGET'  = @('BITGET_API_KEY', 'BITGET_SECRET_KEY', 'BITGET_API_PASSPHRASE')
     'BITMART' = @('BITMART_API_KEY', 'BITMART_SECRET_KEY', 'BITMART_MEMO')
     'HTX'     = @('HTX_API_KEY', 'HTX_API_SECRET')
+    'ALPACA'  = @('APCA_API_KEY_ID', 'APCA_API_SECRET_KEY')
+    'ALPHA_VANTAGE' = @('ALPHA_VANTAGE_API_KEY')
+    'TWELVE_DATA'   = @('TWELVE_DATA_API_KEY')
     'AI'      = @('AI_GATEWAY_TOKEN')
 }
 
@@ -77,6 +80,7 @@ if (-not (Test-Path $KeysFile)) {
 $currentSection = ''
 $pairs          = [System.Collections.Generic.List[hashtable]]::new()
 $skipped        = 0
+$targetSection  = if ($Section) { $Section.ToUpper() } else { '' }
 
 foreach ($raw in Get-Content $KeysFile) {
     $line = $raw.Trim()
@@ -97,6 +101,9 @@ foreach ($raw in Get-Content $KeysFile) {
     $key   = $line.Substring(0, $eqIdx).Trim()
     $value = $line.Substring($eqIdx + 1).Trim()
 
+    # Filter by section early to avoid noisy warnings from unrelated sections.
+    if ($targetSection -and $currentSection.ToUpper() -ne $targetSection) { continue }
+
     if ([string]::IsNullOrWhiteSpace($value)) {
         Write-Warning "Skipping $key in [$currentSection] — value is blank"
         $skipped++
@@ -110,9 +117,6 @@ foreach ($raw in Get-Content $KeysFile) {
         Write-Warning "Skipping $key — value looks like a placeholder ($value)"
         continue
     }
-
-    # Filter by section if requested
-    if ($Section -and $currentSection -ne $Section.ToUpper()) { continue }
 
     $pairs.Add(@{ Key = $canonicalKey; Value = $value; Section = $currentSection; RawKey = $key })
 }

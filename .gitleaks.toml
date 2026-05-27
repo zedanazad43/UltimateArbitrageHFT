@@ -1,0 +1,13 @@
+[[allowlists]]
+description = "Ignore intentional secret templates, docs examples, and local virtualenv files"
+paths = [
+  '''(^|[\\/])api_keys\.txt$''',
+  '''(^|[\\/])api_keys\.ini$''',
+  '''(^|[\\/])\.dev\.vars\.example$''',
+  '''(^|[\\/])hft[\\/]\.env\.example$''',
+  '''(^|[\\/])BITMART_ENHANCED\.md$''',
+  '''(^|[\\/])QUICK_REFERENCE\.md$''',
+  '''(^|[\\/])DEPLOYMENT_GUIDE_v2\.1\.0\.md$''',
+  '''(^|[\\/])docs[\\/]production-profiles\.md$''',
+  '''(^|[\\/])\.venv[\\/].*''',
+]
