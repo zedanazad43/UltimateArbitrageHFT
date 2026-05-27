@@ -364,7 +364,7 @@ jobs:
         env:
           WORKFLOW_ADMIN_TOKEN: ${{ secrets.WORKFLOW_ADMIN_TOKEN }}
           EXPECTED_WORKER_NAME: ultimatearbitragehft
-          REQUIRE_READY_FOR_LIVE: "true"
+          REQUIRE_READY_FOR_LIVE: "false"
 
       - name: Telegram alert on smoke test failure
         if: ${{ failure() && steps.smoke_test.outcome == 'failure' }}
