@@ -92,6 +92,26 @@ function splitTradingSymbol(symbol) {
 /** Maximum number of raw-body characters to include in non-JSON error messages. */
 const MAX_ERROR_SNIPPET_LENGTH = 200;
 
+function normalizeExchangeErrorMessage(exchange, message) {
+  const raw = String(message || 'unknown error');
+  const lower = raw.toLowerCase();
+
+  if (
+    lower.includes('<!doctype') ||
+    lower.includes('cloudflare') ||
+    lower.includes('access denied') ||
+    lower.includes('forbidden')
+  ) {
+    return `${raw} (hint: ${exchange} network/WAF block detected from current egress; configure proxy routing)`;
+  }
+
+  if (lower.includes('timestamp') || lower.includes('recvwindow') || lower.includes('outside of the recvwindow')) {
+    return `${raw} (hint: ${exchange} rejected request timestamp; check clock drift/recvWindow)`;
+  }
+
+  return raw;
+}
+
 /**
  * Reads the response body as text then parses it as JSON.
  * When the body is not valid JSON (e.g. a Cloudflare error page or plain-text
@@ -177,16 +197,38 @@ export async function getMEXCBalance(env, asset = 'USDT') {
   if (!apiKey)    throw new Error('MEXC_API_KEY is not configured');
   if (!apiSecret) throw new Error('MEXC_API_SECRET is not configured');
 
-  const timestamp = Date.now().toString();
-  const query     = `timestamp=${timestamp}`;
-  const signature = await hmacHex(apiSecret, query);
+  const fetchAccount = async (timestampMs) => {
+    const query = `timestamp=${timestampMs}&recvWindow=10000`;
+    const signature = await hmacHex(apiSecret, query);
+    const resp = await exchangeFetch(
+      `https://api.mexc.com/api/v3/account?${query}&signature=${signature}`,
+      { headers: { 'X-MEXC-APIKEY': apiKey } }
+    );
+    return parseJsonResponse(resp, 'MEXC account');
+  };
 
-  const resp = await exchangeFetch(
-    `https://api.mexc.com/api/v3/account?${query}&signature=${signature}`,
-    { headers: { 'X-MEXC-APIKEY': apiKey } }
-  );
-  const data = await parseJsonResponse(resp, 'MEXC account');
-  if (data.code) throw new Error(data.msg || `MEXC account error ${data.code}`);
+  let data;
+  try {
+    data = await fetchAccount(Date.now().toString());
+  } catch (err) {
+    throw new Error(normalizeExchangeErrorMessage('MEXC', err.message), { cause: err });
+  }
+
+  // Timestamp drift fallback: query exchange server time and retry once.
+  if (data?.code && String(data.msg || '').toLowerCase().includes('timestamp')) {
+    try {
+      const timeResp = await exchangeFetch('https://api.mexc.com/api/v3/time');
+      const timeData = await parseJsonResponse(timeResp, 'MEXC time');
+      const serverTime = String(timeData?.serverTime || Date.now());
+      data = await fetchAccount(serverTime);
+    } catch (err) {
+      throw new Error(normalizeExchangeErrorMessage('MEXC', err.message), { cause: err });
+    }
+  }
+
+  if (data.code) {
+    throw new Error(normalizeExchangeErrorMessage('MEXC', data.msg || `MEXC account error ${data.code}`));
+  }
 
   const bal = (data.balances || []).find(b => b.asset === asset);
   return {
@@ -429,16 +471,48 @@ export async function getBinanceBalance(env, asset = 'USDT') {
   if (!apiKey)    throw new Error('BINANCE_API_KEY is not configured');
   if (!apiSecret) throw new Error(missingCredError('BINANCE_API_SECRET'));
 
-  const timestamp = Date.now().toString();
-  const query     = `timestamp=${timestamp}&recvWindow=10000`;
-  const signature = await hmacHex(apiSecret, query);
+  const binanceHosts = ['api.binance.com', 'api1.binance.com', 'api2.binance.com', 'api3.binance.com'];
+  const fetchAccount = async (host, timestampMs) => {
+    const query = `timestamp=${timestampMs}&recvWindow=10000`;
+    const signature = await hmacHex(apiSecret, query);
+    const resp = await exchangeFetch(
+      `https://${host}/api/v3/account?${query}&signature=${signature}`,
+      { headers: { 'X-MBX-APIKEY': apiKey } }
+    );
+    const data = await parseJsonResponse(resp, 'Binance account');
+    return { data, host };
+  };
 
-  const resp = await exchangeFetch(
-    `https://api.binance.com/api/v3/account?${query}&signature=${signature}`,
-    { headers: { 'X-MBX-APIKEY': apiKey } }
-  );
-  const data = await parseJsonResponse(resp, 'Binance account');
-  if (data.code) throw new Error(data.msg || `Binance account error ${data.code}`);
+  const errors = [];
+  let result = null;
+  for (const host of binanceHosts) {
+    try {
+      result = await fetchAccount(host, Date.now().toString());
+      break;
+    } catch (err) {
+      errors.push(`${host}: ${err.message}`);
+    }
+  }
+
+  if (!result) {
+    throw new Error(normalizeExchangeErrorMessage('Binance', errors.join(' | ') || 'unknown account error'));
+  }
+
+  let { data, host } = result;
+  if (data?.code === -1021 || String(data?.msg || '').toLowerCase().includes('timestamp')) {
+    try {
+      const timeResp = await exchangeFetch(`https://${host}/api/v3/time`);
+      const timeData = await parseJsonResponse(timeResp, 'Binance time');
+      const retry = await fetchAccount(host, String(timeData?.serverTime || Date.now()));
+      data = retry.data;
+    } catch (err) {
+      throw new Error(normalizeExchangeErrorMessage('Binance', err.message), { cause: err });
+    }
+  }
+
+  if (data.code) {
+    throw new Error(normalizeExchangeErrorMessage('Binance', data.msg || `Binance account error ${data.code}`));
+  }
 
   const bal = (data.balances || []).find(b => b.asset === asset);
   return {
@@ -660,7 +734,7 @@ export async function getBitgetBalance(env, asset = 'USDT') {
     }
   }
 
-  throw new Error(`Bitget balance failed: ${errors.join(' | ') || 'unknown error'}`);
+  throw new Error(normalizeExchangeErrorMessage('Bitget', `Bitget balance failed: ${errors.join(' | ') || 'unknown error'}`));
 }
 
 /**
