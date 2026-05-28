@@ -1487,15 +1487,39 @@ ${autoStopBanner}
   setInterval(() => loadFreeSources(), 60000);
 
   // ── Platform cards — dynamic refresh every 30 s ─────────────────────────────
+  function _isCredentialErrorText(msg){
+    const m = String(msg || '').toLowerCase();
+    return m.includes('api key info invalid') ||
+      m.includes('api-key format invalid') ||
+      m.includes('kc-api-key not exists') ||
+      m.includes('invalid api key') ||
+      m.includes('signature');
+  }
+
+  function _isNetworkBlockText(msg){
+    const m = String(msg || '').toLowerCase();
+    return m.includes('cloudflare') ||
+      m.includes('"block"') ||
+      m.includes('<!doctype') ||
+      m.includes('access denied');
+  }
+
   function _renderPlatformCard(p){
     const isConfigured = !!p.configured;
     const isDataOnly = !!p.dataOnly;
     const isWeb3 = p.type === 'web3';
+    const errText = String(p.error || '');
+    const isAuthErr = _isCredentialErrorText(errText);
+    const isNetworkErr = _isNetworkBlockText(errText);
     const borderColor  = isWeb3 ? '#3498db' : isDataOnly ? '#888' : (isConfigured ? '#2ecc71' : '#e67e22');
     const balLine      = isWeb3
       ? \`<div style="font-size:.8em;color:#3498db;margin-top:4px">🌐 Web3 only</div>\`
       : isDataOnly
-        ? \`<div style="font-size:.78em;color:#888;margin-top:4px">📊 بيانات فقط</div>\`
+        ? ''
+      : isConfigured && isAuthErr
+        ? \`<div style="font-size:.8em;color:#e67e22;margin-top:4px">⚠️ مفاتيح API غير صالحة</div>\`
+      : isConfigured && isNetworkErr
+        ? \`<div style="font-size:.8em;color:#e67e22;margin-top:4px">⚠️ حظر شبكة/WAF</div>\`
       : isConfigured && p.error
         ? \`<div style="font-size:.8em;color:#e67e22;margin-top:4px">❌ تعذر جلب الرصيد</div>\`
       : isConfigured && p.balance != null

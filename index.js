@@ -1635,6 +1635,28 @@ app.get('/api/dex', async (c) => {
 app.get('/api/platforms', async (c) => {
   if (!isAuthorized(c.env, c)) return authDenied(c.env, c, true);
 
+  const isCredentialError = (msg = '') => {
+    const m = String(msg || '').toLowerCase();
+    return (
+      m.includes('api key info invalid') ||
+      m.includes('api-key format invalid') ||
+      m.includes('kc-api-key not exists') ||
+      m.includes('invalid api key') ||
+      m.includes('signature') ||
+      m.includes('permission')
+    );
+  };
+
+  const isNetworkBlockError = (msg = '') => {
+    const m = String(msg || '').toLowerCase();
+    return (
+      m.includes('cloudflare') ||
+      m.includes('"block"') ||
+      m.includes('<!doctype') ||
+      m.includes('access denied')
+    );
+  };
+
   const PLATFORM_META = [
     {
       name: 'mexc',
@@ -1669,15 +1691,23 @@ app.get('/api/platforms', async (c) => {
       const missingKeys = configured ? [] : getMissingCredentialKeys(c.env, name);
       let balance = null;
       let error = null;
+      let authValidated = false;
+      let statusNote = null;
       if (configured) {
         try {
           balance = await getExchangeBalance(c.env, name, 'USDT');
+          authValidated = true;
         } catch (e) {
           balance = 0;
           error = e?.message || 'Balance fetch failed';
+          if (isCredentialError(error)) {
+            statusNote = 'API credentials are present but invalid.';
+          } else if (isNetworkBlockError(error)) {
+            statusNote = 'Network/WAF block detected from current egress.';
+          }
         }
       }
-      return { name, type, executionMode, configured, missingKeys, balance, error, strategies, note, priority };
+      return { name, type, executionMode, configured, authValidated, missingKeys, balance, error, statusNote, strategies, note, priority };
     })
   );
 
