@@ -1511,17 +1511,20 @@ ${autoStopBanner}
     const errText = String(p.error || '');
     const isAuthErr = _isCredentialErrorText(errText);
     const isNetworkErr = _isNetworkBlockText(errText);
+    const noteHint = p.statusNote
+      ? \` <span style="font-size:.72em;color:#999">(\${String(p.statusNote)})</span>\`
+      : '';
     const borderColor  = isWeb3 ? '#3498db' : isDataOnly ? '#888' : (isConfigured ? '#2ecc71' : '#e67e22');
     const balLine      = isWeb3
       ? \`<div style="font-size:.8em;color:#3498db;margin-top:4px">🌐 Web3 only</div>\`
       : isDataOnly
         ? ''
       : isConfigured && isAuthErr
-        ? \`<div style="font-size:.8em;color:#e67e22;margin-top:4px">⚠️ مفاتيح API غير صالحة</div>\`
+        ? \`<div style="font-size:.8em;color:#e67e22;margin-top:4px">⚠️ مفاتيح API غير صالحة\${noteHint}</div>\`
       : isConfigured && isNetworkErr
-        ? \`<div style="font-size:.8em;color:#e67e22;margin-top:4px">⚠️ حظر شبكة/WAF</div>\`
+        ? \`<div style="font-size:.8em;color:#e67e22;margin-top:4px">⚠️ حظر شبكة/WAF\${noteHint}</div>\`
       : isConfigured && p.error
-        ? \`<div style="font-size:.8em;color:#e67e22;margin-top:4px">❌ تعذر جلب الرصيد</div>\`
+        ? \`<div style="font-size:.8em;color:#e67e22;margin-top:4px">❌ تعذر جلب الرصيد\${noteHint}</div>\`
       : isConfigured && p.balance != null
         ? \`<div style="font-size:.88em;color:#2ecc71;margin-top:4px">$\${Number(p.balance).toFixed(2)} USDT</div>\`
         : isConfigured
@@ -1587,6 +1590,9 @@ ${autoStopBanner}
     const errText = p.error
       ? String(p.error).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;')
       : '';
+    const statusNoteText = p.statusNote
+      ? String(p.statusNote).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;')
+      : '';
     const balText = p.type === 'web3'
       ? '🌐 Web3 — لا رصيد مركزي'
       : p.balance != null
@@ -1604,6 +1610,7 @@ ${autoStopBanner}
         <tr><td style="color:#888;padding:5px 0">آخر تحديث</td><td>\${p._fetchedAt || '—'}</td></tr>
         <tr><td style="color:#888;padding:5px 0">رصيد USDT</td><td style="color:#2ecc71;font-weight:bold">\${balText}</td></tr>
         \${errText ? \`<tr><td style="color:#888;padding:5px 0">خطأ الرصيد</td><td style="color:#e67e22;font-size:.82em">\${errText}</td></tr>\` : ''}
+        \${statusNoteText ? \`<tr><td style="color:#888;padding:5px 0">تشخيص</td><td style="color:#aaa;font-size:.82em">\${statusNoteText}</td></tr>\` : ''}
         <tr><td style="color:#888;padding:5px 0">الاستراتيجيات</td><td>\${stratList||'—'}</td></tr>
         <tr><td style="color:#888;padding:5px 0">مفاتيح ناقصة</td><td>\${missingList}</td></tr>
         <tr><td style="color:#888;padding:5px 0;vertical-align:top">ملاحظات</td><td style="font-size:.82em;color:#ccc">\${p.note||'—'}</td></tr>
