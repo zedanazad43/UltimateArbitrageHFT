@@ -73,7 +73,9 @@ export async function renderDashboard(env) {
   const modeLabel       = paperMode ? '📄 PAPER' : '🔴 LIVE';
   const statusColor     = state.trading_enabled ? '#2ecc71' : '#e74c3c';
   const maxLoss         = state.max_daily_loss_usd           ?? DEFAULT_RISK.MAX_DAILY_LOSS_USD;
-  const dailyLimit      = state.daily_limit_usd             ?? DEFAULT_RISK.DAILY_LIMIT_USD;
+  const dailyLimit      = (Number.isFinite(state.daily_limit_usd) && state.daily_limit_usd > 0)
+    ? state.daily_limit_usd
+    : DEFAULT_RISK.DAILY_LIMIT_USD;
   const minSec          = state.min_seconds_between_trades   ?? DEFAULT_RISK.MIN_SECONDS_BETWEEN_TRADES;
   const maxPerTrade     = state.max_per_trade_loss_pct       ?? DEFAULT_RISK.MAX_PER_TRADE_LOSS_PCT;
   const positionSizeUsd = state.position_size_usd            ?? 5;
@@ -1055,19 +1057,38 @@ ${autoStopBanner}
     catch(e){ alert('❌ '+e.message); }
     finally{ setButtonsBusy(false); }
   }
+
+  function parseLocalizedNumber(rawValue, fallback = NaN){
+    if (rawValue == null) return fallback;
+    const normalized = String(rawValue)
+      .trim()
+      .replace(/[\u0660-\u0669]/g, (d) => String(d.charCodeAt(0) - 1632))
+      .replace(/[\u06F0-\u06F9]/g, (d) => String(d.charCodeAt(0) - 1776))
+      .replace(/،/g, ',')
+      .replace(/[ \t\n\r\f\v]+/g, '')
+      .replace(',', '.');
+    const n = Number(normalized);
+    return Number.isFinite(n) ? n : fallback;
+  }
+
+  function readNumericInput(id, fallback = NaN){
+    const el = document.getElementById(id);
+    return parseLocalizedNumber(el?.value, fallback);
+  }
+
   async function saveConfig(){
     const body={
-      max_daily_loss_usd:         parseFloat(document.getElementById('maxDailyLoss').value),
-      daily_limit_usd:            parseFloat(document.getElementById('dailyLimitUsd').value),
-      max_per_trade_loss_pct:     parseFloat(document.getElementById('maxPerTrade').value),
-      min_seconds_between_trades: parseFloat(document.getElementById('minSeconds').value),
-      initial_capital:            parseFloat(document.getElementById('initialCapital').value),
-      position_size_usd:          parseFloat(document.getElementById('positionSizeUsd')?.value || '5'),
+      max_daily_loss_usd:         readNumericInput('maxDailyLoss'),
+      daily_limit_usd:            readNumericInput('dailyLimitUsd'),
+      max_per_trade_loss_pct:     readNumericInput('maxPerTrade'),
+      min_seconds_between_trades: readNumericInput('minSeconds'),
+      initial_capital:            readNumericInput('initialCapital'),
+      position_size_usd:          readNumericInput('positionSizeUsd', 5),
       multi_strategy_live:        !!document.getElementById('multiStrategyLive')?.checked,
-      max_live_trades_per_scan:   parseInt(document.getElementById('maxLiveTradesPerScan')?.value || '3', 10),
+      max_live_trades_per_scan:   Math.floor(readNumericInput('maxLiveTradesPerScan', 3)),
       scan_symbol_mode:           document.getElementById('scanSymbolMode')?.value || 'cex_union',
-      max_dynamic_symbols:        parseInt(document.getElementById('maxDynamicSymbols')?.value || '500', 10),
-      max_metamask_symbols:       parseInt(document.getElementById('maxMetaMaskSymbols')?.value || '10000', 10),
+      max_dynamic_symbols:        Math.floor(readNumericInput('maxDynamicSymbols', 500)),
+      max_metamask_symbols:       Math.floor(readNumericInput('maxMetaMaskSymbols', 10000)),
       scan_quote_assets:          String(document.getElementById('scanQuoteAssets')?.value || '').split(',').map(v=>v.trim()).filter(Boolean),
       use_dynamic_symbols:        !!document.getElementById('useDynamicSymbols')?.checked,
       strategy_flags: {
@@ -1304,7 +1325,10 @@ ${autoStopBanner}
       const { text } = await callAdminApi('/api/status');
       const json=JSON.parse(text);
       const cb=json.circuitBreaker||{};
-      const active=['mexc','mexc_perp','binance_perp','binance','kucoin','bitget','bitmart','htx'];
+      const enabledExec=Array.isArray(json.enabledExecutionExchanges)&&json.enabledExecutionExchanges.length
+        ?json.enabledExecutionExchanges
+        :['mexc','binance'];
+      const active=[...new Set(['mexc_perp','binance_perp',...enabledExec])];
       const dataOnly=['bybit','gateio','bybit_perp'];
       const items=[
         ...active.map(ex=>{
