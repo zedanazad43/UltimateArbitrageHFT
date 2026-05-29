@@ -483,7 +483,7 @@ export async function runScan(env, state, sendAlert) {
     }
   }
 
-  async function scanSymbolsConcurrently(syms, handler, maxConcurrency = 5) {
+  async function scanSymbolsConcurrently(syms, handler, maxConcurrency = 2) {
     for await (const batch of batchedSymbols(syms, maxConcurrency)) {
       await Promise.all(batch.map(handler));
     }
@@ -600,7 +600,7 @@ export async function runScan(env, state, sendAlert) {
           console.error(`[${symbol}] scan error:`, e.message);
         }
       },
-      5
+      2
     ),
     strategyFlags.dex ? scanDEX(env) : Promise.resolve(null)
   ]);
