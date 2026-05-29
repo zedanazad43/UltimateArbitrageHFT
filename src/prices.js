@@ -341,13 +341,50 @@ export async function getMarketStreamerPrice(env, symbol) {
 
 // ── Spot price sources ────────────────────────────────────────────────────────
 
-export async function getMEXCSpotPrice(symbol, proxyGatewayUrl = null) {
+// ── MEXC bulk price cache (per scan cycle) ────────────────────────────────────
+// Fetches ALL MEXC tickers in ONE proxy call and caches for the cycle duration.
+let _mexcBulkCache = null;
+let _mexcBulkCacheTs = 0;
+const MEXC_BULK_CACHE_TTL_MS = 30 * 1000; // 30 seconds
+
+async function getMEXCBulkPrices(proxyGatewayUrl) {
+  const now = Date.now();
+  if (_mexcBulkCache && now - _mexcBulkCacheTs < MEXC_BULK_CACHE_TTL_MS) {
+    return _mexcBulkCache;
+  }
   try {
-    const targetUrl = `https://api.mexc.com/api/v3/ticker/price?symbol=${symbol}`;
+    const targetUrl = 'https://api.mexc.com/api/v3/ticker/price';
     const fetchUrl = proxyGatewayUrl
       ? `${proxyGatewayUrl}?target=${encodeURIComponent(targetUrl)}`
       : targetUrl;
     const resp = await fetchWithRetry(fetchUrl, FETCH_CF);
+    if (!resp || !resp.ok) { await resp?.body?.cancel(); return null; }
+    const data = await resp.json();
+    if (!Array.isArray(data)) return null;
+    const priceMap = {};
+    for (const t of data) {
+      if (t.symbol && t.price) priceMap[t.symbol] = parseFloat(t.price);
+    }
+    _mexcBulkCache = priceMap;
+    _mexcBulkCacheTs = now;
+    return priceMap;
+  } catch (_) { return null; }
+}
+
+export async function getMEXCSpotPrice(symbol, proxyGatewayUrl = null) {
+  try {
+    // Use bulk cache if proxy is configured (reduces 100 calls → 1 call per cycle)
+    if (proxyGatewayUrl) {
+      const priceMap = await getMEXCBulkPrices(proxyGatewayUrl);
+      if (priceMap) {
+        const price = priceMap[symbol];
+        if (!price || isNaN(price)) return null;
+        return { price, exchange: 'mexc', fee: 0.0005 };
+      }
+    }
+    // Fallback: individual request
+    const targetUrl = `https://api.mexc.com/api/v3/ticker/price?symbol=${symbol}`;
+    const resp = await fetchWithRetry(targetUrl, FETCH_CF);
     if (!resp || !resp.ok) { await resp?.body?.cancel(); return null; }
     const data = await resp.json();
     const price = parseFloat(data.price);
