@@ -126,12 +126,21 @@ export async function getLiveExecutionCapUsd(env, opp) {
   if (opp.strategy === 'dex') return Number.POSITIVE_INFINITY;
   if (opp.strategy === 'triangular') return Number.POSITIVE_INFINITY; // single-exchange, no cross-exchange cap
 
+  const skipBalanceCheck = ['1', 'true', 'on', 'yes'].includes(
+    String(env?.SKIP_BALANCE_CHECK || '').toLowerCase()
+  );
+
   const safeBalance = async (exchange, asset) => {
     try {
       const v = await getExchangeBalance(env, exchange, asset);
       return Math.max(0, Number(v || 0));
     } catch (e) {
       console.warn(`[balance-cap] ${exchange} ${asset} check failed: ${e.message}`);
+      if (skipBalanceCheck) {
+        const defaultSize = Math.max(1, Number(env.SKIP_BALANCE_CHECK_SIZE || 5));
+        console.warn(`[balance-cap] SKIP_BALANCE_CHECK=true → using default $${defaultSize}`);
+        return defaultSize;
+      }
       return 0;
     }
   };
@@ -860,7 +869,10 @@ async function executeTrade(env, opp, sizeUsd, leverage) {
     if (!hasExchangeCredentials(env, 'mexc')) {
       throw new Error('MEXC_API_KEY / MEXC_API_SECRET required for perps/funding trading');
     }
-    const sufficient = await hasSufficientUSDT(env, sizeUsd);
+    const skipCheck = ['1', 'true', 'on', 'yes'].includes(
+      String(env?.SKIP_BALANCE_CHECK || '').toLowerCase()
+    );
+    const sufficient = skipCheck || await hasSufficientUSDT(env, sizeUsd);
     if (!sufficient) {
       throw new Error(`Insufficient USDT balance for $${sizeUsd.toFixed(2)} trade`);
     }

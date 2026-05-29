@@ -154,7 +154,15 @@ PROXY_MODE = "auto"
 
 # Comma-separated exchanges that should bypass proxy when PROXY_MODE=auto.
 # Example: "bitmart,mexc"
+# Bitget is intentionally NOT in DIRECT_EXCHANGES - it requires proxy routing
+# due to Cloudflare Workers egress WAF blocking. Configure PROXY_URL or PROXY_LIST
+# to route Bitget traffic through a static IP proxy.
 DIRECT_EXCHANGES = ""
+
+# Comma-separated list of exchanges allowed for live execution.
+# Keep scope focused on known healthy accounts to avoid noisy auth/network failures.
+# Supported values: mexc, binance, kucoin, bitget, bitmart, htx
+EXECUTION_EXCHANGES_ALLOWLIST = "mexc,binance"
 
 # ── LLM model and optional AI Gateway routing ───────────────────────────────
 # LLM_MODEL can be any Workers AI model ID, for example:
@@ -168,10 +176,31 @@ LLM_MODEL = "@cf/meta/llama-3.1-8b-instruct"
 AI_GATEWAY_URL = ""
 AI_GATEWAY_ID = ""
 
+# ── Strategy mode: 'multi_exchange' (default) or 'mexc_only' ──────────────────
+# When set to mexc_only, the orchestrator will:
+#   - Concentrate all scanning and execution on MEXC spot + futures
+#   - Enable Perps, Funding, Triangular, and Statistical strategies
+#   - Bypass multi-exchange CEX spatial arb (requires ≥2 exchanges)
+#   - Use reduced cooldowns and faster execution intervals
+STRATEGY_MODE = "multi_exchange"
+
+# Skip exchange balance check when it's blocked by WAF (e.g. MEXC blocks CF Worker IPs).
+# When enabled, uses position_size_usd as the default trade size and attempts execution directly.
+# The order endpoint may have different IP restrictions than the account/balance endpoint.
+SKIP_BALANCE_CHECK = "true"
+
+# Aggressive scan profile (stronger/faster opportunity capture)
+AGGRESSIVE_SCAN_MODE = "on"
+# Lower safety-factor thresholds allow more candidate opportunities to pass.
+CEX_MIN_SAFETY_FACTOR = "0.10"
+PERPS_MIN_SAFETY_FACTOR = "0.10"
+# < 1.0 reduces estimated slippage penalty; use carefully in live mode.
+CEX_SLIPPAGE_MULTIPLIER = "0.40"
+
 # ── Exchange feature flags ─────────────────────────────────────────────────────
 # bybit and gateio are excluded from live execution (German regulatory law).
 # They remain active as price-data sources only.
-# All other exchanges are enabled for full order execution when credentials are set.
+# Other exchanges can be re-enabled by extending EXECUTION_EXCHANGES_ALLOWLIST.
 # Secrets are uploaded via: pwsh ./scripts/upload-secrets.ps1
 # Required secrets per exchange (use `wrangler secret put <KEY>`):
 #   MEXC:    MEXC_API_KEY, MEXC_API_SECRET
