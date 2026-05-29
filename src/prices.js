@@ -341,12 +341,13 @@ export async function getMarketStreamerPrice(env, symbol) {
 
 // ── Spot price sources ────────────────────────────────────────────────────────
 
-export async function getMEXCSpotPrice(symbol) {
+export async function getMEXCSpotPrice(symbol, proxyGatewayUrl = null) {
   try {
-    const resp = await fetchWithRetry(
-      `https://api.mexc.com/api/v3/ticker/price?symbol=${symbol}`,
-      FETCH_CF
-    );
+    const targetUrl = `https://api.mexc.com/api/v3/ticker/price?symbol=${symbol}`;
+    const fetchUrl = proxyGatewayUrl
+      ? `${proxyGatewayUrl}?target=${encodeURIComponent(targetUrl)}`
+      : targetUrl;
+    const resp = await fetchWithRetry(fetchUrl, FETCH_CF);
     if (!resp || !resp.ok) { await resp?.body?.cancel(); return null; }
     const data = await resp.json();
     const price = parseFloat(data.price);
@@ -977,8 +978,9 @@ export async function getCrossPairPrices(crossSymbols) {
  * IP-whitelisted API key — accessible from any IP, including Cloudflare Worker IPs.
  */
 export async function getAllSpotPrices(env, symbol, openCircuits = new Set()) {
+  const proxyUrl = String(env?.PROXY_URL || '').trim() || null;
   const exchangeFetchers = [
-    ['mexc',     () => getMarketStreamerPrice(env, symbol)],
+    ['mexc',     () => getMEXCSpotPrice(symbol, proxyUrl)],
     ['binance',  () => getBinancePrice(symbol)],            // (*) public
     ['kucoin',   () => getKuCoinPrice(symbol)],             // (*) public
     ['bitget',   () => getBitgetPrice(symbol)],             // (*) public
