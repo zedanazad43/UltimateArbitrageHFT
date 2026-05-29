@@ -163,9 +163,9 @@ function _detectExchangeFromUrl(url) {
  * @param {string} [exchange] - Override exchange name (auto-detected from URL if omitted)
  * @param {number} [maxRetries=2] - Max retries on transient errors
  */
-export async function exchangeFetch(url, options = {}, exchange, maxRetries = 2) {
+export async function exchangeFetch(url, options = {}, exchange, maxRetries = 2, env = null) {
   const ex = exchange || _detectExchangeFromUrl(url);
-  const proxyPool = getGlobalProxyPool();
+  const proxyPool = getGlobalProxyPool(env || undefined);
   return secureFetch(ex, url, options, proxyPool, maxRetries);
 }
 
@@ -184,7 +184,7 @@ async function bitgetFetch(env, url, options = {}, maxRetries = 2) {
   } catch (_) {
     // Fallback to standard exchange path if proxy manager is unavailable.
   }
-  return exchangeFetch(url, options, 'bitget', maxRetries);
+  return secureFetch('bitget', url, options, getGlobalProxyPool(env), maxRetries);
 }
 
 /**
@@ -202,7 +202,8 @@ export async function getMEXCBalance(env, asset = 'USDT') {
     const signature = await hmacHex(apiSecret, query);
     const resp = await exchangeFetch(
       `https://api.mexc.com/api/v3/account?${query}&signature=${signature}`,
-      { headers: { 'X-MEXC-APIKEY': apiKey } }
+      { headers: { 'X-MEXC-APIKEY': apiKey } },
+      'mexc', 2, env
     );
     return parseJsonResponse(resp, 'MEXC account');
   };
@@ -217,7 +218,7 @@ export async function getMEXCBalance(env, asset = 'USDT') {
   // Timestamp drift fallback: query exchange server time and retry once.
   if (data?.code && String(data.msg || '').toLowerCase().includes('timestamp')) {
     try {
-      const timeResp = await exchangeFetch('https://api.mexc.com/api/v3/time');
+      const timeResp = await exchangeFetch('https://api.mexc.com/api/v3/time', {}, 'mexc', 2, env);
       const timeData = await parseJsonResponse(timeResp, 'MEXC time');
       const serverTime = String(timeData?.serverTime || Date.now());
       data = await fetchAccount(serverTime);
@@ -559,6 +560,32 @@ export async function placeMarketOrderBinance(env, symbol, side, quantity, sizeU
 
 // ── KuCoin ────────────────────────────────────────────────────────────────────
 
+function getKuCoinKeyVersions(env) {
+  const configured = String(env.KUCOIN_API_KEY_VERSION || '').trim();
+  return [...new Set([configured, '2', '3'].filter(Boolean))];
+}
+
+async function buildKuCoinAuthHeaders({ apiKey, apiSecret, passphrase, timestamp, method, path, body = '', keyVersion }) {
+  const signature = await hmacBase64(apiSecret, timestamp + method + path + body);
+  const encPassphrase = await hmacBase64(apiSecret, passphrase);
+  return {
+    'KC-API-KEY': apiKey,
+    'KC-API-SIGN': signature,
+    'KC-API-TIMESTAMP': timestamp,
+    'KC-API-PASSPHRASE': encPassphrase,
+    'KC-API-KEY-VERSION': keyVersion,
+  };
+}
+
+function isKuCoinAuthVersionError(message) {
+  const normalized = String(message || '').toLowerCase();
+  return normalized.includes('kc-api-key not exists') ||
+    normalized.includes('invalid kc-api-key') ||
+    normalized.includes('kc-api-key-version') ||
+    normalized.includes('passphrase error') ||
+    normalized.includes('invalid kc-api-passphrase');
+}
+
 /**
  * Fetches the KuCoin spot account balance for a given asset (default: USDT).
  * KuCoin API v2: passphrase is HMAC-SHA256 signed.
@@ -576,28 +603,38 @@ export async function getKuCoinBalance(env, asset = 'USDT') {
   if (!apiSecret)  throw new Error(missingCredError('KUCOIN_SECRET_KEY'));
   if (!passphrase) throw new Error('KUCOIN_PASSPHRASE is not configured');
 
-  const timestamp     = Date.now().toString();
-  const path          = `/api/v1/accounts?currency=${asset}`;
-  const strToSign     = timestamp + 'GET' + path;
-  const signature     = await hmacBase64(apiSecret, strToSign);
-  const encPassphrase = await hmacBase64(apiSecret, passphrase);
+  const path = `/api/v1/accounts?currency=${asset}`;
+  const errors = [];
 
-  const resp = await exchangeFetch(`https://api.kucoin.com${path}`, {
-    headers: {
-      'KC-API-KEY':         apiKey,
-      'KC-API-SIGN':        signature,
-      'KC-API-TIMESTAMP':   timestamp,
-      'KC-API-PASSPHRASE':  encPassphrase,
-      'KC-API-KEY-VERSION': '2'
+  for (const keyVersion of getKuCoinKeyVersions(env)) {
+    const timestamp = Date.now().toString();
+    const headers = await buildKuCoinAuthHeaders({
+      apiKey,
+      apiSecret,
+      passphrase,
+      timestamp,
+      method: 'GET',
+      path,
+      keyVersion,
+    });
+
+    const resp = await exchangeFetch(`https://api.kucoin.com${path}`, { headers });
+    const data = await parseJsonResponse(resp, 'KuCoin balance');
+    if (data.code === '200000') {
+      const accounts = data.data || [];
+      const free   = accounts.reduce((sum, acc) => sum + parseFloat(acc.available || '0'), 0);
+      const locked = accounts.reduce((sum, acc) => sum + parseFloat(acc.holds    || '0'), 0);
+      return { free, locked };
     }
-  });
-  const data = await parseJsonResponse(resp, 'KuCoin balance');
-  if (data.code !== '200000') throw new Error(data.msg || `KuCoin balance error ${data.code}`);
 
-  const accounts = data.data || [];
-  const free   = accounts.reduce((sum, acc) => sum + parseFloat(acc.available || '0'), 0);
-  const locked = accounts.reduce((sum, acc) => sum + parseFloat(acc.holds    || '0'), 0);
-  return { free, locked };
+    const message = data.msg || `KuCoin balance error ${data.code}`;
+    errors.push(`v${keyVersion}: ${message}`);
+    if (!isKuCoinAuthVersionError(message)) {
+      throw new Error(message);
+    }
+  }
+
+  throw new Error(errors.join(' | '));
 }
 
 /**
@@ -606,9 +643,9 @@ export async function getKuCoinBalance(env, asset = 'USDT') {
  * Symbol format: BTC-USDT.
  */
 export async function placeMarketOrderKuCoin(env, symbol, side, quantity, sizeUsd) {
-  const apiKey     = env.KUCOIN_API_KEY;
+  const apiKey     = resolveEnvKey(env, 'KUCOIN_API_KEY');
   const apiSecret  = resolveEnvKey(env, 'KUCOIN_SECRET_KEY');
-  const passphrase = env.KUCOIN_PASSPHRASE;
+  const passphrase = resolveEnvKey(env, 'KUCOIN_PASSPHRASE');
   if (!apiKey)     throw new Error('KUCOIN_API_KEY is not configured');
   if (!apiSecret)  throw new Error(missingCredError('KUCOIN_SECRET_KEY'));
   if (!passphrase) throw new Error('KUCOIN_PASSPHRASE is not configured');
@@ -616,7 +653,6 @@ export async function placeMarketOrderKuCoin(env, symbol, side, quantity, sizeUs
   const parsed = splitTradingSymbol(symbol);
   if (!parsed) throw new Error(`Unsupported symbol format: ${symbol}`);
   const kuSymbol  = `${parsed.base}-${parsed.quote}`;
-  const timestamp = Date.now().toString();
   const path      = '/api/v1/orders';
 
   const orderObj = {
@@ -631,31 +667,54 @@ export async function placeMarketOrderKuCoin(env, symbol, side, quantity, sizeUs
     orderObj.size  = quantity;              // base currency
   }
 
-  const bodyStr        = JSON.stringify(orderObj);
-  const strToSign      = timestamp + 'POST' + path + bodyStr;
-  const signature      = await hmacBase64(apiSecret, strToSign);
-  const encPassphrase  = await hmacBase64(apiSecret, passphrase);
+  const bodyStr = JSON.stringify(orderObj);
+  const errors = [];
 
-  const resp = await exchangeFetch(`https://api.kucoin.com${path}`, {
-    method: 'POST',
-    headers: {
-      'KC-API-KEY':         apiKey,
-      'KC-API-SIGN':        signature,
-      'KC-API-TIMESTAMP':   timestamp,
-      'KC-API-PASSPHRASE':  encPassphrase,
-      'KC-API-KEY-VERSION': '2',
-      'Content-Type':       'application/json'
-    },
-    body: bodyStr
-  });
-  const data = await parseJsonResponse(resp, 'KuCoin order');
-  if (data.code !== '200000') throw new Error(data.msg || `KuCoin spot error ${data.code}`);
-  return data;
+  for (const keyVersion of getKuCoinKeyVersions(env)) {
+    const timestamp = Date.now().toString();
+    const headers = await buildKuCoinAuthHeaders({
+      apiKey,
+      apiSecret,
+      passphrase,
+      timestamp,
+      method: 'POST',
+      path,
+      body: bodyStr,
+      keyVersion,
+    });
+
+    const resp = await exchangeFetch(`https://api.kucoin.com${path}`, {
+      method: 'POST',
+      headers: {
+        ...headers,
+        'Content-Type': 'application/json'
+      },
+      body: bodyStr
+    });
+    const data = await parseJsonResponse(resp, 'KuCoin order');
+    if (data.code === '200000') return data;
+
+    const message = data.msg || `KuCoin spot error ${data.code}`;
+    errors.push(`v${keyVersion}: ${message}`);
+    if (!isKuCoinAuthVersionError(message)) {
+      throw new Error(message);
+    }
+  }
+
+  throw new Error(errors.join(' | '));
 }
 
 // ── Bitget ────────────────────────────────────────────────────────────────────
 
-const BITGET_API_HOSTS = ['api.bitget.com', 'capi.bitget.com'];
+const BITGET_API_HOSTS = [
+  'api.bitget.com',
+  'capi.bitget.com',
+  'api2.bitget.com',
+  'capi2.bitget.com',
+  'api3.bitget.com',
+  'api.bitget.info',
+  'capi.bitget.info',
+];
 const BITGET_BALANCE_ENDPOINTS = ['/api/v2/spot/account/assets', '/api/spot/v1/account/assets'];
 const BITGET_BROWSER_HEADERS = {
   'Accept': 'application/json, text/plain, */*',
@@ -1303,12 +1362,48 @@ export const ACTIVE_EXECUTION_EXCHANGES = [
   'mexc', 'binance', 'kucoin', 'bitget', 'bitmart', 'htx'
 ];
 
+function parseExchangeAllowlist(rawList) {
+  if (!rawList) return [];
+  return String(rawList)
+    .split(',')
+    .map((v) => String(v || '').trim().toLowerCase())
+    .filter(Boolean);
+}
+
+/**
+ * Returns currently enabled execution exchanges.
+ *
+ * Optional env override:
+ * - EXECUTION_EXCHANGES_ALLOWLIST="mexc,binance"
+ * - ACTIVE_EXECUTION_EXCHANGES="mexc,binance" (legacy alias)
+ */
+export function getEnabledExecutionExchanges(env) {
+  const allowlistRaw =
+    resolveEnvKey(env, 'EXECUTION_EXCHANGES_ALLOWLIST') ||
+    resolveEnvKey(env, 'ACTIVE_EXECUTION_EXCHANGES');
+  const allowlist = parseExchangeAllowlist(allowlistRaw);
+  if (allowlist.length === 0) {
+    return [...ACTIVE_EXECUTION_EXCHANGES];
+  }
+  const allowedSet = new Set(allowlist);
+  return ACTIVE_EXECUTION_EXCHANGES.filter((ex) => allowedSet.has(ex));
+}
+
+/** Returns true when the exchange is enabled for live execution in the current env. */
+export function isExecutionExchangeEnabled(env, exchange) {
+  const normalized = String(exchange || '').toLowerCase();
+  if (!normalized) return false;
+  return getEnabledExecutionExchanges(env).includes(normalized);
+}
+
 /**
  * Returns true if all required API credentials for the given exchange are configured.
  * Accepts alias key names (e.g. KUCOIN_API_SECRET in place of KUCOIN_SECRET_KEY).
  */
 export function hasExchangeCredentials(env, exchange) {
-  const keys = EXCHANGE_CRED_KEYS[exchange?.toLowerCase()];
+  const normalized = String(exchange || '').toLowerCase();
+  if (!isExecutionExchangeEnabled(env, normalized)) return false;
+  const keys = EXCHANGE_CRED_KEYS[normalized];
   if (!keys) return false;
   return keys.every(k => !!resolveEnvKey(env, k));
 }
@@ -1340,7 +1435,7 @@ export function getMissingCredentialKeys(env, exchange) {
  * Returns the list of exchanges that have valid credentials configured in env.
  */
 export function getConfiguredExchanges(env) {
-  return ACTIVE_EXECUTION_EXCHANGES.filter(ex => hasExchangeCredentials(env, ex));
+  return getEnabledExecutionExchanges(env).filter(ex => hasExchangeCredentials(env, ex));
 }
 
 /**
