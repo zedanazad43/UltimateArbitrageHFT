@@ -130,7 +130,8 @@ export async function getLiveExecutionCapUsd(env, opp) {
     try {
       const v = await getExchangeBalance(env, exchange, asset);
       return Math.max(0, Number(v || 0));
-    } catch (_) {
+    } catch (e) {
+      console.warn(`[balance-cap] ${exchange} ${asset} check failed: ${e.message}`);
       return 0;
     }
   };
