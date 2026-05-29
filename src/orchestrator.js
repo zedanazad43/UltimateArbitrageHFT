@@ -501,15 +501,24 @@ export async function runScan(env, state, sendAlert) {
           ]);
 
           // Update circuit breaker based on fetch results
-          if (spotSources.length > 0) {
-            for (const src of spotSources) recordCBSuccess(cb, src.exchange);
-          } else {
+          const hasMexcSrc = spotSources.some(s => s.exchange === 'mexc');
+          if (hasMexcSrc) {
+            recordCBSuccess(cb, 'mexc');
+          } else if (!openCircuits.has('mexc')) {
             recordCBFailure(cb, 'mexc');
+            // Propagate new open circuit to remaining batches immediately
+            if (isCircuitOpen(cb, 'mexc')) openCircuits.add('mexc');
+          }
+          if (spotSources.length > 0) {
+            for (const src of spotSources) {
+              if (src.exchange !== 'mexc') recordCBSuccess(cb, src.exchange);
+            }
           }
           if (perpSource) {
             recordCBSuccess(cb, 'mexc_perp');
-          } else {
+          } else if (!openCircuits.has('mexc_perp')) {
             recordCBFailure(cb, 'mexc_perp');
+            if (isCircuitOpen(cb, 'mexc_perp')) openCircuits.add('mexc_perp');
           }
 
           const mexcSrc = spotSources.find(s => s.exchange === 'mexc');
