@@ -475,10 +475,24 @@ export async function runScan(env, state, sendAlert) {
     }
   }
 
+  // ── Concurrency limiter (max 5 symbols in parallel to avoid CF fetch deadlocks) ──
+  async function* batchedSymbols(syms, concurrency) {
+    for (let i = 0; i < syms.length; i += concurrency) {
+      yield syms.slice(i, i + concurrency);
+    }
+  }
+
+  async function scanSymbolsConcurrently(syms, handler, maxConcurrency = 5) {
+    for await (const batch of batchedSymbols(syms, maxConcurrency)) {
+      await Promise.all(batch.map(handler));
+    }
+  }
+
   // ── Scan all symbols with ALL JS strategies ──────────────────────────────
   const [, dexOpp] = await Promise.all([
-    Promise.all(
-      symbols.map(async symbol => {
+    scanSymbolsConcurrently(
+      symbols,
+      async symbol => {
         try {
           const [spotSources, perpSource, zeroXSource] = await Promise.all([
             getAllSpotPrices(env, symbol, openCircuits),
@@ -575,7 +589,8 @@ export async function runScan(env, state, sendAlert) {
         } catch (e) {
           console.error(`[${symbol}] scan error:`, e.message);
         }
-      })
+      },
+      5
     ),
     strategyFlags.dex ? scanDEX(env) : Promise.resolve(null)
   ]);
