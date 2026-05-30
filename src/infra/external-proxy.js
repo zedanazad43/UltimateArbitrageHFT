@@ -141,9 +141,10 @@ export class ExternalProxyManager {
       return this.localProxyPool.fetchWithProxy(url, options, 2);
     }
 
+    let timeoutId;
     try {
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), timeout);
+      timeoutId = setTimeout(() => controller.abort(), timeout);
 
       const fetchOptions = {
         ...options,
@@ -158,8 +159,6 @@ export class ExternalProxyManager {
           'X-Proxy-Target': url,
         },
       });
-      clearTimeout(timeoutId);
-
       this.failureCount = 0;
       return response;
     } catch (err) {
@@ -171,6 +170,8 @@ export class ExternalProxyManager {
       }
 
       return this.localProxyPool.fetchWithProxy(url, options, 2);
+    } finally {
+      if (timeoutId) clearTimeout(timeoutId);
     }
   }
 

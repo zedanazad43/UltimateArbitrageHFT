@@ -103,6 +103,27 @@ describe('scanCEX', () => {
     assert.notEqual(opp, null);
     assert.equal(opp.direction, 'MEXC→BINANCE');
   });
+
+  test('respects custom minSafetyFactor override', () => {
+    const sources = [
+      { price: 10000, exchange: 'mexc', fee: 0.001 },
+      { price: 10050, exchange: 'binance', fee: 0.001 }
+    ];
+    const opp = scanCEX('SOLUSDT', sources, 5.0, { minSafetyFactor: 0.30 });
+    assert.notEqual(opp, null);
+  });
+
+  test('skips data-only exchanges as execution venues', () => {
+    const sources = [
+      { price: 100, exchange: 'mexc', fee: 0.0005 },
+      { price: 110, exchange: 'bybit', fee: 0.0005 },
+      { price: 105, exchange: 'binance', fee: 0.0005 }
+    ];
+    const opp = scanCEX('XRPUSDT', sources, 20);
+    assert.notEqual(opp, null);
+    assert.equal(opp.buyExchange, 'mexc');
+    assert.equal(opp.sellExchange, 'binance');
+  });
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -146,6 +167,25 @@ describe('scanPerps', () => {
     const spots = [{ price: 50000, exchange: 'mexc', fee: 0.0005 }];
     const perp  = { price: 53001, exchange: 'mexc_perp', fee: 0.0002 }; // >5%
     assert.equal(scanPerps('BTCUSDT', spots, perp, 5.0), null);
+  });
+
+  test('respects custom minSafetyFactor override', () => {
+    const spots = [{ price: 10000, exchange: 'mexc', fee: 0.001 }];
+    const perp = { price: 10050, exchange: 'mexc_perp', fee: 0.001 };
+    const opp = scanPerps('SOLUSDT', spots, perp, 5.0, { minSafetyFactor: 0.30 });
+    assert.notEqual(opp, null);
+  });
+
+  test('skips data-only exchanges as execution venues', () => {
+    const spots = [
+      { price: 100, exchange: 'bybit', fee: 0.0005 },
+      { price: 101, exchange: 'mexc', fee: 0.0005 }
+    ];
+    const perp = { price: 110, exchange: 'mexc_perp', fee: 0.0002 };
+    const opp = scanPerps('XRPUSDT', spots, perp, 20);
+    assert.notEqual(opp, null);
+    assert.equal(opp.buyExchange, 'mexc');
+    assert.equal(opp.sellExchange, 'mexc_perp');
   });
 });
 

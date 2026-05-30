@@ -83,8 +83,17 @@ describe('DEX_TOKENS config', () => {
 
 describe('scanDEX', () => {
   test('returns null when ALCHEMY_API_KEY is not configured', async () => {
+    const prevAlchemyApiKey = process.env.ALCHEMY_API_KEY;
+    delete process.env.ALCHEMY_API_KEY;
+
     const result = await scanDEX({});
     assert.equal(result, null);
+
+    if (prevAlchemyApiKey === undefined) {
+      delete process.env.ALCHEMY_API_KEY;
+    } else {
+      process.env.ALCHEMY_API_KEY = prevAlchemyApiKey;
+    }
   });
 
   test('accepts ALCHEMY_ETHEREUM_ENDPOINT as an alternative key', async () => {

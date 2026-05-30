@@ -56,6 +56,10 @@ const DEFAULT_CONFIG = {
   autoReinvest: true,            // Reinvest profits
   strategyFailureLimit: 3,       // Consecutive failures before strategy cooldown
   strategyCooldownMs: 120000,    // 2 min strategy cooldown
+  riskWinRate: 0.55,             // Kelly input assumption (overrideable)
+  riskRewardRatio: 2.0,          // Kelly input assumption (overrideable)
+  initialCapitalUsd: 1000,       // Risk guard baseline capital
+  maxDailyLossUsd: 25,           // Drawdown guard daily loss cap
   strategies: {
     cex:        { enabled: true, weight: 1.0, maxSpread: 5.0 },
     perps:      { enabled: true, weight: 1.2, maxSpread: 5.0 },
@@ -192,9 +196,13 @@ export class AutoExecutor {
     if (!strategyConfig) return 0;
 
     // Use risk.js position sizing for consistency with orchestrator
-    const equity = this._portfolioBalance || 1000;
-    const winRate = 0.55;
-    const riskReward = 2.0;
+    const equity = this._portfolioBalance || this.config.initialCapitalUsd || 1000;
+    const winRate = Number.isFinite(this.config.riskWinRate)
+      ? this.config.riskWinRate
+      : 0.55;
+    const riskReward = Number.isFinite(this.config.riskRewardRatio)
+      ? this.config.riskRewardRatio
+      : 2.0;
     const riskCalcSize = riskPositionSize(equity, winRate, riskReward);
 
     const maxRisk = equity * this.config.maxPortfolioRiskPct;
@@ -396,13 +404,22 @@ export class AutoExecutor {
     }
 
     // Pre-batch risk checks
-    const equity = this._portfolioBalance || 1000;
+    const equity = this._portfolioBalance || this.config.initialCapitalUsd || 1000;
+    const dayStart = new Date();
+    dayStart.setUTCHours(0, 0, 0, 0);
+    const dayStartMs = dayStart.getTime();
+    const dailyPnl = this.tradeHistory.reduce(
+      (sum, trade) => (trade?.closedAt >= dayStartMs ? sum + (trade?.pnl || 0) : sum),
+      0
+    );
+    const lastTrade = this.tradeHistory[this.tradeHistory.length - 1];
     const state = {
-      daily_pnl: this._dailyLoss || 0,
+      daily_pnl: dailyPnl,
       daily_trades: this.totalTrades,
-      max_daily_loss_usd: this._maxDailyLoss || 25,
+      max_daily_loss_usd: this.config.maxDailyLossUsd ?? 25,
       max_per_trade_loss_pct: this.config.stopLossPct || 0.02,
-      initial_capital: 1000,
+      initial_capital: this.config.initialCapitalUsd ?? 1000,
+      last_trade_pnl_usd: lastTrade?.pnl ?? 0,
     };
 
     const drawdownCheck = checkDrawdownGuard(state, equity);
