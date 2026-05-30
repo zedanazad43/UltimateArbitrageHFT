@@ -63,6 +63,19 @@ describe('AutoExecutor — constructor', () => {
     assert.equal(exe.lossCount, 0);
     assert.equal(exe.positions.length, 0);
   });
+
+  test('supports risk sizing and drawdown config overrides', () => {
+    const exe = new AutoExecutor(makeEnv(), {
+      riskWinRate: 0.6,
+      riskRewardRatio: 2.5,
+      initialCapitalUsd: 1500,
+      maxDailyLossUsd: 40,
+    });
+    assert.equal(exe.config.riskWinRate, 0.6);
+    assert.equal(exe.config.riskRewardRatio, 2.5);
+    assert.equal(exe.config.initialCapitalUsd, 1500);
+    assert.equal(exe.config.maxDailyLossUsd, 40);
+  });
 });
 
 // ─── setPaperMode() ──────────────────────────────────────────────────────────
@@ -216,6 +229,29 @@ describe('AutoExecutor.executeBatch() — batch cap', () => {
       executed.length <= 2,
       `expected at most 2 executions, got ${executed.length}`
     );
+  });
+
+  test('halts batch when latest trade breaches per-trade loss guard', async () => {
+    const exe = new AutoExecutor(makeEnv(), {
+      paperMode: true,
+      cooldownMs: 0,
+      maxExecutionsPerBatch: 1,
+      stopLossPct: 0.02,
+    });
+    exe._running = true;
+    exe._portfolioBalance = 1000;
+    exe.tradeHistory.push({
+      id: 't1',
+      strategy: 'cex',
+      symbol: 'BTC/USDT',
+      pnl: -100,
+      status: 'closed',
+      closedAt: Date.now(),
+    });
+    const executed = await exe.executeBatch([
+      makeOpportunity({ netPct: 1.0, suggestedSize: 50 })
+    ]);
+    assert.equal(executed.length, 0);
   });
 });
 
