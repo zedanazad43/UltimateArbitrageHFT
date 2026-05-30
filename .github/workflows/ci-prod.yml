@@ -279,7 +279,6 @@ jobs:
         id: verify_cloudflare_optional_raw
         run: |
           raw="$(npx --yes wrangler@4 secret list --name ultimatearbitragehft)"
-          echo "raw=$raw" >> $GITHUB_OUTPUT
           export WORKER_SECRETS_RAW="$raw"
           node - <<'NODE'
           const raw = process.env.WORKER_SECRETS_RAW || '';
