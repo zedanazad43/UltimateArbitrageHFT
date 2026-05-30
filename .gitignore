@@ -13,6 +13,8 @@ upload-secrets.ps1
 local_filelist.txt
 finalize_project.ps1
 مستند نصي جديد.txt
+.tmp/
+.tmp-dashboard-inline.js
 
 # Node
 node_modules/
