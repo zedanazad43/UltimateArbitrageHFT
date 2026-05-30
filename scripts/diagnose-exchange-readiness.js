@@ -76,6 +76,10 @@ async function main() {
   console.log(`trading_enabled      : ${status.trading_enabled}`);
   console.log(`paper_trading        : ${status.paper_trading}`);
   console.log(`multi_strategy_live  : ${status.multi_strategy_live}`);
+  const enabledExecutionExchanges = Array.isArray(status.enabledExecutionExchanges)
+    ? status.enabledExecutionExchanges
+    : [];
+  console.log(`execution_exchanges  : ${enabledExecutionExchanges.length ? enabledExecutionExchanges.join(', ') : 'default'}`);
   const flags = status.strategy_flags || {};
   for (const key of ['cex', 'dex', 'perps', 'funding', 'triangular', 'statistical']) {
     console.log(`strategy_${key.padEnd(11, ' ')}: ${flags[key] !== false}`);
@@ -109,7 +113,9 @@ async function main() {
 
   printSection('Platform Cards (dashboard source)');
   for (const p of (platforms.platforms || [])) {
-    const ready = p.type === 'web3' ? dex.executionReady : (!p.error && p.configured);
+    const ready = p.dataOnly
+      ? true
+      : (p.type === 'web3' ? dex.executionReady : (!p.error && p.configured));
     console.log(`[${statusLabel(ready)}] ${p.name.toUpperCase()} | configured=${p.configured} | balance=${p.balance} | error=${p.error || 'none'}`);
   }
 
@@ -132,6 +138,10 @@ async function main() {
   ];
   priority.forEach((ex, i) => {
     const found = rows.find(r => r.exchange === ex);
+    if (!found) {
+      console.log(`${i + 1}. [SKIP] ${ex.toUpperCase()} -> excluded by execution allowlist`);
+      return;
+    }
     const err = normalizeError(found?.error);
     const pending = (!found?.configured) || !!err;
     const state = pending ? 'FIX' : 'OK';

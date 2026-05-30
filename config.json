@@ -2,5 +2,7 @@
   { "name": "MarketScannerBot",   "role": "scanner",  "enabled": true },
   { "name": "OrderExecutorBot",   "role": "trader",   "enabled": true },
   { "name": "NotifierBot",        "role": "notifier", "enabled": true },
-  { "name": "LoggerBot",          "role": "logger",   "enabled": true }
+  { "name": "LoggerBot",          "role": "logger",   "enabled": true },
+  { "name": "RiskManagerBot",     "role": "risk",     "enabled": true },
+  { "name": "RebalancerBot",      "role": "rebalance","enabled": true }
 ]

@@ -29,10 +29,12 @@ let _externalProxy = null;
 export class ExternalProxyManager {
   constructor(env) {
     this.env = env;
+    this.gatewayUrl = env.EXTERNAL_PROXY_URL || env.EXTERNAL_PROXY_GATEWAY_URL || '';
     this.provider = env.EXTERNAL_PROXY_PROVIDER || 'none'; // bright_data, oxylabs, smartproxy, none
     this.username = env.EXTERNAL_PROXY_USERNAME || '';
     this.password = env.EXTERNAL_PROXY_PASSWORD || '';
-    this.enabled = this.provider !== 'none' && !!this.username && !!this.password;
+    this.providerConfigured = this.provider !== 'none' && !!this.username && !!this.password;
+    this.enabled = !!this.gatewayUrl || this.providerConfigured;
     this.localProxyPool = getGlobalProxyPool(env);
     this.healthCheckIntervalMs = 60000; // 1 min
     this.lastHealthCheck = 0;
@@ -46,6 +48,10 @@ export class ExternalProxyManager {
    */
   getProxyUrl() {
     if (!this.enabled) return null;
+
+    if (this.gatewayUrl) {
+      return this.gatewayUrl;
+    }
 
     const provider = PROXY_PROVIDERS[this.provider];
     if (!provider) {
@@ -85,14 +91,23 @@ export class ExternalProxyManager {
         return false;
       }
 
+      if (!this.gatewayUrl) {
+        console.warn('[external-proxy] Raw authenticated proxies are not directly routable from this Worker runtime; falling back to gateway/local proxy pool');
+        this.isHealthy = false;
+        return false;
+      }
+
       // Simple health check: HEAD request to a stable endpoint
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 5000);
 
-      const response = await fetch('https://www.binance.com', {
+      const probeTarget = 'https://www.binance.com';
+      const response = await fetch(`${proxyUrl}?target=${encodeURIComponent(probeTarget)}`, {
         method: 'HEAD',
         signal: controller.signal,
-        // Some proxies don't support custom agent in Cloudflare Workers
+        headers: {
+          'X-Proxy-Target': probeTarget,
+        },
       });
 
       clearTimeout(timeoutId);
@@ -123,7 +138,7 @@ export class ExternalProxyManager {
 
     if (!this.isHealthy) {
       console.log('[external-proxy] External proxy unhealthy, falling back to local pool');
-      return this.localProxyPool.fetchWithProxy(url, options, timeout);
+      return this.localProxyPool.fetchWithProxy(url, options, 2);
     }
 
     try {
@@ -135,23 +150,27 @@ export class ExternalProxyManager {
         signal: controller.signal,
       };
 
-      // Add proxy URL to request if supported by environment
-      // Note: Cloudflare Workers has limited HTTP client support
-      const response = await fetch(url, fetchOptions);
+      const proxyUrl = this.getProxyUrl();
+      const response = await fetch(`${proxyUrl}?target=${encodeURIComponent(url)}`, {
+        ...fetchOptions,
+        headers: {
+          ...fetchOptions.headers,
+          'X-Proxy-Target': url,
+        },
+      });
       clearTimeout(timeoutId);
 
       this.failureCount = 0;
       return response;
     } catch (err) {
-      clearTimeout(undefined);
-      console.warn(`[external-proxy] Request failed: ${err.message}, using local fallback`);
       this.failureCount++;
+      console.warn(`[external-proxy] Request failed: ${err.message}, using local fallback`);
 
       if (this.failureCount >= this.maxFailuresBeforeFallback) {
         this.isHealthy = false;
       }
 
-      return this.localProxyPool.fetchWithProxy(url, options, timeout);
+      return this.localProxyPool.fetchWithProxy(url, options, 2);
     }
   }
 

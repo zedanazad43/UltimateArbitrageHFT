@@ -10,7 +10,7 @@ import AnalyticsEngine from './src/analytics-engine.js';
 import { renderDashboard, renderChecklist } from './src/dashboard.js';
 import { runScan } from './src/orchestrator.js';
 import { ensureSchema, logAdminEvent, logBotEvent, getRecentTrades, getStrategyPnL, getPerformanceMetrics, exportTrades } from './src/db.js';
-import { hasExchangeCredentials, getExchangeBalance, placeExchangeMarketOrder, getMissingCredentialKeys, getConfiguredExchanges, ACTIVE_EXECUTION_EXCHANGES, DATA_ONLY_EXCHANGES, getMEXCFuturesBalance, getMEXCBalance } from './src/exchange.js';
+import { hasExchangeCredentials, getExchangeBalance, placeExchangeMarketOrder, getMissingCredentialKeys, getConfiguredExchanges, ACTIVE_EXECUTION_EXCHANGES, DATA_ONLY_EXCHANGES, getMEXCFuturesBalance, getMEXCBalance, getEnabledExecutionExchanges, isExecutionExchangeEnabled } from './src/exchange.js';
 import { scanDEX } from './src/strategies/dex.js';
 import { isHFTEngineConfigured } from './src/hft-client.js';
 import { runBacktest } from './src/backtest.js';
@@ -18,6 +18,7 @@ import { evaluateStrategyBreakdown } from './src/self-evaluation.js';
 import { getEcosystemCatalog, recommendEcosystem, getApiKeySecurityChecklist } from './src/ecosystem.js';
 import { executeAllExecutableIntegrations, executeExecutableIntegration, listExecutableIntegrationIds, probeExecutableIntegrations } from './src/executive-integrations.js';
 import { getAutoExecutor } from './src/strategies/auto-executor.js';
+import { resetCircuitBreaker } from './src/orchestrator.js';
 import { renderControlPanel } from './src/control-panel.js';
 import { loadBotMemory, saveBotMemory, recordEvaluation, summarizeMemory } from './src/bot-memory.js';
 import { normalizeRebalancePolicy, computeRebalancePlan, buildRebalanceWeights } from './src/rebalancer.js';
@@ -58,17 +59,26 @@ async function sendTelegramAlert(env, message) {
 
 // ─── State helpers ────────────────────────────────────────────────────────────
 const DEFAULT_STATE = {
-  trading_enabled: true,
-  paper_trading: false,
+  trading_enabled: false,
+  paper_trading: true,
   supported_symbols: [],
   scan_symbol_mode: 'cex_union',
   scan_quote_assets: ['USDT', 'USDC', 'FDUSD', 'BUSD', 'DAI', 'TUSD', 'BTC', 'ETH'],
   max_dynamic_symbols: 500,
   max_metamask_symbols: 10000,
+  auto_profiler_enabled: true,
+  auto_profile: 'balanced',
+  auto_profile_last_change_ts: 0,
+  no_opportunity_streak: 0,
+  opportunity_hit_streak: 0,
+  burst_overdrive_until_ts: 0,
+  burst_revert_profile: 'balanced',
+  minute_report_enabled: true,
+  minute_report_last_ts: 0,
   multi_strategy_live: true,
   max_live_trades_per_scan: 5,
   daily_volume_usd: 0,
-  daily_limit_usd: 500,
+  daily_limit_usd: 0,           // 0 = no daily limit (use max_daily_loss_usd for risk)
   rebalance_policy: {
     enabled: false,
     targetBufferPct: 0.10,
@@ -96,6 +106,82 @@ const DEFAULT_STATE = {
   position_size_min_usd: 1,   // hard floor
   position_size_max_usd: 500, // hard ceiling
 };
+
+const AUTO_PROFILES = {
+  conservative: {
+    min_seconds_between_trades: 5,
+    max_live_trades_per_scan: 3,
+    max_dynamic_symbols: 500,
+    max_spread_pct: 5,
+  },
+  balanced: {
+    min_seconds_between_trades: 3,
+    max_live_trades_per_scan: 4,
+    max_dynamic_symbols: 1200,
+    max_spread_pct: 7,
+  },
+  turbo: {
+    min_seconds_between_trades: 1,
+    max_live_trades_per_scan: 5,
+    max_dynamic_symbols: 2000,
+    max_spread_pct: 12,
+  },
+  overdrive: {
+    min_seconds_between_trades: 1,
+    max_live_trades_per_scan: 5,
+    max_dynamic_symbols: 2000,
+    max_spread_pct: 15,
+  },
+};
+
+function clampInt(v, min, max) {
+  const n = Number(v);
+  if (!Number.isFinite(n)) return min;
+  return Math.max(min, Math.min(max, Math.floor(n)));
+}
+
+function applyProfileToState(state, profileName) {
+  const profile = AUTO_PROFILES[profileName] || AUTO_PROFILES.balanced;
+  state.auto_profile = profileName in AUTO_PROFILES ? profileName : 'balanced';
+  state.min_seconds_between_trades = profile.min_seconds_between_trades;
+  state.max_live_trades_per_scan = profile.max_live_trades_per_scan;
+  state.max_dynamic_symbols = profile.max_dynamic_symbols;
+  state.max_spread_pct = profile.max_spread_pct;
+}
+
+function hasLastScanOpportunity(lastScan) {
+  if (!lastScan || typeof lastScan !== 'object') return false;
+  return Boolean(lastScan.cex || lastScan.perps || lastScan.dex);
+}
+
+function buildMinuteScanMessage(state, lastScan) {
+  const profile = String(state.auto_profile || 'balanced');
+  const mode = state.paper_trading !== false ? 'PAPER' : 'LIVE';
+  const top = lastScan?.cex || lastScan?.perps || lastScan?.dex || null;
+
+  if (!top) {
+    return [
+      '⏱️ *Minute Scan Report*',
+      `Mode: ${mode}`,
+      `Profile: ${profile}`,
+      'Opportunity: none',
+      `Streak(no-op): ${Number(state.no_opportunity_streak || 0)}`,
+      `Symbols: ${Number(state.max_dynamic_symbols || 0)}`,
+      `Spread cap: ${Number(state.max_spread_pct || 0)}%`,
+    ].join('\n');
+  }
+
+  return [
+    '⏱️ *Minute Scan Report*',
+    `Mode: ${mode}`,
+    `Profile: ${profile}`,
+    `Strategy: ${String(top.strategy || '').toUpperCase()}`,
+    `Symbol: ${top.symbol}`,
+    `Direction: ${top.direction}`,
+    `Net: ${Number(top.netPct || 0).toFixed(4)}%`,
+    `Safety: ${(Number(top.safetyFactor || 0) * 100).toFixed(1)}%`,
+  ].join('\n');
+}
 
 async function getState(env) {
   const state = await env.BOT_STATE.get('trading_state', 'json').catch((err) => {
@@ -137,8 +223,9 @@ function normalizeRequestedAssets(rawAssets) {
 async function getExecutionBalancesSnapshot(env, assets = ['USDT']) {
   const requestedAssets = Array.isArray(assets) && assets.length ? assets : ['USDT'];
   const primaryAsset = requestedAssets[0];
+  const executionExchanges = getEnabledExecutionExchanges(env);
   const results = await Promise.all(
-    ACTIVE_EXECUTION_EXCHANGES.map(async (ex) => {
+    executionExchanges.map(async (ex) => {
       const configured = hasExchangeCredentials(env, ex);
       if (!configured) {
         const missing = getMissingCredentialKeys(env, ex);
@@ -202,7 +289,10 @@ function getStateSummary(state) {
   };
 }
 
-async function probeExecutionExchanges(env, exchanges = ACTIVE_EXECUTION_EXCHANGES) {
+async function probeExecutionExchanges(env, exchanges = null) {
+  const scopedExchanges = Array.isArray(exchanges) && exchanges.length
+    ? exchanges
+    : getEnabledExecutionExchanges(env);
   const exchangeStatus = {};
   let configuredCount = 0;
   let authValidatedCount = 0;
@@ -223,7 +313,7 @@ async function probeExecutionExchanges(env, exchanges = ACTIVE_EXECUTION_EXCHANG
     );
   };
 
-  for (const exchange of exchanges) {
+  for (const exchange of scopedExchanges) {
     const configured = hasExchangeCredentials(env, exchange);
     const missing = configured ? [] : getMissingCredentialKeys(env, exchange);
     let authValidated = false;
@@ -256,6 +346,7 @@ async function probeExecutionExchanges(env, exchanges = ACTIVE_EXECUTION_EXCHANG
   }
 
   return {
+    enabledExchanges: scopedExchanges,
     exchangeStatus,
     configuredCount,
     authValidatedCount,
@@ -515,6 +606,27 @@ app.get('/api/health', async (c) => {
 });
 
 // ─── API: Reset Performance Metrics ──────────────────────────────────────────
+// ── API: Reset Circuit Breaker ──────────────────────────────────────────────
+// Resets the circuit breaker for a specific exchange or all exchanges.
+// Body: { exchange: "mexc" | "binance" | "all" }
+app.post('/api/cb/reset', async (c) => {
+  if (!isAuthorized(c.env, c)) return authDenied(c.env, c, true);
+  try {
+    const body = await c.req.json().catch(() => ({}));
+    const cb = await c.env.BOT_STATE.get('nexus_circuit_breaker', 'json').catch(() => ({}));
+    const exchange = body.exchange || 'all';
+    resetCircuitBreaker(cb, exchange === 'all' ? null : exchange);
+    await c.env.BOT_STATE.put('nexus_circuit_breaker', JSON.stringify(cb), { expirationTtl: 7200 });
+    return c.json({
+      success: true,
+      message: exchange === 'all' ? 'All circuits reset' : `Circuit reset for ${exchange}`,
+      circuitBreaker: cb,
+    });
+  } catch (e) {
+    return c.json({ success: false, error: e.message }, 500);
+  }
+});
+
 app.post('/api/metrics/reset', async (c) => {
   if (!isAuthorized(c.env, c)) return authDenied(c.env, c, true);
 
@@ -575,6 +687,16 @@ app.get('/health', async (c) => {
   const equity = state
     ? (state.initial_capital || 1000) + (state.total_pnl || 0)
     : null;
+  
+  // D1 health check (non-blocking, best-effort)
+  let dbHealthy = false;
+  try {
+    if (c.env.DB) {
+      const { results } = await c.env.DB.prepare('SELECT 1 AS ok').all();
+      dbHealthy = results?.[0]?.ok === 1;
+    }
+  } catch (_) { /* D1 not available */ }
+
   return c.json({
     status:          'ok',
     trading_enabled: state?.trading_enabled ?? false,
@@ -583,6 +705,7 @@ app.get('/health', async (c) => {
     equity_usd:      equity !== null ? parseFloat(equity.toFixed(2)) : null,
     daily_pnl_usd:   state ? parseFloat((state.daily_pnl || 0).toFixed(2)) : null,
     daily_trades:    state?.daily_trades    ?? 0,
+    db_healthy:      dbHealthy,
     timestamp:       Date.now(),
   });
 });
@@ -748,8 +871,9 @@ app.post('/mode/live', async (c) => {
   if (limited) return limited;
   if (!isAuthorized(c.env, c)) return authDenied(c.env, c);
   const state = await getState(c.env);
-  if (!Number.isFinite(state.daily_limit_usd) || state.daily_limit_usd <= 0) {
-    return c.text('❌ يجب ضبط daily_limit_usd قبل تفعيل Live', 400);
+  // daily_limit_usd = 0 means no daily volume limit (risk is managed by max_daily_loss_usd)
+  if (!Number.isFinite(state.daily_limit_usd)) {
+    return c.text('❌ daily_limit_usd must be a number', 400);
   }
   state.paper_trading = false;
   await saveState(c.env, state);
@@ -829,6 +953,33 @@ app.post('/config', async (c) => {
     const clamped = Math.max(1, Math.min(5, Math.floor(body.max_live_trades_per_scan)));
     state.max_live_trades_per_scan = clamped;
   }
+  if (typeof body.auto_profiler_enabled === 'boolean') {
+    state.auto_profiler_enabled = body.auto_profiler_enabled;
+  }
+  if (typeof body.minute_report_enabled === 'boolean') {
+    state.minute_report_enabled = body.minute_report_enabled;
+  }
+  if (typeof body.auto_profile === 'string') {
+    const requestedProfile = String(body.auto_profile || '').toLowerCase();
+    if (AUTO_PROFILES[requestedProfile]) {
+      applyProfileToState(state, requestedProfile);
+      state.auto_profile_last_change_ts = Date.now();
+    }
+  }
+  if (Number.isFinite(body.burst_overdrive_minutes)) {
+    const mins = clampInt(body.burst_overdrive_minutes, 0, 30);
+    state.burst_overdrive_until_ts = mins > 0 ? (Date.now() + mins * 60_000) : 0;
+    if (mins > 0) {
+      applyProfileToState(state, 'overdrive');
+      state.auto_profile_last_change_ts = Date.now();
+    }
+  }
+  if (typeof body.burst_revert_profile === 'string') {
+    const requestedRevert = String(body.burst_revert_profile || '').toLowerCase();
+    if (['conservative', 'balanced', 'turbo'].includes(requestedRevert)) {
+      state.burst_revert_profile = requestedRevert;
+    }
+  }
   if (body.strategy_flags && typeof body.strategy_flags === 'object') {
     const current = state.strategy_flags || {};
     const nextFlags = {
@@ -863,6 +1014,8 @@ app.get('/api/status', async (c) => {
   return c.json({
     ...state,
     ...summary,
+    strategyMode: String(c.env.STRATEGY_MODE || 'multi_exchange').toLowerCase(),
+    enabledExecutionExchanges: getEnabledExecutionExchanges(c.env),
     lastScan,
     circuitBreaker: circuitBreaker || {},
     secretBindings: {
@@ -1336,6 +1489,15 @@ app.get('/api/exchange/:exchange', async (c) => {
   if (!isActive && !isDataOnly) {
     return c.json({ error: `Unknown exchange: ${exchange}` }, 404);
   }
+  if (isActive && !isExecutionExchangeEnabled(c.env, exchange)) {
+    return c.json({
+      exchange,
+      configured: false,
+      balance: null,
+      skipped: true,
+      note: 'Execution disabled by EXECUTION_EXCHANGES_ALLOWLIST'
+    });
+  }
   if (isDataOnly) {
     return c.json({
       exchange,
@@ -1393,6 +1555,9 @@ app.post('/api/exchange/:exchange/order', async (c) => {
   const exchange = c.req.param('exchange').toLowerCase();
   if (!ACTIVE_EXECUTION_EXCHANGES.includes(exchange)) {
     return c.json({ error: `Exchange not available for execution: ${exchange}` }, 400);
+  }
+  if (!isExecutionExchangeEnabled(c.env, exchange)) {
+    return c.json({ error: `${exchange} execution is disabled by EXECUTION_EXCHANGES_ALLOWLIST` }, 400);
   }
   if (!hasExchangeCredentials(c.env, exchange)) {
     return c.json({ error: `${exchange} API credentials not configured` }, 503);
@@ -1683,10 +1848,12 @@ app.get('/api/platforms', async (c) => {
       priority: 3,
     },
   ];
+  const enabledExecutionExchanges = new Set(getEnabledExecutionExchanges(c.env));
+  const scopedPlatformMeta = PLATFORM_META.filter((platform) => enabledExecutionExchanges.has(platform.name));
 
   // Fetch live USDT balances in parallel for configured CEX platforms
   const platformResults = await Promise.all(
-    PLATFORM_META.map(async ({ name, type, executionMode, strategies, note, priority }) => {
+    scopedPlatformMeta.map(async ({ name, type, executionMode, strategies, note, priority }) => {
       const configured = hasExchangeCredentials(c.env, name);
       const missingKeys = configured ? [] : getMissingCredentialKeys(c.env, name);
       let balance = null;
@@ -1801,7 +1968,7 @@ app.get('/api/symbols/catalog', async (c) => {
   const maxScan = Math.max(15, Math.min(500, parseInt(c.req.query('maxScan') || '150', 10)));
 
   const state = await getState(c.env);
-  const scanQuoteAssets = quoteAssets || state.scan_quote_assets;
+  const scanQuoteAssets = quoteAssets || state.scan_quote_assets || ['USDT'];
   const catalog = await discoverSymbolCatalog({
     metaMaskLimit: includeMetaMask ? maxMetaMask : 0,
     quoteAssets: scanQuoteAssets,
@@ -2613,13 +2780,26 @@ app.post('/api/memory/reset', async (c) => {
 async function runScheduledCycle(env) {
   const state = await getState(env);
 
+  const now = Date.now();
+  const inBurst = Number(state.burst_overdrive_until_ts || 0) > now;
+
+  if (inBurst) {
+    applyProfileToState(state, 'overdrive');
+  } else if (Number(state.burst_overdrive_until_ts || 0) > 0) {
+    state.burst_overdrive_until_ts = 0;
+    const revertProfile = ['conservative', 'balanced', 'turbo'].includes(String(state.burst_revert_profile || '').toLowerCase())
+      ? String(state.burst_revert_profile || '').toLowerCase()
+      : 'balanced';
+    applyProfileToState(state, revertProfile);
+    state.auto_profile_last_change_ts = now;
+  }
+
   if (!state.trading_enabled) {
     console.log('🔕 Nexus: التداول معطّل');
     return null;
   }
 
   // Daily reset (every 24 h)
-  const now = Date.now();
   if (now - (state.last_daily_reset || 0) > 86_400_000) {
     // Send daily summary before resetting counters
     await sendDailyReport(env, state);
@@ -2653,7 +2833,7 @@ async function runScheduledCycle(env) {
 
   // Throttle: enforce a minimum gap between consecutive trades to prevent
   // over-trading and allow market prices to settle between executions.
-  const minMs = (state.min_seconds_between_trades || 30) * 1000;
+  const minMs = (state.min_seconds_between_trades || 3) * 1000;
   if (state.last_trade_timestamp && now - state.last_trade_timestamp < minMs) {
     return null;
   }
@@ -2663,6 +2843,49 @@ async function runScheduledCycle(env) {
   await sendDrawdownWarning(env, state, equity);
 
   const result = await runScan(env, state, sendTelegramAlert);
+
+  const lastScan = await env.BOT_STATE.get('nexus_last_scan', 'json').catch(() => null);
+  const hadOpportunity = hasLastScanOpportunity(lastScan);
+
+  state.no_opportunity_streak = hadOpportunity
+    ? 0
+    : Number(state.no_opportunity_streak || 0) + 1;
+  state.opportunity_hit_streak = hadOpportunity
+    ? Number(state.opportunity_hit_streak || 0) + 1
+    : 0;
+
+  // Auto-profiler adapts runtime scan aggressiveness by recent hit/no-hit streaks.
+  if (state.auto_profiler_enabled && !inBurst) {
+    const noOpp = Number(state.no_opportunity_streak || 0);
+    const hitStreak = Number(state.opportunity_hit_streak || 0);
+    const currentProfile = String(state.auto_profile || 'balanced');
+    let nextProfile = currentProfile;
+
+    if (noOpp >= 6) nextProfile = 'turbo';
+    if (noOpp >= 16) nextProfile = 'overdrive';
+    // Rebalance quickly after the first confirmed opportunity to reduce overfitting risk.
+    if (hitStreak >= 1) nextProfile = 'balanced';
+
+    if (nextProfile !== currentProfile && AUTO_PROFILES[nextProfile]) {
+      applyProfileToState(state, nextProfile);
+      state.auto_profile_last_change_ts = now;
+      await sendTelegramAlert(
+        env,
+        `⚙️ *Auto-Profiler* switched profile\n${currentProfile} → ${nextProfile}\n` +
+        `no-op streak: ${noOpp}, hit streak: ${hitStreak}`
+      );
+    }
+  }
+
+  if (state.minute_report_enabled) {
+    const lastReportAt = Number(state.minute_report_last_ts || 0);
+    if (now - lastReportAt >= 55_000) {
+      const msg = buildMinuteScanMessage(state, lastScan);
+      await sendTelegramAlert(env, msg);
+      state.minute_report_last_ts = now;
+    }
+  }
+
   await saveState(env, state);
   return result;
 }

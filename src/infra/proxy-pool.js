@@ -108,6 +108,38 @@ export class ProxyPool {
     this.directExchanges = parseCsvSet(env.DIRECT_EXCHANGES || '');
   }
 
+  updateEnv(env = {}) {
+    if (!env || typeof env !== 'object') return;
+
+    let requiresReinitialize = false;
+    for (const [key, value] of Object.entries(env)) {
+      if (this.env[key] === value) continue;
+      this.env[key] = value;
+      if (
+        key === 'PROXY_LIST' ||
+        key === 'PROXY_URL' ||
+        key.startsWith('PROXY_URL_') ||
+        key === 'RESIDENTIAL_PROXY_URL' ||
+        key === 'RESIDENTIAL_PROXY_REGION' ||
+        key === 'PROXY_MODE' ||
+        key === 'DIRECT_EXCHANGES'
+      ) {
+        requiresReinitialize = true;
+      }
+    }
+
+    const mode = String(this.env.PROXY_MODE || 'auto').toLowerCase();
+    this.proxyMode = PROXY_MODE_VALUES.has(mode) ? mode : 'auto';
+    this.directExchanges = parseCsvSet(this.env.DIRECT_EXCHANGES || '');
+
+    if (requiresReinitialize) {
+      this.proxies = [];
+      this.currentIndex = 0;
+      this._stickySessions.clear();
+      this._initialized = false;
+    }
+  }
+
   shouldProxy(exchange = null) {
     if (this.proxyMode === 'off') return false;
     if (exchange && this.directExchanges.has(String(exchange).toLowerCase())) return false;
@@ -495,6 +527,8 @@ let _globalPool = null;
 export function getGlobalProxyPool(env) {
   if (!_globalPool) {
     _globalPool = new ProxyPool(env);
+  } else if (env) {
+    _globalPool.updateEnv(env);
   }
   return _globalPool;
 }

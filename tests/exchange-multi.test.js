@@ -408,6 +408,34 @@ describe('getKuCoinBalance', () => {
     assert.equal(req.headers['KC-API-KEY-VERSION'], '2');
   });
 
+  test('uses configured KUCOIN_API_KEY_VERSION when provided', async () => {
+    installMockFetch(() => makeJsonResponse({ code: '200000', data: [] }));
+    await getKuCoinBalance(
+      { KUCOIN_API_KEY: 'mykckey', KUCOIN_SECRET_KEY: 's', KUCOIN_PASSPHRASE: 'p', KUCOIN_API_KEY_VERSION: '3' },
+      'USDT'
+    );
+    const req = capturedRequests[0];
+    assert.equal(req.headers['KC-API-KEY-VERSION'], '3');
+  });
+
+  test('falls back to KuCoin key version 3 when version 2 auth fails', async () => {
+    installMockFetch((req) => {
+      if (req.headers?.['KC-API-KEY-VERSION'] === '2') {
+        return makeJsonResponse({ code: '400004', msg: 'KC-API-KEY not exists' });
+      }
+      return makeJsonResponse({ code: '200000', data: [{ available: '42.00', holds: '1.00' }] });
+    });
+    const bal = await getKuCoinBalance(
+      { KUCOIN_API_KEY: 'k', KUCOIN_SECRET_KEY: 's', KUCOIN_PASSPHRASE: 'p' },
+      'USDT'
+    );
+    assert.equal(capturedRequests.length, 2);
+    assert.equal(capturedRequests[0].headers['KC-API-KEY-VERSION'], '2');
+    assert.equal(capturedRequests[1].headers['KC-API-KEY-VERSION'], '3');
+    assert.equal(bal.free, 42);
+    assert.equal(bal.locked, 1);
+  });
+
   test('accepts KUCOIN_API_SECRET alias in place of KUCOIN_SECRET_KEY', async () => {
     installMockFetch(() => makeJsonResponse({ code: '200000', data: [{ available: '100.00' }] }));
     const bal = await getKuCoinBalance(
@@ -479,6 +507,23 @@ describe('placeMarketOrderKuCoin', () => {
       ),
       /KuCoin spot error/
     );
+  });
+
+  test('falls back to KuCoin key version 3 for order placement when version 2 auth fails', async () => {
+    installMockFetch((req) => {
+      if (req.headers?.['KC-API-KEY-VERSION'] === '2') {
+        return makeJsonResponse({ code: '400004', msg: 'KC-API-KEY not exists' });
+      }
+      return makeJsonResponse({ code: '200000', data: { orderId: 'kc-v3' } });
+    });
+    const data = await placeMarketOrderKuCoin(
+      { KUCOIN_API_KEY: 'k', KUCOIN_SECRET_KEY: 's', KUCOIN_PASSPHRASE: 'p' },
+      'BTCUSDT', 'BUY', '0.001', 100
+    );
+    assert.equal(capturedRequests.length, 2);
+    assert.equal(capturedRequests[0].headers['KC-API-KEY-VERSION'], '2');
+    assert.equal(capturedRequests[1].headers['KC-API-KEY-VERSION'], '3');
+    assert.equal(data.data.orderId, 'kc-v3');
   });
 });
 

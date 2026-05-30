@@ -1,6 +1,10 @@
 // nexus/src/strategies/cex.js — CEX Spatial Arbitrage Strategy
 
-const MIN_SAFETY_FACTOR = 0.35; // net/gross must be ≥ 35%
+const MIN_SAFETY_FACTOR = 0.35; // net/gross must be >= 35%
+
+// Data-only exchanges that should never appear as execution venues.
+// These exchanges are restricted by regulation (BaFin Germany) or lack API credentials.
+const DATA_ONLY_EXCHANGES = new Set(['bybit', 'gateio', 'kraken', 'coinbase']);
 
 // Estimated market-impact slippage (in % of trade value) applied per leg.
 // Derived from empirical analysis of crypto order-book depth at ~$5k–$50k sizes.
@@ -36,8 +40,15 @@ function slippagePct(exchange) {
  * @param {number} maxSpreadPct  — volatility guard: skip if gross spread exceeds this
  * @returns {object|null}  OpportunityObject or null
  */
-export function scanCEX(symbol, sources, maxSpreadPct) {
+export function scanCEX(symbol, sources, maxSpreadPct, options = {}) {
   if (sources.length < 2) return null;
+
+  const minSafetyFactor = Number.isFinite(options?.minSafetyFactor)
+    ? options.minSafetyFactor
+    : MIN_SAFETY_FACTOR;
+  const slippageMultiplier = Number.isFinite(options?.slippageMultiplier)
+    ? options.slippageMultiplier
+    : 1;
 
   const prices = sources.map(s => s.price);
   const priceMin = Math.min(...prices);
@@ -59,15 +70,18 @@ export function scanCEX(symbol, sources, maxSpreadPct) {
       const sell = sources[j];
       if (sell.price <= buy.price) continue;
 
+      // Skip opportunities involving data-only exchanges as execution venues
+      if (DATA_ONLY_EXCHANGES.has(buy.exchange) || DATA_ONLY_EXCHANGES.has(sell.exchange)) continue;
+
       const grossPct    = ((sell.price - buy.price) / buy.price) * 100;
       const totalFeePct = (buy.fee + sell.fee) * 100;
       // Deduct estimated market-impact slippage on both legs
-      const totalSlippagePct = slippagePct(buy.exchange) + slippagePct(sell.exchange);
+      const totalSlippagePct = (slippagePct(buy.exchange) + slippagePct(sell.exchange)) * slippageMultiplier;
       const netPct      = grossPct - totalFeePct - totalSlippagePct;
       if (netPct <= 0) continue;
 
       const safetyFactor = netPct / grossPct;
-      if (safetyFactor < MIN_SAFETY_FACTOR) continue;
+      if (safetyFactor < minSafetyFactor) continue;
 
       if (!best || netPct > best.netPct) {
         best = {
