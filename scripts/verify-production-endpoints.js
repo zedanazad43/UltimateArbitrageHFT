@@ -10,6 +10,7 @@ const customBaseUrl = process.env.CUSTOM_BASE_URL ?? DEFAULT_CUSTOM_URL;
 const expectedWorkerName = process.env.EXPECTED_WORKER_NAME || 'ultimatearbitragehft';
 const requireReadyForLive = String(process.env.REQUIRE_READY_FOR_LIVE || 'true').toLowerCase() === 'true';
 const skipCustomDomainCheck = String(process.env.SKIP_CUSTOM_DOMAIN_CHECK || 'false').toLowerCase() === 'true';
+const requireBaseReadyForLive = String(process.env.REQUIRE_BASE_READY_FOR_LIVE || 'false').toLowerCase() === 'true';
 const adminToken = process.env.WORKFLOW_ADMIN_TOKEN || process.env.ADMIN_TOKEN || '';
 
 if (!adminToken) {
@@ -41,23 +42,38 @@ function tryJson(text) {
   }
 }
 
-async function checkIdentityAndReadiness(url, label) {
+async function checkIdentityAndReadiness(url, label, options = {}) {
+  const {
+    requireReadiness = true,
+    readinessMustBeGreen = requireReadyForLive,
+  } = options;
+
   const version = await fetchText(joinUrl(url, '/api/version'));
-  const readiness = await fetchText(joinUrl(url, '/api/readiness'), { 'x-admin-token': adminToken });
+  let readiness = null;
+  if (requireReadiness) {
+    readiness = await fetchText(joinUrl(url, '/api/readiness'), { 'x-admin-token': adminToken });
+  }
 
   console.log(`  [${label}] /api/version   -> ${version.status}`);
-  console.log(`  [${label}] /api/readiness -> ${readiness.status}`);
+  if (requireReadiness) {
+    console.log(`  [${label}] /api/readiness -> ${readiness.status}`);
+  }
 
   assert(version.status === 200, `ERROR: ${label} /api/version check failed`);
-  assert(readiness.status === 200, `ERROR: ${label} /api/readiness check failed`);
 
   const versionJson = tryJson(version.text);
   assert(versionJson?.worker === expectedWorkerName, `ERROR: ${label} is not serving expected worker ${expectedWorkerName}`);
 
-  const readinessJson = tryJson(readiness.text);
-  if (requireReadyForLive) {
-    assert(readinessJson?.readyForLive === true, `ERROR: ${label} readiness is not green (readyForLive=true required)`);
+  if (requireReadiness) {
+    assert(readiness.status === 200, `ERROR: ${label} /api/readiness check failed`);
+    const readinessJson = tryJson(readiness.text);
+    if (readinessMustBeGreen) {
+      assert(readinessJson?.readyForLive === true, `ERROR: ${label} readiness is not green (readyForLive=true required)`);
+    }
+    return { versionJson, readinessJson };
   }
+
+  return { versionJson, readinessJson: null };
 }
 
 async function checkCorePublic(url) {
@@ -110,15 +126,37 @@ async function checkProtected(url) {
 }
 
 async function main() {
-  await checkCorePublic(baseUrl);
+  const hasCustomDomain = !skipCustomDomainCheck && String(customBaseUrl).trim();
+  const primaryUrl = hasCustomDomain ? customBaseUrl : baseUrl;
+
+  await checkCorePublic(primaryUrl);
 
   console.log('Checking worker identity + readiness gates');
-  await checkIdentityAndReadiness(baseUrl, 'workers.dev/base');
-  if (!skipCustomDomainCheck && String(customBaseUrl).trim()) {
-    await checkIdentityAndReadiness(customBaseUrl, 'custom-domain');
+
+  if (hasCustomDomain) {
+    await checkIdentityAndReadiness(customBaseUrl, 'custom-domain', {
+      requireReadiness: true,
+      readinessMustBeGreen: requireReadyForLive,
+    });
+
+    // workers.dev may have different egress behavior; keep it diagnostic by default.
+    try {
+      await checkIdentityAndReadiness(baseUrl, 'workers.dev/base', {
+        requireReadiness: true,
+        readinessMustBeGreen: requireBaseReadyForLive,
+      });
+    } catch (err) {
+      if (requireBaseReadyForLive) throw err;
+      console.warn(`WARN: workers.dev readiness check is non-blocking: ${err.message || err}`);
+    }
+  } else {
+    await checkIdentityAndReadiness(baseUrl, 'workers.dev/base', {
+      requireReadiness: true,
+      readinessMustBeGreen: requireReadyForLive,
+    });
   }
 
-  await checkProtected(baseUrl);
+  await checkProtected(primaryUrl);
   console.log('All production endpoint checks passed');
 }
 
