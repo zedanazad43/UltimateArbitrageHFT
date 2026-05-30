@@ -709,10 +709,6 @@ export async function runScan(env, state, sendAlert) {
 
   if (!Number.isFinite(sizeUsd) || sizeUsd <= 0) {
     // Balance check failed (likely exchange IP restriction) — record as paper observation
-    const requestedPreview = Math.min(
-      requestedSizeUsd,
-      Number(state.position_size_usd || 5)
-    );
     console.warn(
       `[fallback-paper] Live balance check blocked for ${best.symbol} ` +
       `(${best.strategy} ${best.direction} net=${best.netPct.toFixed(4)}%) — ` +

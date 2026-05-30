@@ -36,6 +36,7 @@ function Confirm-YesNo($question) {
 
 function Read-Secret($prompt) {
     $value = Read-Host $prompt
+    if ([string]::IsNullOrWhiteSpace($value)) { return "" }
     return $value.Trim()
 }
 
@@ -259,7 +260,7 @@ if (Confirm-YesNo "هل تريد رفع الأسرار إلى Cloudflare الآ�
     )
 
     foreach ($s in $secrets) {
-        if ($s.Value -and $s.Value.Trim() -ne "") {
+        if (![string]::IsNullOrWhiteSpace($s.Value)) {
             Write-Host "   🔐 رفع $($s.Name)..." -NoNewline
             $result = $s.Value | wrangler secret put $s.Name 2>&1
             if ($LASTEXITCODE -eq 0) {

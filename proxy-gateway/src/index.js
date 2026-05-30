@@ -1,3 +1,4 @@
+/* global URL, Response, fetch, Headers */
 /**
  * Minimal CORS/Proxy Gateway Worker for UltimateArbitrageHFT
  * Usage: GET https://proxy-gateway.workers.dev/?target=https://api.mexc.com/api/v3/time
