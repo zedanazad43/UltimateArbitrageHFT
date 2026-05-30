@@ -109,6 +109,39 @@ curl -H "x-admin-token: <ADMIN_TOKEN>" https://<your-worker-domain>/api/ai/healt
 
 ---
 
+## Exchange Connectivity Troubleshooting
+
+### Bitget WAF/Network Blocking
+
+If Bitget returns WAF blocks or network errors, you need a static IP exit point:
+
+```bash
+# Run the automated fix guide
+bash scripts/fix-bitget-access.sh
+```
+
+**Quick fix options:**
+1. **VPS with static IP** (Recommended): Set up a $5/month VPS with Squid proxy
+2. **Premium proxy service**: Use Bright Data, Oxylabs, or Smartproxy
+3. **Cloudflare Zero Trust**: Enterprise-grade static egress
+
+### Binance API Key Issues
+
+If Binance returns "Invalid API-key" or format errors:
+
+```bash
+# Run the automated fix guide
+bash scripts/fix-binance-keys.sh
+```
+
+**Quick fix steps:**
+1. Create new API keys at [Binance API Management](https://www.binance.com/en/my/settings/api-management)
+2. Update GitHub secrets: `BINANCE_API_KEY`, `BINANCE_API_SECRET`
+3. Update Cloudflare secrets: `npx wrangler secret put BINANCE_API_KEY`
+4. Test: `npm run diagnose:exchanges`
+
+---
+
 ## Cloudflare deployment troubleshooting
 
 If the **Deploy Worker** workflow fails during `wrangler deploy`, use this checklist:

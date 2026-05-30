@@ -9,6 +9,9 @@ export default [
       'public/**',
       'UltimateArbitrageHFT/**',
       'money-transfer-project-template-java/**',
+      '.tmp-*.js',
+      '*.tmp.js',
+      'tmp-*.js',
     ],
   },
   // Base rules for all JS files

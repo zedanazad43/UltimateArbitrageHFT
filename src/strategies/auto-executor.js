@@ -29,6 +29,13 @@ import {
 } from '../infra/security.js';
 
 import { getGlobalProxyPool } from '../infra/proxy-pool.js';
+import {
+  checkDrawdownGuard,
+  checkExposureLimit,
+  calculateAdaptiveLeverage,
+  calculatePositionSize as riskPositionSize,
+  MAX_POSITION_EQUITY_FRACTION,
+} from '../risk.js';
 
 // ── Configuration ─────────────────────────────────────────────────────────────
 
@@ -184,12 +191,26 @@ export class AutoExecutor {
     const strategyConfig = this.config.strategies[opportunity.strategy];
     if (!strategyConfig) return 0;
 
-    const maxRisk = this._portfolioBalance * this.config.maxPortfolioRiskPct;
+    // Use risk.js position sizing for consistency with orchestrator
+    const equity = this._portfolioBalance || 1000;
+    const winRate = 0.55;
+    const riskReward = 2.0;
+    const riskCalcSize = riskPositionSize(equity, winRate, riskReward);
+
+    const maxRisk = equity * this.config.maxPortfolioRiskPct;
     const maxByRisk = Math.max(0, maxRisk / (this.config.stopLossPct || 0.02));
+
+    // Leverage for perps/funding strategies
+    const leverage = (opportunity.isPerp || opportunity.strategy === 'funding')
+      ? calculateAdaptiveLeverage(equity, opportunity.netPct || 0)
+      : 1;
+
     const rawMax = Math.min(
+      riskCalcSize * leverage,
       this.config.maxPositionUsd,
       maxByRisk,
-      this._portfolioBalance * 0.1 // Never more than 10% in one position
+      equity * 0.1, // Never more than 10% in one position
+      equity * MAX_POSITION_EQUITY_FRACTION
     );
 
     const clamped = Math.max(0, Math.min(rawMax, opportunity.suggestedSize || rawMax));
@@ -374,6 +395,26 @@ export class AutoExecutor {
       this._running = true;
     }
 
+    // Pre-batch risk checks
+    const equity = this._portfolioBalance || 1000;
+    const state = {
+      daily_pnl: this._dailyLoss || 0,
+      daily_trades: this.totalTrades,
+      max_daily_loss_usd: this._maxDailyLoss || 25,
+      max_per_trade_loss_pct: this.config.stopLossPct || 0.02,
+      initial_capital: 1000,
+    };
+
+    const drawdownCheck = checkDrawdownGuard(state, equity);
+    if (drawdownCheck.halt) {
+      auditLog({
+        type: 'auto_stop_drawdown',
+        level: 'warn',
+        details: { reason: drawdownCheck.reason },
+      });
+      return [];
+    }
+
     const prioritized = this.prioritizeOpportunities(opportunities);
     const executed = [];
 
@@ -386,6 +427,18 @@ export class AutoExecutor {
 
       const estimatedProfit = sizeUsd * (opp.netPct / 100);
       if (estimatedProfit < this.config.minProfitUsd) continue;
+
+      // Exposure limit check per trade
+      const currentExposure = executed.reduce((sum, p) => sum + (p.sizeUsd || 0), 0);
+      const exposureCheck = checkExposureLimit(equity, currentExposure, sizeUsd);
+      if (!exposureCheck.allowed) {
+        auditLog({
+          type: 'exposure_limit',
+          level: 'warn',
+          details: { reason: exposureCheck.reason, sizeUsd },
+        });
+        break; // Stop adding more positions
+      }
 
       try {
         const position = await this.executeOpportunity(opp, sizeUsd);
