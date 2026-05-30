@@ -237,6 +237,7 @@ describe('AutoExecutor.executeBatch() — batch cap', () => {
       cooldownMs: 0,
       maxExecutionsPerBatch: 1,
       stopLossPct: 0.02,
+      maxDailyLossUsd: 1000,
     });
     exe._running = true;
     exe._portfolioBalance = 1000;
@@ -244,14 +245,24 @@ describe('AutoExecutor.executeBatch() — batch cap', () => {
       id: 't1',
       strategy: 'cex',
       symbol: 'BTC/USDT',
-      pnl: -100,
+      pnl: -30,
       status: 'closed',
       closedAt: Date.now(),
     });
+    let executeOpportunityCalled = false;
+    exe.prioritizeOpportunities = () => [makeOpportunity({ netPct: 1.0, suggestedSize: 50 })];
+    exe.canOpenPosition = () => true;
+    exe.calculatePositionSize = () => 50;
+    exe.executeOpportunity = async () => {
+      executeOpportunityCalled = true;
+      return null;
+    };
     const executed = await exe.executeBatch([
       makeOpportunity({ netPct: 1.0, suggestedSize: 50 })
     ]);
     assert.equal(executed.length, 0);
+    assert.equal(exe.totalTrades, 0);
+    assert.equal(executeOpportunityCalled, false);
   });
 });
 
