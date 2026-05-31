@@ -97,6 +97,12 @@ jobs:
             "PROXY_URL",
             "PROXY_LIST",
             "PROXY_AUTH_HEADER",
+            "EXTERNAL_PROXY_URL",
+            "EXTERNAL_PROXY_GATEWAY_URL",
+            "EXTERNAL_PROXY_PROVIDER",
+            "EXTERNAL_PROXY_USERNAME",
+            "EXTERNAL_PROXY_PASSWORD",
+            "EXTERNAL_PROXY_AUTH_HEADER",
           ]
           secrets = {k: os.environ[k] for k in keys if os.environ.get(k)}
           fd = os.open("/tmp/cf_secrets.json", os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
@@ -137,6 +143,12 @@ jobs:
           PROXY_URL: ${{ secrets.PROXY_URL }}
           PROXY_LIST: ${{ secrets.PROXY_LIST }}
           PROXY_AUTH_HEADER: ${{ secrets.PROXY_AUTH_HEADER }}
+          EXTERNAL_PROXY_URL: ${{ secrets.EXTERNAL_PROXY_URL }}
+          EXTERNAL_PROXY_GATEWAY_URL: ${{ secrets.EXTERNAL_PROXY_GATEWAY_URL }}
+          EXTERNAL_PROXY_PROVIDER: ${{ secrets.EXTERNAL_PROXY_PROVIDER }}
+          EXTERNAL_PROXY_USERNAME: ${{ secrets.EXTERNAL_PROXY_USERNAME }}
+          EXTERNAL_PROXY_PASSWORD: ${{ secrets.EXTERNAL_PROXY_PASSWORD }}
+          EXTERNAL_PROXY_AUTH_HEADER: ${{ secrets.EXTERNAL_PROXY_AUTH_HEADER }}
 
       - name: Post-deploy endpoint smoke test
         id: smoke_test

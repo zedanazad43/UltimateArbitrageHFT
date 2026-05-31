@@ -33,6 +33,7 @@ export class ExternalProxyManager {
     this.provider = env.EXTERNAL_PROXY_PROVIDER || 'none'; // bright_data, oxylabs, smartproxy, none
     this.username = env.EXTERNAL_PROXY_USERNAME || '';
     this.password = env.EXTERNAL_PROXY_PASSWORD || '';
+    this.authHeader = env.EXTERNAL_PROXY_AUTH_HEADER || '';
     this.providerConfigured = this.provider !== 'none' && !!this.username && !!this.password;
     this.enabled = !!this.gatewayUrl || this.providerConfigured;
     this.localProxyPool = getGlobalProxyPool(env);
@@ -41,6 +42,25 @@ export class ExternalProxyManager {
     this.isHealthy = this.enabled; // Assume healthy if enabled
     this.failureCount = 0;
     this.maxFailuresBeforeFallback = 3;
+  }
+
+  /**
+   * Builds optional auth headers for external gateway calls.
+   */
+  buildAuthHeaders() {
+    const raw = String(this.authHeader || '').trim();
+    if (!raw) return {};
+
+    const sep = raw.indexOf(':');
+    if (sep <= 0) {
+      console.warn('[external-proxy] EXTERNAL_PROXY_AUTH_HEADER is invalid (expected "Header-Name: value")');
+      return {};
+    }
+
+    const key = raw.slice(0, sep).trim();
+    const value = raw.slice(sep + 1).trim();
+    if (!key || !value) return {};
+    return { [key]: value };
   }
 
   /**
@@ -107,6 +127,7 @@ export class ExternalProxyManager {
         signal: controller.signal,
         headers: {
           'X-Proxy-Target': probeTarget,
+          ...this.buildAuthHeaders(),
         },
       });
 
@@ -157,6 +178,7 @@ export class ExternalProxyManager {
         headers: {
           ...fetchOptions.headers,
           'X-Proxy-Target': url,
+          ...this.buildAuthHeaders(),
         },
       });
       this.failureCount = 0;

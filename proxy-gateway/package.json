@@ -1,0 +1,12 @@
+{
+  "name": "arb-proxy-gateway-node",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node node-gateway.mjs"
+  },
+  "dependencies": {
+    "undici": "^6.21.0"
+  }
+}
