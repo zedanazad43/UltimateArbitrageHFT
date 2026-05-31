@@ -94,6 +94,9 @@ jobs:
             "GITHUB_TOKEN",
             "HFT_ENGINE_SECRET",
             "TEMPORAL_API_KEY",
+            "PROXY_URL",
+            "PROXY_LIST",
+            "PROXY_AUTH_HEADER",
           ]
           secrets = {k: os.environ[k] for k in keys if os.environ.get(k)}
           fd = os.open("/tmp/cf_secrets.json", os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
@@ -131,6 +134,9 @@ jobs:
           WORKFLOW_ADMIN_TOKEN: ${{ secrets.WORKFLOW_ADMIN_TOKEN }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TEMPORAL_API_KEY: ${{ secrets.TEMPORAL_API_KEY }}
+          PROXY_URL: ${{ secrets.PROXY_URL }}
+          PROXY_LIST: ${{ secrets.PROXY_LIST }}
+          PROXY_AUTH_HEADER: ${{ secrets.PROXY_AUTH_HEADER }}
 
       - name: Post-deploy endpoint smoke test
         id: smoke_test
