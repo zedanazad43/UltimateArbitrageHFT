@@ -14,9 +14,11 @@ function usage() {
 
 Usage:
   node scripts/proxy001-sync-deploy.js --extract-url <url> [options]
+  node scripts/proxy001-sync-deploy.js --token <token> [options]
 
 Required:
   --extract-url <url>            Full Proxy001 extract API URL
+  --token <token>                Proxy001 extraction token (fallback mode)
 
 Options:
   --repo <owner/repo>            GitHub repository (default: ${DEFAULT_REPO})
@@ -39,9 +41,10 @@ Options:
   --help                         Show this help
 
 Required env vars:
-  PROXY001_API_KEY
+  PROXY001_API_KEY (required only with --extract-url mode)
 
 Optional env vars:
+  PROXY001_TOKEN
   PROXY001_USERNAME
   PROXY001_PASSWORD
   PROXY_AUTH_HEADER
@@ -78,9 +81,19 @@ function ensureApiKey() {
 
 function buildExtractUrl(args, apiKey) {
   const raw = args['extract-url'] || '';
-  if (!raw) throw new Error('--extract-url is required');
-  const u = new URL(raw);
-  u.searchParams.set('api_key', apiKey);
+  const token = args.token || process.env.PROXY001_TOKEN || '';
+
+  let u;
+  if (raw) {
+    u = new URL(raw);
+    u.searchParams.set('api_key', apiKey);
+  } else if (token) {
+    u = new URL('https://proxy001.com/api/proxy/get_ip');
+    u.searchParams.set('token', token);
+  } else {
+    throw new Error('Provide --extract-url (URL mode) or --token / PROXY001_TOKEN (token mode).');
+  }
+
   if (args.num) u.searchParams.set('num', String(args.num));
   if (args.regions) u.searchParams.set('regions', String(args.regions));
   if (args.protocol) u.searchParams.set('protocol', String(args.protocol));
@@ -201,7 +214,8 @@ async function main() {
     return;
   }
 
-  const apiKey = ensureApiKey();
+  const urlMode = !!(args['extract-url'] || process.env.PROXY001_EXTRACT_URL);
+  const apiKey = urlMode ? ensureApiKey() : (process.env.PROXY001_API_KEY || '');
   const repo = String(args.repo || DEFAULT_REPO);
   const workflow = String(args.workflow || DEFAULT_WORKFLOW);
   const pollMs = Number.isFinite(Number(args['poll-ms'])) ? Number(args['poll-ms']) : DEFAULT_POLL_MS;

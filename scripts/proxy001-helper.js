@@ -17,6 +17,7 @@ Usage:
   node scripts/proxy001-helper.js whitelist:del --ips <ip1,ip2>
 
   node scripts/proxy001-helper.js extract --url <full_extract_endpoint> [--num 10] [--regions us] [--protocol http] [--return_type json] [--lb 4] [--sb ',']
+  node scripts/proxy001-helper.js extract [--num 10] [--regions us] [--protocol http] [--return_type json] [--lb 4] [--sb ',']
 
   node scripts/proxy001-helper.js to-proxy-list --ips <ip:port,ip:port> [--protocol http] [--username USER] [--password PASS] [--region global] [--priority 10]
 
@@ -24,6 +25,7 @@ Env vars:
   PROXY001_API_KEY          Required for whitelist/extract calls
   PROXY001_BASE_URL         Optional, default: https://proxy001.com
   PROXY001_EXTRACT_URL      Optional fallback endpoint for extract command
+  PROXY001_TOKEN            Optional token fallback for /api/proxy/get_ip extraction
   PROXY001_USERNAME         Optional fallback for to-proxy-list
   PROXY001_PASSWORD         Optional fallback for to-proxy-list
 `);
@@ -131,15 +133,27 @@ function toProxyListJson(rawIps, protocol, username, password, region, priority)
 }
 
 async function extract(args) {
-  assertApiKey();
   const endpoint = args.url || process.env.PROXY001_EXTRACT_URL || '';
-  if (!endpoint) {
-    throw new Error('extract requires --url or PROXY001_EXTRACT_URL');
+  const token = args.token || process.env.PROXY001_TOKEN || '';
+
+  let u;
+  if (endpoint) {
+    // URL mode: use full endpoint from provider dashboard Open Link.
+    const ensuredKey = apiKey || process.env.PROXY001_API_KEY || '';
+    if (!ensuredKey) {
+      throw new Error('PROXY001_API_KEY is required when using --url / PROXY001_EXTRACT_URL');
+    }
+    u = new URL(endpoint);
+    u.searchParams.set('api_key', ensuredKey);
+  } else if (token) {
+    // Token mode: discovered endpoint pattern used by provider.
+    u = new URL(`${baseUrl}/api/proxy/get_ip`);
+    u.searchParams.set('token', token);
+  } else {
+    throw new Error('extract requires one of: --url / PROXY001_EXTRACT_URL OR --token / PROXY001_TOKEN');
   }
 
-  const u = new URL(endpoint);
   const params = u.searchParams;
-  params.set('api_key', apiKey);
   if (args.num) params.set('num', String(args.num));
   if (args.regions) params.set('regions', String(args.regions));
   if (args.protocol) params.set('protocol', String(args.protocol));
