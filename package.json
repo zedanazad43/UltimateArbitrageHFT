@@ -35,6 +35,8 @@
     "monitor": "node scripts/monitor-performance.js",
     "diagnose:exchanges": "node scripts/diagnose-exchange-readiness.js",
     "activate:live": "node scripts/activate-live-trading.js",
+    "proxy001": "node scripts/proxy001-helper.js",
+    "proxy001:sync": "node scripts/proxy001-sync-deploy.js",
     "remediate:exchanges": "bash scripts/remediate-all-exchanges.sh",
     "self:evaluate": "node scripts/self-evaluate-strategies.js",
     "backup": "pwsh -NoProfile -File ./scripts/backup-database.ps1",
