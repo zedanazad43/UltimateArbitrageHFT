@@ -29,11 +29,11 @@ let _externalProxy = null;
 export class ExternalProxyManager {
   constructor(env) {
     this.env = env;
-    this.gatewayUrl = env.EXTERNAL_PROXY_URL || env.EXTERNAL_PROXY_GATEWAY_URL || env.EXTERNAL_PROXY_FALLBACK_URL || '';
-    this.provider = env.EXTERNAL_PROXY_PROVIDER || env.EXTERNAL_PROXY_FALLBACK_PROVIDER || 'none'; // bright_data, oxylabs, smartproxy, none
-    this.username = env.EXTERNAL_PROXY_USERNAME || env.EXTERNAL_PROXY_FALLBACK_USERNAME || '';
-    this.password = env.EXTERNAL_PROXY_PASSWORD || env.EXTERNAL_PROXY_FALLBACK_PASSWORD || '';
-    this.authHeader = env.EXTERNAL_PROXY_AUTH_HEADER || env.EXTERNAL_PROXY_FALLBACK_AUTH_HEADER || '';
+    this.gatewayUrl = env.EXTERNAL_PROXY_FALLBACK_URL || env.EXTERNAL_PROXY_URL || env.EXTERNAL_PROXY_GATEWAY_URL || '';
+    this.provider = env.EXTERNAL_PROXY_FALLBACK_PROVIDER || env.EXTERNAL_PROXY_PROVIDER || 'none'; // bright_data, oxylabs, smartproxy, none
+    this.username = env.EXTERNAL_PROXY_FALLBACK_USERNAME || env.EXTERNAL_PROXY_USERNAME || '';
+    this.password = env.EXTERNAL_PROXY_FALLBACK_PASSWORD || env.EXTERNAL_PROXY_PASSWORD || '';
+    this.authHeader = env.EXTERNAL_PROXY_FALLBACK_AUTH_HEADER || env.EXTERNAL_PROXY_AUTH_HEADER || '';
     this.providerConfigured = this.provider !== 'none' && !!this.username && !!this.password;
     this.enabled = !!this.gatewayUrl || this.providerConfigured;
     this.localProxyPool = getGlobalProxyPool(env);

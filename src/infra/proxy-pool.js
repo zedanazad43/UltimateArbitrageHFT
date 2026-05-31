@@ -120,7 +120,7 @@ export class ProxyPool {
   }
 
   _proxyAuthHeaderValue() {
-    return this.env.PROXY_AUTH_HEADER || this.env.PROXY_FALLBACK_AUTH_HEADER || '';
+    return this.env.PROXY_FALLBACK_AUTH_HEADER || this.env.PROXY_AUTH_HEADER || '';
   }
 
   updateEnv(env = {}) {
@@ -193,7 +193,7 @@ export class ProxyPool {
     }
 
     // Fallback: single proxy URL
-    const primaryProxyUrl = this.env.PROXY_URL || this.env.PROXY_FALLBACK_URL || '';
+    const primaryProxyUrl = this.env.PROXY_FALLBACK_URL || this.env.PROXY_URL || '';
     if (this.proxies.length === 0 && primaryProxyUrl) {
       this.proxies.push(new ProxyEndpoint(primaryProxyUrl, 'http', 0, 'global'));
     }
