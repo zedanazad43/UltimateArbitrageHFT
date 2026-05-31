@@ -22,6 +22,17 @@ function parseCsvSet(raw) {
   return new Set(raw.split(',').map(v => v.trim().toLowerCase()).filter(Boolean));
 }
 
+function parseHeaderLine(raw) {
+  const value = String(raw || '').trim();
+  if (!value) return null;
+  const sep = value.indexOf(':');
+  if (sep <= 0) return null;
+  const key = value.slice(0, sep).trim();
+  const headerValue = value.slice(sep + 1).trim();
+  if (!key || !headerValue) return null;
+  return { key, value: headerValue };
+}
+
 // Exchange → preferred proxy region mapping for optimal latency
 const EXCHANGE_REGION_MAP = {
   mexc:    'eu',    // Malta
@@ -322,9 +333,13 @@ export class ProxyPool {
           const Controller = globalThis.AbortController;
           const controller = Controller ? new Controller() : null;
           const timeout = controller ? setTimeout(() => controller.abort(), PROXY_REQUEST_TIMEOUT_MS) : null;
+          const authHeader = parseHeaderLine(this.env.PROXY_AUTH_HEADER);
 
           const resp = await fetch(`${proxy.url}?target=${encodeURIComponent('https://api-cloud.bitmart.com/spot/v1/ticker?symbol=BTC_USDT')}`, {
-            headers: { 'X-Proxy-Target': 'https://api-cloud.bitmart.com/spot/v1/ticker?symbol=BTC_USDT' },
+                headers: {
+                  'X-Proxy-Target': 'https://api-cloud.bitmart.com/spot/v1/ticker?symbol=BTC_USDT',
+              ...(authHeader ? { [authHeader.key]: authHeader.value } : {}),
+                },
             ...(controller ? { signal: controller.signal } : {}),
           });
           if (timeout) clearTimeout(timeout);
@@ -441,6 +456,8 @@ export class ProxyPool {
     const controller = Controller ? new Controller() : null;
     const timeout = controller ? setTimeout(() => controller.abort(), PROXY_REQUEST_TIMEOUT_MS) : null;
 
+    const authHeader = parseHeaderLine(this.env.PROXY_AUTH_HEADER);
+
     let resp;
     try {
       resp = await fetch(proxyUrl, {
@@ -449,6 +466,7 @@ export class ProxyPool {
           ...fetchOptions.headers,
           'X-Proxy-Target': url,
           'X-Proxy-Type': proxy.type,
+          ...(authHeader ? { [authHeader.key]: authHeader.value } : {}),
           ...(exchange ? { 'X-Proxy-Exchange': exchange } : {}),
         },
         ...(controller ? { signal: controller.signal } : {}),
