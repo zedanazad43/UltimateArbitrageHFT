@@ -477,8 +477,10 @@ export class ProxyPool {
 
     const latency = Date.now() - startTime;
 
-    // Check if proxy returned an error page
-    if (resp.status === 407 || resp.status === 502 || resp.status === 504) {
+    // Check if proxy returned an upstream/proxy transport error page.
+    // 530 is frequently returned by Cloudflare-backed gateway URLs when the
+    // tunnel/hostname is invalid (for example 1016 origin DNS errors).
+    if (resp.status === 407 || resp.status === 502 || resp.status === 504 || resp.status === 530) {
       proxy.recordFailure();
       throw new Error(`Proxy returned HTTP ${resp.status}`);
     }
