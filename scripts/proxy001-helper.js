@@ -66,7 +66,11 @@ async function callJson(url) {
   } catch {
     throw new Error(`Non-JSON response (${res.status}): ${text.slice(0, 300)}`);
   }
-  if (!res.ok || data?.success === false || Number(data?.code || 0) !== 0) {
+  const code = Number(data?.code);
+  // Proxy001 endpoints are inconsistent: some successful whitelist responses
+  // return code=1 with success text or populated data.
+  const acceptedCode = Number.isFinite(code) ? (code === 0 || code === 1) : true;
+  if (!res.ok || data?.success === false || !acceptedCode) {
     throw new Error(`Proxy001 API error (${res.status}): ${JSON.stringify(data)}`);
   }
   return data;
