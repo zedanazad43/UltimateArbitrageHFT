@@ -2,6 +2,10 @@
 
 // Cross-platform production smoke verifier (Windows + Linux).
 
+import dotenv from 'dotenv';
+
+dotenv.config({ path: '.dev.vars', override: false });
+
 const DEFAULT_BASE_URL = 'https://ultimatearbitragehft.zedanazad43.workers.dev';
 const DEFAULT_CUSTOM_URL = 'https://api.ecostamp.net';
 

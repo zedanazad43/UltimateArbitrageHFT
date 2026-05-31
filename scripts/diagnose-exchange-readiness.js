@@ -1,5 +1,9 @@
 #!/usr/bin/env node
 
+import dotenv from 'dotenv';
+
+dotenv.config({ path: '.dev.vars', override: false });
+
 const BASE_URL = process.env.BASE_URL || 'https://ultimatearbitragehft.zedanazad43.workers.dev';
 const ADMIN_TOKEN = process.env.ADMIN_TOKEN || '';
 
@@ -45,6 +49,14 @@ function normalizeError(err) {
 function guidanceForError(exchange, err) {
   if (!err) return 'No action needed.';
   const e = err.toLowerCase();
+  if (
+    e.includes('error code: 1042') ||
+    e.includes('cloudflare') ||
+    e.includes('access denied') ||
+    e.includes('forbidden')
+  ) {
+    return `Likely ${exchange.toUpperCase()} egress/WAF block from current Worker IP. Configure PROXY_MODE + PROXY_URL/PROXY_LIST and retest balance + order routes.`;
+  }
   if (e.includes('format invalid') || e.includes('invalid') || e.includes('not exists') || e.includes('api key')) {
     return `Regenerate ${exchange.toUpperCase()} API credentials, verify key/secret/passphrase mapping, and re-upload worker secrets.`;
   }

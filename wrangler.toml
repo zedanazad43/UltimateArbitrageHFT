@@ -162,7 +162,7 @@ DIRECT_EXCHANGES = ""
 # Comma-separated list of exchanges allowed for live execution.
 # Keep scope focused on known healthy accounts to avoid noisy auth/network failures.
 # Supported values: mexc, binance, kucoin, bitget, bitmart, htx
-EXECUTION_EXCHANGES_ALLOWLIST = "mexc,binance"
+EXECUTION_EXCHANGES_ALLOWLIST = "mexc,binance,kucoin,bitget,bitmart,htx"
 
 # ── LLM model and optional AI Gateway routing ───────────────────────────────
 # LLM_MODEL can be any Workers AI model ID, for example:
