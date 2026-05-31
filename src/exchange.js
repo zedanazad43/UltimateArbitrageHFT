@@ -165,6 +165,20 @@ function _detectExchangeFromUrl(url) {
  */
 export async function exchangeFetch(url, options = {}, exchange, maxRetries = 2, env = null) {
   const ex = exchange || _detectExchangeFromUrl(url);
+
+  // If an external gateway is configured, prefer it for execution exchanges
+  // to avoid direct Cloudflare egress geoblocks/WAF on sensitive endpoints.
+  if (env && ex && ['mexc', 'binance', 'kucoin', 'bitget', 'bitmart', 'htx'].includes(ex)) {
+    try {
+      const proxyManager = getExternalProxyManager(env);
+      if (proxyManager.getStats()?.enabled) {
+        return proxyManager.fetchWithFallback(url, options, 15000);
+      }
+    } catch (_) {
+      // Fall back to standard routing if external gateway is unavailable.
+    }
+  }
+
   const proxyPool = getGlobalProxyPool(env || undefined);
   return secureFetch(ex, url, options, proxyPool, maxRetries);
 }
