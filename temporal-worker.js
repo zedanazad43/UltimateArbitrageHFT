@@ -36,6 +36,13 @@ import { fileURLToPath }            from 'url';
 import path                         from 'path';
 import * as activities              from './src/temporal/activities.js';
 
+try {
+  const dotenv = await import('dotenv');
+  dotenv.config();
+} catch (_) {
+  // dotenv is optional in production; env vars may come from process manager.
+}
+
 const {
   TEMPORAL_ADDRESS    = 'localhost:7233',
   TEMPORAL_API_KEY,
@@ -95,19 +102,41 @@ async function main() {
     taskQueue:     TEMPORAL_TASK_QUEUE,
   });
 
+  let shuttingDown = false;
+  const shutdown = async (signal) => {
+    if (shuttingDown) return;
+    shuttingDown = true;
+    console.log(`[temporal-worker] Received ${signal}. Graceful shutdown started...`);
+    try {
+      worker.shutdown();
+      await connection.close();
+      console.log('[temporal-worker] Shutdown completed.');
+    } catch (err) {
+      console.error('[temporal-worker] Shutdown error:', err?.message || err);
+    }
+  };
+
+  process.on('uncaughtException', (err) => {
+    console.error('[temporal-worker] uncaughtException:', err);
+    shutdown('uncaughtException').finally(() => process.exit(1));
+  });
+
+  process.on('unhandledRejection', (reason) => {
+    console.error('[temporal-worker] unhandledRejection:', reason);
+  });
+
   console.log(
     `[temporal-worker] Worker polling on task queue: "${TEMPORAL_TASK_QUEUE}"\n` +
     `[temporal-worker] Namespace: ${TEMPORAL_NAMESPACE}\n` +
     `[temporal-worker] CF Worker URL: ${TEMPORAL_WORKER_URL}`
   );
 
-  // Graceful shutdown on SIGINT / SIGTERM
-  const shutdown = () => {
-    console.log('[temporal-worker] Shutting down…');
-    worker.shutdown();
-  };
-  process.on('SIGINT',  shutdown);
-  process.on('SIGTERM', shutdown);
+  process.on('SIGINT', () => {
+    shutdown('SIGINT').finally(() => process.exit(0));
+  });
+  process.on('SIGTERM', () => {
+    shutdown('SIGTERM').finally(() => process.exit(0));
+  });
 
   await worker.run();
   await connection.close();

@@ -32,6 +32,9 @@ import {
   queryWorkflowStatus,
   setTradingModeSignal,
 } from './src/temporal/cf-client.js';
+import { registerSystemRoutes } from './src/routes/system-routes.js';
+import { registerAiRoutes } from './src/routes/ai-routes.js';
+import { registerTemporalRoutes } from './src/routes/temporal-routes.js';
 
 
 // ─── Telegram notification helper ────────────────────────────────────────────
@@ -552,93 +555,13 @@ app.use('*', async (c, next) => {
 const perfOptimizer = new PerformanceOptimizer({ ttl: 300000, maxSize: 1000 });
 const reliabilityMgr = new ReliabilityManager({ maxRetries: 3 });
 const analyticsEngine = new AnalyticsEngine();
-
-// ─── API: Analytics Dashboard ──────────────────────────────────────────────
-app.get('/api/analytics', async (c) => {
-  if (!isAuthorized(c.env, c)) return authDenied(c.env, c, true);
-
-  try {
-    const initialCapital = parseInt(c.req.query('capital') || '10000', 10);
-    const report = analyticsEngine.getPerformanceReport(initialCapital);
-    const equityData = analyticsEngine.getEquityCurveData().slice(-100); // Last 100 points
-
-    return c.json({
-      ok: true,
-      timestamp: new Date().toISOString(),
-      report,
-      equityCurve: equityData
-    });
-  } catch (err) {
-    return c.json({ ok: false, error: err.message }, 500);
-  }
-});
-
-// ─── API: Performance Metrics ──────────────────────────────────────────────
-app.get('/api/performance', async (c) => {
-  if (!isAuthorized(c.env, c)) return authDenied(c.env, c, true);
-
-  const metrics = perfOptimizer.getMetrics();
-  return c.json({
-    ok: true,
-    timestamp: new Date().toISOString(),
-    performance: metrics
-  });
-});
-
-// ─── API: Health Check Status ──────────────────────────────────────────────
-app.get('/api/health', async (c) => {
-  if (!isAuthorized(c.env, c)) return authDenied(c.env, c, true);
-
-  const healthStatus = reliabilityMgr.getHealthStatus();
-  const errorReport = reliabilityMgr.getErrorReport(10);
-
-  const overallHealth = Object.values(healthStatus).every((h) => h.status === 'healthy')
-    ? 'HEALTHY'
-    : 'DEGRADED';
-
-  return c.json({
-    ok: true,
-    timestamp: new Date().toISOString(),
-    overallHealth,
-    checks: healthStatus,
-    recentErrors: errorReport
-  });
-});
-
-// ─── API: Reset Performance Metrics ──────────────────────────────────────────
-// ── API: Reset Circuit Breaker ──────────────────────────────────────────────
-// Resets the circuit breaker for a specific exchange or all exchanges.
-// Body: { exchange: "mexc" | "binance" | "all" }
-app.post('/api/cb/reset', async (c) => {
-  if (!isAuthorized(c.env, c)) return authDenied(c.env, c, true);
-  try {
-    const body = await c.req.json().catch(() => ({}));
-    const cb = await c.env.BOT_STATE.get('nexus_circuit_breaker', 'json').catch(() => ({}));
-    const exchange = body.exchange || 'all';
-    resetCircuitBreaker(cb, exchange === 'all' ? null : exchange);
-    await c.env.BOT_STATE.put('nexus_circuit_breaker', JSON.stringify(cb), { expirationTtl: 7200 });
-    return c.json({
-      success: true,
-      message: exchange === 'all' ? 'All circuits reset' : `Circuit reset for ${exchange}`,
-      circuitBreaker: cb,
-    });
-  } catch (e) {
-    return c.json({ success: false, error: e.message }, 500);
-  }
-});
-
-app.post('/api/metrics/reset', async (c) => {
-  if (!isAuthorized(c.env, c)) return authDenied(c.env, c, true);
-
-  perfOptimizer.resetMetrics();
-  reliabilityMgr.resetErrorHistory();
-  analyticsEngine.reset();
-
-  return c.json({
-    ok: true,
-    message: 'All metrics have been reset',
-    timestamp: new Date().toISOString()
-  });
+registerSystemRoutes(app, {
+  isAuthorized,
+  authDenied,
+  resetCircuitBreaker,
+  perfOptimizer,
+  reliabilityMgr,
+  analyticsEngine,
 });
 
 // ── Login / Logout routes ─────────────────────────────────────────────────────
@@ -2067,286 +1990,9 @@ app.get('/api/export', async (c) => {
   });
 });
 
-const DEFAULT_LLM_MODEL = '@cf/meta/llama-3.1-8b-instruct';
-
-function getConfiguredLlmModel(env) {
-  const model = typeof env.LLM_MODEL === 'string' ? env.LLM_MODEL.trim() : '';
-  return model || DEFAULT_LLM_MODEL;
-}
-
-function trimTrailingSlash(value) {
-  return value.endsWith('/') ? value.slice(0, -1) : value;
-}
-
-function resolveAiGatewayChatUrl(env) {
-  const explicit = typeof env.AI_GATEWAY_URL === 'string' ? env.AI_GATEWAY_URL.trim() : '';
-  if (explicit) {
-    const normalized = trimTrailingSlash(explicit);
-    if (normalized.endsWith('/chat/completions')) return normalized;
-    if (normalized.endsWith('/v1')) return `${normalized}/chat/completions`;
-    return `${normalized}/v1/chat/completions`;
-  }
-
-  const gatewayId = typeof env.AI_GATEWAY_ID === 'string' ? env.AI_GATEWAY_ID.trim() : '';
-  const accountId = typeof env.CLOUDFLARE_ACCOUNT_ID === 'string' ? env.CLOUDFLARE_ACCOUNT_ID.trim() : '';
-  if (gatewayId && accountId) {
-    return `https://gateway.ai.cloudflare.com/v1/${accountId}/${gatewayId}/workers-ai/v1/chat/completions`;
-  }
-
-  return '';
-}
-
-async function runConfiguredLlm(env, aiParams) {
-  const model = getConfiguredLlmModel(env);
-  const gatewayUrl = resolveAiGatewayChatUrl(env);
-
-  if (gatewayUrl) {
-    const payload = {
-      model,
-      messages: aiParams.messages,
-      max_tokens: aiParams.max_tokens,
-    };
-    if (typeof aiParams.temperature === 'number') payload.temperature = aiParams.temperature;
-    if (typeof aiParams.top_p === 'number') payload.top_p = aiParams.top_p;
-
-    const headers = { 'Content-Type': 'application/json' };
-    if (typeof env.AI_GATEWAY_TOKEN === 'string' && env.AI_GATEWAY_TOKEN.trim()) {
-      headers.Authorization = `Bearer ${env.AI_GATEWAY_TOKEN.trim()}`;
-    }
-
-    const response = await fetch(gatewayUrl, {
-      method: 'POST',
-      headers,
-      body: JSON.stringify(payload),
-    });
-
-    const responseText = await response.text();
-    let data = null;
-    try {
-      data = responseText ? JSON.parse(responseText) : null;
-    } catch (_) {}
-
-    if (!response.ok) {
-      const detail = data?.error?.message || data?.error || responseText || `Gateway HTTP ${response.status}`;
-      throw new Error(`AI gateway request failed: ${detail}`);
-    }
-
-    const text = data?.choices?.[0]?.message?.content
-      ?? data?.output_text
-      ?? data?.response
-      ?? (typeof data === 'string' ? data : JSON.stringify(data));
-
-    const usage = {
-      input_tokens: data?.usage?.prompt_tokens ?? 0,
-      output_tokens: data?.usage?.completion_tokens ?? 0,
-      total_tokens: data?.usage?.total_tokens ?? 0,
-    };
-
-    return { model, text, usage, provider: 'ai-gateway' };
-  }
-
-  if (!env.AIWORKER) {
-    throw new Error('Workers AI binding not configured and AI gateway is not set');
-  }
-
-  const result = await env.AIWORKER.run(model, aiParams);
-  const text = result?.response ?? result?.text ?? (typeof result === 'string' ? result : JSON.stringify(result));
-  const usage = {
-    input_tokens: result?.usage?.prompt_tokens ?? 0,
-    output_tokens: result?.usage?.completion_tokens ?? 0,
-    total_tokens: result?.usage?.total_tokens ?? 0,
-  };
-  return { model, text, usage, provider: 'workers-ai' };
-}
-
-app.get('/api/ai/health', async (c) => {
-  if (!isAuthorized(c.env, c)) return authDenied(c.env, c, true);
-
-  const model = getConfiguredLlmModel(c.env);
-  const gatewayUrl = resolveAiGatewayChatUrl(c.env);
-
-  try {
-    const result = await runConfiguredLlm(c.env, {
-      messages: [{ role: 'user', content: 'healthcheck' }],
-      max_tokens: 8,
-      temperature: 0,
-    });
-    return c.json({
-      ok: true,
-      provider: result.provider,
-      model: result.model,
-      gatewayConfigured: !!gatewayUrl,
-      gatewayUrl: gatewayUrl || null,
-      preview: String(result.text || '').slice(0, 80),
-      usage: result.usage,
-    });
-  } catch (e) {
-    return c.json({
-      ok: false,
-      provider: gatewayUrl ? 'ai-gateway' : 'workers-ai',
-      model,
-      gatewayConfigured: !!gatewayUrl,
-      gatewayUrl: gatewayUrl || null,
-      error: e.message,
-    }, 500);
-  }
-});
-
-// ── API: Generic AI inference (OpenAI Responses API schema) ──────────────────
-// Accepts a JSON body that conforms to the Responses API request schema and
-// returns a response that conforms to the Responses API response schema.
-//
-// Request schema (required: input):
-//   input            – string | array  – user message(s)
-//   instructions     – string          – optional system prompt
-//   temperature      – number 0–2
-//   max_output_tokens– number > 0
-//   top_p            – number 0–1
-//   stream           – boolean         – streaming not yet supported; ignored
-//   tools            – array           – tool definitions (passed to model if supported)
-//   tool_choice      – any             – passed through
-//   text             – object          – text format hints
-//   reasoning        – { effort }      – "none"|"low"|"medium"|"high"
-//
-// Response schema:
-//   id, object:"response", created_at, model, output, output_text, status, usage
-app.post('/api/ai', async (c) => {
-  if (!isAuthorized(c.env, c)) return authDenied(c.env, c, true);
-
-  let body;
-  try { body = await c.req.json(); } catch (_) { return c.json({ error: 'Invalid JSON' }, 400); }
-
-  // Validate required field
-  if (body.input == null) {
-    return c.json({ error: 'Missing required field: input' }, 400);
-  }
-
-  // Build messages array for Workers AI
-  const messages = [];
-
-  // System message from instructions
-  if (typeof body.instructions === 'string' && body.instructions.trim()) {
-    messages.push({ role: 'system', content: body.instructions.trim() });
-  }
-
-  // User content from input
-  if (typeof body.input === 'string') {
-    messages.push({ role: 'user', content: body.input });
-  } else if (Array.isArray(body.input)) {
-    for (const item of body.input) {
-      if (item && typeof item === 'object' && typeof item.role === 'string' && item.role && item.content !== undefined) {
-        messages.push({ role: item.role, content: item.content });
-      } else if (typeof item === 'string') {
-        messages.push({ role: 'user', content: item });
-      }
-    }
-  }
-
-  if (messages.length === 0) {
-    return c.json({ error: 'input produced no messages' }, 400);
-  }
-
-  // Map reasoning effort to max_tokens multiplier (higher effort → longer response)
-  const VALID_EFFORTS = new Set(['none', 'low', 'medium', 'high']);
-  const effortMultiplier = { none: 0.25, low: 0.5, medium: 1, high: 2 };
-  const effort = body.reasoning?.effort ?? 'medium';
-  if (!VALID_EFFORTS.has(effort)) {
-    return c.json({ error: `Invalid reasoning.effort value: "${effort}". Must be one of: none, low, medium, high` }, 400);
-  }
-  const baseMaxTokens = typeof body.max_output_tokens === 'number' && body.max_output_tokens > 0
-    ? body.max_output_tokens
-    : 512;
-  const max_tokens = Math.round(baseMaxTokens * effortMultiplier[effort]);
-
-  const aiParams = { messages, max_tokens };
-  if (typeof body.temperature === 'number') aiParams.temperature = body.temperature;
-  if (typeof body.top_p       === 'number') aiParams.top_p       = body.top_p;
-
-  const createdAt = Math.floor(Date.now() / 1000);
-  const responseId = `resp_${crypto.randomUUID().replace(/-/g, '')}`;
-
-  try {
-    const ai = await runConfiguredLlm(c.env, aiParams);
-
-    const outputItem = {
-      type: 'message',
-      role: 'assistant',
-      content: [{ type: 'output_text', text: ai.text }],
-    };
-
-    return c.json({
-      id:          responseId,
-      object:      'response',
-      created_at:  createdAt,
-      model:       ai.model,
-      provider:    ai.provider,
-      output:      [outputItem],
-      output_text: ai.text,
-      status:      'completed',
-      usage:       ai.usage,
-    });
-  } catch (e) {
-    console.error('[AI /api/ai] run error:', e.message);
-    return c.json({
-      id:         responseId,
-      object:     'response',
-      created_at: createdAt,
-      model:      getConfiguredLlmModel(c.env),
-      output:     [],
-      status:     'failed',
-      usage:      { input_tokens: 0, output_tokens: 0, total_tokens: 0 },
-      error:      e.message,
-    }, 500);
-  }
-});
-
-// ── API: AI Analysis — opportunity-focused endpoint for dashboard ─────────────
-// Accepts { opportunity: { symbol, strategy, direction, buyPrice, sellPrice, netPct } }
-// Translates to AIWORKER format and returns { analysis, provider }.
-app.post('/api/ai-analysis', async (c) => {
-  if (!isAuthorized(c.env, c)) return authDenied(c.env, c, true);
-
-  let body;
-  try { body = await c.req.json(); } catch (_) { return c.json({ error: 'Invalid JSON' }, 400); }
-
-  const opp = body.opportunity;
-  if (!opp || typeof opp !== 'object') {
-    return c.json({ error: 'Missing required field: opportunity' }, 400);
-  }
-
-  // Minimum net-spread % considered viable for a real trade after fees
-  const MIN_VIABLE_SPREAD_PCT = 0.3;
-
-  const prompt = [
-    `You are an expert crypto arbitrage analyst. Analyze the following trading opportunity and provide a concise recommendation (2–4 sentences) covering: whether to execute, key risks, and any concerns about liquidity or timing.`,
-    ``,
-    `Opportunity:`,
-    `- Symbol: ${opp.symbol || '—'}`,
-    `- Strategy: ${opp.strategy || '—'}`,
-    `- Direction: ${opp.direction || '—'}`,
-    `- Buy Price: $${opp.buyPrice || 0}`,
-    `- Sell Price: $${opp.sellPrice || 0}`,
-    `- Net Profit %: ${opp.netPct || 0}%`,
-  ].join('\n');
-
-  // Fallback if no Workers AI binding or gateway config
-  if (!c.env.AIWORKER && !resolveAiGatewayChatUrl(c.env)) {
-    const fallback = opp.netPct > MIN_VIABLE_SPREAD_PCT
-      ? `✅ Potential opportunity: net spread of ${opp.netPct}% is above threshold. Verify liquidity and fee structure before executing. Monitor for slippage — position size should remain small (≤$5 for initial trades).`
-      : `⚠️ Low spread: net spread of ${opp.netPct}% may not cover execution costs after slippage. Consider waiting for a higher-quality opportunity.`;
-    return c.json({ analysis: fallback, provider: 'fallback' });
-  }
-
-  try {
-    const ai = await runConfiguredLlm(c.env, {
-      messages: [{ role: 'user', content: prompt }],
-      max_tokens: 256,
-    });
-    return c.json({ analysis: ai.text, provider: ai.provider, model: ai.model });
-  } catch (e) {
-    console.error('[AI /api/ai-analysis] error:', e.message);
-    return c.json({ error: e.message }, 500);
-  }
+registerAiRoutes(app, {
+  isAuthorized,
+  authDenied,
 });
 
 // ── API: Ecosystem integrations ────────────────────────────────────────────────
@@ -2560,103 +2206,17 @@ app.post('/telegram/webhook', async (c) => {
   return c.json({ ok: true });
 });
 
-// ── API: Temporal workflow — start ────────────────────────────────────────────
-// Starts (or restarts) the ArbitrageTradingWorkflow on Temporal Cloud.
-// The workflow calls /scan on this Worker at each cycle interval.
-// Body (all optional): { cycleIntervalSeconds, maxCyclesBeforeReset }
-app.post('/api/temporal/start', async (c) => {
-  const limited = await checkRateLimit(c.env, c);
-  if (limited) return limited;
-  if (!isAuthorized(c.env, c)) return authDenied(c.env, c, true);
-  if (!c.env.TEMPORAL_API_KEY) {
-    return c.json({ error: 'TEMPORAL_API_KEY is not configured' }, 503);
-  }
-  try {
-    const body = await c.req.json().catch(() => ({}));
-    const workerUrl = c.env.TEMPORAL_WORKER_URL;
-    if (!workerUrl) {
-      return c.json({ error: 'TEMPORAL_WORKER_URL is not configured — set it via wrangler secret or [vars] in wrangler.toml' }, 503);
-    }
-    const result = await startWorkflow(c.env, {
-      workerUrl,
-      adminToken:           c.env.ADMIN_TOKEN || '',
-      cycleIntervalSeconds: body.cycleIntervalSeconds,
-      maxCyclesBeforeReset: body.maxCyclesBeforeReset,
-    });
-    await logAdminEvent(c.env, 'temporal:start', c.req.raw);
-    return c.json({ success: true, workflowId: 'arbitrage-trading-session', result });
-  } catch (e) {
-    console.error('[Temporal] start error:', e.message);
-    return c.json({ error: e.message }, 500);
-  }
-});
-
-// ── API: Temporal workflow — stop ─────────────────────────────────────────────
-// Signals the workflow to stop gracefully, or terminates it immediately.
-// Body (optional): { force: true } for immediate termination.
-app.post('/api/temporal/stop', async (c) => {
-  const limited = await checkRateLimit(c.env, c);
-  if (limited) return limited;
-  if (!isAuthorized(c.env, c)) return authDenied(c.env, c, true);
-  if (!c.env.TEMPORAL_API_KEY) {
-    return c.json({ error: 'TEMPORAL_API_KEY is not configured' }, 503);
-  }
-  try {
-    const { force } = await c.req.json().catch(() => ({}));
-    const result = force
-      ? await terminateWorkflow(c.env)
-      : await stopWorkflow(c.env);
-    await logAdminEvent(c.env, force ? 'temporal:terminate' : 'temporal:stop', c.req.raw);
-    return c.json({ success: true, result });
-  } catch (e) {
-    console.error('[Temporal] stop error:', e.message);
-    return c.json({ error: e.message }, 500);
-  }
-});
-
-// ── API: Temporal workflow — status ──────────────────────────────────────────
-// Returns the Temporal workflow description and live status query snapshot.
-app.get('/api/temporal/status', async (c) => {
-  if (!isAuthorized(c.env, c)) return authDenied(c.env, c, true);
-  if (!c.env.TEMPORAL_API_KEY) {
-    return c.json({ error: 'TEMPORAL_API_KEY is not configured' }, 503);
-  }
-  try {
-    const [descResult, queryResult] = await Promise.allSettled([
-      describeWorkflow(c.env),
-      queryWorkflowStatus(c.env),
-    ]);
-    return c.json({
-      success:     true,
-      description: descResult.status  === 'fulfilled' ? descResult.value  : { error: descResult.reason?.message },
-      status:      queryResult.status === 'fulfilled' ? queryResult.value : null,
-    });
-  } catch (e) {
-    console.error('[Temporal] status error:', e.message);
-    return c.json({ error: e.message }, 500);
-  }
-});
-
-// ── API: Temporal workflow — set mode ────────────────────────────────────────
-// Signals the running workflow to switch trading modes.
-// Body: { paper: true|false }
-app.post('/api/temporal/mode', async (c) => {
-  const limited = await checkRateLimit(c.env, c);
-  if (limited) return limited;
-  if (!isAuthorized(c.env, c)) return authDenied(c.env, c, true);
-  if (!c.env.TEMPORAL_API_KEY) {
-    return c.json({ error: 'TEMPORAL_API_KEY is not configured' }, 503);
-  }
-  try {
-    const { paper } = await c.req.json().catch(() => ({}));
-    if (typeof paper !== 'boolean') return c.json({ error: 'body must include { "paper": true|false }' }, 400);
-    await setTradingModeSignal(c.env, paper);
-    await logAdminEvent(c.env, paper ? 'temporal:mode:paper' : 'temporal:mode:live', c.req.raw);
-    return c.json({ success: true, mode: paper ? 'paper' : 'live' });
-  } catch (e) {
-    console.error('[Temporal] mode error:', e.message);
-    return c.json({ error: e.message }, 500);
-  }
+registerTemporalRoutes(app, {
+  checkRateLimit,
+  isAuthorized,
+  authDenied,
+  logAdminEvent,
+  startWorkflow,
+  stopWorkflow,
+  terminateWorkflow,
+  describeWorkflow,
+  queryWorkflowStatus,
+  setTradingModeSignal,
 });
 
 // ── Manual cron trigger ───────────────────────────────────────────────────────

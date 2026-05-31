@@ -14,6 +14,7 @@ import { scanStatistical, CORRELATED_PAIRS } from './strategies/statistical.js';
 import { scanFromHFT, isHFTEngineConfigured } from './hft-client.js';
 import { logTrade, openPaperPosition, getOpenPaperPositions, closePaperPosition, logBotEvent } from './db.js';
 import { calculateAdaptiveLeverage, calculatePositionSize, MAX_POSITION_EQUITY_FRACTION, checkDrawdownGuard, checkExposureLimit } from './risk.js';
+import { logEvent, incrementMetric, observeLatency } from './infra/observability.js';
 import {
   placeMEXCFuturesOrder, hasSufficientUSDT,
   hasExchangeCredentials, getRequiredCredentialKeys, getExchangeBalance, placeExchangeMarketOrder
@@ -264,11 +265,48 @@ export async function executeDexTrade(env, opp, sizeUsd) {
 // is skipped. Additional protection: if failures exceed a very high threshold
 // (e.g. 100), the circuit enters a long cool-down to prevent resource waste.
 const CB_KEY                 = 'nexus_circuit_breaker';
+const EXECUTION_LOCK_KEY     = 'nexus_execution_lock';
+const EXECUTION_LOCK_TTL_MS  = 30 * 1000;
 const MAX_CB_FAILURES        = 3;
 const CB_RESET_WINDOW_MS     = 10 * 60 * 1000; // 10 min window to reset counter
 const CB_COOLDOWN_MS         = 5 * 60 * 1000;   // 5 min skip when open
 const CB_MAX_FATAL_THRESHOLD = 100;             // if > 100 failures → fatal, skip 1h
 const CB_FATAL_COOLDOWN_MS   = 60 * 60 * 1000;  // 1 hour cooldown for fatal failures
+
+async function tryAcquireExecutionLock(env) {
+  if (!env?.BOT_STATE) return { acquired: true, token: null };
+
+  const now = Date.now();
+  const token = crypto.randomUUID();
+  const existing = await env.BOT_STATE.get(EXECUTION_LOCK_KEY, 'json').catch(() => null);
+  const expiresAt = Number(existing?.expiresAt || 0);
+
+  if (existing?.token && expiresAt > now) {
+    return { acquired: false, token: null };
+  }
+
+  const nextLock = { token, expiresAt: now + EXECUTION_LOCK_TTL_MS };
+  await env.BOT_STATE.put(
+    EXECUTION_LOCK_KEY,
+    JSON.stringify(nextLock),
+    { expirationTtl: Math.ceil(EXECUTION_LOCK_TTL_MS / 1000) + 5 }
+  ).catch(() => {});
+
+  const verify = await env.BOT_STATE.get(EXECUTION_LOCK_KEY, 'json').catch(() => null);
+  if (verify?.token !== token) {
+    return { acquired: false, token: null };
+  }
+
+  return { acquired: true, token };
+}
+
+async function releaseExecutionLock(env, token) {
+  if (!env?.BOT_STATE || !token) return;
+  const current = await env.BOT_STATE.get(EXECUTION_LOCK_KEY, 'json').catch(() => null);
+  if (current?.token === token) {
+    await env.BOT_STATE.delete(EXECUTION_LOCK_KEY).catch(() => {});
+  }
+}
 
 async function getCircuitBreaker(env) {
   try { return await env.BOT_STATE.get(CB_KEY, 'json') || {}; }
@@ -420,6 +458,15 @@ const _EXTRA_SCAN_SYMBOLS = (() => {
  * Now supports ALL strategies: CEX, DEX, Perps, Funding, Triangular, Statistical
  */
 export async function runScan(env, state, sendAlert) {
+  const scanStartedAt = Date.now();
+  const lock = await tryAcquireExecutionLock(env);
+  if (!lock.acquired) {
+    console.warn('[scan] skipped: execution lock is active');
+    incrementMetric('scan.skipped.lock_active');
+    return null;
+  }
+
+  try {
   const maxSpreadPct   = state.max_spread_pct   ?? 5.0;
   const initialCapital = state.initial_capital  ?? 1000;
   const equity         = initialCapital + (state.total_pnl || 0);
@@ -662,6 +709,7 @@ export async function runScan(env, state, sendAlert) {
 
   if (allOpportunities.length === 0) {
     console.log(`🔍 Nexus: no opportunities across ${symbols.length} symbols (all strategies)`);
+    incrementMetric('scan.no_opportunities');
     return null;
   }
 
@@ -671,6 +719,7 @@ export async function runScan(env, state, sendAlert) {
 
   if (executableOpportunities.length === 0) {
     console.log(`🔍 Nexus: no executable opportunities in ${paperMode ? 'paper' : 'live'} mode`);
+    incrementMetric('scan.no_executable_opportunities', 1, { mode: paperMode ? 'paper' : 'live' });
     return null;
   }
 
@@ -765,6 +814,7 @@ export async function runScan(env, state, sendAlert) {
       `$${sizeUsd.toFixed(2)}${levStr}\n` +
       `net ${best.netPct.toFixed(4)}%  safety ${(best.safetyFactor * 100).toFixed(1)}%`
     );
+    incrementMetric('trade.executed', 1, { mode: 'paper', strategy: best.strategy });
   } else {
     try {
       await executeTrade(env, best, sizeUsd, leverage);
@@ -786,8 +836,15 @@ export async function runScan(env, state, sendAlert) {
         `$${sizeUsd.toFixed(2)}${levStr}\n` +
         `net ${best.netPct.toFixed(4)}%`
       );
+      incrementMetric('trade.executed', 1, { mode: 'live', strategy: best.strategy });
     } catch (execErr) {
       console.error('Trade execution error:', execErr.message);
+      logEvent('error', 'trade.execution_failed', {
+        strategy: best.strategy,
+        symbol: best.symbol,
+        reason: execErr.message,
+      });
+      incrementMetric('trade.execution_failed', 1, { strategy: best.strategy });
       await sendAlert(
         env,
         `❌ [${best.strategy.toUpperCase()}] فشل التنفيذ ${best.symbol}: ${execErr.message}`
@@ -796,7 +853,70 @@ export async function runScan(env, state, sendAlert) {
     }
   }
 
+  observeLatency('scan.duration_ms', scanStartedAt, {
+    strategy: best.strategy,
+    mode: paperMode ? 'paper' : 'live',
+  });
+
   return { opportunity: best, sizeUsd, leverage };
+  } finally {
+    await releaseExecutionLock(env, lock.token);
+  }
+}
+
+export async function executeCexArbWithHedge(
+  env,
+  {
+    buyExch,
+    sellExch,
+    symbol,
+    amount,
+    requiredQuote,
+  },
+  placeOrder = placeExchangeMarketOrder,
+) {
+  const legResults = await Promise.allSettled([
+    placeOrder(env, buyExch, symbol, 'BUY', amount, requiredQuote),
+    placeOrder(env, sellExch, symbol, 'SELL', amount, requiredQuote),
+  ]);
+
+  const buyOk = legResults[0]?.status === 'fulfilled';
+  const sellOk = legResults[1]?.status === 'fulfilled';
+  if (buyOk && sellOk) return;
+
+  if (buyOk !== sellOk) {
+    const hedgeExchange = buyOk ? buyExch : sellExch;
+    const hedgeSide = buyOk ? 'SELL' : 'BUY';
+    try {
+      await placeOrder(env, hedgeExchange, symbol, hedgeSide, amount, requiredQuote);
+      logEvent('warn', 'trade.atomic_hedge_compensated', {
+        symbol,
+        hedgeExchange,
+        hedgeSide,
+        buyOk,
+        sellOk,
+      });
+      incrementMetric('trade.atomic_hedge_compensated');
+    } catch (hedgeErr) {
+      incrementMetric('trade.atomic_hedge_failed');
+      throw new Error(
+        `Atomic execution failed with open exposure. ` +
+        `Primary leg status: buy=${buyOk}, sell=${sellOk}. ` +
+        `Hedge attempt failed: ${hedgeErr.message}`,
+        { cause: hedgeErr }
+      );
+    }
+
+    const failedLeg = buyOk ? legResults[1]?.reason : legResults[0]?.reason;
+    throw new Error(
+      `Atomic execution guard: one leg failed and hedge closed residual exposure. ` +
+      `Cause: ${failedLeg?.message || 'unknown leg failure'}`
+    );
+  }
+
+  const buyErr = legResults[0]?.reason?.message || 'buy leg failed';
+  const sellErr = legResults[1]?.reason?.message || 'sell leg failed';
+  throw new Error(`Both arbitrage legs failed: buy=${buyErr}; sell=${sellErr}`);
 }
 
 // ── Trade execution ──────────────────────────────────────────────────────────
@@ -919,8 +1039,11 @@ async function executeTrade(env, opp, sizeUsd, leverage) {
     );
   }
 
-  await Promise.all([
-    placeExchangeMarketOrder(env, buyExch,  opp.symbol, 'BUY',  amount, requiredQuote),
-    placeExchangeMarketOrder(env, sellExch, opp.symbol, 'SELL', amount, requiredQuote)
-  ]);
+  await executeCexArbWithHedge(env, {
+    buyExch,
+    sellExch,
+    symbol: opp.symbol,
+    amount,
+    requiredQuote,
+  });
 }

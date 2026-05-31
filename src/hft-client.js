@@ -16,6 +16,7 @@
 //                       Go engine side (leave blank to disable auth check)
 
 const HFT_TIMEOUT_MS = 5000; // abort if engine does not respond in 5 s
+import { logEvent, incrementMetric, observeLatency } from './infra/observability.js';
 
 // ── Configuration check ───────────────────────────────────────────────────────
 
@@ -25,6 +26,15 @@ const HFT_TIMEOUT_MS = 5000; // abort if engine does not respond in 5 s
  */
 export function isHFTEngineConfigured(env) {
   return typeof env.HFT_ENGINE_URL === 'string' && env.HFT_ENGINE_URL.length > 0;
+}
+
+function validateHftEngineUrl(rawUrl) {
+  const parsed = new URL(rawUrl);
+  const isLocal = ['localhost', '127.0.0.1', '::1'].includes(parsed.hostname);
+  if (parsed.protocol !== 'https:' && !(isLocal && parsed.protocol === 'http:')) {
+    throw new Error('HFT_ENGINE_URL must use https:// in non-local environments');
+  }
+  return parsed.toString().replace(/\/+$/, '');
 }
 
 // ── HTTP helper ───────────────────────────────────────────────────────────────
@@ -38,21 +48,20 @@ export function isHFTEngineConfigured(env) {
  * @returns {Promise<Response>}
  */
 async function hftFetch(env, path, opts = {}) {
-  // Strip trailing slashes without a regex to avoid ReDoS on library input
-  let base = env.HFT_ENGINE_URL;
-  while (base.endsWith('/')) base = base.slice(0, -1);
+  const base = validateHftEngineUrl(String(env.HFT_ENGINE_URL || '').trim());
 
   const headers = { 'Content-Type': 'application/json', ...(opts.headers || {}) };
   if (env.HFT_ENGINE_SECRET) {
     headers['Authorization'] = `Bearer ${env.HFT_ENGINE_SECRET}`;
   }
 
-  const fetchPromise = fetch(`${base}${path}`, { ...opts, headers });
-  const timeoutPromise = new Promise((_, reject) =>
-    setTimeout(() => reject(new Error('HFT engine request timed out')), HFT_TIMEOUT_MS)
-  );
-
-  return Promise.race([fetchPromise, timeoutPromise]);
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort('HFT engine request timed out'), HFT_TIMEOUT_MS);
+  try {
+    return await fetch(`${base}${path}`, { ...opts, headers, signal: controller.signal });
+  } finally {
+    clearTimeout(timeoutId);
+  }
 }
 
 // ── Public API ────────────────────────────────────────────────────────────────
@@ -67,13 +76,23 @@ async function hftFetch(env, path, opts = {}) {
  */
 export async function scanFromHFT(env) {
   if (!isHFTEngineConfigured(env)) return null;
+  const startedAt = Date.now();
   try {
     const resp = await hftFetch(env, '/api/scan');
     if (!resp.ok) return null;
     const data = await resp.json();
-    return data.opportunity ? normalizeOpportunity(data.opportunity) : null;
+    const normalized = data.opportunity ? normalizeOpportunity(data.opportunity) : null;
+    if (normalized) {
+      incrementMetric('hft.scan.hit');
+    } else {
+      incrementMetric('hft.scan.miss');
+    }
+    observeLatency('hft.scan.duration_ms', startedAt);
+    return normalized;
   } catch (e) {
     console.error('[HFT] scanFromHFT error:', e.message);
+    logEvent('error', 'hft.scan.error', { error: e.message });
+    incrementMetric('hft.scan.error');
     return null;
   }
 }
@@ -98,6 +117,7 @@ export async function executeViaHFT(env, opp, sizeUsd) {
     );
   }
 
+  const startedAt = Date.now();
   const resp = await hftFetch(env, '/api/execute', {
     method: 'POST',
     body: JSON.stringify({
@@ -108,8 +128,12 @@ export async function executeViaHFT(env, opp, sizeUsd) {
 
   if (!resp.ok) {
     const body = await resp.json().catch(() => ({ error: `HTTP ${resp.status}` }));
+    incrementMetric('hft.execute.error');
     throw new Error(`HFT engine execute failed (${resp.status}): ${body.error || resp.statusText}`);
   }
+
+  observeLatency('hft.execute.duration_ms', startedAt, { strategy: opp?.strategy || 'unknown' });
+  incrementMetric('hft.execute.success');
 }
 
 // ── Normalisation helpers ─────────────────────────────────────────────────────

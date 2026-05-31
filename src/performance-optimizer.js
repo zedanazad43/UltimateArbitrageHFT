@@ -14,6 +14,7 @@ class PerformanceOptimizer {
   constructor(options = {}) {
     this.cache = new Map();
     this.cacheExpiry = new Map();
+    this.cacheCleanupTimers = new Map();
     this.metrics = {
       cacheHits: 0,
       cacheMisses: 0,
@@ -39,12 +40,19 @@ class PerformanceOptimizer {
     if (this.cache.size >= this.maxCacheSize) {
       this.evictOldest();
     }
+
+    const oldTimer = this.cacheCleanupTimers.get(key);
+    if (oldTimer) {
+      clearTimeout(oldTimer);
+      this.cacheCleanupTimers.delete(key);
+    }
     
     this.cache.set(key, value);
     this.cacheExpiry.set(key, Date.now() + ttl);
     
     // Auto-cleanup on expiry
-    setTimeout(() => this.delete(key), ttl);
+    const timer = setTimeout(() => this.delete(key), ttl);
+    this.cacheCleanupTimers.set(key, timer);
   }
 
   get(key) {
@@ -65,6 +73,11 @@ class PerformanceOptimizer {
   }
 
   delete(key) {
+    const timer = this.cacheCleanupTimers.get(key);
+    if (timer) {
+      clearTimeout(timer);
+      this.cacheCleanupTimers.delete(key);
+    }
     this.cache.delete(key);
     this.cacheExpiry.delete(key);
   }

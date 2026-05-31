@@ -1,0 +1,258 @@
+// src/routes/ai-routes.js
+
+const DEFAULT_LLM_MODEL = '@cf/meta/llama-3.1-8b-instruct';
+
+function getConfiguredLlmModel(env) {
+  const model = typeof env.LLM_MODEL === 'string' ? env.LLM_MODEL.trim() : '';
+  return model || DEFAULT_LLM_MODEL;
+}
+
+function trimTrailingSlash(value) {
+  return value.endsWith('/') ? value.slice(0, -1) : value;
+}
+
+function resolveAiGatewayChatUrl(env) {
+  const explicit = typeof env.AI_GATEWAY_URL === 'string' ? env.AI_GATEWAY_URL.trim() : '';
+  if (explicit) {
+    const normalized = trimTrailingSlash(explicit);
+    if (normalized.endsWith('/chat/completions')) return normalized;
+    if (normalized.endsWith('/v1')) return `${normalized}/chat/completions`;
+    return `${normalized}/v1/chat/completions`;
+  }
+
+  const gatewayId = typeof env.AI_GATEWAY_ID === 'string' ? env.AI_GATEWAY_ID.trim() : '';
+  const accountId = typeof env.CLOUDFLARE_ACCOUNT_ID === 'string' ? env.CLOUDFLARE_ACCOUNT_ID.trim() : '';
+  if (gatewayId && accountId) {
+    return `https://gateway.ai.cloudflare.com/v1/${accountId}/${gatewayId}/workers-ai/v1/chat/completions`;
+  }
+
+  return '';
+}
+
+async function runConfiguredLlm(env, aiParams) {
+  const model = getConfiguredLlmModel(env);
+  const gatewayUrl = resolveAiGatewayChatUrl(env);
+
+  if (gatewayUrl) {
+    const payload = {
+      model,
+      messages: aiParams.messages,
+      max_tokens: aiParams.max_tokens,
+    };
+    if (typeof aiParams.temperature === 'number') payload.temperature = aiParams.temperature;
+    if (typeof aiParams.top_p === 'number') payload.top_p = aiParams.top_p;
+
+    const headers = { 'Content-Type': 'application/json' };
+    if (typeof env.AI_GATEWAY_TOKEN === 'string' && env.AI_GATEWAY_TOKEN.trim()) {
+      headers.Authorization = `Bearer ${env.AI_GATEWAY_TOKEN.trim()}`;
+    }
+
+    const response = await fetch(gatewayUrl, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(payload),
+    });
+
+    const responseText = await response.text();
+    let data = null;
+    try {
+      data = responseText ? JSON.parse(responseText) : null;
+    } catch (_) {}
+
+    if (!response.ok) {
+      const detail = data?.error?.message || data?.error || responseText || `Gateway HTTP ${response.status}`;
+      throw new Error(`AI gateway request failed: ${detail}`);
+    }
+
+    const text = data?.choices?.[0]?.message?.content
+      ?? data?.output_text
+      ?? data?.response
+      ?? (typeof data === 'string' ? data : JSON.stringify(data));
+
+    const usage = {
+      input_tokens: data?.usage?.prompt_tokens ?? 0,
+      output_tokens: data?.usage?.completion_tokens ?? 0,
+      total_tokens: data?.usage?.total_tokens ?? 0,
+    };
+
+    return { model, text, usage, provider: 'ai-gateway' };
+  }
+
+  if (!env.AIWORKER) {
+    throw new Error('Workers AI binding not configured and AI gateway is not set');
+  }
+
+  const result = await env.AIWORKER.run(model, aiParams);
+  const text = result?.response ?? result?.text ?? (typeof result === 'string' ? result : JSON.stringify(result));
+  const usage = {
+    input_tokens: result?.usage?.prompt_tokens ?? 0,
+    output_tokens: result?.usage?.completion_tokens ?? 0,
+    total_tokens: result?.usage?.total_tokens ?? 0,
+  };
+  return { model, text, usage, provider: 'workers-ai' };
+}
+
+export function registerAiRoutes(app, deps) {
+  const { isAuthorized, authDenied } = deps;
+
+  app.get('/api/ai/health', async (c) => {
+    if (!isAuthorized(c.env, c)) return authDenied(c.env, c, true);
+
+    const model = getConfiguredLlmModel(c.env);
+    const gatewayUrl = resolveAiGatewayChatUrl(c.env);
+
+    try {
+      const result = await runConfiguredLlm(c.env, {
+        messages: [{ role: 'user', content: 'healthcheck' }],
+        max_tokens: 8,
+        temperature: 0,
+      });
+      return c.json({
+        ok: true,
+        provider: result.provider,
+        model: result.model,
+        gatewayConfigured: !!gatewayUrl,
+        gatewayUrl: gatewayUrl || null,
+        preview: String(result.text || '').slice(0, 80),
+        usage: result.usage,
+      });
+    } catch (e) {
+      return c.json({
+        ok: false,
+        provider: gatewayUrl ? 'ai-gateway' : 'workers-ai',
+        model,
+        gatewayConfigured: !!gatewayUrl,
+        gatewayUrl: gatewayUrl || null,
+        error: e.message,
+      }, 500);
+    }
+  });
+
+  app.post('/api/ai', async (c) => {
+    if (!isAuthorized(c.env, c)) return authDenied(c.env, c, true);
+
+    let body;
+    try { body = await c.req.json(); } catch (_) { return c.json({ error: 'Invalid JSON' }, 400); }
+
+    if (body.input == null) {
+      return c.json({ error: 'Missing required field: input' }, 400);
+    }
+
+    const messages = [];
+    if (typeof body.instructions === 'string' && body.instructions.trim()) {
+      messages.push({ role: 'system', content: body.instructions.trim() });
+    }
+
+    if (typeof body.input === 'string') {
+      messages.push({ role: 'user', content: body.input });
+    } else if (Array.isArray(body.input)) {
+      for (const item of body.input) {
+        if (item && typeof item === 'object' && typeof item.role === 'string' && item.role && item.content !== undefined) {
+          messages.push({ role: item.role, content: item.content });
+        } else if (typeof item === 'string') {
+          messages.push({ role: 'user', content: item });
+        }
+      }
+    }
+
+    if (messages.length === 0) {
+      return c.json({ error: 'input produced no messages' }, 400);
+    }
+
+    const VALID_EFFORTS = new Set(['none', 'low', 'medium', 'high']);
+    const effortMultiplier = { none: 0.25, low: 0.5, medium: 1, high: 2 };
+    const effort = body.reasoning?.effort ?? 'medium';
+    if (!VALID_EFFORTS.has(effort)) {
+      return c.json({ error: `Invalid reasoning.effort value: "${effort}". Must be one of: none, low, medium, high` }, 400);
+    }
+    const baseMaxTokens = typeof body.max_output_tokens === 'number' && body.max_output_tokens > 0
+      ? body.max_output_tokens
+      : 512;
+    const max_tokens = Math.round(baseMaxTokens * effortMultiplier[effort]);
+
+    const aiParams = { messages, max_tokens };
+    if (typeof body.temperature === 'number') aiParams.temperature = body.temperature;
+    if (typeof body.top_p === 'number') aiParams.top_p = body.top_p;
+
+    const createdAt = Math.floor(Date.now() / 1000);
+    const responseId = `resp_${crypto.randomUUID().replace(/-/g, '')}`;
+
+    try {
+      const ai = await runConfiguredLlm(c.env, aiParams);
+
+      const outputItem = {
+        type: 'message',
+        role: 'assistant',
+        content: [{ type: 'output_text', text: ai.text }],
+      };
+
+      return c.json({
+        id: responseId,
+        object: 'response',
+        created_at: createdAt,
+        model: ai.model,
+        provider: ai.provider,
+        output: [outputItem],
+        output_text: ai.text,
+        status: 'completed',
+        usage: ai.usage,
+      });
+    } catch (e) {
+      console.error('[AI /api/ai] run error:', e.message);
+      return c.json({
+        id: responseId,
+        object: 'response',
+        created_at: createdAt,
+        model: getConfiguredLlmModel(c.env),
+        output: [],
+        status: 'failed',
+        usage: { input_tokens: 0, output_tokens: 0, total_tokens: 0 },
+        error: e.message,
+      }, 500);
+    }
+  });
+
+  app.post('/api/ai-analysis', async (c) => {
+    if (!isAuthorized(c.env, c)) return authDenied(c.env, c, true);
+
+    let body;
+    try { body = await c.req.json(); } catch (_) { return c.json({ error: 'Invalid JSON' }, 400); }
+
+    const opp = body.opportunity;
+    if (!opp || typeof opp !== 'object') {
+      return c.json({ error: 'Missing required field: opportunity' }, 400);
+    }
+
+    const MIN_VIABLE_SPREAD_PCT = 0.3;
+
+    const prompt = [
+      'You are an expert crypto arbitrage analyst. Analyze the following trading opportunity and provide a concise recommendation (2–4 sentences) covering: whether to execute, key risks, and any concerns about liquidity or timing.',
+      '',
+      'Opportunity:',
+      `- Symbol: ${opp.symbol || '—'}`,
+      `- Strategy: ${opp.strategy || '—'}`,
+      `- Direction: ${opp.direction || '—'}`,
+      `- Buy Price: $${opp.buyPrice || 0}`,
+      `- Sell Price: $${opp.sellPrice || 0}`,
+      `- Net Profit %: ${opp.netPct || 0}%`,
+    ].join('\n');
+
+    if (!c.env.AIWORKER && !resolveAiGatewayChatUrl(c.env)) {
+      const fallback = opp.netPct > MIN_VIABLE_SPREAD_PCT
+        ? `✅ Potential opportunity: net spread of ${opp.netPct}% is above threshold. Verify liquidity and fee structure before executing. Monitor for slippage — position size should remain small (≤$5 for initial trades).`
+        : `⚠️ Low spread: net spread of ${opp.netPct}% may not cover execution costs after slippage. Consider waiting for a higher-quality opportunity.`;
+      return c.json({ analysis: fallback, provider: 'fallback' });
+    }
+
+    try {
+      const ai = await runConfiguredLlm(c.env, {
+        messages: [{ role: 'user', content: prompt }],
+        max_tokens: 256,
+      });
+      return c.json({ analysis: ai.text, provider: ai.provider, model: ai.model });
+    } catch (e) {
+      console.error('[AI /api/ai-analysis] error:', e.message);
+      return c.json({ error: e.message }, 500);
+    }
+  });
+}
