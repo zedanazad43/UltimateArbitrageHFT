@@ -119,6 +119,10 @@ export class ProxyPool {
     this.directExchanges = parseCsvSet(env.DIRECT_EXCHANGES || '');
   }
 
+  _proxyAuthHeaderValue() {
+    return this.env.PROXY_AUTH_HEADER || this.env.PROXY_FALLBACK_AUTH_HEADER || '';
+  }
+
   updateEnv(env = {}) {
     if (!env || typeof env !== 'object') return;
 
@@ -189,8 +193,9 @@ export class ProxyPool {
     }
 
     // Fallback: single proxy URL
-    if (this.proxies.length === 0 && this.env.PROXY_URL) {
-      this.proxies.push(new ProxyEndpoint(this.env.PROXY_URL, 'http', 0, 'global'));
+    const primaryProxyUrl = this.env.PROXY_URL || this.env.PROXY_FALLBACK_URL || '';
+    if (this.proxies.length === 0 && primaryProxyUrl) {
+      this.proxies.push(new ProxyEndpoint(primaryProxyUrl, 'http', 0, 'global'));
     }
 
     // Fallback: multiple proxy URLs with index suffix
@@ -333,7 +338,7 @@ export class ProxyPool {
           const Controller = globalThis.AbortController;
           const controller = Controller ? new Controller() : null;
           const timeout = controller ? setTimeout(() => controller.abort(), PROXY_REQUEST_TIMEOUT_MS) : null;
-          const authHeader = parseHeaderLine(this.env.PROXY_AUTH_HEADER);
+          const authHeader = parseHeaderLine(this._proxyAuthHeaderValue());
 
           const resp = await fetch(`${proxy.url}?target=${encodeURIComponent('https://api-cloud.bitmart.com/spot/v1/ticker?symbol=BTC_USDT')}`, {
                 headers: {
@@ -456,7 +461,7 @@ export class ProxyPool {
     const controller = Controller ? new Controller() : null;
     const timeout = controller ? setTimeout(() => controller.abort(), PROXY_REQUEST_TIMEOUT_MS) : null;
 
-    const authHeader = parseHeaderLine(this.env.PROXY_AUTH_HEADER);
+    const authHeader = parseHeaderLine(this._proxyAuthHeaderValue());
 
     let resp;
     try {

