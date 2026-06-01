@@ -4,6 +4,11 @@ on:
   schedule:
     - cron: '10 0 * * *'
   workflow_dispatch:
+    inputs:
+      reason:
+        description: Optional reason for manual daily report run
+        required: false
+        default: manual-run
 
 permissions:
   contents: read
