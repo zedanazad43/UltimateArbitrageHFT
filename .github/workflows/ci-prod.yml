@@ -294,20 +294,62 @@ jobs:
           if not KV_NS:
               print("ERROR: KV namespace ID not found in wrangler.toml", file=sys.stderr)
               sys.exit(1)
-          state = {}
+            state = {}
+            loaded_existing_state = False
+
+            def try_parse_state(raw):
+              raw = (raw or "").strip()
+              if not raw:
+                return None
+              # Attempt direct JSON parse first.
+              try:
+                parsed = json.loads(raw)
+                if isinstance(parsed, dict):
+                  return parsed
+              except Exception:
+                pass
+              # Fallback: extract first JSON object from noisy command output.
+              start = raw.find("{")
+              end = raw.rfind("}")
+              if start != -1 and end != -1 and end > start:
+                try:
+                  parsed = json.loads(raw[start:end + 1])
+                  if isinstance(parsed, dict):
+                    return parsed
+                except Exception:
+                  return None
+              return None
+
           try:
               r = subprocess.run(
                   ["npx", "--yes", "wrangler@4", "kv", "key", "get",
                    "--namespace-id", KV_NS, KEY],
                   capture_output=True, text=True
               )
-              for line in r.stdout.splitlines():
-                  line = line.strip()
-                  if line.startswith('{'):
-                      state = json.loads(line)
-                      break
+              stderr_l = (r.stderr or "").lower()
+              stdout_l = (r.stdout or "").lower()
+              key_missing = "not found" in stderr_l or "not found" in stdout_l
+
+              parsed_state = try_parse_state(r.stdout)
+              if isinstance(parsed_state, dict):
+                state = parsed_state
+                loaded_existing_state = True
+              elif key_missing:
+                state = {}
+              else:
+                print("ERROR: Could not safely parse existing trading_state; refusing destructive overwrite", file=sys.stderr)
+                print((r.stdout or "")[-1000:], file=sys.stderr)
+                print((r.stderr or "")[-1000:], file=sys.stderr)
+                sys.exit(1)
           except Exception as e:
               print(f"Could not read existing KV state: {e}", file=sys.stderr)
+              sys.exit(1)
+
+            if loaded_existing_state:
+              print("Loaded existing trading_state from KV")
+            else:
+              print("trading_state not found; initializing with safe defaults")
+
           defaults = {
               "daily_pnl": 0, "daily_trades": 0,
               "total_pnl": 0, "total_trades": 0,
@@ -321,6 +363,20 @@ jobs:
           }
           for k, v in defaults.items():
               state.setdefault(k, v)
+
+            state.setdefault("spot_only_lock", True)
+            state.setdefault("last_config_change_ts", 0)
+            flags = state.get("strategy_flags")
+            if not isinstance(flags, dict):
+              flags = {}
+            if state.get("spot_only_lock") is True:
+              flags["perps"] = False
+              flags["funding"] = False
+            else:
+              flags.setdefault("perps", False)
+              flags.setdefault("funding", False)
+            state["strategy_flags"] = flags
+
           state["trading_enabled"] = True
           state["paper_trading"] = False
           state["auto_stopped"] = False
