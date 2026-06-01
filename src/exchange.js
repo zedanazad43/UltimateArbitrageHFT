@@ -632,7 +632,7 @@ export async function getKuCoinBalance(env, asset = 'USDT') {
       keyVersion,
     });
 
-    const resp = await exchangeFetch(`https://api.kucoin.com${path}`, { headers });
+    const resp = await exchangeFetch(`https://api.kucoin.com${path}`, { headers }, 'kucoin', 2, env);
     const data = await parseJsonResponse(resp, 'KuCoin balance');
     if (data.code === '200000') {
       const accounts = data.data || [];
@@ -704,7 +704,7 @@ export async function placeMarketOrderKuCoin(env, symbol, side, quantity, sizeUs
         'Content-Type': 'application/json'
       },
       body: bodyStr
-    });
+    }, 'kucoin', 2, env);
     const data = await parseJsonResponse(resp, 'KuCoin order');
     if (data.code === '200000') return data;
 
