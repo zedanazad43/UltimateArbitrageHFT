@@ -16,6 +16,8 @@ const baseUrl = getArg('--base', process.env.API_BASE || 'https://api.ecostamp.n
 const token = getArg('--token', process.env.WORKFLOW_ADMIN_TOKEN || process.env.ADMIN_TOKEN || '');
 const samples = Number.parseInt(getArg('--samples', '20'), 10);
 const intervalMs = Number.parseInt(getArg('--interval-ms', '30000'), 10);
+const fetchRetries = Number.parseInt(getArg('--fetch-retries', '2'), 10);
+const retryDelayMs = Number.parseInt(getArg('--retry-delay-ms', '1500'), 10);
 
 if (!token) {
   console.error('Missing admin token. Use --token or set WORKFLOW_ADMIN_TOKEN/ADMIN_TOKEN.');
@@ -29,6 +31,16 @@ if (!Number.isFinite(samples) || samples < 1) {
 
 if (!Number.isFinite(intervalMs) || intervalMs < 1000) {
   console.error('Invalid --interval-ms value (must be >= 1000).');
+  process.exit(1);
+}
+
+if (!Number.isFinite(fetchRetries) || fetchRetries < 0) {
+  console.error('Invalid --fetch-retries value (must be >= 0).');
+  process.exit(1);
+}
+
+if (!Number.isFinite(retryDelayMs) || retryDelayMs < 0) {
+  console.error('Invalid --retry-delay-ms value (must be >= 0).');
   process.exit(1);
 }
 
@@ -46,6 +58,24 @@ async function fetchJson(path) {
   } catch {
     return { status: response.status, json: null };
   }
+}
+
+async function fetchJsonWithRetry(path) {
+  let lastError = null;
+
+  for (let attempt = 1; attempt <= fetchRetries + 1; attempt++) {
+    try {
+      const result = await fetchJson(path);
+      return { ...result, attempts: attempt };
+    } catch (error) {
+      lastError = error;
+      if (attempt <= fetchRetries) {
+        await sleep(retryDelayMs);
+      }
+    }
+  }
+
+  throw lastError;
 }
 
 function isStrictPass(safety, readiness) {
@@ -73,17 +103,19 @@ async function main() {
 
     try {
       const [safetyResp, readinessResp] = await Promise.all([
-        fetchJson('/api/safety-state'),
-        fetchJson('/api/readiness'),
+        fetchJsonWithRetry('/api/safety-state'),
+        fetchJsonWithRetry('/api/readiness'),
       ]);
 
       const safety = safetyResp.json || {};
       const readiness = readinessResp.json || {};
+      const networkOk = safetyResp.status === 200 && readinessResp.status === 200;
 
       row = {
         i,
         ts,
-        ok: safetyResp.status === 200 && readinessResp.status === 200,
+        ok: networkOk,
+        networkOk,
         lock: safety.spotOnlyLock,
         forced: safety.spotOnlyLockForced,
         perps: safety?.strategyFlags?.perps,
@@ -91,14 +123,25 @@ async function main() {
         mode: safety.executionMode,
         readyForLive: readiness.readyForLive,
         authFailures: Number(readiness.exchangeAuthFailures ?? 0),
+        attempts: {
+          safetyState: safetyResp.attempts,
+          readiness: readinessResp.attempts,
+        },
       };
-      row.strictPass = row.ok && isStrictPass(safety, readiness);
+
+      const statePass = networkOk && isStrictPass(safety, readiness);
+      row.statePass = statePass;
+      row.networkFailure = false;
+      row.strictPass = statePass;
     } catch (error) {
       row = {
         i,
         ts,
         ok: false,
+        networkOk: false,
+        statePass: false,
         strictPass: false,
+        networkFailure: true,
         error: String(error?.message || error),
       };
     }
@@ -111,13 +154,18 @@ async function main() {
     }
   }
 
-  const failed = rows.filter((r) => !r.strictPass);
+  const networkFailures = rows.filter((r) => r.networkFailure === true);
+  const stateFailures = rows.filter((r) => r.networkFailure !== true && r.statePass !== true);
   const summary = {
     startedAt,
     endedAt: new Date().toISOString(),
     sampleCount: rows.length,
-    strictFailures: failed.length,
-    strictStable: failed.length === 0,
+    strictFailures: networkFailures.length + stateFailures.length,
+    networkFailures: networkFailures.length,
+    stateFailures: stateFailures.length,
+    strictStable: networkFailures.length + stateFailures.length === 0,
+    stateStable: stateFailures.length === 0,
+    networkStable: networkFailures.length === 0,
     first: rows[0],
     last: rows[rows.length - 1],
   };
@@ -125,7 +173,7 @@ async function main() {
   console.log(`SPOT_LOCK_MONITOR_SUMMARY ${JSON.stringify(summary)}`);
   console.log(`SPOT_LOCK_MONITOR_END ${new Date().toISOString()}`);
 
-  if (!summary.strictStable) {
+  if (!summary.stateStable) {
     process.exit(1);
   }
 }
