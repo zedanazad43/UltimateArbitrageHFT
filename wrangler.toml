@@ -151,7 +151,7 @@ AUTOGPT_STATUS_URL     = ""
 # off: force direct requests (useful for servers outside proxy)
 # required: require proxy; fail request if proxy is unavailable
 PROXY_MODE = "auto"
-PROXY_FALLBACK_URL = "https://arb-proxy.ecostamp.net/proxy"
+PROXY_FALLBACK_URL = "https://arb-gateway01.ecostamp.net/proxy"
 PROXY_FALLBACK_AUTH_HEADER = "X-Gateway-Token: gw-2026-06-01"
 
 # Comma-separated exchanges that should bypass proxy when PROXY_MODE=auto.
@@ -161,7 +161,7 @@ PROXY_FALLBACK_AUTH_HEADER = "X-Gateway-Token: gw-2026-06-01"
 # to route Bitget traffic through a static IP proxy.
 DIRECT_EXCHANGES = ""
 
-EXTERNAL_PROXY_FALLBACK_URL = "https://arb-proxy.ecostamp.net/proxy"
+EXTERNAL_PROXY_FALLBACK_URL = "https://arb-gateway01.ecostamp.net/proxy"
 EXTERNAL_PROXY_FALLBACK_PROVIDER = "bright_data"
 EXTERNAL_PROXY_FALLBACK_USERNAME = "enabled"
 EXTERNAL_PROXY_FALLBACK_PASSWORD = "enabled"

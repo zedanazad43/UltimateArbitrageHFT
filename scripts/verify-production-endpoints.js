@@ -115,6 +115,7 @@ async function checkProtected(url) {
     ['/api/analytics?capital=10000', 200],
     ['/api/health', 200],
     ['/api/platforms', 200],
+    ['/api/safety-state', 200],
     ['/api/execution-health', 200],
     ['/api/balances', 200],
     ['/api/status', 200],

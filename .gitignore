@@ -41,3 +41,5 @@ coverage
 metrics.json
 strategy-evaluation.json
 test-exchanges.js
+# Kimi project memory
+.kimi-memory/

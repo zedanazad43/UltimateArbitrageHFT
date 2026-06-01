@@ -64,6 +64,8 @@ async function sendTelegramAlert(env, message) {
 const DEFAULT_STATE = {
   trading_enabled: false,
   paper_trading: true,
+  spot_only_lock: false,
+  last_config_change_ts: 0,
   supported_symbols: [],
   scan_symbol_mode: 'cex_union',
   scan_quote_assets: ['USDT', 'USDC', 'FDUSD', 'BUSD', 'DAI', 'TUSD', 'BTC', 'ETH'],
@@ -223,6 +225,27 @@ function normalizeRequestedAssets(rawAssets) {
   return parsed.length ? parsed : defaults;
 }
 
+function isKnownExternalBalanceWarning(message) {
+  const msg = String(message || '').toLowerCase();
+  return msg.includes('cloudflare') ||
+    msg.includes('access denied') ||
+    msg.includes('forbidden') ||
+    msg.includes('currently unavailable in the u.s.') ||
+    msg.includes('restricted country') ||
+    msg.includes('current ip:') ||
+    msg.includes('error code: 1016') ||
+    msg.includes('non-json response (http 403)') ||
+    msg.includes('non-json response (http 429)') ||
+    msg.includes('non-json response (http 502)') ||
+    msg.includes('non-json response (http 503)') ||
+    msg.includes('non-json response (http 504)') ||
+    msg.includes('error code: 429') ||
+    msg.includes('error code: 502') ||
+    msg.includes('error code: 503') ||
+    msg.includes('error code: 504') ||
+    msg.includes('bad gateway');
+}
+
 async function getExecutionBalancesSnapshot(env, assets = ['USDT']) {
   const requestedAssets = Array.isArray(assets) && assets.length ? assets : ['USDT'];
   const primaryAsset = requestedAssets[0];
@@ -256,13 +279,14 @@ async function getExecutionBalancesSnapshot(env, assets = ['USDT']) {
         };
       } catch (e) {
         console.error(`[balances] ${ex} fetch failed:`, e.message);
+        const message = e.message || 'unknown error';
         return {
           exchange: ex,
           configured: true,
           asset: primaryAsset,
           balance: 0,
           balances: {},
-          error: e.message,
+          ...(isKnownExternalBalanceWarning(message) ? { warning: message } : { error: message }),
         };
       }
     })
@@ -303,19 +327,6 @@ async function probeExecutionExchanges(env, exchanges = null) {
   let readinessConfiguredCount = 0;
   let readinessAuthValidatedCount = 0;
 
-  const isBitgetCloudflareBlock = (exchange, message) => {
-    if (exchange !== 'bitget') return false;
-    const msg = String(message || '').toLowerCase();
-    return (
-      msg.includes('cloudflare') ||
-      msg.includes('<!doctype') ||
-      msg.includes('not valid json') ||
-      msg.includes('unexpected token') ||
-      msg.includes('"block"') ||
-      msg.includes('access denied')
-    );
-  };
-
   for (const exchange of scopedExchanges) {
     const configured = hasExchangeCredentials(env, exchange);
     const missing = configured ? [] : getMissingCredentialKeys(env, exchange);
@@ -332,7 +343,7 @@ async function probeExecutionExchanges(env, exchanges = null) {
         readinessAuthValidatedCount++;
       } catch (error) {
         authError = error.message;
-        if (!isBitgetCloudflareBlock(exchange, authError)) {
+        if (!isKnownExternalBalanceWarning(authError)) {
           authFailureCount++;
           readinessConfiguredCount++;
         }
@@ -344,7 +355,7 @@ async function probeExecutionExchanges(env, exchanges = null) {
       missing,
       authValidated,
       authError,
-      readinessIgnored: configured && !authValidated && isBitgetCloudflareBlock(exchange, authError),
+      readinessIgnored: configured && !authValidated && isKnownExternalBalanceWarning(authError),
     };
   }
 
@@ -903,7 +914,16 @@ app.post('/config', async (c) => {
       state.burst_revert_profile = requestedRevert;
     }
   }
-  if (body.strategy_flags && typeof body.strategy_flags === 'object') {
+  const requestedStrategyFlags = body.strategy_flags && typeof body.strategy_flags === 'object'
+    ? body.strategy_flags
+    : null;
+  const blockedBySpotLock = Boolean(
+    state.spot_only_lock === true &&
+    requestedStrategyFlags &&
+    (requestedStrategyFlags.perps === true || requestedStrategyFlags.funding === true)
+  );
+
+  if (requestedStrategyFlags) {
     const current = state.strategy_flags || {};
     const nextFlags = {
       cex: current.cex !== false,
@@ -914,15 +934,124 @@ app.post('/config', async (c) => {
       statistical: current.statistical !== false,
     };
     for (const key of Object.keys(nextFlags)) {
-      if (typeof body.strategy_flags[key] === 'boolean') {
-        nextFlags[key] = body.strategy_flags[key];
+      if (typeof requestedStrategyFlags[key] === 'boolean') {
+        nextFlags[key] = requestedStrategyFlags[key];
       }
     }
     state.strategy_flags = nextFlags;
   }
+
+  if (typeof body.spot_only_lock === 'boolean') {
+    state.spot_only_lock = body.spot_only_lock;
+  }
+
+  // Spot-only lock guard: perps/funding cannot be enabled through generic config.
+  if (state.spot_only_lock === true) {
+    state.strategy_flags = {
+      ...(state.strategy_flags || {}),
+      perps: false,
+      funding: false,
+    };
+  }
+
+  state.last_config_change_ts = Date.now();
+
+  if (blockedBySpotLock) {
+    await sendTelegramAlert(
+      c.env,
+      '🛡️ *Spot-only lock blocked a config transition*\n' +
+      'Attempted to enable perps/funding via /config while lock is active.'
+    );
+  }
+
   await saveState(c.env, state);
   await logAdminEvent(c.env, 'config', c.req.raw);
   return c.text('✅ تم حفظ الإعدادات');
+});
+
+// ── Admin: Spot-only lock controls ──────────────────────────────────────────
+// Explicit endpoint to toggle lock state. When enabled, perps/funding are forced off.
+app.post('/strategy/spot-lock/:mode', async (c) => {
+  const limited = await checkRateLimit(c.env, c);
+  if (limited) return limited;
+  if (!isAuthorized(c.env, c)) return authDenied(c.env, c);
+
+  const mode = String(c.req.param('mode') || '').toLowerCase();
+  if (!['enable', 'disable'].includes(mode)) {
+    return c.text('❌ mode must be enable|disable', 400);
+  }
+
+  const state = await getState(c.env);
+  state.spot_only_lock = mode === 'enable';
+  if (state.spot_only_lock) {
+    state.strategy_flags = {
+      ...(state.strategy_flags || {}),
+      perps: false,
+      funding: false,
+    };
+
+    // Clear stale perp breaker noise while operating in enforced spot-only mode.
+    const cbState = await c.env.BOT_STATE.get('nexus_circuit_breaker', 'json').catch(() => null);
+    if (cbState && typeof cbState === 'object') {
+      delete cbState.mexc_perp;
+      await c.env.BOT_STATE.put('nexus_circuit_breaker', JSON.stringify(cbState)).catch(() => {});
+    }
+  }
+
+  state.last_config_change_ts = Date.now();
+
+  await saveState(c.env, state);
+  await logAdminEvent(c.env, 'spot_lock', c.req.raw);
+  return c.json({
+    success: true,
+    spotOnlyLock: state.spot_only_lock,
+    strategyFlags: state.strategy_flags,
+    note: state.spot_only_lock
+      ? 'Spot-only lock enabled: perps/funding forced off'
+      : 'Spot-only lock disabled',
+  });
+});
+
+// ── Admin: Explicit perps enable/disable endpoint ───────────────────────────
+// Perps can only be enabled from this dedicated route (not generic /config when lock is on).
+app.post('/strategy/perps/:mode', async (c) => {
+  const limited = await checkRateLimit(c.env, c);
+  if (limited) return limited;
+  if (!isAuthorized(c.env, c)) return authDenied(c.env, c);
+
+  const mode = String(c.req.param('mode') || '').toLowerCase();
+  if (!['enable', 'disable'].includes(mode)) {
+    return c.text('❌ mode must be enable|disable', 400);
+  }
+
+  const state = await getState(c.env);
+  const current = state.strategy_flags || {};
+
+  if (mode === 'enable') {
+    // Explicit enable unlocks spot-only mode by operator intent.
+    state.spot_only_lock = false;
+    state.strategy_flags = {
+      ...current,
+      perps: true,
+      funding: true,
+    };
+  } else {
+    state.strategy_flags = {
+      ...current,
+      perps: false,
+      funding: false,
+    };
+  }
+
+  state.last_config_change_ts = Date.now();
+
+  await saveState(c.env, state);
+  await logAdminEvent(c.env, 'perps_toggle', c.req.raw);
+  return c.json({
+    success: true,
+    spotOnlyLock: state.spot_only_lock,
+    strategyFlags: state.strategy_flags,
+  });
 });
 
 // ── API: Bot status ───────────────────────────────────────────────────────────
@@ -933,7 +1062,13 @@ app.get('/api/status', async (c) => {
     c.env.BOT_STATE.get('nexus_last_scan', 'json').catch(() => null),
     c.env.BOT_STATE.get('nexus_circuit_breaker', 'json').catch(() => null)
   ]);
-  const summary = getStateSummary(state);
+  const [summary, metrics] = await Promise.all([
+    Promise.resolve(getStateSummary(state)),
+    getPerformanceMetrics(c.env).catch(() => null),
+  ]);
+  if (metrics && Number.isFinite(Number(metrics.total_trades))) {
+    summary.totalTrades = Number(metrics.total_trades);
+  }
   return c.json({
     ...state,
     ...summary,
@@ -946,6 +1081,77 @@ app.get('/api/status', async (c) => {
       telegramConfigured: !!c.env.TELEGRAM_BOT_TOKEN && !!c.env.TELEGRAM_CHAT_ID,
       vscodeApiTokenConfigured: !!c.env.VSCODE_API_TOKEN,
     },
+  });
+});
+
+// ── API: Safety state snapshot ───────────────────────────────────────────────
+// Single payload for operational guardrails and runtime safety checks.
+app.get('/api/safety-state', async (c) => {
+  if (!isAuthorized(c.env, c)) return authDenied(c.env, c, true);
+
+  const [state, lastScan, executionProbe] = await Promise.all([
+    getState(c.env),
+    c.env.BOT_STATE.get('nexus_last_scan', 'json').catch(() => null),
+    probeExecutionExchanges(c.env),
+  ]);
+
+  const adminTokenSet = !!(c.env.ADMIN_TOKEN);
+  const tradingEnabled = !!state.trading_enabled;
+  const paperMode = state.paper_trading !== false;
+  const executionExchangesReady = executionProbe.allConfiguredExchangesHealthy;
+  const perpsEnabled = state?.strategy_flags?.perps !== false;
+  const mexcConfigured = hasExchangeCredentials(c.env, 'mexc');
+
+  let spotReady = false;
+  let spotError = null;
+  if (mexcConfigured) {
+    try {
+      const bal = await getMEXCBalance(c.env, 'USDT');
+      spotReady = Number(bal?.free || 0) > 0;
+    } catch (e) {
+      spotError = e.message;
+    }
+  }
+
+  let futuresReady = false;
+  let futuresError = null;
+  if (mexcConfigured && perpsEnabled) {
+    try {
+      await getMEXCFuturesBalance(c.env, 'USDT');
+      futuresReady = true;
+    } catch (e) {
+      futuresError = e.message;
+    }
+  }
+
+  const executionMode = !perpsEnabled
+    ? (spotReady ? 'spot-only' : 'blocked')
+    : (futuresReady ? 'futures+spot' : (spotReady ? 'spot-fallback' : 'blocked'));
+
+  const readyForLive = (
+    adminTokenSet &&
+    tradingEnabled &&
+    !paperMode &&
+    executionExchangesReady
+  );
+
+  return c.json({
+    success: true,
+    spotOnlyLock: state.spot_only_lock === true,
+    strategyFlags: state.strategy_flags || {},
+    executionMode,
+    readyForLive,
+    tradingEnabled,
+    paperMode,
+    perpsEnabled,
+    mexcConfigured,
+    spotReady,
+    futuresReady,
+    spotError,
+    futuresError,
+    lastConfigChangeTs: Number(state.last_config_change_ts || 0),
+    lastScanTimestamp: lastScan?.timestamp || null,
+    timestamp: new Date().toISOString(),
   });
 });
 
@@ -1294,11 +1500,13 @@ app.post('/api/rebalance/policy', async (c) => {
 // and MEXC Futures execution readiness.  Auth-protected.
 app.get('/api/perps', async (c) => {
   if (!isAuthorized(c.env, c)) return authDenied(c.env, c, true);
-  const [lastScan, cb] = await Promise.all([
+  const [state, lastScan, cb] = await Promise.all([
+    getState(c.env),
     c.env.BOT_STATE.get('nexus_last_scan', 'json').catch(() => null),
     c.env.BOT_STATE.get('nexus_circuit_breaker', 'json').catch(() => null)
   ]);
   const cbState = cb || {};
+  const perpsEnabled = state?.strategy_flags?.perps !== false;
 
   const perpExchanges = ['mexc_perp', 'binance_perp', 'bybit_perp'];
   const exchangeStatus = perpExchanges.map(ex => {
@@ -1307,10 +1515,12 @@ app.get('/api/perps', async (c) => {
     const open = info?.open && (now - (info?.lastFailure || 0)) < 300000;
     // mexc_perp is the only executable perp feed; others are data-only feeds
     const isExecutable = ex === 'mexc_perp';
+    const paused = !perpsEnabled;
     return {
       exchange: ex,
-      status: open ? 'open' : 'ok',
-      failures: info?.failures || 0,
+      status: paused ? 'disabled' : (open ? 'open' : 'ok'),
+      failures: paused ? 0 : (info?.failures || 0),
+      paused,
       dataOnly: !isExecutable,
       executionVia: isExecutable ? 'mexc_futures' : 'spot_hedge'
     };
@@ -1320,12 +1530,14 @@ app.get('/api/perps', async (c) => {
 
   return c.json({
     success: true,
-    perpsEnabled: true,
+    perpsEnabled,
     mexcFuturesConfigured: mexcReady,
     lastPerpsOpp: lastScan?.perps || null,
     lastFundingOpp: lastScan?.funding || null,
     exchangeStatus,
-    executionNote: mexcReady
+    executionNote: !perpsEnabled
+      ? 'Perps strategy disabled — execution is spot-only'
+      : mexcReady
       ? 'MEXC Futures active — perps orders placed via contract.mexc.com'
       : 'MEXC credentials missing — perps will run as spot hedge on best available exchange'
   });
@@ -1344,6 +1556,7 @@ app.get('/api/execution-health', async (c) => {
     c.env.BOT_STATE.get('nexus_last_scan', 'json').catch(() => null)
   ]);
   const executorStats = getAutoExecutor(c.env).getStats();
+  const perpsEnabled = state?.strategy_flags?.perps !== false;
 
   const mexcConfigured = hasExchangeCredentials(c.env, 'mexc');
 
@@ -1363,7 +1576,7 @@ app.get('/api/execution-health', async (c) => {
   let futuresReady = false;
   let futuresBalance = null;
   let futuresError = null;
-  if (mexcConfigured) {
+  if (mexcConfigured && perpsEnabled) {
     try {
       futuresBalance = await getMEXCFuturesBalance(c.env, 'USDT');
       futuresReady = true;
@@ -1372,12 +1585,14 @@ app.get('/api/execution-health', async (c) => {
     }
   }
 
-  const executionMode = futuresReady ? 'futures+spot' : (spotReady ? 'spot-fallback' : 'blocked');
+  const executionMode = !perpsEnabled
+    ? (spotReady ? 'spot-only' : 'blocked')
+    : (futuresReady ? 'futures+spot' : (spotReady ? 'spot-fallback' : 'blocked'));
   const paperMode = state?.paper_trading !== false;
   const blockedReasons = [];
   if (!mexcConfigured) blockedReasons.push('MEXC credentials missing');
   if (spotError) blockedReasons.push(`Spot: ${spotError}`);
-  if (futuresError) blockedReasons.push(`Futures: ${futuresError}`);
+  if (futuresError && perpsEnabled) blockedReasons.push(`Futures: ${futuresError}`);
 
   return c.json({
     success: true,
@@ -1385,6 +1600,7 @@ app.get('/api/execution-health', async (c) => {
     paperMode,
     paperTrading: paperMode,
     mexcConfigured,
+    perpsEnabled,
     spotReady,
     futuresReady,
     executionMode,
@@ -2341,6 +2557,30 @@ async function runScheduledCycle(env) {
   const state = await getState(env);
 
   const now = Date.now();
+  let lockStateAdjusted = false;
+
+  if (state.spot_only_lock === true) {
+    const hasPerps = state?.strategy_flags?.perps !== false;
+    const hasFunding = state?.strategy_flags?.funding !== false;
+    if (hasPerps || hasFunding) {
+      state.strategy_flags = {
+        ...(state.strategy_flags || {}),
+        perps: false,
+        funding: false,
+      };
+      state.last_config_change_ts = now;
+      lockStateAdjusted = true;
+    }
+  }
+
+  if (lockStateAdjusted) {
+    await saveState(env, state);
+    await logBotEvent(env, 'spot_lock_enforced', {
+      at: now,
+      strategy_flags: state.strategy_flags,
+    });
+  }
+
   const inBurst = Number(state.burst_overdrive_until_ts || 0) > now;
 
   if (inBurst) {

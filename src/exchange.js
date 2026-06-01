@@ -600,6 +600,26 @@ function isKuCoinAuthVersionError(message) {
     normalized.includes('invalid kc-api-passphrase');
 }
 
+function isKuCoinTimestampError(message) {
+  const normalized = String(message || '').toLowerCase();
+  return normalized.includes('kc-api-timestamp') ||
+    normalized.includes('timestamp') ||
+    normalized.includes('time offset');
+}
+
+async function getKuCoinServerTimestamp(env) {
+  const resp = await exchangeFetch('https://api.kucoin.com/api/v1/timestamp', {}, 'kucoin', 2, env);
+  const data = await parseJsonResponse(resp, 'KuCoin server time');
+  if (data?.code !== '200000') {
+    throw new Error(data?.msg || `KuCoin server time error ${data?.code || 'unknown'}`);
+  }
+  const raw = Number(data?.data || Date.now());
+  if (!Number.isFinite(raw) || raw <= 0) return Date.now().toString();
+  // KuCoin may return seconds on some edges; normalize to ms.
+  const ms = raw < 1e12 ? Math.floor(raw * 1000) : Math.floor(raw);
+  return String(ms);
+}
+
 /**
  * Fetches the KuCoin spot account balance for a given asset (default: USDT).
  * KuCoin API v2: passphrase is HMAC-SHA256 signed.
@@ -621,19 +641,29 @@ export async function getKuCoinBalance(env, asset = 'USDT') {
   const errors = [];
 
   for (const keyVersion of getKuCoinKeyVersions(env)) {
-    const timestamp = Date.now().toString();
-    const headers = await buildKuCoinAuthHeaders({
-      apiKey,
-      apiSecret,
-      passphrase,
-      timestamp,
-      method: 'GET',
-      path,
-      keyVersion,
-    });
+    const tryBalanceRequest = async (timestamp) => {
+      const headers = await buildKuCoinAuthHeaders({
+        apiKey,
+        apiSecret,
+        passphrase,
+        timestamp,
+        method: 'GET',
+        path,
+        keyVersion,
+      });
+      // Do not retry signed calls with the same headers/timestamp.
+      const resp = await exchangeFetch(`https://api.kucoin.com${path}`, { headers }, 'kucoin', 0, env);
+      return parseJsonResponse(resp, 'KuCoin balance');
+    };
 
-    const resp = await exchangeFetch(`https://api.kucoin.com${path}`, { headers }, 'kucoin', 2, env);
-    const data = await parseJsonResponse(resp, 'KuCoin balance');
+    let data;
+    try {
+      data = await tryBalanceRequest(Date.now().toString());
+    } catch (err) {
+      errors.push(`v${keyVersion}: ${err.message}`);
+      continue;
+    }
+
     if (data.code === '200000') {
       const accounts = data.data || [];
       const free   = accounts.reduce((sum, acc) => sum + parseFloat(acc.available || '0'), 0);
@@ -641,9 +671,25 @@ export async function getKuCoinBalance(env, asset = 'USDT') {
       return { free, locked };
     }
 
-    const message = data.msg || `KuCoin balance error ${data.code}`;
+    let message = data.msg || `KuCoin balance error ${data.code}`;
+    if (isKuCoinTimestampError(message)) {
+      try {
+        const serverTimestamp = await getKuCoinServerTimestamp(env);
+        const retryData = await tryBalanceRequest(serverTimestamp);
+        if (retryData.code === '200000') {
+          const accounts = retryData.data || [];
+          const free   = accounts.reduce((sum, acc) => sum + parseFloat(acc.available || '0'), 0);
+          const locked = accounts.reduce((sum, acc) => sum + parseFloat(acc.holds    || '0'), 0);
+          return { free, locked };
+        }
+        message = retryData.msg || `KuCoin balance error ${retryData.code}`;
+      } catch (retryErr) {
+        message = `${message} | retry: ${retryErr.message}`;
+      }
+    }
+
     errors.push(`v${keyVersion}: ${message}`);
-    if (!isKuCoinAuthVersionError(message)) {
+    if (!isKuCoinAuthVersionError(message) && !isKuCoinTimestampError(message)) {
       throw new Error(message);
     }
   }
@@ -685,32 +731,52 @@ export async function placeMarketOrderKuCoin(env, symbol, side, quantity, sizeUs
   const errors = [];
 
   for (const keyVersion of getKuCoinKeyVersions(env)) {
-    const timestamp = Date.now().toString();
-    const headers = await buildKuCoinAuthHeaders({
-      apiKey,
-      apiSecret,
-      passphrase,
-      timestamp,
-      method: 'POST',
-      path,
-      body: bodyStr,
-      keyVersion,
-    });
+    const tryOrderRequest = async (timestamp) => {
+      const headers = await buildKuCoinAuthHeaders({
+        apiKey,
+        apiSecret,
+        passphrase,
+        timestamp,
+        method: 'POST',
+        path,
+        body: bodyStr,
+        keyVersion,
+      });
 
-    const resp = await exchangeFetch(`https://api.kucoin.com${path}`, {
-      method: 'POST',
-      headers: {
-        ...headers,
-        'Content-Type': 'application/json'
-      },
-      body: bodyStr
-    }, 'kucoin', 2, env);
-    const data = await parseJsonResponse(resp, 'KuCoin order');
+      const resp = await exchangeFetch(`https://api.kucoin.com${path}`, {
+        method: 'POST',
+        headers: {
+          ...headers,
+          'Content-Type': 'application/json'
+        },
+        body: bodyStr
+      }, 'kucoin', 0, env);
+      return parseJsonResponse(resp, 'KuCoin order');
+    };
+
+    let data;
+    try {
+      data = await tryOrderRequest(Date.now().toString());
+    } catch (err) {
+      errors.push(`v${keyVersion}: ${err.message}`);
+      continue;
+    }
     if (data.code === '200000') return data;
 
-    const message = data.msg || `KuCoin spot error ${data.code}`;
+    let message = data.msg || `KuCoin spot error ${data.code}`;
+    if (isKuCoinTimestampError(message)) {
+      try {
+        const serverTimestamp = await getKuCoinServerTimestamp(env);
+        const retryData = await tryOrderRequest(serverTimestamp);
+        if (retryData.code === '200000') return retryData;
+        message = retryData.msg || `KuCoin spot error ${retryData.code}`;
+      } catch (retryErr) {
+        message = `${message} | retry: ${retryErr.message}`;
+      }
+    }
+
     errors.push(`v${keyVersion}: ${message}`);
-    if (!isKuCoinAuthVersionError(message)) {
+    if (!isKuCoinAuthVersionError(message) && !isKuCoinTimestampError(message)) {
       throw new Error(message);
     }
   }

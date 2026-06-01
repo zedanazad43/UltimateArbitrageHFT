@@ -210,10 +210,9 @@ jobs:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
 
-      - name: Verify production secrets (critical + optional)
+      - name: Verify production secrets (critical)
         run: |
           critical_missing=0
-          optional_missing=()
 
           for key in WORKFLOW_ADMIN_TOKEN TELEGRAM_BOT_TOKEN TELEGRAM_CHAT_ID; do
             if [ -z "${!key}" ]; then
@@ -222,58 +221,15 @@ jobs:
             fi
           done
 
-          for key in \
-            MEXC_API_KEY MEXC_API_SECRET \
-            BINANCE_API_KEY BINANCE_API_SECRET \
-            OKX_API_KEY OKX_API_SECRET OKX_PASSPHRASE \
-            KUCOIN_API_KEY KUCOIN_SECRET_KEY KUCOIN_PASSPHRASE \
-            COINBASE_API_KEY COINBASE_SECRET_KEY \
-            BITGET_API_KEY BITGET_SECRET_KEY BITGET_API_PASSPHRASE \
-            BITMART_API_KEY BITMART_SECRET_KEY BITMART_MEMO \
-            ZEROX_API_KEY ALCHEMY_API_KEY \
-            TEMPORAL_API_KEY
-          do
-            if [ -z "${!key}" ]; then
-              optional_missing+=("$key")
-            fi
-          done
-
-          if [ ${#optional_missing[@]} -gt 0 ]; then
-            echo "::notice::Optional secrets not set (${#optional_missing[@]}): ${optional_missing[*]}"
-          else
-            echo "✅ All optional integration secrets are configured."
-          fi
-
           if [ "$critical_missing" -eq 1 ]; then
             echo "::notice::Critical secrets are missing in GitHub environment; deployment may still pass if values are set directly in Cloudflare Worker."
           else
             echo "✅ Critical production secrets are present in GitHub environment."
           fi
         env:
-          MEXC_API_KEY: ${{ secrets.MEXC_API_KEY }}
-          MEXC_API_SECRET: ${{ secrets.MEXC_API_SECRET }}
-          BINANCE_API_KEY: ${{ secrets.BINANCE_API_KEY }}
-          BINANCE_API_SECRET: ${{ secrets.BINANCE_API_SECRET }}
-          OKX_API_KEY: ${{ secrets.OKX_API_KEY }}
-          OKX_API_SECRET: ${{ secrets.OKX_API_SECRET }}
-          OKX_PASSPHRASE: ${{ secrets.OKX_PASSPHRASE }}
-          KUCOIN_API_KEY: ${{ secrets.KUCOIN_API_KEY }}
-          KUCOIN_SECRET_KEY: ${{ secrets.KUCOIN_SECRET_KEY }}
-          KUCOIN_PASSPHRASE: ${{ secrets.KUCOIN_PASSPHRASE }}
-          COINBASE_API_KEY: ${{ secrets.COINBASE_API_KEY }}
-          COINBASE_SECRET_KEY: ${{ secrets.COINBASE_SECRET_KEY }}
-          BITGET_API_KEY: ${{ secrets.BITGET_API_KEY }}
-          BITGET_SECRET_KEY: ${{ secrets.BITGET_SECRET_KEY }}
-          BITGET_API_PASSPHRASE: ${{ secrets.BITGET_API_PASSPHRASE }}
-          BITMART_API_KEY: ${{ secrets.BITMART_API_KEY }}
-          BITMART_SECRET_KEY: ${{ secrets.BITMART_SECRET_KEY }}
-          BITMART_MEMO: ${{ secrets.BITMART_MEMO }}
-          ZEROX_API_KEY: ${{ secrets.ZEROX_API_KEY }}
-          ALCHEMY_API_KEY: ${{ secrets.ALCHEMY_API_KEY }}
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
           WORKFLOW_ADMIN_TOKEN: ${{ secrets.WORKFLOW_ADMIN_TOKEN }}
-          TEMPORAL_API_KEY: ${{ secrets.TEMPORAL_API_KEY }}
 
       - name: Verify Cloudflare-only optional secret names
         id: verify_cloudflare_optional_raw
@@ -380,6 +336,40 @@ jobs:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
 
+      - name: Enforce spot-only lock before safety validation
+        id: enforce_spot_lock
+        run: |
+          API_BASE="https://api.ecostamp.net"
+          TOKEN="$WORKFLOW_ADMIN_TOKEN"
+
+          if [ -z "$TOKEN" ]; then
+            echo "::error::WORKFLOW_ADMIN_TOKEN is required to enforce spot lock"
+            exit 1
+          fi
+
+          for attempt in 1 2 3; do
+            echo "--- Spot-lock enforcement attempt $attempt/3 ---"
+            code=$(curl -sS -o /tmp/spot_lock_resp.txt -w "%{http_code}" \
+              -X POST \
+              -H "x-admin-token: ${TOKEN}" \
+              "${API_BASE}/strategy/spot-lock/enable")
+
+            if [ "$code" = "200" ]; then
+              echo "✅ Spot-only lock enforced"
+              cat /tmp/spot_lock_resp.txt
+              exit 0
+            fi
+
+            echo "⚠️ Spot-lock enforcement failed with HTTP ${code}"
+            cat /tmp/spot_lock_resp.txt || true
+            [ $attempt -lt 3 ] && sleep 10
+          done
+
+          echo "::error::Failed to enforce spot-only lock after 3 attempts."
+          exit 1
+        env:
+          WORKFLOW_ADMIN_TOKEN: ${{ secrets.WORKFLOW_ADMIN_TOKEN }}
+
       - name: Post-deploy endpoint smoke test
         id: smoke_test
         run: |
@@ -402,8 +392,46 @@ jobs:
           REQUIRE_READY_FOR_LIVE: "false"
           SKIP_CUSTOM_DOMAIN_CHECK: "true"
 
+      - name: Post-deploy safety lock smoke test
+        id: safety_smoke_test
+        run: |
+          for attempt in 1 2 3; do
+            echo "--- Safety smoke check attempt $attempt/3 ---"
+            if npm run smoke:safety-lock; then
+              echo "✅ Safety smoke check passed on attempt $attempt"
+              exit 0
+            fi
+            if [ $attempt -lt 3 ]; then
+              echo "⚠️ Safety smoke check failed, retrying in 15s..."
+              sleep 15
+            fi
+          done
+          echo "::error::Safety smoke check failed after 3 attempts."
+          exit 1
+        env:
+          ADMIN_TOKEN: ${{ secrets.WORKFLOW_ADMIN_TOKEN }}
+
+      - name: Post-deploy lock bypass guard test
+        id: lock_bypass_guard_test
+        run: |
+          for attempt in 1 2 3; do
+            echo "--- Lock bypass guard attempt $attempt/3 ---"
+            if npm run smoke:lock-block; then
+              echo "✅ Lock bypass guard test passed on attempt $attempt"
+              exit 0
+            fi
+            if [ $attempt -lt 3 ]; then
+              echo "⚠️ Lock bypass guard test failed, retrying in 15s..."
+              sleep 15
+            fi
+          done
+          echo "::error::Lock bypass guard test failed after 3 attempts."
+          exit 1
+        env:
+          ADMIN_TOKEN: ${{ secrets.WORKFLOW_ADMIN_TOKEN }}
+
       - name: Telegram alert on smoke test failure
-        if: ${{ failure() && steps.smoke_test.outcome == 'failure' }}
+        if: ${{ failure() && (steps.smoke_test.outcome == 'failure' || steps.safety_smoke_test.outcome == 'failure' || steps.lock_bypass_guard_test.outcome == 'failure') }}
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
@@ -417,7 +445,7 @@ jobs:
           fi
 
           short_sha=$(echo "$SHA" | cut -c1-7)
-          text=$(printf 'Smoke test failed after production deploy%%0AWorkflow: World-class CI/CD Bot%%0ABranch: %s%%0ASHA: %s%%0ARun: %s' "$BRANCH" "$short_sha" "$RUN_URL")
+          text=$(printf 'Post-deploy guard check failed (core smoke / safety lock / lock bypass)%%0AWorkflow: World-class CI/CD Bot%%0ABranch: %s%%0ASHA: %s%%0ARun: %s' "$BRANCH" "$short_sha" "$RUN_URL")
 
           curl -fsS -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
             -d "chat_id=${TELEGRAM_CHAT_ID}" \

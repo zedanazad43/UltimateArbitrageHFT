@@ -96,6 +96,14 @@ export async function renderDashboard(env) {
     triangular: state?.strategy_flags?.triangular !== false,
     statistical: state?.strategy_flags?.statistical !== false,
   };
+  const spotOnlyLock = state?.spot_only_lock === true;
+  const perpsEnabled = strategyFlags.perps;
+  const opportunitiesHeading = perpsEnabled
+    ? '🔍 آخر فرص المسح — الاستراتيجيات الفعّالة'
+    : '🔍 آخر فرص المسح — الاستراتيجيات الفعّالة (Spot-only)';
+  const subtitleScope = perpsEnabled
+    ? 'منظومة موحدة: CEX + DEX + Perps'
+    : 'منظومة موحدة: CEX + DEX (Spot-only)';
   const lastScanTime    = lastScan?.timestamp
     ? formatDateTimeAr(lastScan.timestamp)
     : 'لم يتم المسح بعد';
@@ -142,6 +150,14 @@ export async function renderDashboard(env) {
     ? (isFinite(metrics.profit_factor) ? metrics.profit_factor.toFixed(2) : '∞')
     : '—';
   const expectancy     = (metrics.expectancy       || 0).toFixed(3);
+  const totalTrades = Number(metrics.total_trades ?? state.total_trades ?? 0);
+  const apiSnapshotInitial = {
+    status: `${state.trading_enabled ? '▶️ مفعّل' : '⏸️ متوقف'} | ${paperMode ? 'Paper' : 'Live'}`,
+    trades: `${totalTrades || trades.length || 0} صفقة`,
+    pnl: `إجمالي $${(state.total_pnl || 0).toFixed(2)}`,
+    report: `WR ${winRatePct}% | PF ${profitFactor}`,
+    logs: 'قيد التحميل…',
+  };
 
   // HTML attribute escaper — prevents XSS in server-interpolated input value="…"
   const esc = (v) => String(v ?? '').replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
@@ -233,7 +249,8 @@ export async function renderDashboard(env) {
     .btn-sm{padding:5px 10px;font-size:.78em}
     .risk-row{display:flex;flex-wrap:wrap;gap:14px;margin-top:14px}
     .risk-item{display:flex;flex-direction:column;gap:4px}
-    .risk-item label{color:#888;font-size:.78em}
+    .risk-item label{color:#888;font-size:.78em;display:block;line-height:1.35}
+    .risk-item label.inline-check{display:flex;align-items:center;gap:6px;color:#eee;font-size:.85em;line-height:1.25}
     .risk-item input{background:#2a2e38;color:#eee;border:1px solid #444;border-radius:6px;padding:7px 10px;width:130px}
     table{width:100%;border-collapse:collapse;background:#1a1e26;border-radius:12px;overflow:hidden}
     th{background:#2a2e38;color:#f0b90b;padding:11px 12px;text-align:right}
@@ -264,7 +281,7 @@ export async function renderDashboard(env) {
 </div>
 
 <h1>🔷 Nexus Arbitrage System — Control Center</h1>
-<div class="subtitle">منظومة موحدة: CEX + DEX + Perps &nbsp;|&nbsp; آخر مسح: ${lastScanTime}</div>
+<div class="subtitle">${subtitleScope} &nbsp;|&nbsp; آخر مسح: ${lastScanTime}</div>
 
 ${adminTokenBanner}
 ${autoStopBanner}
@@ -277,10 +294,10 @@ ${autoStopBanner}
   <span>📊 ربح اليوم: <strong style="color:${(state.daily_pnl||0)>=0?'#2ecc71':'#e74c3c'}">$${(state.daily_pnl||0).toFixed(2)}</strong></span>
   <span>⚡ رافعة: <strong style="color:#f0b90b">${currentLeverage}x</strong></span>
   <span>🎯 صفقات اليوم: <strong>${state.daily_trades||0}</strong></span>
-  <span>📊 الإجمالي: <strong>${state.total_trades||0}</strong></span>
+  <span>📊 الإجمالي: <strong>${totalTrades}</strong></span>
 </div>
 
-<h2>🔍 آخر فرص المسح — الاستراتيجيات الثلاث</h2>
+<h2>${opportunitiesHeading}</h2>
 <div class="strategy-grid">
 
   <div class="strategy-card" style="border-color:#3498db">
@@ -301,7 +318,7 @@ ${autoStopBanner}
     ${oppCard(lastScan?.dex)}
   </div>
 
-  <div class="strategy-card" style="border-color:#e67e22">
+  <div id="strategy-card-perps" class="strategy-card" style="border-color:#e67e22;${perpsEnabled ? '' : 'display:none;'}">
     <div class="strat-header" style="color:#e67e22">
       ⚡ Perps Arbitrage
       <span class="badge" style="background:#4a2a0a;color:#e67e22">${perpsTrades} صفقة</span>
@@ -350,44 +367,44 @@ ${autoStopBanner}
   </div>
   <div class="risk-row">
     <div class="risk-item">
-      <label>أقصى خسارة يومية ($)</label>
+      <label for="maxDailyLoss">أقصى خسارة يومية ($)</label>
       <input id="maxDailyLoss" type="number" value="${maxLoss}" min="1" step="1">
     </div>
     <div class="risk-item">
-      <label>حد الحجم اليومي ($)</label>
+      <label for="dailyLimitUsd">حد الحجم اليومي ($)</label>
       <input id="dailyLimitUsd" type="number" value="${dailyLimit}" min="1" step="1" title="إجمالي الحجم المسموح تداوله يومياً">
       <span style="font-size:.72em;color:#888">يُستخدم كفرامل أمان قبل التنفيذ الحي</span>
     </div>
     <div class="risk-item">
-      <label>أقصى خسارة للصفقة (%)</label>
+      <label for="maxPerTrade">أقصى خسارة للصفقة (%)</label>
       <input id="maxPerTrade" type="number" value="${maxPerTrade}" min="0.001" step="0.001">
     </div>
     <div class="risk-item">
-      <label>فاصل بين الصفقات (ثانية)</label>
+      <label for="minSeconds">فاصل بين الصفقات (ثانية)</label>
       <input id="minSeconds" type="number" value="${minSec}" min="1" step="1">
     </div>
     <div class="risk-item">
-      <label>رأس المال الابتدائي ($)</label>
+      <label for="initialCapital">رأس المال الابتدائي ($)</label>
       <input id="initialCapital" type="number" value="${initialCapital}" min="1" step="1">
     </div>
     <div class="risk-item">
-      <label>حجم المركز الافتراضي ($)</label>
+      <label for="positionSizeUsd">حجم المركز الافتراضي ($)</label>
       <input id="positionSizeUsd" type="number" value="${positionSizeUsd}" min="1" max="500" step="1" title="الحد الأدنى 1 USDT — الحد الأقصى 500 USDT">
       <span style="font-size:.72em;color:#888">ابتدئ بـ 5 USDT لاختبار آمن</span>
     </div>
     <div class="risk-item">
-      <label>تعدد الاستراتيجيات (LIVE)</label>
-      <label style="color:#eee;font-size:.85em;display:flex;align-items:center;gap:6px">
+      <div style="font-weight:600;color:#ddd">تعدد الاستراتيجيات (LIVE)</div>
+      <label for="multiStrategyLive" class="inline-check">
         <input id="multiStrategyLive" type="checkbox" ${multiStrategyLive ? 'checked' : ''}>
         تنفيذ أكثر من استراتيجية في نفس دورة المسح
       </label>
     </div>
     <div class="risk-item">
-      <label>أقصى صفقات لكل دورة LIVE</label>
+      <label for="maxLiveTradesPerScan">أقصى صفقات لكل دورة LIVE</label>
       <input id="maxLiveTradesPerScan" type="number" value="${maxLiveTradesPerScan}" min="1" max="5" step="1">
     </div>
     <div class="risk-item">
-      <label>وضع اختيار الرموز</label>
+      <label for="scanSymbolMode">وضع اختيار الرموز</label>
       <select id="scanSymbolMode" style="background:#2a2e38;color:#eee;border:1px solid #444;border-radius:6px;padding:7px 10px">
         <option value="cex_union" ${scanSymbolMode === 'cex_union' ? 'selected' : ''}>CEX Union (أوسع تغطية)</option>
         <option value="cex_intersection" ${scanSymbolMode === 'cex_intersection' ? 'selected' : ''}>CEX Intersection (أكثر تحفظاً)</option>
@@ -395,21 +412,21 @@ ${autoStopBanner}
       </select>
     </div>
     <div class="risk-item">
-      <label>عدد الرموز الديناميكية</label>
+      <label for="maxDynamicSymbols">عدد الرموز الديناميكية</label>
       <input id="maxDynamicSymbols" type="number" value="${maxDynamicSymbols}" min="15" max="2000" step="5" title="عدد أزواج USDT المفحوصة ديناميكياً">
     </div>
     <div class="risk-item">
-      <label>سقف رموز MetaMask</label>
+      <label for="maxMetaMaskSymbols">سقف رموز MetaMask</label>
       <input id="maxMetaMaskSymbols" type="number" value="${maxMetaMaskSymbols}" min="100" max="20000" step="50" title="سقف الرموز المقروءة من قوائم Web3 العامة">
     </div>
     <div class="risk-item">
-      <label>Quote Assets للمسح</label>
+      <label for="scanQuoteAssets">Quote Assets للمسح</label>
       <input id="scanQuoteAssets" type="text" value="${scanQuoteAssets}" placeholder="USDT,USDC,BTC,ETH" style="min-width:240px">
       <span style="font-size:.72em;color:#888">مثال: USDT,USDC,BTC,ETH</span>
     </div>
     <div class="risk-item">
-      <label>استخدام اكتشاف ديناميكي</label>
-      <label style="color:#eee;font-size:.85em;display:flex;align-items:center;gap:6px">
+      <div style="font-weight:600;color:#ddd">استخدام اكتشاف ديناميكي</div>
+      <label for="useDynamicSymbols" class="inline-check">
         <input id="useDynamicSymbols" type="checkbox" ${useDynamicSymbols ? 'checked' : ''}>
         تفعيل المسح على كل رموز CEX المتاحة (بدلاً من قائمة ثابتة)
       </label>
@@ -428,12 +445,12 @@ ${autoStopBanner}
     فعّل/عطّل كل استراتيجية مباشرة من الواجهة. يتم حفظ الإعدادات في حالة البوت.
   </div>
   <div class="risk-row" style="gap:18px">
-    <label><input type="checkbox" id="flag_cex" ${strategyFlags.cex ? 'checked' : ''}> CEX Arbitrage</label>
-    <label><input type="checkbox" id="flag_dex" ${strategyFlags.dex ? 'checked' : ''}> DEX Cross-Chain</label>
-    <label><input type="checkbox" id="flag_perps" ${strategyFlags.perps ? 'checked' : ''}> Perps Arbitrage</label>
-    <label><input type="checkbox" id="flag_funding" ${strategyFlags.funding ? 'checked' : ''}> Funding Rate</label>
-    <label><input type="checkbox" id="flag_triangular" ${strategyFlags.triangular ? 'checked' : ''}> Triangular</label>
-    <label><input type="checkbox" id="flag_statistical" ${strategyFlags.statistical ? 'checked' : ''}> Statistical</label>
+    <label for="flag_cex" class="inline-check"><input type="checkbox" id="flag_cex" ${strategyFlags.cex ? 'checked' : ''}> CEX Arbitrage</label>
+    <label for="flag_dex" class="inline-check"><input type="checkbox" id="flag_dex" ${strategyFlags.dex ? 'checked' : ''}> DEX Cross-Chain</label>
+    <label for="flag_perps" class="inline-check"><input type="checkbox" id="flag_perps" ${strategyFlags.perps ? 'checked' : ''} ${spotOnlyLock ? 'disabled' : ''}> Perps Arbitrage ${spotOnlyLock ? '<span style="background:#10263a;color:#6cb6ff;border-radius:4px;padding:2px 6px;font-size:.72em">Locked</span>' : ''}</label>
+    <label for="flag_funding" class="inline-check"><input type="checkbox" id="flag_funding" ${strategyFlags.funding ? 'checked' : ''} ${spotOnlyLock ? 'disabled' : ''}> Funding Rate</label>
+    <label for="flag_triangular" class="inline-check"><input type="checkbox" id="flag_triangular" ${strategyFlags.triangular ? 'checked' : ''}> Triangular</label>
+    <label for="flag_statistical" class="inline-check"><input type="checkbox" id="flag_statistical" ${strategyFlags.statistical ? 'checked' : ''}> Statistical</label>
   </div>
   <div style="margin-top:14px">
     <button class="btn" data-admin-action="1" onclick="saveConfig()">💾 حفظ إعدادات الاستراتيجيات</button>
@@ -445,10 +462,10 @@ ${autoStopBanner}
   <div class="card"><div class="card-label">إجمالي الأرباح</div><div class="card-value" style="color:${(state.total_pnl||0)>=0?'#2ecc71':'#e74c3c'}">$${(state.total_pnl||0).toFixed(2)}</div></div>
   <div class="card"><div class="card-label">CEX — P&amp;L</div><div class="card-value" style="color:#3498db">$${cexPnl.toFixed(2)}</div></div>
   <div class="card"><div class="card-label">DEX — P&amp;L</div><div class="card-value" style="color:#9b59b6">$${dexPnl.toFixed(2)}</div></div>
-  <div class="card"><div class="card-label">Perps — P&amp;L</div><div class="card-value" style="color:#e67e22">$${perpsPnl.toFixed(2)}</div></div>
+  <div id="summary-card-perps" class="card" style="${perpsEnabled ? '' : 'display:none;'}"><div class="card-label">Perps — P&amp;L</div><div class="card-value" style="color:#e67e22">$${perpsPnl.toFixed(2)}</div></div>
   <div class="card"><div class="card-label">Triangular — P&amp;L</div><div class="card-value" style="color:#1abc9c">$${triPnl.toFixed(2)}</div></div>
   <div class="card"><div class="card-label">Statistical — P&amp;L</div><div class="card-value" style="color:#e91e8c">$${statPnl.toFixed(2)}</div></div>
-  <div class="card"><div class="card-label">إجمالي الصفقات</div><div class="card-value">${state.total_trades||0}</div></div>
+  <div class="card"><div class="card-label">إجمالي الصفقات</div><div class="card-value">${totalTrades}</div></div>
 </div>
 
 <h2>📈 مقاييس الأداء</h2>
@@ -496,7 +513,7 @@ ${autoStopBanner}
 </div>
 
 <!-- ── TradingView Live Chart (free widget) ───────────────────────────── -->
-<div class="panel">
+<div id="panel-perps-status" class="panel" style="${perpsEnabled ? '' : 'display:none;'}">
   <h2 style="margin-top:0">📉 TradingView Live Chart</h2>
   <div style="font-size:.8em;color:#888;margin-bottom:10px">
     عرض مباشر مجاني للسعر على الرمز الأكثر نشاطاً حالياً (${tvBaseSymbol}).
@@ -515,7 +532,7 @@ ${autoStopBanner}
   </div>
 </div>
 
-<div class="panel">
+<div id="panel-perps-wallet" class="panel" style="${perpsEnabled ? '' : 'display:none;'}">
   <h2 style="margin-top:0">📈 Open Source Live Chart (Lightweight Charts)</h2>
   <div style="font-size:.8em;color:#888;margin-bottom:10px">
     مخطط مباشر مجاني ومفتوح المصدر (MIT) مبني على TradingView Lightweight Charts ويقرأ السعر من API البوت.
@@ -537,19 +554,19 @@ ${autoStopBanner}
   <h2 style="margin-top:0">🔬 اختبار الأداء السابق (Backtest)</h2>
   <div class="risk-row" style="margin-bottom:14px">
     <div class="risk-item">
-      <label>رأس المال الابتدائي ($)</label>
+      <label for="bt_capital">رأس المال الابتدائي ($)</label>
       <input id="bt_capital" type="number" value="1000" min="1" step="100">
     </div>
     <div class="risk-item">
-      <label>نسبة الحجم من رأس المال</label>
+      <label for="bt_frac">نسبة الحجم من رأس المال</label>
       <input id="bt_frac" type="number" value="0.10" min="0.01" max="0.50" step="0.01">
     </div>
     <div class="risk-item">
-      <label>الحد الأدنى لصافي الربح (%)</label>
+      <label for="bt_minnet">الحد الأدنى لصافي الربح (%)</label>
       <input id="bt_minnet" type="number" value="0" min="0" step="0.01">
     </div>
     <div class="risk-item">
-      <label>فترة (أيام)</label>
+      <label for="bt_days">فترة (أيام)</label>
       <input id="bt_days" type="number" value="30" min="1" max="365" step="1">
     </div>
   </div>
@@ -635,7 +652,7 @@ ${autoStopBanner}
     </div>
     <div class="risk-row">
       <div class="risk-item">
-        <label>الشبكة</label>
+        <label for="w3network">الشبكة</label>
         <select id="w3network" style="background:#2a2e38;color:#eee;border:1px solid #444;border-radius:6px;padding:7px 10px">
           <option value="42161">Arbitrum One</option>
           <option value="1">Ethereum Mainnet</option>
@@ -643,18 +660,18 @@ ${autoStopBanner}
         </select>
       </div>
       <div class="risk-item">
-        <label>الحجم (USDT)</label>
+        <label for="w3size">الحجم (USDT)</label>
         <input id="w3size" type="number" value="100" min="1" step="10" style="background:#2a2e38;color:#eee;border:1px solid #444;border-radius:6px;padding:7px 10px;width:130px">
       </div>
       <div class="risk-item">
-        <label>الاتجاه</label>
+        <label for="w3side">الاتجاه</label>
         <select id="w3side" style="background:#2a2e38;color:#eee;border:1px solid #444;border-radius:6px;padding:7px 10px">
           <option value="long">LONG</option>
           <option value="short">SHORT</option>
         </select>
       </div>
       <div class="risk-item">
-        <label>زوج التداول</label>
+        <label for="w3pair">زوج التداول</label>
         <select id="w3pair" style="background:#2a2e38;color:#eee;border:1px solid #444;border-radius:6px;padding:7px 10px">
           <option value="BTC/USD">BTC/USD</option>
           <option value="ETH/USD">ETH/USD</option>
@@ -699,11 +716,11 @@ ${autoStopBanner}
   </div>
   <div class="risk-row" style="margin-bottom:12px">
     <div class="risk-item">
-      <label>الزوج (Symbol)</label>
+      <label for="ai_symbol">الزوج (Symbol)</label>
       <input id="ai_symbol" type="text" value="${esc(lastScan?.cex?.symbol || lastScan?.dex?.symbol)}" placeholder="BTC/USDT" style="background:#2a2e38;color:#eee;border:1px solid #444;border-radius:6px;padding:7px 10px;width:140px">
     </div>
     <div class="risk-item">
-      <label>الاستراتيجية</label>
+      <label for="ai_strategy">الاستراتيجية</label>
       <select id="ai_strategy" style="background:#2a2e38;color:#eee;border:1px solid #444;border-radius:6px;padding:7px 10px">
         <option value="cex">CEX</option>
         <option value="dex">DEX</option>
@@ -713,19 +730,19 @@ ${autoStopBanner}
       </select>
     </div>
     <div class="risk-item">
-      <label>الاتجاه</label>
+      <label for="ai_direction">الاتجاه</label>
       <input id="ai_direction" type="text" value="${esc(lastScan?.cex?.direction)}" placeholder="buy_mexc_sell_binance" style="background:#2a2e38;color:#eee;border:1px solid #444;border-radius:6px;padding:7px 10px;width:190px">
     </div>
     <div class="risk-item">
-      <label>سعر الشراء ($)</label>
+      <label for="ai_buyPrice">سعر الشراء ($)</label>
       <input id="ai_buyPrice" type="number" value="${esc(lastScan?.cex?.buyPrice)}" step="0.000001" placeholder="0.0" style="background:#2a2e38;color:#eee;border:1px solid #444;border-radius:6px;padding:7px 10px;width:130px">
     </div>
     <div class="risk-item">
-      <label>سعر البيع ($)</label>
+      <label for="ai_sellPrice">سعر البيع ($)</label>
       <input id="ai_sellPrice" type="number" value="${esc(lastScan?.cex?.sellPrice)}" step="0.000001" placeholder="0.0" style="background:#2a2e38;color:#eee;border:1px solid #444;border-radius:6px;padding:7px 10px;width:130px">
     </div>
     <div class="risk-item">
-      <label>صافي الربح (%)</label>
+      <label for="ai_netPct">صافي الربح (%)</label>
       <input id="ai_netPct" type="number" value="${esc(lastScan?.cex?.netPct)}" step="0.0001" placeholder="0.05" style="background:#2a2e38;color:#eee;border:1px solid #444;border-radius:6px;padding:7px 10px;width:120px">
     </div>
   </div>
@@ -785,11 +802,11 @@ ${autoStopBanner}
   <h2 style="margin-top:0">🔗 مزامنة الواجهة مع API</h2>
   <div id="apiSyncStatus" style="font-size:.82em;color:#888;margin-bottom:10px">جارٍ مزامنة البيانات…</div>
   <div class="grid">
-    <div class="card"><div class="card-label">/api/status</div><div id="apiStatusCard" style="font-size:.88em;color:#aaa">—</div></div>
-    <div class="card"><div class="card-label">/api/trades</div><div id="apiTradesCard" style="font-size:.88em;color:#aaa">—</div></div>
-    <div class="card"><div class="card-label">/api/pnl</div><div id="apiPnlCard" style="font-size:.88em;color:#aaa">—</div></div>
-    <div class="card"><div class="card-label">/api/report</div><div id="apiReportCard" style="font-size:.88em;color:#aaa">—</div></div>
-    <div class="card"><div class="card-label">/api/logs</div><div id="apiLogsCard" style="font-size:.88em;color:#aaa">—</div></div>
+    <div class="card"><div class="card-label">/api/status</div><div id="apiStatusCard" style="font-size:.88em;color:#aaa">${apiSnapshotInitial.status}</div></div>
+    <div class="card"><div class="card-label">/api/trades</div><div id="apiTradesCard" style="font-size:.88em;color:#aaa">${apiSnapshotInitial.trades}</div></div>
+    <div class="card"><div class="card-label">/api/pnl</div><div id="apiPnlCard" style="font-size:.88em;color:#aaa">${apiSnapshotInitial.pnl}</div></div>
+    <div class="card"><div class="card-label">/api/report</div><div id="apiReportCard" style="font-size:.88em;color:#aaa">${apiSnapshotInitial.report}</div></div>
+    <div class="card"><div class="card-label">/api/logs</div><div id="apiLogsCard" style="font-size:.88em;color:#aaa">${apiSnapshotInitial.logs}</div></div>
   </div>
 </div>
 
@@ -1022,6 +1039,7 @@ ${autoStopBanner}
   // When ADMIN_TOKEN is configured, auth is handled via HttpOnly session cookie.
   // Without ADMIN_TOKEN we run in open setup mode and call APIs directly.
   const adminConfigured = ${JSON.stringify(Boolean(env.ADMIN_TOKEN))};
+  const spotOnlyLockEnabled = ${JSON.stringify(spotOnlyLock)};
   function setButtonsBusy(b){ document.querySelectorAll('[data-admin-action]').forEach(btn=>btn.disabled=b); }
   function disableAdminUi(){
     if(adminConfigured) return;
@@ -1065,7 +1083,7 @@ ${autoStopBanner}
       .replace(/[\u0660-\u0669]/g, (d) => String(d.charCodeAt(0) - 1632))
       .replace(/[\u06F0-\u06F9]/g, (d) => String(d.charCodeAt(0) - 1776))
       .replace(/،/g, ',')
-      .replace(/[ \t\n\r\f\v]+/g, '')
+      .replace(/[ \\t\\n\\r\\f\\v]+/g, '')
       .replace(',', '.');
     const n = Number(normalized);
     return Number.isFinite(n) ? n : fallback;
@@ -1100,6 +1118,14 @@ ${autoStopBanner}
         statistical: !!document.getElementById('flag_statistical')?.checked,
       }
     };
+    if (!body.strategy_flags.perps) {
+      body.strategy_flags.funding = false;
+    }
+    if (spotOnlyLockEnabled) {
+      body.strategy_flags.perps = false;
+      body.strategy_flags.funding = false;
+      body.spot_only_lock = true;
+    }
     const numericKeys=['max_daily_loss_usd','daily_limit_usd','max_per_trade_loss_pct','min_seconds_between_trades','initial_capital','max_live_trades_per_scan','position_size_usd','max_dynamic_symbols','max_metamask_symbols'];
     for(const k of numericKeys){
       const v=Number(body[k]);
@@ -1117,6 +1143,31 @@ ${autoStopBanner}
     finally{ setButtonsBusy(false); }
   }
 
+  function setPerpsUiEnabled(enabled){
+    const show = enabled !== false;
+    ['strategy-card-perps','summary-card-perps','panel-perps-status','panel-perps-wallet'].forEach((id)=>{
+      const el = document.getElementById(id);
+      if (el) el.style.display = show ? '' : 'none';
+    });
+    const perps = document.getElementById('flag_perps');
+    if (perps) {
+      perps.disabled = spotOnlyLockEnabled;
+      if (spotOnlyLockEnabled) perps.checked = false;
+    }
+    const funding = document.getElementById('flag_funding');
+    if (funding) {
+      funding.disabled = !show || spotOnlyLockEnabled;
+      if (!show || spotOnlyLockEnabled) funding.checked = false;
+    }
+  }
+
+  const perpsToggle = document.getElementById('flag_perps');
+  if (perpsToggle) {
+    perpsToggle.addEventListener('change', () => {
+      setPerpsUiEnabled(!!perpsToggle.checked);
+    });
+  }
+
   async function enableFullUniversePreset(){
     if (!confirm('⚠️ تفعيل مسح واسع لكل الرموز يزيد الحمل وقد يرفع زمن الدورة. المتابعة؟')) return;
     setButtonsBusy(true);
@@ -1130,8 +1181,8 @@ ${autoStopBanner}
         strategy_flags: {
           cex: true,
           dex: true,
-          perps: true,
-          funding: true,
+          perps: !spotOnlyLockEnabled,
+          funding: !spotOnlyLockEnabled,
           triangular: true,
           statistical: true,
         }
@@ -1325,6 +1376,7 @@ ${autoStopBanner}
       const { text } = await callAdminApi('/api/status');
       const json=JSON.parse(text);
       const cb=json.circuitBreaker||{};
+      const perpsEnabled = json?.strategy_flags?.perps !== false;
       const enabledExec=Array.isArray(json.enabledExecutionExchanges)&&json.enabledExecutionExchanges.length
         ?json.enabledExecutionExchanges
         :['mexc','binance'];
@@ -1332,6 +1384,10 @@ ${autoStopBanner}
       const dataOnly=['bybit','gateio','bybit_perp'];
       const items=[
         ...active.map(ex=>{
+          const isPerpFeed = ex.endsWith('_perp');
+          if (!perpsEnabled && isPerpFeed) {
+            return \`<div class="cb-card" style="opacity:.75"><div class="name">\${ex.toUpperCase()}</div><div style="color:#6cb6ff;font-size:.82em">⏸ معطل (Spot-only)</div></div>\`;
+          }
           const info=cb[ex];
           const open=info&&info.open&&(Date.now()-info.lastFailure)<300000;
           const failures=info?.failures||0;
@@ -1351,6 +1407,11 @@ ${autoStopBanner}
     try{
       const res=await callAdminApi('/api/perps');
       const json=JSON.parse(res.text);
+      setPerpsUiEnabled(json.perpsEnabled !== false);
+      if (json.perpsEnabled === false) {
+        el.innerHTML = '<span style="color:#6cb6ff">ℹ️ استراتيجية Perps معطلة حاليًا — التشغيل Spot-only.</span>';
+        return;
+      }
       const exList=(json.exchangeStatus||[]).map(ex=>{
         const statusColor=ex.status==='ok'?'#2ecc71':'#e74c3c';
         const statusLabel=ex.status==='ok'?'✅ نشط':'🔴 مفتوح';

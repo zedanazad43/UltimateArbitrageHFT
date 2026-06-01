@@ -135,6 +135,10 @@ export function renderControlPanel() {
       text-align: center;
       border: 1px solid #2a2e38;
     }
+    .balance-chip.live { border-color: #245f3f; }
+    .balance-chip.warning { border-color: #6b4a1a; }
+    .balance-chip.error { border-color: #6b2626; }
+    .balance-chip.dataonly { border-color: #3c3c3c; }
     .balance-chip .ex-name { font-size: 0.78em; text-transform: uppercase; color: #aaa; letter-spacing: 0.05em; }
     .balance-chip .ex-balance { font-size: 1.2em; font-weight: bold; color: #f0b90b; margin-top: 4px; }
     .balance-chip .ex-status { font-size: 0.72em; margin-top: 3px; }
@@ -279,6 +283,23 @@ export function renderControlPanel() {
     </div>
 
     <div class="card">
+      <h2>&#128737; Spot Lock Guard <span class="status-dot status-idle" id="safety-dot"></span></h2>
+      <div class="stat-row"><span class="stat-label">Spot Lock</span><span class="stat-value" id="safe-lock">Loading...</span></div>
+      <div class="stat-row"><span class="stat-label">Execution Mode</span><span class="stat-value" id="safe-mode">Loading...</span></div>
+      <div class="stat-row"><span class="stat-label">Perps Flag</span><span class="stat-value" id="safe-perps">Loading...</span></div>
+      <div class="stat-row"><span class="stat-label">Funding Flag</span><span class="stat-value" id="safe-funding">Loading...</span></div>
+      <div class="stat-row"><span class="stat-label">Ready For Live</span><span class="stat-value" id="safe-ready">Loading...</span></div>
+      <div class="stat-row"><span class="stat-label">Last Config Change</span><span class="stat-value" id="safe-config-ts" style="font-size:0.78em">---</span></div>
+      <div class="button-group">
+        <button onclick="loadSafetyState()">&#8635; Refresh</button>
+        <button onclick="enableSpotLock()" class="success">Enable Spot Lock</button>
+        <button onclick="disableSpotLock()" class="danger">Disable Spot Lock</button>
+        <button onclick="disablePerpsExplicit()" class="secondary">Disable Perps</button>
+        <button onclick="enablePerpsExplicit()" class="secondary">Enable Perps</button>
+      </div>
+    </div>
+
+    <div class="card">
       <h2>&#9881; API Endpoints <span class="status-dot status-idle" id="api-dot"></span></h2>
       <ul class="endpoint-list" id="endpoint-list">
         <li class="endpoint-item"><span class="endpoint-name">Click Refresh to check...</span></li>
@@ -372,8 +393,23 @@ export function renderControlPanel() {
     return (r.data && (r.data.error || r.data.hint)) || r.text || ('HTTP ' + r.status);
   }
 
+  function escHtml(s) {
+    return String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  }
+
+  function escAttr(s) {
+    return escHtml(s).replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+  }
+
   function usd(n) { return '$' + Number(n || 0).toFixed(2); }
   function pct(n)  { return (n >= 0 ? '+' : '') + Number(n || 0).toFixed(4) + '%'; }
+  function fmtTs(ts) {
+    var n = Number(ts || 0);
+    if (!n) return '---';
+    var d = new Date(n);
+    if (isNaN(d.getTime())) return '---';
+    return d.toISOString().replace('T', ' ').replace('Z', ' UTC');
+  }
 
   function setDot(id, cls) {
     var el = document.getElementById(id);
@@ -512,19 +548,95 @@ export function renderControlPanel() {
     if (!r.ok) { setDot('exec-dot', 'status-error'); showToast('Exec health error: ' + errMsg(r), 'error'); return; }
     var d = r.data || {};
     var paper = !!d.paperMode;
+    var isBlocked = d.executionMode === 'blocked';
+    var perpsDisabled = d.perpsEnabled === false;
+    var strategies = Array.isArray(d.strategies) ? d.strategies : [];
+    var activeStrategiesCount = perpsDisabled
+      ? strategies.filter(function(s) { return String(s || '').toLowerCase() !== 'perps'; }).length
+      : strategies.length;
     setText('exec-mode',      d.executionMode || (paper ? 'Paper' : 'Live'), d.executionMode === 'blocked' ? 'error' : (paper ? 'warn' : 'ok'));
-    setText('exec-strategies', String((d.strategies || []).length));
+    setText('exec-strategies', String(activeStrategiesCount) + (perpsDisabled ? ' (perps off)' : ''));
     setText('exec-balance',   usd(d.portfolioBalance));
     setText('exec-positions', String(d.openPositions || 0));
     setText('exec-max-pos',   String(d.maxPositions || d.maxOpenPositions || 0));
     setText('exec-cooldown',  String(d.strategyCooldownMs || 0) + ' ms');
-    setDot('exec-dot', d.executionMode === 'blocked' ? 'status-error' : (paper ? 'status-warn' : 'status-ok'));
+    setDot('exec-dot', isBlocked ? 'status-error' : (paper ? 'status-warn' : 'status-ok'));
     var bl = document.getElementById('exec-blocked');
     if (Array.isArray(d.blockedReasons) && d.blockedReasons.length > 0) {
       bl.style.display = 'block';
-      bl.textContent = 'Blocked: ' + d.blockedReasons.join(' | ');
+      bl.style.background = isBlocked ? '#3a1a1a' : '#3a2a10';
+      bl.style.color = isBlocked ? '#e74c3c' : '#f39c12';
+      bl.textContent = (isBlocked ? 'Blocked: ' : 'Warning: ') + d.blockedReasons.join(' | ');
+    } else if (perpsDisabled) {
+      bl.style.display = 'block';
+      bl.style.background = '#10263a';
+      bl.style.color = '#6cb6ff';
+      bl.textContent = 'Info: Perps strategy is disabled. Execution is running in spot-only mode.';
     } else {
       bl.style.display = 'none';
+    }
+  }
+
+  async function loadSafetyState() {
+    setDot('safety-dot', 'status-warn');
+    var r = await api('/api/safety-state');
+    if (!r.ok) {
+      setDot('safety-dot', 'status-error');
+      showToast('Safety state error: ' + errMsg(r), 'error');
+      return;
+    }
+    var d = r.data || {};
+    var flags = d.strategyFlags || {};
+    var lockOn = d.spotOnlyLock === true;
+    var perpsEnabled = flags.perps !== false;
+    var fundingEnabled = flags.funding !== false;
+    setText('safe-lock', lockOn ? 'ENABLED' : 'DISABLED', lockOn ? 'ok' : 'warn');
+    setText('safe-mode', String(d.executionMode || 'unknown'), d.executionMode === 'blocked' ? 'error' : 'ok');
+    setText('safe-perps', perpsEnabled ? 'ON' : 'OFF', perpsEnabled ? 'warn' : 'ok');
+    setText('safe-funding', fundingEnabled ? 'ON' : 'OFF', fundingEnabled ? 'warn' : 'ok');
+    setText('safe-ready', d.readyForLive ? 'YES' : 'NO', d.readyForLive ? 'ok' : 'warn');
+    setText('safe-config-ts', fmtTs(d.lastConfigChangeTs));
+
+    if (lockOn && (perpsEnabled || fundingEnabled)) {
+      setDot('safety-dot', 'status-error');
+    } else if (d.executionMode === 'blocked') {
+      setDot('safety-dot', 'status-error');
+    } else {
+      setDot('safety-dot', lockOn ? 'status-ok' : 'status-warn');
+    }
+  }
+
+  async function enableSpotLock() {
+    var r = await api('/strategy/spot-lock/enable', { method: 'POST' });
+    showToast(r.ok ? 'Spot-only lock enabled' : errMsg(r), r.ok ? 'success' : 'error');
+    if (r.ok) {
+      await Promise.all([loadSafetyState(), checkExecutionHealth(), loadStatus()]);
+    }
+  }
+
+  async function disableSpotLock() {
+    if (!confirm('Disable spot-only lock? This allows perps/funding to be enabled again.')) return;
+    var r = await api('/strategy/spot-lock/disable', { method: 'POST' });
+    showToast(r.ok ? 'Spot-only lock disabled' : errMsg(r), r.ok ? 'warn' : 'error');
+    if (r.ok) {
+      await Promise.all([loadSafetyState(), checkExecutionHealth(), loadStatus()]);
+    }
+  }
+
+  async function disablePerpsExplicit() {
+    var r = await api('/strategy/perps/disable', { method: 'POST' });
+    showToast(r.ok ? 'Perps disabled' : errMsg(r), r.ok ? 'success' : 'error');
+    if (r.ok) {
+      await Promise.all([loadSafetyState(), checkExecutionHealth(), loadStatus()]);
+    }
+  }
+
+  async function enablePerpsExplicit() {
+    if (!confirm('Enable perps via explicit admin action? This also unlocks spot-only lock.')) return;
+    var r = await api('/strategy/perps/enable', { method: 'POST' });
+    showToast(r.ok ? 'Perps enabled' : errMsg(r), r.ok ? 'warn' : 'error');
+    if (r.ok) {
+      await Promise.all([loadSafetyState(), checkExecutionHealth(), loadStatus()]);
     }
   }
 
@@ -562,16 +674,20 @@ export function renderControlPanel() {
           '<div class="ex-balance" style="color:#555">---</div>' +
           '<div class="ex-status" style="color:#555">Not configured</div></div>';
       } else if (ex.dataOnly) {
-        html += '<div class="balance-chip unconfigured"><div class="ex-name">' + ex.exchange.toUpperCase() + '</div>' +
+        html += '<div class="balance-chip unconfigured dataonly"><div class="ex-name">' + ex.exchange.toUpperCase() + '</div>' +
           '<div class="ex-balance" style="color:#555">Data only</div>' +
-          '<div class="ex-status" style="color:#555">' + (ex.note || '') + '</div></div>';
+          '<div class="ex-status" style="color:#555">' + escHtml(ex.note || '') + '</div></div>';
+      } else if (ex.warning) {
+        html += '<div class="balance-chip warning" title="' + escAttr(ex.warning) + '"><div class="ex-name">' + ex.exchange.toUpperCase() + '</div>' +
+          '<div class="ex-balance" style="color:#f39c12;font-size:0.72em">' + escHtml(ex.warning.slice(0, 60)) + '</div>' +
+          '<div class="ex-status" style="color:#f39c12">Warning</div></div>';
       } else if (ex.error) {
-        html += '<div class="balance-chip"><div class="ex-name">' + ex.exchange.toUpperCase() + '</div>' +
-          '<div class="ex-balance" style="color:#e74c3c;font-size:0.72em">' + ex.error.slice(0, 40) + '</div>' +
+        html += '<div class="balance-chip error" title="' + escAttr(ex.error) + '"><div class="ex-name">' + ex.exchange.toUpperCase() + '</div>' +
+          '<div class="ex-balance" style="color:#e74c3c;font-size:0.72em">' + escHtml(ex.error.slice(0, 40)) + '</div>' +
           '<div class="ex-status" style="color:#e74c3c">Error</div></div>';
       } else {
         hasLive = true;
-        html += '<div class="balance-chip"><div class="ex-name">' + ex.exchange.toUpperCase() + '</div>' +
+        html += '<div class="balance-chip live"><div class="ex-name">' + ex.exchange.toUpperCase() + '</div>' +
           '<div class="ex-balance">' + usd(ex.balance) + '</div>' +
           '<div style="margin-top:4px">' + assetsHtml + '</div>' +
           '<div class="ex-status" style="color:#27ae60">&#10003; Live</div></div>';
@@ -669,7 +785,7 @@ export function renderControlPanel() {
   var ENDPOINTS_TO_CHECK = [
     '/api/status', '/api/readiness', '/api/proxy-stats',
     '/api/execution-health', '/api/report', '/api/balances',
-    '/api/platforms', '/api/bitmart/stats', '/api/perps', '/api/rebalance/status',
+    '/api/platforms', '/api/bitmart/stats', '/api/perps', '/api/safety-state', '/api/rebalance/status',
     '/health',
   ];
 
@@ -743,6 +859,7 @@ export function renderControlPanel() {
       loadStatus(),
       checkReadiness(),
       checkExecutionHealth(),
+      loadSafetyState(),
       loadBalances(false),
       loadRebalanceStatus(),
       checkBitmartStatus(),
@@ -761,6 +878,7 @@ export function renderControlPanel() {
   setInterval(function() {
     loadStatus();
     checkExecutionHealth();
+    loadSafetyState();
     checkProxyStats();
     loadRebalanceStatus();
   }, 30000);
