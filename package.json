@@ -33,6 +33,7 @@
     "test:ide:local": "CODEGEEX_ENDPOINT=http://127.0.0.1:8000 CODEGEEX_MODEL=codegeex4 node test-ide-integration.js",
     "test:all": "node --test tests/unit.test.js tests/exchange.integration.test.js tests/prices.test.js tests/exchange-multi.test.js tests/notifier.test.js tests/dex.test.js tests/hft-client.test.js tests/ai-client.test.js tests/db-schema-init.test.js tests/exchange-fill-metrics.test.js tests/security-auth.test.js tests/dashboard-api-wiring.test.js tests/platforms-api.test.js tests/self-evaluation.test.js tests/proxy-pool.test.js tests/auto-executor.test.js tests/bot-memory.test.js tests/orchestrator.atomic.test.js tests/safety-lock.test.js",
     "monitor": "node scripts/monitor-performance.js",
+    "monitor:spot-lock": "node scripts/monitor-spot-lock.js",
     "diagnose:exchanges": "node scripts/diagnose-exchange-readiness.js",
     "activate:live": "node scripts/activate-live-trading.js",
     "proxy001": "node scripts/proxy001-helper.js",
