@@ -21,6 +21,10 @@ on:
         description: Delay between fetch retries in milliseconds
         required: false
         default: '500'
+      base_url:
+        description: Base URL for protected monitor checks
+        required: false
+        default: 'https://ultimatearbitragehft.zedanazad43.workers.dev'
 
 permissions:
   contents: read
@@ -55,7 +59,7 @@ jobs:
         env:
           WORKFLOW_ADMIN_TOKEN: ${{ secrets.WORKFLOW_ADMIN_TOKEN }}
           ADMIN_TOKEN: ${{ secrets.ADMIN_TOKEN }}
-          API_BASE: https://api.ecostamp.net
+          API_BASE: ${{ github.event.inputs.base_url || 'https://ultimatearbitragehft.zedanazad43.workers.dev' }}
           INPUT_SAMPLES: ${{ github.event.inputs.samples || '2' }}
           INPUT_INTERVAL_MS: ${{ github.event.inputs.interval_ms || '5000' }}
           INPUT_FETCH_RETRIES: ${{ github.event.inputs.fetch_retries || '1' }}

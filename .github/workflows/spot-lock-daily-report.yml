@@ -39,7 +39,7 @@ jobs:
         env:
           WORKFLOW_ADMIN_TOKEN: ${{ secrets.WORKFLOW_ADMIN_TOKEN }}
           ADMIN_TOKEN: ${{ secrets.ADMIN_TOKEN }}
-          API_BASE: https://api.ecostamp.net
+          API_BASE: https://ultimatearbitragehft.zedanazad43.workers.dev
         run: |
           set -o pipefail
           npm run monitor:spot-lock -- \
