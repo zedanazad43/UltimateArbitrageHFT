@@ -397,7 +397,7 @@ jobs:
       - name: Enforce spot-only lock before safety validation
         id: enforce_spot_lock
         run: |
-          API_BASE="https://api.ecostamp.net"
+          API_BASE="https://ultimatearbitragehft.zedanazad43.workers.dev"
 
           if [ -z "$WORKFLOW_ADMIN_TOKEN" ]; then
             echo "::error::WORKFLOW_ADMIN_TOKEN is required to enforce spot lock"
@@ -454,7 +454,7 @@ jobs:
         run: |
           for attempt in 1 2 3; do
             echo "--- Safety smoke check attempt $attempt/3 ---"
-            if npm run smoke:safety-lock; then
+            if npm run smoke:safety-lock -- --base "$API_BASE"; then
               echo "✅ Safety smoke check passed on attempt $attempt"
               exit 0
             fi
@@ -467,13 +467,14 @@ jobs:
           exit 1
         env:
           ADMIN_TOKEN: ${{ secrets.WORKFLOW_ADMIN_TOKEN }}
+          API_BASE: https://ultimatearbitragehft.zedanazad43.workers.dev
 
       - name: Post-deploy lock bypass guard test
         id: lock_bypass_guard_test
         run: |
           for attempt in 1 2 3; do
             echo "--- Lock bypass guard attempt $attempt/3 ---"
-            if npm run smoke:lock-block; then
+            if npm run smoke:lock-block -- --base "$API_BASE"; then
               echo "✅ Lock bypass guard test passed on attempt $attempt"
               exit 0
             fi
@@ -486,6 +487,7 @@ jobs:
           exit 1
         env:
           ADMIN_TOKEN: ${{ secrets.WORKFLOW_ADMIN_TOKEN }}
+          API_BASE: https://ultimatearbitragehft.zedanazad43.workers.dev
 
       - name: Telegram alert on smoke test failure
         if: ${{ failure() && (steps.smoke_test.outcome == 'failure' || steps.safety_smoke_test.outcome == 'failure' || steps.lock_bypass_guard_test.outcome == 'failure') }}
