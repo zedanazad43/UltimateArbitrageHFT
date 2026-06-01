@@ -281,6 +281,7 @@ jobs:
           import json, subprocess, sys, re
           KEY = "trading_state"
           KV_NS = None
+
           try:
               with open("wrangler.toml") as f:
                   for line in f:
@@ -290,33 +291,35 @@ jobs:
                           break
           except Exception as e:
               print(f"Could not read wrangler.toml: {e}", file=sys.stderr)
+
           if not KV_NS:
               print("ERROR: KV namespace ID not found in wrangler.toml", file=sys.stderr)
               sys.exit(1)
-            state = {}
-            loaded_existing_state = False
 
-            def try_parse_state(raw):
+          state = {}
+          loaded_existing_state = False
+
+          def try_parse_state(raw):
               raw = (raw or "").strip()
               if not raw:
-                return None
+                  return None
               # Attempt direct JSON parse first.
               try:
-                parsed = json.loads(raw)
-                if isinstance(parsed, dict):
-                  return parsed
+                  parsed = json.loads(raw)
+                  if isinstance(parsed, dict):
+                      return parsed
               except Exception:
-                pass
+                  pass
               # Fallback: extract first JSON object from noisy command output.
               start = raw.find("{")
               end = raw.rfind("}")
               if start != -1 and end != -1 and end > start:
-                try:
-                  parsed = json.loads(raw[start:end + 1])
-                  if isinstance(parsed, dict):
-                    return parsed
-                except Exception:
-                  return None
+                  try:
+                      parsed = json.loads(raw[start:end + 1])
+                      if isinstance(parsed, dict):
+                          return parsed
+                  except Exception:
+                      return None
               return None
 
           try:
@@ -331,22 +334,22 @@ jobs:
 
               parsed_state = try_parse_state(r.stdout)
               if isinstance(parsed_state, dict):
-                state = parsed_state
-                loaded_existing_state = True
+                  state = parsed_state
+                  loaded_existing_state = True
               elif key_missing:
-                state = {}
+                  state = {}
               else:
-                print("ERROR: Could not safely parse existing trading_state; refusing destructive overwrite", file=sys.stderr)
-                print((r.stdout or "")[-1000:], file=sys.stderr)
-                print((r.stderr or "")[-1000:], file=sys.stderr)
-                sys.exit(1)
+                  print("ERROR: Could not safely parse existing trading_state; refusing destructive overwrite", file=sys.stderr)
+                  print((r.stdout or "")[-1000:], file=sys.stderr)
+                  print((r.stderr or "")[-1000:], file=sys.stderr)
+                  sys.exit(1)
           except Exception as e:
               print(f"Could not read existing KV state: {e}", file=sys.stderr)
               sys.exit(1)
 
-            if loaded_existing_state:
+          if loaded_existing_state:
               print("Loaded existing trading_state from KV")
-            else:
+          else:
               print("trading_state not found; initializing with safe defaults")
 
           defaults = {
@@ -363,18 +366,18 @@ jobs:
           for k, v in defaults.items():
               state.setdefault(k, v)
 
-            state.setdefault("spot_only_lock", True)
-            state.setdefault("last_config_change_ts", 0)
-            flags = state.get("strategy_flags")
-            if not isinstance(flags, dict):
+          state.setdefault("spot_only_lock", True)
+          state.setdefault("last_config_change_ts", 0)
+          flags = state.get("strategy_flags")
+          if not isinstance(flags, dict):
               flags = {}
-            if state.get("spot_only_lock") is True:
+          if state.get("spot_only_lock") is True:
               flags["perps"] = False
               flags["funding"] = False
-            else:
+          else:
               flags.setdefault("perps", False)
               flags.setdefault("funding", False)
-            state["strategy_flags"] = flags
+          state["strategy_flags"] = flags
 
           state["trading_enabled"] = True
           state["paper_trading"] = False
