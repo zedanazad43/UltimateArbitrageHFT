@@ -1,0 +1,190 @@
+name: Spot Lock Monitor
+
+on:
+  schedule:
+    - cron: '*/15 * * * *'
+  workflow_dispatch:
+    inputs:
+      samples:
+        description: Number of samples to collect
+        required: false
+        default: '2'
+      interval_ms:
+        description: Delay between samples in milliseconds
+        required: false
+        default: '5000'
+      fetch_retries:
+        description: Retries for transient fetch failures
+        required: false
+        default: '1'
+      retry_delay_ms:
+        description: Delay between fetch retries in milliseconds
+        required: false
+        default: '500'
+
+permissions:
+  contents: read
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  monitor:
+    name: Spot-Lock 15m Guard
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run spot-lock monitor
+        id: monitor
+        continue-on-error: true
+        env:
+          WORKFLOW_ADMIN_TOKEN: ${{ secrets.WORKFLOW_ADMIN_TOKEN }}
+          ADMIN_TOKEN: ${{ secrets.ADMIN_TOKEN }}
+          API_BASE: https://api.ecostamp.net
+          INPUT_SAMPLES: ${{ github.event.inputs.samples || '2' }}
+          INPUT_INTERVAL_MS: ${{ github.event.inputs.interval_ms || '5000' }}
+          INPUT_FETCH_RETRIES: ${{ github.event.inputs.fetch_retries || '1' }}
+          INPUT_RETRY_DELAY_MS: ${{ github.event.inputs.retry_delay_ms || '500' }}
+        run: |
+          set -o pipefail
+          npm run monitor:spot-lock -- \
+            --samples "$INPUT_SAMPLES" \
+            --interval-ms "$INPUT_INTERVAL_MS" \
+            --fetch-retries "$INPUT_FETCH_RETRIES" \
+            --retry-delay-ms "$INPUT_RETRY_DELAY_MS" \
+            --base "$API_BASE" | tee spot-lock-monitor.log
+
+      - name: Parse monitor summary
+        id: parse
+        if: always()
+        run: |
+          node - <<'NODE'
+          const fs = require('fs');
+
+          function setOutput(name, value) {
+            fs.appendFileSync(process.env.GITHUB_OUTPUT, `${name}=${value}\n`);
+          }
+
+          const logPath = 'spot-lock-monitor.log';
+          const log = fs.existsSync(logPath) ? fs.readFileSync(logPath, 'utf8') : '';
+          const summaryLine = log.split(/\r?\n/).find((line) => line.startsWith('SPOT_LOCK_MONITOR_SUMMARY '));
+          const sampleLines = log.split(/\r?\n/).filter((line) => line.startsWith('SAMPLE '));
+
+          let summary = null;
+          if (summaryLine) {
+            try {
+              summary = JSON.parse(summaryLine.slice('SPOT_LOCK_MONITOR_SUMMARY '.length));
+            } catch {
+              summary = null;
+            }
+          }
+
+          let lastSample = null;
+          if (sampleLines.length > 0) {
+            const lastLine = sampleLines[sampleLines.length - 1];
+            try {
+              lastSample = JSON.parse(lastLine.slice('SAMPLE '.length));
+            } catch {
+              lastSample = null;
+            }
+          }
+
+          if (!summary) {
+            summary = {
+              strictFailures: 1,
+              stateFailures: 1,
+              networkFailures: 0,
+              strictStable: false,
+              stateStable: false,
+              networkStable: true,
+            };
+          }
+
+          fs.writeFileSync('spot-lock-summary.json', JSON.stringify({
+            summary,
+            lastSample,
+            parsedAt: new Date().toISOString(),
+          }, null, 2));
+
+          setOutput('strict_failures', String(summary.strictFailures ?? 0));
+          setOutput('state_failures', String(summary.stateFailures ?? 0));
+          setOutput('network_failures', String(summary.networkFailures ?? 0));
+          setOutput('state_stable', String(summary.stateStable === true));
+          setOutput('ready_for_live', String(lastSample?.readyForLive === true));
+          NODE
+
+      - name: Upload monitor artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: spot-lock-monitor-${{ github.run_id }}
+          path: |
+            spot-lock-monitor.log
+            spot-lock-summary.json
+          if-no-files-found: ignore
+          retention-days: 14
+
+      - name: Publish workflow summary
+        if: always()
+        run: |
+          {
+            echo "## Spot Lock Monitor";
+            echo "";
+            echo "- State failures: ${{ steps.parse.outputs.state_failures }}";
+            echo "- Network failures: ${{ steps.parse.outputs.network_failures }}";
+            echo "- Ready for live (last sample): ${{ steps.parse.outputs.ready_for_live }}";
+            echo "- State stable: ${{ steps.parse.outputs.state_stable }}";
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Telegram critical alert (state failure)
+        if: always() && steps.parse.outputs.state_failures != '0' && env.TELEGRAM_BOT_TOKEN != '' && env.TELEGRAM_CHAT_ID != ''
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: |
+          text=$(printf 'CRITICAL: Spot-lock state failure detected\nRepo: %s\nRun: %s\nstateFailures=%s networkFailures=%s' \
+            "${GITHUB_REPOSITORY}" \
+            "${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}" \
+            "${{ steps.parse.outputs.state_failures }}" \
+            "${{ steps.parse.outputs.network_failures }}")
+
+          curl -fsS -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
+            -d "chat_id=${TELEGRAM_CHAT_ID}" \
+            --data-urlencode "text=${text}" \
+            -d "disable_web_page_preview=true"
+
+      - name: Telegram warning alert (network only)
+        if: always() && steps.parse.outputs.state_failures == '0' && steps.parse.outputs.network_failures != '0' && env.TELEGRAM_BOT_TOKEN != '' && env.TELEGRAM_CHAT_ID != ''
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: |
+          text=$(printf 'WARNING: Spot-lock monitor saw transient network failures\nRepo: %s\nRun: %s\nnetworkFailures=%s stateFailures=%s' \
+            "${GITHUB_REPOSITORY}" \
+            "${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}" \
+            "${{ steps.parse.outputs.network_failures }}" \
+            "${{ steps.parse.outputs.state_failures }}")
+
+          curl -fsS -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
+            -d "chat_id=${TELEGRAM_CHAT_ID}" \
+            --data-urlencode "text=${text}" \
+            -d "disable_web_page_preview=true"
+
+      - name: Fail job on state failure
+        if: always() && steps.parse.outputs.state_failures != '0'
+        run: |
+          echo "Spot-lock state failure detected."
+          exit 1
