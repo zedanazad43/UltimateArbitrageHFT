@@ -24,6 +24,8 @@ on:
 
 permissions:
   contents: read
+  actions: read
+  issues: write
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
@@ -165,6 +167,74 @@ jobs:
             -d "chat_id=${TELEGRAM_CHAT_ID}" \
             --data-urlencode "text=${text}" \
             -d "disable_web_page_preview=true"
+
+      - name: Escalate on consecutive state failures
+        if: always() && steps.parse.outputs.state_failures != '0'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+            const currentRunId = context.runId;
+
+            const runs = await github.paginate(github.rest.actions.listWorkflowRuns, {
+              owner,
+              repo,
+              workflow_id: 'spot-lock-monitor.yml',
+              per_page: 20,
+            });
+
+            const previousCompleted = runs
+              .filter((r) => r.id !== currentRunId && r.status === 'completed')
+              .sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+
+            const prev = previousCompleted[0];
+            if (!prev || prev.conclusion !== 'failure') {
+              core.info('No consecutive failure detected. Escalation issue not created.');
+              return;
+            }
+
+            const title = 'P1: Consecutive spot-lock state failures';
+            const body = [
+              'Automated escalation detected two consecutive failed `Spot Lock Monitor` runs.',
+              '',
+              `Current run: ${context.serverUrl}/${owner}/${repo}/actions/runs/${currentRunId}`,
+              `Previous failed run: ${prev.html_url}`,
+              '',
+              'Immediate actions:',
+              '1. Run smoke guardrails (`smoke:all-guards`).',
+              '2. Verify `/api/safety-state` and `/api/readiness`.',
+              '3. Re-enforce lock and freeze risky config changes until stable.',
+            ].join('\n');
+
+            const openIssues = await github.paginate(github.rest.issues.listForRepo, {
+              owner,
+              repo,
+              state: 'open',
+              labels: 'spot-lock-incident',
+              per_page: 50,
+            });
+
+            if (openIssues.length > 0) {
+              await github.rest.issues.createComment({
+                owner,
+                repo,
+                issue_number: openIssues[0].number,
+                body,
+              });
+              core.info(`Updated existing incident issue #${openIssues[0].number}.`);
+              return;
+            }
+
+            const created = await github.rest.issues.create({
+              owner,
+              repo,
+              title,
+              body,
+              labels: ['spot-lock-incident', 'ops', 'priority:p1'],
+            });
+
+            core.info(`Created incident issue #${created.data.number}.`);
 
       - name: Telegram warning alert (network only)
         if: always() && steps.parse.outputs.state_failures == '0' && steps.parse.outputs.network_failures != '0' && env.TELEGRAM_BOT_TOKEN != '' && env.TELEGRAM_CHAT_ID != ''
