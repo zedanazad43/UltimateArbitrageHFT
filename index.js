@@ -824,6 +824,7 @@ app.post('/config', async (c) => {
   let body;
   try { body = await c.req.json(); } catch (_) { return c.text('Invalid JSON', 400); }
   const state = await getState(c.env);
+  const forceSpotOnlyLock = ['1', 'true', 'on', 'yes'].includes(String(c.env.SPOT_ONLY_LOCK_FORCE || '').toLowerCase());
   const num = (v) => (typeof v === 'number' && v > 0 ? v : undefined);
   if (num(body.max_daily_loss_usd))           state.max_daily_loss_usd           = body.max_daily_loss_usd;
   if (num(body.daily_limit_usd))              state.daily_limit_usd              = body.daily_limit_usd;
@@ -918,7 +919,7 @@ app.post('/config', async (c) => {
     ? body.strategy_flags
     : null;
   const blockedBySpotLock = Boolean(
-    state.spot_only_lock === true &&
+    (state.spot_only_lock === true || forceSpotOnlyLock) &&
     requestedStrategyFlags &&
     (requestedStrategyFlags.perps === true || requestedStrategyFlags.funding === true)
   );
@@ -942,11 +943,12 @@ app.post('/config', async (c) => {
   }
 
   if (typeof body.spot_only_lock === 'boolean') {
-    state.spot_only_lock = body.spot_only_lock;
+    state.spot_only_lock = forceSpotOnlyLock ? true : body.spot_only_lock;
   }
 
   // Spot-only lock guard: perps/funding cannot be enabled through generic config.
-  if (state.spot_only_lock === true) {
+  if (state.spot_only_lock === true || forceSpotOnlyLock) {
+    state.spot_only_lock = true;
     state.strategy_flags = {
       ...(state.strategy_flags || {}),
       perps: false,
@@ -979,6 +981,14 @@ app.post('/strategy/spot-lock/:mode', async (c) => {
   const mode = String(c.req.param('mode') || '').toLowerCase();
   if (!['enable', 'disable'].includes(mode)) {
     return c.text('❌ mode must be enable|disable', 400);
+  }
+  const forceSpotOnlyLock = ['1', 'true', 'on', 'yes'].includes(String(c.env.SPOT_ONLY_LOCK_FORCE || '').toLowerCase());
+  if (forceSpotOnlyLock && mode === 'disable') {
+    return c.json({
+      success: false,
+      error: 'spot_only_lock is forced by environment and cannot be disabled',
+      spotOnlyLockForced: true,
+    }, 403);
   }
 
   const state = await getState(c.env);
@@ -1022,6 +1032,14 @@ app.post('/strategy/perps/:mode', async (c) => {
   const mode = String(c.req.param('mode') || '').toLowerCase();
   if (!['enable', 'disable'].includes(mode)) {
     return c.text('❌ mode must be enable|disable', 400);
+  }
+  const forceSpotOnlyLock = ['1', 'true', 'on', 'yes'].includes(String(c.env.SPOT_ONLY_LOCK_FORCE || '').toLowerCase());
+  if (forceSpotOnlyLock && mode === 'enable') {
+    return c.json({
+      success: false,
+      error: 'perps enable is blocked while spot-only lock is forced by environment',
+      spotOnlyLockForced: true,
+    }, 403);
   }
 
   const state = await getState(c.env);
@@ -1088,6 +1106,7 @@ app.get('/api/status', async (c) => {
 // Single payload for operational guardrails and runtime safety checks.
 app.get('/api/safety-state', async (c) => {
   if (!isAuthorized(c.env, c)) return authDenied(c.env, c, true);
+  const forceSpotOnlyLock = ['1', 'true', 'on', 'yes'].includes(String(c.env.SPOT_ONLY_LOCK_FORCE || '').toLowerCase());
 
   const [state, lastScan, executionProbe] = await Promise.all([
     getState(c.env),
@@ -1138,6 +1157,7 @@ app.get('/api/safety-state', async (c) => {
   return c.json({
     success: true,
     spotOnlyLock: state.spot_only_lock === true,
+    spotOnlyLockForced: forceSpotOnlyLock,
     strategyFlags: state.strategy_flags || {},
     executionMode,
     readyForLive,
@@ -2555,14 +2575,21 @@ app.post('/api/memory/reset', async (c) => {
 // ─── Scheduled cron cycle ─────────────────────────────────────────────────────
 async function runScheduledCycle(env) {
   const state = await getState(env);
+  const forceSpotOnlyLock = ['1', 'true', 'on', 'yes'].includes(String(env.SPOT_ONLY_LOCK_FORCE || '').toLowerCase());
 
   const now = Date.now();
   let lockStateAdjusted = false;
 
-  if (state.spot_only_lock === true) {
+  if (forceSpotOnlyLock && state.spot_only_lock !== true) {
+    state.spot_only_lock = true;
+    lockStateAdjusted = true;
+  }
+
+  if (state.spot_only_lock === true || forceSpotOnlyLock) {
     const hasPerps = state?.strategy_flags?.perps !== false;
     const hasFunding = state?.strategy_flags?.funding !== false;
     if (hasPerps || hasFunding) {
+      state.spot_only_lock = true;
       state.strategy_flags = {
         ...(state.strategy_flags || {}),
         perps: false,

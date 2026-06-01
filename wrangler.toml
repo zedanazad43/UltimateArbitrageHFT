@@ -192,6 +192,10 @@ AI_GATEWAY_ID = ""
 #   - Use reduced cooldowns and faster execution intervals
 STRATEGY_MODE = "multi_exchange"
 
+# Force spot-only safety lock at runtime. While enabled, perps/funding cannot
+# be re-enabled through admin endpoints and scheduled cycle self-heals drift.
+SPOT_ONLY_LOCK_FORCE = "true"
+
 # Skip exchange balance check when it's blocked by WAF (e.g. MEXC blocks CF Worker IPs).
 # When enabled, uses position_size_usd as the default trade size and attempts execution directly.
 # The order endpoint may have different IP restrictions than the account/balance endpoint.
