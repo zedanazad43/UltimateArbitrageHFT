@@ -340,9 +340,8 @@ jobs:
         id: enforce_spot_lock
         run: |
           API_BASE="https://api.ecostamp.net"
-          TOKEN="$WORKFLOW_ADMIN_TOKEN"
 
-          if [ -z "$TOKEN" ]; then
+          if [ -z "$WORKFLOW_ADMIN_TOKEN" ]; then
             echo "::error::WORKFLOW_ADMIN_TOKEN is required to enforce spot lock"
             exit 1
           fi
@@ -351,7 +350,7 @@ jobs:
             echo "--- Spot-lock enforcement attempt $attempt/3 ---"
             code=$(curl -sS -o /tmp/spot_lock_resp.txt -w "%{http_code}" \
               -X POST \
-              -H "x-admin-token: ${TOKEN}" \
+              -H "x-admin-token: ${WORKFLOW_ADMIN_TOKEN}" \
               "${API_BASE}/strategy/spot-lock/enable")
 
             if [ "$code" = "200" ]; then
