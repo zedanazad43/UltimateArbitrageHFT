@@ -1,17 +1,12 @@
 name: Spot Lock Daily Report
 
-"on":
+on:
   schedule:
     - cron: '10 0 * * *'
+  workflow_dispatch:
   repository_dispatch:
     types:
       - spot-lock-daily-report
-  workflow_dispatch:
-    inputs:
-      reason:
-        description: Optional reason for manual daily report run
-        required: false
-        default: manual-run
 
 permissions:
   contents: read
@@ -22,7 +17,6 @@ env:
 
 jobs:
   daily-report:
-    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.event_name == 'repository_dispatch'
     runs-on: ubuntu-latest
     timeout-minutes: 10
 
@@ -125,9 +119,6 @@ jobs:
             fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, `${md}\n`);
 
             core.setOutput('message', md);
-            core.setOutput('state_failures', String(payload.stateFailures));
-            core.setOutput('network_failures', String(payload.networkFailures));
-            core.setOutput('ready_for_live', String(payload.readyForLive));
 
       - name: Upload daily report artifact
         if: always()
@@ -146,11 +137,7 @@ jobs:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: |
-          text=$(cat <<'TXT'
-${{ steps.report.outputs.message }}
-TXT
-)
-
+          text="${{ steps.report.outputs.message }}"
           curl -fsS -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
             -d "chat_id=${TELEGRAM_CHAT_ID}" \
             --data-urlencode "text=${text}" \
