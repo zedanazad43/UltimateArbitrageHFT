@@ -1,6 +1,6 @@
 name: Spot Lock Daily Report
 
-on:
+"on":
   schedule:
     - cron: '10 0 * * *'
   repository_dispatch:
@@ -22,6 +22,7 @@ env:
 
 jobs:
   daily-report:
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.event_name == 'repository_dispatch'
     runs-on: ubuntu-latest
     timeout-minutes: 10
 
