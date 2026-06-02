@@ -290,6 +290,9 @@ export function renderControlPanel() {
       <div class="stat-row"><span class="stat-label">Funding Flag</span><span class="stat-value" id="safe-funding">Loading...</span></div>
       <div class="stat-row"><span class="stat-label">Ready For Live</span><span class="stat-value" id="safe-ready">Loading...</span></div>
       <div class="stat-row"><span class="stat-label">Last Config Change</span><span class="stat-value" id="safe-config-ts" style="font-size:0.78em">---</span></div>
+      <div class="stat-row"><span class="stat-label">Guard Interventions (Hour)</span><span class="stat-value" id="safe-guard-count">---</span></div>
+      <div class="stat-row"><span class="stat-label">Last Intervention</span><span class="stat-value" id="safe-guard-last" style="font-size:0.78em">---</span></div>
+      <div class="stat-row"><span class="stat-label">Last Flag Transition</span><span class="stat-value" id="safe-guard-transition" style="font-size:0.72em;max-width:68%">---</span></div>
       <div class="button-group">
         <button onclick="loadSafetyState()">&#8635; Refresh</button>
         <button onclick="enableSpotLock()" class="success">Enable Spot Lock</button>
@@ -587,15 +590,32 @@ export function renderControlPanel() {
     }
     var d = r.data || {};
     var flags = d.strategyFlags || {};
+    var guard = d.coreStrategyGuard || {};
     var lockOn = d.spotOnlyLock === true;
     var perpsEnabled = flags.perps !== false;
     var fundingEnabled = flags.funding !== false;
+    var prev = guard.previousFlags || null;
+    var next = guard.nextFlags || null;
+
+    function compactFlags(x) {
+      if (!x || typeof x !== 'object') return '---';
+      return 'cex=' + (x.cex === true ? '1' : '0') +
+        ',dex=' + (x.dex === true ? '1' : '0') +
+        ',tri=' + (x.triangular === true ? '1' : '0') +
+        ',stat=' + (x.statistical === true ? '1' : '0') +
+        ',perps=' + (x.perps === true ? '1' : '0') +
+        ',fund=' + (x.funding === true ? '1' : '0');
+    }
+
     setText('safe-lock', lockOn ? 'ENABLED' : 'DISABLED', lockOn ? 'ok' : 'warn');
     setText('safe-mode', String(d.executionMode || 'unknown'), d.executionMode === 'blocked' ? 'error' : 'ok');
     setText('safe-perps', perpsEnabled ? 'ON' : 'OFF', perpsEnabled ? 'warn' : 'ok');
     setText('safe-funding', fundingEnabled ? 'ON' : 'OFF', fundingEnabled ? 'warn' : 'ok');
     setText('safe-ready', d.readyForLive ? 'YES' : 'NO', d.readyForLive ? 'ok' : 'warn');
     setText('safe-config-ts', fmtTs(d.lastConfigChangeTs));
+    setText('safe-guard-count', String(Number(guard.countThisHour || 0)), Number(guard.countThisHour || 0) > 0 ? 'warn' : 'ok');
+    setText('safe-guard-last', fmtTs(guard.lastInterventionTs));
+    setText('safe-guard-transition', compactFlags(prev) + ' -> ' + compactFlags(next));
 
     if (lockOn && (perpsEnabled || fundingEnabled)) {
       setDot('safety-dot', 'status-error');

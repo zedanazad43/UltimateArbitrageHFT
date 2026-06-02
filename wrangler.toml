@@ -131,7 +131,7 @@ TEMPORAL_WORKER_URL = "https://ultimatearbitragehft.zedanazad43.workers.dev"
 # HFT_ENGINE_SECRET: Must be stored as a secret (never in wrangler.toml):
 #                      npx wrangler secret put HFT_ENGINE_SECRET
 #                    Set the same value as HFT_ENGINE_SECRET env var on the engine.
-HFT_ENGINE_URL = ""
+HFT_ENGINE_URL = "https://don-instruction-arabia-distributions.trycloudflare.com"
 
 # ── Executable ecosystem integrations (non-sensitive endpoint URLs) ────────────
 # Set each URL to enable remote execution from dashboard/API.
@@ -145,6 +145,7 @@ CREWAI_EXECUTE_URL     = ""
 CREWAI_STATUS_URL      = ""
 AUTOGPT_EXECUTE_URL    = ""
 AUTOGPT_STATUS_URL     = ""
+EXECUTIVE_LOCAL_ADAPTERS = "true"
 
 # ── Proxy routing behavior ───────────────────────────────────────────────────
 # auto: use proxy when configured, fallback to direct requests when proxy fails

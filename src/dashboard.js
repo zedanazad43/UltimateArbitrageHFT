@@ -959,11 +959,14 @@ ${autoStopBanner}
   }
 
   function _renderFreeSourceCard(source){
+    const optional = !!source.optional;
     const ok = !!source.configured;
-    const border = ok ? '#2ecc71' : '#e67e22';
-    const status = ok ? '<span style="color:#2ecc71">✅ جاهز</span>' : '<span style="color:#e67e22">⚠️ يحتاج تهيئة</span>';
+    const border = ok ? '#2ecc71' : (optional ? '#4aa3df' : '#e67e22');
+    const status = ok
+      ? '<span style="color:#2ecc71">✅ جاهز</span>'
+      : (optional ? '<span style="color:#4aa3df">⚪ اختياري</span>' : '<span style="color:#e67e22">⚠️ يحتاج تهيئة</span>');
     const missing = Array.isArray(source.missing) && source.missing.length
-      ? '<div style="font-size:.74em;color:#e67e22;margin-top:6px">Missing: ' + source.missing.join(', ') + '</div>'
+      ? '<div style="font-size:.74em;color:' + (optional ? '#4aa3df' : '#e67e22') + ';margin-top:6px">' + (optional ? 'اختياري: ' : 'Missing: ') + source.missing.join(', ') + '</div>'
       : '';
 
     return '<div class="bal-card" style="border:1px solid ' + border + '">' +

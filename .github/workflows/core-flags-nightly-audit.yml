@@ -1,0 +1,81 @@
+name: Nightly Core Flags Drift Audit
+
+on:
+  schedule:
+    - cron: '30 2 * * *'
+  workflow_dispatch:
+
+jobs:
+  nightly-guard-audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Prepare artifact directory
+        run: mkdir -p artifacts/nightly-audit
+
+      - name: Safety lock smoke
+        id: safety_smoke
+        env:
+          ADMIN_TOKEN: ${{ secrets.WORKFLOW_ADMIN_TOKEN }}
+        run: |
+          set -euo pipefail
+          npm run smoke:safety-lock -- --base https://ultimatearbitragehft.zedanazad43.workers.dev 2>&1 | tee artifacts/nightly-audit/safety-lock.log
+
+      - name: Core flags drift audit
+        id: core_flags_audit
+        if: always()
+        env:
+          ADMIN_TOKEN: ${{ secrets.WORKFLOW_ADMIN_TOKEN }}
+        run: |
+          set -euo pipefail
+          npm run smoke:core-flags -- --base https://ultimatearbitragehft.zedanazad43.workers.dev --samples 30 --interval-ms 60000 2>&1 | tee artifacts/nightly-audit/core-flags.log
+
+      - name: Upload nightly audit artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: nightly-core-flags-audit-${{ github.run_number }}
+          path: artifacts/nightly-audit/
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Telegram summary
+        if: always()
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: |
+          if [ -z "${TELEGRAM_BOT_TOKEN:-}" ] || [ -z "${TELEGRAM_CHAT_ID:-}" ]; then
+            echo "Telegram secrets missing; skipping summary"
+            exit 0
+          fi
+
+          BRANCH="${GITHUB_REF_NAME}"
+          short_sha="${GITHUB_SHA:0:7}"
+          RUN_URL="https://github.com/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+
+          SAFETY="${{ steps.safety_smoke.outcome }}"
+          CORE="${{ steps.core_flags_audit.outcome }}"
+
+          if [ "$SAFETY" = "success" ] && [ "$CORE" = "success" ]; then
+            text=$(printf 'Nightly drift audit PASSED%%0ABranch: %s%%0ASHA: %s%%0ASafety: %s%%0ACoreFlags: %s%%0ARun: %s' "$BRANCH" "$short_sha" "$SAFETY" "$CORE" "$RUN_URL")
+          else
+            text=$(printf 'Nightly drift audit FAILED%%0ABranch: %s%%0ASHA: %s%%0ASafety: %s%%0ACoreFlags: %s%%0ARun: %s' "$BRANCH" "$short_sha" "$SAFETY" "$CORE" "$RUN_URL")
+          fi
+
+          curl -sS -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
+            -d chat_id="${TELEGRAM_CHAT_ID}" \
+            --data-urlencode "text=${text}" >/dev/null

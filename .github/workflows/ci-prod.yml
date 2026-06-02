@@ -489,8 +489,38 @@ jobs:
           ADMIN_TOKEN: ${{ secrets.WORKFLOW_ADMIN_TOKEN }}
           API_BASE: https://ultimatearbitragehft.zedanazad43.workers.dev
 
+      - name: Post-deploy core flags stability smoke test
+        id: core_flags_smoke_test
+        run: |
+          for attempt in 1 2 3; do
+            echo "--- Core flags stability smoke attempt $attempt/3 ---"
+            if npm run smoke:core-flags -- --base "$API_BASE" --samples 8 --interval-ms 2000; then
+              echo "✅ Core flags stability smoke passed on attempt $attempt"
+              exit 0
+            fi
+            if [ $attempt -lt 3 ]; then
+              echo "⚠️ Core flags stability smoke failed, retrying in 15s..."
+              sleep 15
+            fi
+          done
+          echo "::error::Core flags stability smoke failed after 3 attempts."
+          exit 1
+        env:
+          ADMIN_TOKEN: ${{ secrets.WORKFLOW_ADMIN_TOKEN }}
+          API_BASE: https://ultimatearbitragehft.zedanazad43.workers.dev
+
+      - name: Post-deploy canary guard (30-minute)
+        id: canary_guard_test
+        run: |
+          echo "--- Canary guard window start (30 samples x 60s) ---"
+          npm run smoke:core-flags -- --base "$API_BASE" --samples 30 --interval-ms 60000
+          echo "✅ Canary guard window passed"
+        env:
+          ADMIN_TOKEN: ${{ secrets.WORKFLOW_ADMIN_TOKEN }}
+          API_BASE: https://ultimatearbitragehft.zedanazad43.workers.dev
+
       - name: Telegram alert on smoke test failure
-        if: ${{ failure() && (steps.smoke_test.outcome == 'failure' || steps.safety_smoke_test.outcome == 'failure' || steps.lock_bypass_guard_test.outcome == 'failure') }}
+        if: ${{ failure() && (steps.smoke_test.outcome == 'failure' || steps.safety_smoke_test.outcome == 'failure' || steps.lock_bypass_guard_test.outcome == 'failure' || steps.core_flags_smoke_test.outcome == 'failure' || steps.canary_guard_test.outcome == 'failure') }}
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
@@ -504,7 +534,7 @@ jobs:
           fi
 
           short_sha=$(echo "$SHA" | cut -c1-7)
-          text=$(printf 'Post-deploy guard check failed (core smoke / safety lock / lock bypass)%%0AWorkflow: World-class CI/CD Bot%%0ABranch: %s%%0ASHA: %s%%0ARun: %s' "$BRANCH" "$short_sha" "$RUN_URL")
+          text=$(printf 'Post-deploy guard check failed (core smoke / safety lock / lock bypass / core flags stability / 30m canary)%%0AWorkflow: World-class CI/CD Bot%%0ABranch: %s%%0ASHA: %s%%0ARun: %s' "$BRANCH" "$short_sha" "$RUN_URL")
 
           curl -fsS -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
             -d "chat_id=${TELEGRAM_CHAT_ID}" \

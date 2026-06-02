@@ -5,6 +5,7 @@ import { fetch, ProxyAgent } from 'undici';
 const PORT = Number.parseInt(process.env.PORT || '8788', 10);
 const UPSTREAM_PROXY_URL = String(process.env.UPSTREAM_PROXY_URL || '').trim();
 const GATEWAY_AUTH_TOKEN = String(process.env.GATEWAY_AUTH_TOKEN || '').trim();
+const DIRECT_FALLBACK_ENABLED = String(process.env.DIRECT_FALLBACK_ENABLED || 'true').trim().toLowerCase() !== 'false';
 
 const DEFAULT_ALLOWED_HOSTS = [
   'api.mexc.com', 'contract.mexc.com',
@@ -26,12 +27,13 @@ const ALLOWED_HOSTS = new Set(
     .filter(Boolean)
 );
 
-if (!UPSTREAM_PROXY_URL) {
-  console.error('[gateway] Missing UPSTREAM_PROXY_URL');
+const useProxyAgent = Boolean(UPSTREAM_PROXY_URL);
+if (!useProxyAgent && !DIRECT_FALLBACK_ENABLED) {
+  console.error('[gateway] Missing UPSTREAM_PROXY_URL and direct fallback is disabled');
   process.exit(1);
 }
 
-const proxyAgent = new ProxyAgent(UPSTREAM_PROXY_URL);
+const proxyAgent = useProxyAgent ? new ProxyAgent(UPSTREAM_PROXY_URL) : undefined;
 
 function isHostAllowed(hostname) {
   const host = String(hostname || '').toLowerCase();
@@ -100,7 +102,8 @@ const server = http.createServer(async (req, res) => {
       json(res, 200, {
         ok: true,
         service: 'arb-proxy-gateway-node',
-        proxyConfigured: true,
+        proxyConfigured: useProxyAgent,
+        mode: useProxyAgent ? 'proxy' : 'direct',
       });
       return;
     }
@@ -144,11 +147,15 @@ const server = http.createServer(async (req, res) => {
     const method = (req.method || 'GET').toUpperCase();
     const body = method === 'GET' || method === 'HEAD' ? undefined : await readBody(req);
 
-    const upstream = await fetch(targetUrl.toString(), {
+    const upstream = await fetch(targetUrl.toString(), useProxyAgent ? {
       method,
       headers,
       body,
       dispatcher: proxyAgent,
+    } : {
+      method,
+      headers,
+      body,
     });
 
     const responseHeaders = {};
@@ -170,4 +177,9 @@ const server = http.createServer(async (req, res) => {
 server.listen(PORT, '0.0.0.0', () => {
   console.log(`[gateway] listening on :${PORT}`);
   console.log('[gateway] endpoint: /proxy?target=https://api.binance.com/api/v3/time');
+  if (useProxyAgent) {
+    console.log('[gateway] mode: proxy (UPSTREAM_PROXY_URL configured)');
+  } else {
+    console.warn('[gateway] mode: direct (UPSTREAM_PROXY_URL missing)');
+  }
 });

@@ -18,16 +18,24 @@ function createStateKvMock(initialState = {}) {
     ...initialState,
   };
 
+  const store = new Map();
+  store.set('trading_state', state);
+
   return {
     async get(key, type) {
-      if (key !== 'trading_state') return null;
-      if (type === 'json') return state;
-      return JSON.stringify(state);
+      if (!store.has(key)) return null;
+      const value = store.get(key);
+      if (type === 'json') return value;
+      return JSON.stringify(value);
     },
     async put(key, value) {
-      if (key !== 'trading_state') return;
-      state = typeof value === 'string' ? JSON.parse(value) : value;
+      const parsed = typeof value === 'string' ? JSON.parse(value) : value;
+      store.set(key, parsed);
+      if (key === 'trading_state') state = parsed;
     },
+    _seed(key, value) {
+      store.set(key, value);
+    }
   };
 }
 
@@ -123,5 +131,62 @@ describe('spot-only lock safety', () => {
     assert.equal(body.spotOnlyLock, false);
     assert.equal(body.strategyFlags.perps, true);
     assert.equal(body.strategyFlags.funding, true);
+  });
+
+  test('safety-state exposes core strategy guard payload shape', async () => {
+    const kv = createStateKvMock({
+      spot_only_lock: true,
+      strategy_flags: {
+        cex: true,
+        dex: true,
+        perps: false,
+        funding: false,
+        triangular: true,
+        statistical: true,
+      },
+    });
+
+    kv._seed('core_strategy_guard_stats', {
+      hourStart: 1780416000000,
+      count: 3,
+    });
+    kv._seed('core_strategy_guard_last', {
+      at: 1780416123456,
+      previous_flags: {
+        cex: true,
+        dex: true,
+        perps: false,
+        funding: false,
+        triangular: false,
+        statistical: false,
+      },
+      strategy_flags: {
+        cex: true,
+        dex: true,
+        perps: false,
+        funding: false,
+        triangular: true,
+        statistical: true,
+      },
+    });
+
+    const env = {
+      ADMIN_TOKEN: 'secret-token',
+      BOT_STATE: kv,
+    };
+
+    const safetyReq = createReq('https://example.com/api/safety-state', 'secret-token');
+    const safetyRes = await worker.fetch(safetyReq, env, {});
+    assert.equal(safetyRes.status, 200);
+    const body = await safetyRes.json();
+
+    assert.equal(typeof body.coreStrategyGuard, 'object');
+    assert.equal(body.coreStrategyGuard.countThisHour, 3);
+    assert.equal(body.coreStrategyGuard.hourStartTs, 1780416000000);
+    assert.equal(body.coreStrategyGuard.lastInterventionTs, 1780416123456);
+    assert.equal(body.coreStrategyGuard.previousFlags.triangular, false);
+    assert.equal(body.coreStrategyGuard.previousFlags.statistical, false);
+    assert.equal(body.coreStrategyGuard.nextFlags.triangular, true);
+    assert.equal(body.coreStrategyGuard.nextFlags.statistical, true);
   });
 });

@@ -1,5 +1,22 @@
 const EXECUTION_TIMEOUT_MS = 8000;
 
+function localAdaptersEnabled(env) {
+  const raw = String(env?.EXECUTIVE_LOCAL_ADAPTERS || '').toLowerCase();
+  return ['1', 'true', 'on', 'yes'].includes(raw);
+}
+
+function buildLocalAdapterResponse(integration, payload = {}) {
+  return {
+    ok: true,
+    integration,
+    mode: 'local-adapter',
+    accepted: true,
+    trigger: payload?.trigger || 'manual',
+    requested_at: payload?.requested_at || new Date().toISOString(),
+    note: `${integration} executed via built-in local adapter`,
+  };
+}
+
 const EXECUTABLE_INTEGRATIONS = Object.freeze({
   hummingbot: {
     executeUrlKey: 'HUMMINGBOT_EXECUTE_URL',
@@ -30,11 +47,13 @@ function configuredValue(env, key) {
 function integrationConfig(env, integration) {
   const spec = EXECUTABLE_INTEGRATIONS[integration];
   if (!spec) return null;
+  const localEnabled = localAdaptersEnabled(env);
   return {
     integration,
     executeUrl: configuredValue(env, spec.executeUrlKey),
     statusUrl: configuredValue(env, spec.statusUrlKey),
     token: configuredValue(env, spec.tokenKey),
+    localEnabled,
     executeUrlKey: spec.executeUrlKey,
     statusUrlKey: spec.statusUrlKey,
     tokenKey: spec.tokenKey,
@@ -79,11 +98,13 @@ export function listExecutableIntegrationIds() {
 export function getExecutableIntegrationsStatus(env) {
   return listExecutableIntegrationIds().map((integration) => {
     const cfg = integrationConfig(env, integration);
+    const configured = Boolean(cfg.executeUrl) || cfg.localEnabled;
     return {
       integration,
-      configured: Boolean(cfg.executeUrl),
+      configured,
       execute_url_configured: Boolean(cfg.executeUrl),
       status_url_configured: Boolean(cfg.statusUrl),
+      local_adapter_enabled: cfg.localEnabled,
       execute_url_key: cfg.executeUrlKey,
       status_url_key: cfg.statusUrlKey,
       token_key: cfg.tokenKey,
@@ -95,6 +116,19 @@ export async function probeExecutableIntegrations(env) {
   const statuses = getExecutableIntegrationsStatus(env);
   const checked = await Promise.all(statuses.map(async (item) => {
     const cfg = integrationConfig(env, item.integration);
+    if (!cfg.statusUrl && cfg.localEnabled) {
+      return {
+        ...item,
+        reachable: true,
+        status_code: 200,
+        status_response: {
+          ok: true,
+          integration: item.integration,
+          mode: 'local-adapter',
+          status: 'ready',
+        },
+      };
+    }
     if (!cfg.statusUrl) return { ...item, reachable: null, status_code: null };
     try {
       const response = await callIntegration(cfg.statusUrl, cfg.token, 'GET');
@@ -119,6 +153,13 @@ export async function probeExecutableIntegrations(env) {
 export async function executeExecutableIntegration(env, integration, payload = {}) {
   const cfg = integrationConfig(env, integration);
   if (!cfg) throw new Error('Unknown integration');
+  if (!cfg.executeUrl && cfg.localEnabled) {
+    return {
+      integration,
+      status_code: 200,
+      response: buildLocalAdapterResponse(integration, payload),
+    };
+  }
   if (!cfg.executeUrl) throw new Error(`${cfg.executeUrlKey} is not configured`);
   const result = await callIntegration(cfg.executeUrl, cfg.token, 'POST', payload);
   return {

@@ -499,6 +499,7 @@ export async function runScan(env, state, sendAlert) {
     triangular:  state?.strategy_flags?.triangular !== false,
     statistical: state?.strategy_flags?.statistical !== false,
   };
+  const perpsExecutionEnabled = strategyFlags.perps && state?.spot_only_lock !== true;
 
   const allOpportunities = [];
   const lastScan = { timestamp: Date.now(), cex: null, dex: null, perps: null, funding: null, triangular: null, statistical: null };
@@ -508,6 +509,13 @@ export async function runScan(env, state, sendAlert) {
   const openCircuits = new Set();
   for (const [exchange] of Object.entries(cb)) {
     if (isCircuitOpen(cb, exchange)) openCircuits.add(exchange);
+  }
+  if (!perpsExecutionEnabled && cb.mexc_perp) {
+    delete cb.mexc_perp;
+    await saveCircuitBreaker(env, cb);
+  }
+  if (!perpsExecutionEnabled) {
+    openCircuits.delete('mexc_perp');
   }
   if (openCircuits.size > 0) {
     console.log(`[CB] Skipping open circuits: ${[...openCircuits].join(', ')}`);
@@ -553,7 +561,7 @@ export async function runScan(env, state, sendAlert) {
         try {
           const [spotSources, perpSource, zeroXSource] = await Promise.all([
             getAllSpotPrices(env, symbol, openCircuits),
-            (!openCircuits.has('mexc_perp')) ? getMEXCPerpPrice(symbol) : Promise.resolve(null),
+            (perpsExecutionEnabled && !openCircuits.has('mexc_perp')) ? getMEXCPerpPrice(symbol) : Promise.resolve(null),
             get0xPrice(env, symbol)
           ]);
 
@@ -571,9 +579,9 @@ export async function runScan(env, state, sendAlert) {
               if (src.exchange !== 'mexc') recordCBSuccess(cb, src.exchange);
             }
           }
-          if (perpSource) {
+          if (perpsExecutionEnabled && perpSource) {
             recordCBSuccess(cb, 'mexc_perp');
-          } else if (!openCircuits.has('mexc_perp')) {
+          } else if (perpsExecutionEnabled && !openCircuits.has('mexc_perp')) {
             recordCBFailure(cb, 'mexc_perp');
             if (isCircuitOpen(cb, 'mexc_perp')) openCircuits.add('mexc_perp');
           }

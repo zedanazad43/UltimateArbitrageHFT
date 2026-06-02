@@ -79,6 +79,7 @@ const DEFAULT_STATE = {
   burst_overdrive_until_ts: 0,
   burst_revert_profile: 'balanced',
   minute_report_enabled: true,
+  enforce_core_spot_strategies: true,
   minute_report_last_ts: 0,
   multi_strategy_live: true,
   max_live_trades_per_scan: 5,
@@ -765,7 +766,6 @@ app.get('/scan', async (c) => {
   if (!isAuthorized(c.env, c)) return authDenied(c.env, c);
   const state = await getState(c.env);
   const result = await runScan(c.env, state, sendTelegramAlert);
-  await saveState(c.env, state);
   if (result) {
     const opp = result.opportunity;
     if (Array.isArray(result.trades) && result.trades.length > 1) {
@@ -893,6 +893,9 @@ app.post('/config', async (c) => {
   }
   if (typeof body.minute_report_enabled === 'boolean') {
     state.minute_report_enabled = body.minute_report_enabled;
+  }
+  if (typeof body.enforce_core_spot_strategies === 'boolean') {
+    state.enforce_core_spot_strategies = body.enforce_core_spot_strategies;
   }
   if (typeof body.auto_profile === 'string') {
     const requestedProfile = String(body.auto_profile || '').toLowerCase();
@@ -1075,6 +1078,7 @@ app.post('/strategy/perps/:mode', async (c) => {
 // ── API: Bot status ───────────────────────────────────────────────────────────
 app.get('/api/status', async (c) => {
   if (!isAuthorized(c.env, c)) return authDenied(c.env, c, true);
+  const forceSpotOnlyLock = ['1', 'true', 'on', 'yes'].includes(String(c.env.SPOT_ONLY_LOCK_FORCE || '').toLowerCase());
   const [state, lastScan, circuitBreaker] = await Promise.all([
     getState(c.env),
     c.env.BOT_STATE.get('nexus_last_scan', 'json').catch(() => null),
@@ -1087,13 +1091,18 @@ app.get('/api/status', async (c) => {
   if (metrics && Number.isFinite(Number(metrics.total_trades))) {
     summary.totalTrades = Number(metrics.total_trades);
   }
+  const cbOut = { ...(circuitBreaker || {}) };
+  const perpsDisabled = state?.strategy_flags?.perps === false || state?.spot_only_lock === true || forceSpotOnlyLock;
+  if (perpsDisabled) {
+    delete cbOut.mexc_perp;
+  }
   return c.json({
     ...state,
     ...summary,
     strategyMode: String(c.env.STRATEGY_MODE || 'multi_exchange').toLowerCase(),
     enabledExecutionExchanges: getEnabledExecutionExchanges(c.env),
     lastScan,
-    circuitBreaker: circuitBreaker || {},
+    circuitBreaker: cbOut,
     secretBindings: {
       adminTokenConfigured: !!c.env.ADMIN_TOKEN,
       telegramConfigured: !!c.env.TELEGRAM_BOT_TOKEN && !!c.env.TELEGRAM_CHAT_ID,
@@ -1112,6 +1121,10 @@ app.get('/api/safety-state', async (c) => {
     getState(c.env),
     c.env.BOT_STATE.get('nexus_last_scan', 'json').catch(() => null),
     probeExecutionExchanges(c.env),
+  ]);
+  const [guardStats, guardLast] = await Promise.all([
+    c.env.BOT_STATE.get(CORE_STRATEGY_GUARD_STATS_KEY, 'json').catch(() => null),
+    c.env.BOT_STATE.get(CORE_STRATEGY_GUARD_LAST_KEY, 'json').catch(() => null),
   ]);
 
   const adminTokenSet = !!(c.env.ADMIN_TOKEN);
@@ -1170,6 +1183,13 @@ app.get('/api/safety-state', async (c) => {
     spotError,
     futuresError,
     lastConfigChangeTs: Number(state.last_config_change_ts || 0),
+    coreStrategyGuard: {
+      countThisHour: Number(guardStats?.count || 0),
+      hourStartTs: Number(guardStats?.hourStart || 0),
+      lastInterventionTs: Number(guardLast?.at || 0),
+      previousFlags: guardLast?.previous_flags || null,
+      nextFlags: guardLast?.strategy_flags || null,
+    },
     lastScanTimestamp: lastScan?.timestamp || null,
     timestamp: new Date().toISOString(),
   });
@@ -1840,6 +1860,7 @@ app.get('/api/free-sources', async (c) => {
       id: 'alphavantage',
       name: 'Alpha Vantage',
       type: 'free-data-provider',
+      optional: true,
       configured: !!c.env.ALPHA_VANTAGE_API_KEY,
       requiresApiKey: true,
       note: 'Optional free key for extra pricing fallback',
@@ -1849,6 +1870,7 @@ app.get('/api/free-sources', async (c) => {
       id: 'twelve_data',
       name: 'Twelve Data',
       type: 'free-data-provider',
+      optional: true,
       configured: !!c.env.TWELVE_DATA_API_KEY,
       requiresApiKey: true,
       note: 'Optional free key for extra pricing fallback',
@@ -2588,10 +2610,13 @@ async function runScheduledCycle(env) {
   if (state.spot_only_lock === true || forceSpotOnlyLock) {
     const hasPerps = state?.strategy_flags?.perps !== false;
     const hasFunding = state?.strategy_flags?.funding !== false;
-    if (hasPerps || hasFunding) {
+    const hasDexDisabled = state?.strategy_flags?.dex === false;
+    const shouldForceDexEnabled = forceSpotOnlyLock && isHFTEngineConfigured(env) && Boolean(env.ALCHEMY_API_KEY);
+    if (hasPerps || hasFunding || (shouldForceDexEnabled && hasDexDisabled)) {
       state.spot_only_lock = true;
       state.strategy_flags = {
         ...(state.strategy_flags || {}),
+        dex: shouldForceDexEnabled ? true : (state?.strategy_flags?.dex !== false),
         perps: false,
         funding: false,
       };
@@ -2606,6 +2631,90 @@ async function runScheduledCycle(env) {
       at: now,
       strategy_flags: state.strategy_flags,
     });
+  }
+
+  // Guard against runtime drift: keep core spot strategies active in live
+  // multi-strategy mode unless explicitly disabled by operator.
+  const shouldEnforceCoreSpotStrategies =
+    state.enforce_core_spot_strategies !== false &&
+    state.paper_trading === false &&
+    state.multi_strategy_live !== false;
+
+  if (shouldEnforceCoreSpotStrategies) {
+    const currentFlags = state.strategy_flags || {};
+    const nextFlags = {
+      ...currentFlags,
+      cex: true,
+      dex: true,
+      triangular: true,
+      statistical: true,
+    };
+
+    if (state.spot_only_lock === true || forceSpotOnlyLock) {
+      nextFlags.perps = false;
+      nextFlags.funding = false;
+    }
+
+    const driftDetected =
+      currentFlags.cex !== true ||
+      currentFlags.dex !== true ||
+      currentFlags.triangular !== true ||
+      currentFlags.statistical !== true ||
+      ((state.spot_only_lock === true || forceSpotOnlyLock) &&
+        (currentFlags.perps !== false || currentFlags.funding !== false));
+
+    if (driftDetected) {
+      const previousFlags = {
+        cex: currentFlags.cex !== false,
+        dex: currentFlags.dex !== false,
+        perps: currentFlags.perps !== false,
+        funding: currentFlags.funding !== false,
+        triangular: currentFlags.triangular !== false,
+        statistical: currentFlags.statistical !== false,
+      };
+
+      state.strategy_flags = nextFlags;
+      state.last_config_change_ts = now;
+
+      const hourStart = Math.floor(now / 3_600_000) * 3_600_000;
+      const guardStats = await env.BOT_STATE.get(CORE_STRATEGY_GUARD_STATS_KEY, 'json').catch(() => null) || {};
+      if (Number(guardStats.hourStart || 0) !== hourStart) {
+        guardStats.hourStart = hourStart;
+        guardStats.count = 0;
+      }
+      guardStats.count = Number(guardStats.count || 0) + 1;
+
+      await saveState(env, state);
+      await env.BOT_STATE.put(
+        CORE_STRATEGY_GUARD_STATS_KEY,
+        JSON.stringify(guardStats),
+        { expirationTtl: 2 * 24 * 60 * 60 }
+      ).catch(() => {});
+      await env.BOT_STATE.put(
+        CORE_STRATEGY_GUARD_LAST_KEY,
+        JSON.stringify({
+          at: now,
+          countThisHour: guardStats.count,
+          previous_flags: previousFlags,
+          strategy_flags: state.strategy_flags,
+        }),
+        { expirationTtl: 2 * 24 * 60 * 60 }
+      ).catch(() => {});
+      await logBotEvent(env, 'core_strategy_guard_enforced', {
+        at: now,
+        countThisHour: guardStats.count,
+        previous_flags: previousFlags,
+        strategy_flags: state.strategy_flags,
+      });
+      await sendTelegramAlert(
+        env,
+        '🛡️ *Core Strategy Guard Intervention*\n' +
+        `Count (this hour): ${guardStats.count}\n` +
+        `Execution mode: ${state.paper_trading === false ? 'LIVE' : 'PAPER'}\n` +
+        `Before: tri=${previousFlags.triangular}, stat=${previousFlags.statistical}\n` +
+        `After: tri=${state.strategy_flags?.triangular === true}, stat=${state.strategy_flags?.statistical === true}`
+      );
+    }
   }
 
   const inBurst = Number(state.burst_overdrive_until_ts || 0) > now;
@@ -2722,6 +2831,8 @@ async function runScheduledCycle(env) {
 // Each threshold fires at most once per hour (tracked in KV) to avoid spam.
 const DRAWDOWN_WARN_KEY      = 'drawdown_warn_sent';
 const DRAWDOWN_WARN_INTERVAL = 60 * 60 * 1000; // 1 hour
+const CORE_STRATEGY_GUARD_STATS_KEY = 'core_strategy_guard_stats';
+const CORE_STRATEGY_GUARD_LAST_KEY = 'core_strategy_guard_last';
 
 async function sendDrawdownWarning(env, state, equity) {
   try {
