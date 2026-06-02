@@ -19,6 +19,9 @@ This runbook defines operations targets and response steps for spot-only safety 
 - Warning alert:
   - Trigger: `stateFailures = 0` and `networkFailures > 0`
   - Action: Telegram warning message only
+- Auto-resolve:
+   - Trigger: next successful monitor run after an open `spot-lock-incident`
+   - Action: add recovery comment and close the incident issue automatically
 
 ## Incident Response
 
@@ -42,6 +45,10 @@ This runbook defines operations targets and response steps for spot-only safety 
 2. Re-run monitor with retries:
    - `npm run monitor:spot-lock -- --samples 10 --interval-ms 10000 --fetch-retries 2 --retry-delay-ms 1000`
 3. If state remains stable and only network failures persist, keep service active and track trend.
+
+### D) Automatic recovery closeout
+1. When the next successful `Spot Lock Monitor` run reports `stateFailures = 0`, the open `spot-lock-incident` issue is closed automatically.
+2. Review the recovery run artifact before reopening or creating a manual follow-up task.
 
 ## Daily Ops Checklist
 1. Verify daily report artifact exists.
