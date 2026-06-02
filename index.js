@@ -559,6 +559,10 @@ app.onError((err, c) => {
 
 // ── Auto-schema middleware — ensures D1 tables exist before any route runs ────
 app.use('*', async (c, next) => {
+  if (c.req.path === '/control-panel.html') {
+    if (c.env.ADMIN_TOKEN && !isAuthorized(c.env, c)) return c.redirect('/login', 302);
+    return c.redirect('/control-panel', 302);
+  }
   try { await ensureSchema(c.env); } catch (_) { /* already logged in ensureSchema */ }
   return next();
 });
@@ -664,6 +668,11 @@ app.get('/checklist', async (c) => {
 app.get('/control-panel', async (c) => {
   if (c.env.ADMIN_TOKEN && !isAuthorized(c.env, c)) return c.redirect('/login', 302);
   return c.html(renderControlPanel());
+});
+
+app.get('/control-panel.html', async (c) => {
+  if (c.env.ADMIN_TOKEN && !isAuthorized(c.env, c)) return c.redirect('/login', 302);
+  return c.redirect('/control-panel', 302);
 });
 
 // ── Admin: Start ──────────────────────────────────────────────────────────────
