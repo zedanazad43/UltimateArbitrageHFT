@@ -834,7 +834,48 @@ app.post('/config', async (c) => {
   let body;
   try { body = await c.req.json(); } catch (_) { return c.text('Invalid JSON', 400); }
   const state = await getState(c.env);
-  const forceUnlockManualRiskLock = body.force_unlock_manual_risk_lock === true;
+  const forceUnlockRequested = body.force_unlock_manual_risk_lock === true;
+  const unlockHeader = String(c.req.header('x-risk-unlock-token') || '').trim();
+  const unlockTokenConfigured = String(c.env.RISK_UNLOCK_TOKEN || '').trim();
+  let forceUnlockManualRiskLock = false;
+  if (forceUnlockRequested) {
+    if (!unlockTokenConfigured) {
+      return c.json({
+        success: false,
+        error: 'RISK_UNLOCK_TOKEN is not configured; force unlock is disabled',
+      }, 403);
+    }
+    if (!constantTimeEquals(unlockHeader, unlockTokenConfigured)) {
+      return c.json({
+        success: false,
+        error: 'Invalid x-risk-unlock-token',
+      }, 403);
+    }
+    forceUnlockManualRiskLock = true;
+  }
+
+  const isFiniteNum = (v) => typeof v === 'number' && Number.isFinite(v);
+  const touchingProtectedRiskConfig =
+    typeof body.manual_risk_lock === 'boolean' ||
+    typeof body.auto_profiler_enabled === 'boolean' ||
+    typeof body.auto_profile === 'string' ||
+    isFiniteNum(body.position_size_usd) ||
+    isFiniteNum(body.max_live_trades_per_scan) ||
+    isFiniteNum(body.max_daily_loss_usd) ||
+    isFiniteNum(body.max_per_trade_loss_pct) ||
+    isFiniteNum(body.min_seconds_between_trades) ||
+    isFiniteNum(body.burst_overdrive_minutes) ||
+    typeof body.burst_revert_profile === 'string';
+
+  if (state.manual_risk_lock === true && touchingProtectedRiskConfig && !forceUnlockManualRiskLock) {
+    await logAdminEvent(c.env, 'config_locked_rejected', c.req.raw);
+    return c.json({
+      success: false,
+      error: 'manual_risk_lock is active; protected risk settings are locked',
+      requiresForceUnlock: true,
+    }, 423);
+  }
+
   const lockProtected = state.manual_risk_lock === true && !forceUnlockManualRiskLock;
   const lockedRiskValues = lockProtected ? {
     position_size_usd: state.position_size_usd,
