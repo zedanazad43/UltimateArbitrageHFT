@@ -72,6 +72,7 @@ const DEFAULT_STATE = {
   max_dynamic_symbols: 500,
   max_metamask_symbols: 10000,
   auto_profiler_enabled: true,
+  manual_risk_lock: false,
   auto_profile: 'balanced',
   auto_profile_last_change_ts: 0,
   no_opportunity_streak: 0,
@@ -833,6 +834,18 @@ app.post('/config', async (c) => {
   let body;
   try { body = await c.req.json(); } catch (_) { return c.text('Invalid JSON', 400); }
   const state = await getState(c.env);
+  const forceUnlockManualRiskLock = body.force_unlock_manual_risk_lock === true;
+  const lockProtected = state.manual_risk_lock === true && !forceUnlockManualRiskLock;
+  const lockedRiskValues = lockProtected ? {
+    position_size_usd: state.position_size_usd,
+    max_live_trades_per_scan: state.max_live_trades_per_scan,
+    max_daily_loss_usd: state.max_daily_loss_usd,
+    max_per_trade_loss_pct: state.max_per_trade_loss_pct,
+    min_seconds_between_trades: state.min_seconds_between_trades,
+    auto_profiler_enabled: state.auto_profiler_enabled,
+    auto_profile: state.auto_profile,
+    burst_overdrive_until_ts: state.burst_overdrive_until_ts,
+  } : null;
   const forceSpotOnlyLock = ['1', 'true', 'on', 'yes'].includes(String(c.env.SPOT_ONLY_LOCK_FORCE || '').toLowerCase());
   const num = (v) => (typeof v === 'number' && v > 0 ? v : undefined);
   if (num(body.max_daily_loss_usd))           state.max_daily_loss_usd           = body.max_daily_loss_usd;
@@ -900,6 +913,13 @@ app.post('/config', async (c) => {
   if (typeof body.auto_profiler_enabled === 'boolean') {
     state.auto_profiler_enabled = body.auto_profiler_enabled;
   }
+  if (typeof body.manual_risk_lock === 'boolean') {
+    if (state.manual_risk_lock && body.manual_risk_lock === false && !forceUnlockManualRiskLock) {
+      state.manual_risk_lock = true;
+    } else {
+      state.manual_risk_lock = body.manual_risk_lock;
+    }
+  }
   if (typeof body.minute_report_enabled === 'boolean') {
     state.minute_report_enabled = body.minute_report_enabled;
   }
@@ -908,15 +928,15 @@ app.post('/config', async (c) => {
   }
   if (typeof body.auto_profile === 'string') {
     const requestedProfile = String(body.auto_profile || '').toLowerCase();
-    if (AUTO_PROFILES[requestedProfile]) {
+    if (!state.manual_risk_lock && AUTO_PROFILES[requestedProfile]) {
       applyProfileToState(state, requestedProfile);
       state.auto_profile_last_change_ts = Date.now();
     }
   }
   if (Number.isFinite(body.burst_overdrive_minutes)) {
     const mins = clampInt(body.burst_overdrive_minutes, 0, 30);
-    state.burst_overdrive_until_ts = mins > 0 ? (Date.now() + mins * 60_000) : 0;
-    if (mins > 0) {
+    state.burst_overdrive_until_ts = state.manual_risk_lock ? 0 : (mins > 0 ? (Date.now() + mins * 60_000) : 0);
+    if (!state.manual_risk_lock && mins > 0) {
       applyProfileToState(state, 'overdrive');
       state.auto_profile_last_change_ts = Date.now();
     }
@@ -966,6 +986,25 @@ app.post('/config', async (c) => {
       perps: false,
       funding: false,
     };
+  }
+
+  // Manual risk lock freezes profile automation so manual risk limits remain stable.
+  if (state.manual_risk_lock) {
+    state.auto_profiler_enabled = false;
+    state.burst_overdrive_until_ts = 0;
+  }
+
+  // Sticky lock: when active, preserve locked risk values unless force-unlock is explicit.
+  if (lockedRiskValues) {
+    state.manual_risk_lock = true;
+    state.position_size_usd = lockedRiskValues.position_size_usd;
+    state.max_live_trades_per_scan = lockedRiskValues.max_live_trades_per_scan;
+    state.max_daily_loss_usd = lockedRiskValues.max_daily_loss_usd;
+    state.max_per_trade_loss_pct = lockedRiskValues.max_per_trade_loss_pct;
+    state.min_seconds_between_trades = lockedRiskValues.min_seconds_between_trades;
+    state.auto_profiler_enabled = false;
+    state.auto_profile = lockedRiskValues.auto_profile;
+    state.burst_overdrive_until_ts = 0;
   }
 
   state.last_config_change_ts = Date.now();
@@ -2726,11 +2765,17 @@ async function runScheduledCycle(env) {
     }
   }
 
-  const inBurst = Number(state.burst_overdrive_until_ts || 0) > now;
+  const manualRiskLock = state.manual_risk_lock === true;
+  if (manualRiskLock) {
+    state.auto_profiler_enabled = false;
+    state.burst_overdrive_until_ts = 0;
+  }
 
-  if (inBurst) {
+  const inBurst = !manualRiskLock && Number(state.burst_overdrive_until_ts || 0) > now;
+
+  if (!manualRiskLock && inBurst) {
     applyProfileToState(state, 'overdrive');
-  } else if (Number(state.burst_overdrive_until_ts || 0) > 0) {
+  } else if (!manualRiskLock && Number(state.burst_overdrive_until_ts || 0) > 0) {
     state.burst_overdrive_until_ts = 0;
     const revertProfile = ['conservative', 'balanced', 'turbo'].includes(String(state.burst_revert_profile || '').toLowerCase())
       ? String(state.burst_revert_profile || '').toLowerCase()
@@ -2800,7 +2845,7 @@ async function runScheduledCycle(env) {
     : 0;
 
   // Auto-profiler adapts runtime scan aggressiveness by recent hit/no-hit streaks.
-  if (state.auto_profiler_enabled && !inBurst) {
+  if (!manualRiskLock && state.auto_profiler_enabled && !inBurst) {
     const noOpp = Number(state.no_opportunity_streak || 0);
     const hitStreak = Number(state.opportunity_hit_streak || 0);
     const currentProfile = String(state.auto_profile || 'balanced');
