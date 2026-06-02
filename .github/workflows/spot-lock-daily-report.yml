@@ -3,6 +3,9 @@ name: Spot Lock Daily Report
 on:
   schedule:
     - cron: '10 0 * * *'
+  repository_dispatch:
+    types:
+      - spot-lock-daily-report
   workflow_dispatch:
     inputs:
       reason:
