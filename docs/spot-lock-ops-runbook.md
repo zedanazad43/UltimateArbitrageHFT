@@ -11,6 +11,7 @@ This runbook defines operations targets and response steps for spot-only safety 
 ## Monitoring Pipelines
 - 15-minute monitor workflow: `.github/workflows/spot-lock-monitor.yml`
 - Daily report workflow: `.github/workflows/spot-lock-daily-report.yml`
+- Weekly report workflow: `.github/workflows/spot-lock-weekly-report.yml`
 
 ## Alert Policy
 - Critical alert:
@@ -55,3 +56,9 @@ This runbook defines operations targets and response steps for spot-only safety 
 2. Check 24h run counts and failure deltas.
 3. Confirm `readyForLive` is true.
 4. Open an ops ticket if SLO thresholds were exceeded.
+
+## Weekly Review Checklist
+1. Verify weekly report artifact exists.
+2. Review 7-day monitor availability and failure counts.
+3. Compare weekly failure trend against SLO targets.
+4. Create follow-up work if network noise or state regressions are trending upward.

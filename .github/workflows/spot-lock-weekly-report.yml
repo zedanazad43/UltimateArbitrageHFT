@@ -1,0 +1,147 @@
+name: Spot Lock Weekly Report
+
+on:
+  schedule:
+    - cron: '20 0 * * 1'
+  workflow_dispatch:
+  repository_dispatch:
+    types:
+      - spot-lock-weekly-report
+
+permissions:
+  contents: read
+  actions: read
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  weekly-report:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run weekly snapshot
+        env:
+          WORKFLOW_ADMIN_TOKEN: ${{ secrets.WORKFLOW_ADMIN_TOKEN }}
+          ADMIN_TOKEN: ${{ secrets.ADMIN_TOKEN }}
+          API_BASE: https://ultimatearbitragehft.zedanazad43.workers.dev
+        run: |
+          set -o pipefail
+          npm run monitor:spot-lock -- \
+            --samples 4 \
+            --interval-ms 5000 \
+            --fetch-retries 1 \
+            --retry-delay-ms 500 \
+            --base "$API_BASE" | tee weekly-spot-lock.log
+
+      - name: Build weekly report payload
+        id: report
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+
+            const now = new Date();
+            const since = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000).toISOString();
+
+            const runs = await github.paginate(github.rest.actions.listWorkflowRuns, {
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              workflow_id: 'spot-lock-monitor.yml',
+              per_page: 100,
+            });
+
+            const recent = runs.filter((r) => new Date(r.created_at).toISOString() >= since);
+            const successCount = recent.filter((r) => r.conclusion === 'success').length;
+            const failureCount = recent.filter((r) => r.conclusion === 'failure').length;
+            const totalCount = recent.length;
+            const availabilityPct = totalCount === 0 ? 100 : Number(((successCount / totalCount) * 100).toFixed(2));
+
+            const log = fs.existsSync('weekly-spot-lock.log')
+              ? fs.readFileSync('weekly-spot-lock.log', 'utf8')
+              : '';
+            const summaryLine = log.split(/\r?\n/).find((line) => line.startsWith('SPOT_LOCK_MONITOR_SUMMARY '));
+            const sampleLines = log.split(/\r?\n/).filter((line) => line.startsWith('SAMPLE '));
+
+            let summary = null;
+            if (summaryLine) {
+              try {
+                summary = JSON.parse(summaryLine.slice('SPOT_LOCK_MONITOR_SUMMARY '.length));
+              } catch {
+                summary = null;
+              }
+            }
+
+            let lastSample = null;
+            if (sampleLines.length) {
+              try {
+                lastSample = JSON.parse(sampleLines[sampleLines.length - 1].slice('SAMPLE '.length));
+              } catch {
+                lastSample = null;
+              }
+            }
+
+            const payload = {
+              generatedAt: now.toISOString(),
+              monitorRuns7d: totalCount,
+              monitorRuns7dSuccess: successCount,
+              monitorRuns7dFailure: failureCount,
+              availabilityPct,
+              networkFailuresSnapshot: Number(summary?.networkFailures ?? 0),
+              stateFailuresSnapshot: Number(summary?.stateFailures ?? 0),
+              readyForLiveSnapshot: lastSample?.readyForLive === true,
+            };
+
+            fs.writeFileSync('weekly-spot-lock-report.json', JSON.stringify(payload, null, 2));
+
+            const md = [
+              '## Spot Lock Weekly Report',
+              '',
+              `- Generated: ${payload.generatedAt}`,
+              `- Monitor runs (7d): ${payload.monitorRuns7d}`,
+              `- Monitor runs success (7d): ${payload.monitorRuns7dSuccess}`,
+              `- Monitor runs failure (7d): ${payload.monitorRuns7dFailure}`,
+              `- Monitor availability (7d): ${payload.availabilityPct}%`,
+              `- State failures (snapshot): ${payload.stateFailuresSnapshot}`,
+              `- Network failures (snapshot): ${payload.networkFailuresSnapshot}`,
+              `- Ready for live (snapshot): ${payload.readyForLiveSnapshot}`,
+            ].join('\n');
+
+            fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, `${md}\n`);
+            core.setOutput('message', md);
+
+      - name: Upload weekly report artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: spot-lock-weekly-report-${{ github.run_id }}
+          path: |
+            weekly-spot-lock.log
+            weekly-spot-lock-report.json
+          if-no-files-found: ignore
+          retention-days: 30
+
+      - name: Telegram weekly report
+        if: always() && env.TELEGRAM_BOT_TOKEN != '' && env.TELEGRAM_CHAT_ID != ''
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: |
+          text="${{ steps.report.outputs.message }}"
+          curl -fsS -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
+            -d "chat_id=${TELEGRAM_CHAT_ID}" \
+            --data-urlencode "text=${text}" \
+            -d "disable_web_page_preview=true"

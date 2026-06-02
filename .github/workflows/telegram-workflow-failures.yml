@@ -9,6 +9,7 @@ name: Telegram Workflow Failure Alerts
       - "Production Monitoring and Operations"
       - "Spot Lock Monitor"
       - "Spot Lock Daily Report"
+      - "Spot Lock Weekly Report"
       - "Symbol Catalog Monitor"
     types:
       - completed
