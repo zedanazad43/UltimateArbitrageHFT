@@ -8,7 +8,7 @@ on:
       base_url:
         description: Base URL for monitor checks
         required: false
-        default: 'https://api.ecostamp.net'
+        default: 'https://ultimatearbitragehft.zedanazad43.workers.dev'
       auto_stop:
         description: Execute auto-stop sequence on critical
         required: false
@@ -51,7 +51,7 @@ jobs:
           ADMIN_TOKEN: ${{ secrets.ADMIN_TOKEN }}
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-          BASE_URL_INPUT: ${{ github.event.inputs.base_url || 'https://api.ecostamp.net' }}
+          BASE_URL_INPUT: ${{ github.event.inputs.base_url || 'https://ultimatearbitragehft.zedanazad43.workers.dev' }}
           AUTO_STOP_INPUT: ${{ github.event.inputs.auto_stop || 'true' }}
           MAX_DAILY_LOSS_USD_INPUT: ${{ github.event.inputs.max_daily_loss_usd || '12' }}
         run: |
@@ -93,7 +93,7 @@ jobs:
             echo "## Live Critical Monitor (Cloud)";
             echo "";
             echo "- Monitor step outcome: ${{ steps.monitor.outcome }}";
-            echo "- Base URL: ${{ github.event.inputs.base_url || 'https://api.ecostamp.net' }}";
+            echo "- Base URL: ${{ github.event.inputs.base_url || 'https://ultimatearbitragehft.zedanazad43.workers.dev' }}";
             echo "- Auto-stop: ${{ github.event.inputs.auto_stop || 'true' }}";
             echo "- Max daily loss threshold: ${{ github.event.inputs.max_daily_loss_usd || '12' }}";
             echo "";
