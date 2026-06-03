@@ -1,0 +1,122 @@
+name: Live Critical Monitor (Cloud)
+
+on:
+  schedule:
+    - cron: '*/5 * * * *'
+  workflow_dispatch:
+    inputs:
+      base_url:
+        description: Base URL for monitor checks
+        required: false
+        default: 'https://api.ecostamp.net'
+      auto_stop:
+        description: Execute auto-stop sequence on critical
+        required: false
+        default: 'true'
+      max_daily_loss_usd:
+        description: Operational loss threshold (absolute USD)
+        required: false
+        default: '12'
+
+permissions:
+  contents: read
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  monitor:
+    name: Cloud Critical Guard (5m)
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run one critical monitor cycle
+        id: monitor
+        continue-on-error: true
+        env:
+          WORKFLOW_ADMIN_TOKEN: ${{ secrets.WORKFLOW_ADMIN_TOKEN }}
+          ADMIN_TOKEN: ${{ secrets.ADMIN_TOKEN }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          BASE_URL_INPUT: ${{ github.event.inputs.base_url || 'https://api.ecostamp.net' }}
+          AUTO_STOP_INPUT: ${{ github.event.inputs.auto_stop || 'true' }}
+          MAX_DAILY_LOSS_USD_INPUT: ${{ github.event.inputs.max_daily_loss_usd || '12' }}
+        run: |
+          set -o pipefail
+          node scripts/monitor-live-critical.js \
+            --samples 1 \
+            --interval-ms 1000 \
+            --base "$BASE_URL_INPUT" \
+            --auto-stop "$AUTO_STOP_INPUT" \
+            --max-daily-loss-usd "$MAX_DAILY_LOSS_USD_INPUT" | tee live-critical-monitor.log
+
+      - name: Resolve summary path
+        if: always()
+        id: summary
+        run: |
+          summary_file=$(grep 'LIVE_CRITICAL_MONITOR_SUMMARY_FILE ' live-critical-monitor.log | tail -n1 | sed 's/^LIVE_CRITICAL_MONITOR_SUMMARY_FILE //')
+          if [ -n "$summary_file" ] && [ -f "$summary_file" ]; then
+            echo "summary_file=$summary_file" >> "$GITHUB_OUTPUT"
+            echo "found=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "found=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Upload monitor artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: live-critical-monitor-${{ github.run_id }}
+          path: |
+            live-critical-monitor.log
+            ${{ steps.summary.outputs.summary_file }}
+          if-no-files-found: ignore
+          retention-days: 14
+
+      - name: Publish workflow summary
+        if: always()
+        run: |
+          {
+            echo "## Live Critical Monitor (Cloud)";
+            echo "";
+            echo "- Monitor step outcome: ${{ steps.monitor.outcome }}";
+            echo "- Base URL: ${{ github.event.inputs.base_url || 'https://api.ecostamp.net' }}";
+            echo "- Auto-stop: ${{ github.event.inputs.auto_stop || 'true' }}";
+            echo "- Max daily loss threshold: ${{ github.event.inputs.max_daily_loss_usd || '12' }}";
+            echo "";
+            echo "See artifact: live-critical-monitor-${{ github.run_id }}";
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Telegram alert on monitor failure
+        if: always() && steps.monitor.outcome == 'failure' && env.TELEGRAM_BOT_TOKEN != '' && env.TELEGRAM_CHAT_ID != ''
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: |
+          text=$(printf 'CRITICAL: Live cloud monitor failed or triggered stop\nRepo: %s\nRun: %s' \
+            "${GITHUB_REPOSITORY}" \
+            "${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}")
+
+          curl -fsS -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
+            -d "chat_id=${TELEGRAM_CHAT_ID}" \
+            --data-urlencode "text=${text}" \
+            -d "disable_web_page_preview=true"
+
+      - name: Fail workflow on monitor failure
+        if: always() && steps.monitor.outcome == 'failure'
+        run: |
+          echo "Critical monitor run failed or triggered auto-stop."
+          exit 1

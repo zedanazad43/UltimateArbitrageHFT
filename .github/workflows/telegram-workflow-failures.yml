@@ -8,6 +8,7 @@ name: Telegram Workflow Failure Alerts
       - "Deploy static content to Pages"
       - "Production Monitoring and Operations"
       - "Spot Lock Monitor"
+      - "Live Critical Monitor (Cloud)"
       - "Spot Lock Daily Report"
       - "Spot Lock Weekly Report"
       - "Symbol Catalog Monitor"

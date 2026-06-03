@@ -36,6 +36,8 @@
     "monitor:spot-lock": "node scripts/monitor-spot-lock.js",
     "monitor:exec": "node scripts/monitor-exec-stability.js --interval-ms 300000 --samples 6 --run-execute-all true",
     "monitor:exec:quick": "node scripts/monitor-exec-stability.js --interval-ms 5000 --samples 3 --run-execute-all true",
+    "monitor:critical": "node scripts/monitor-live-critical.js --samples 288 --interval-ms 300000 --auto-stop true",
+    "monitor:critical:dry": "node scripts/monitor-live-critical.js --samples 12 --interval-ms 60000 --auto-stop false",
     "diagnose:exchanges": "node scripts/diagnose-exchange-readiness.js",
     "activate:live": "node scripts/activate-live-trading.js",
     "activate:live:fast": "node scripts/activate-live-trading.js --profile turbo",
