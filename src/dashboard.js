@@ -95,6 +95,9 @@ export async function renderDashboard(env) {
     funding: state?.strategy_flags?.funding !== false,
     triangular: state?.strategy_flags?.triangular !== false,
     statistical: state?.strategy_flags?.statistical !== false,
+    scalp_forward: state?.strategy_flags?.scalp_forward !== false,
+    scalp_reverse: state?.strategy_flags?.scalp_reverse !== false,
+    scalp_parallel: state?.strategy_flags?.scalp_parallel !== false,
   };
   const spotOnlyLock = state?.spot_only_lock === true;
   const perpsEnabled = strategyFlags.perps;
@@ -451,6 +454,9 @@ ${autoStopBanner}
     <label for="flag_funding" class="inline-check"><input type="checkbox" id="flag_funding" ${strategyFlags.funding ? 'checked' : ''} ${spotOnlyLock ? 'disabled' : ''}> Funding Rate</label>
     <label for="flag_triangular" class="inline-check"><input type="checkbox" id="flag_triangular" ${strategyFlags.triangular ? 'checked' : ''}> Triangular</label>
     <label for="flag_statistical" class="inline-check"><input type="checkbox" id="flag_statistical" ${strategyFlags.statistical ? 'checked' : ''}> Statistical</label>
+    <label for="flag_scalp_forward" class="inline-check"><input type="checkbox" id="flag_scalp_forward" ${strategyFlags.scalp_forward ? 'checked' : ''}> Scalping Forward</label>
+    <label for="flag_scalp_reverse" class="inline-check"><input type="checkbox" id="flag_scalp_reverse" ${strategyFlags.scalp_reverse ? 'checked' : ''}> Scalping Reverse</label>
+    <label for="flag_scalp_parallel" class="inline-check"><input type="checkbox" id="flag_scalp_parallel" ${strategyFlags.scalp_parallel ? 'checked' : ''}> Scalping Parallel</label>
   </div>
   <div style="margin-top:14px">
     <button class="btn" data-admin-action="1" onclick="saveConfig()">💾 حفظ إعدادات الاستراتيجيات</button>
@@ -1119,6 +1125,9 @@ ${autoStopBanner}
         funding:     !!document.getElementById('flag_funding')?.checked,
         triangular:  !!document.getElementById('flag_triangular')?.checked,
         statistical: !!document.getElementById('flag_statistical')?.checked,
+        scalp_forward: !!document.getElementById('flag_scalp_forward')?.checked,
+        scalp_reverse: !!document.getElementById('flag_scalp_reverse')?.checked,
+        scalp_parallel: !!document.getElementById('flag_scalp_parallel')?.checked,
       }
     };
     if (!body.strategy_flags.perps) {
@@ -1188,6 +1197,9 @@ ${autoStopBanner}
           funding: !spotOnlyLockEnabled,
           triangular: true,
           statistical: true,
+          scalp_forward: true,
+          scalp_reverse: true,
+          scalp_parallel: true,
         }
       };
       await callAdminApi('/config', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });

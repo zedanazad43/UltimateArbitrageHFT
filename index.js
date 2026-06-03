@@ -99,6 +99,9 @@ const DEFAULT_STATE = {
     funding: true,
     triangular: true,
     statistical: true,
+    scalp_forward: true,
+    scalp_reverse: true,
+    scalp_parallel: true,
   },
   daily_pnl: 0, daily_trades: 0,
   total_pnl: 0, total_trades: 0,
@@ -107,6 +110,10 @@ const DEFAULT_STATE = {
   min_seconds_between_trades: 3,
   max_per_trade_loss_pct: 0.02,
   max_spread_pct: 5.0,
+  scalp_min_net_pct: 0.10,
+  scalp_max_hold_seconds: 12,
+  scalp_parallel_legs: 2,
+  scalp_cooldown_ms: 1500,
   win_rate: 0.55,
   risk_reward_ratio: 2.0,
   position_size_usd: 5,       // default small position size (5 USDT)
@@ -926,6 +933,10 @@ app.post('/config', async (c) => {
   if (num(body.min_seconds_between_trades))   state.min_seconds_between_trades   = body.min_seconds_between_trades;
   if (num(body.initial_capital))              state.initial_capital              = body.initial_capital;
   if (num(body.max_spread_pct))               state.max_spread_pct               = body.max_spread_pct;
+  if (num(body.scalp_min_net_pct))            state.scalp_min_net_pct            = Math.max(0.02, Math.min(2.5, body.scalp_min_net_pct));
+  if (num(body.scalp_max_hold_seconds))       state.scalp_max_hold_seconds       = Math.max(2, Math.min(120, Math.floor(body.scalp_max_hold_seconds)));
+  if (num(body.scalp_parallel_legs))          state.scalp_parallel_legs          = Math.max(1, Math.min(3, Math.floor(body.scalp_parallel_legs)));
+  if (num(body.scalp_cooldown_ms))            state.scalp_cooldown_ms            = Math.max(200, Math.min(15000, Math.floor(body.scalp_cooldown_ms)));
   if (num(body.win_rate))                     state.win_rate                     = body.win_rate;
   if (num(body.risk_reward_ratio))            state.risk_reward_ratio            = body.risk_reward_ratio;
   if (Number.isFinite(body.max_dynamic_symbols)) {
@@ -1037,6 +1048,9 @@ app.post('/config', async (c) => {
       funding: current.funding !== false,
       triangular: current.triangular !== false,
       statistical: current.statistical !== false,
+      scalp_forward: current.scalp_forward !== false,
+      scalp_reverse: current.scalp_reverse !== false,
+      scalp_parallel: current.scalp_parallel !== false,
     };
     for (const key of Object.keys(nextFlags)) {
       if (typeof requestedStrategyFlags[key] === 'boolean') {
@@ -2703,7 +2717,17 @@ app.post('/api/memory/reset', async (c) => {
       updatedAt: Date.now(),
       evaluations: [],
       strategyOutcomes: {},
-      strategyWeights: { cex: 1.0, dex: 1.0, perps: 1.0, triangular: 1.0, statistical: 1.0, funding: 1.0 },
+      strategyWeights: {
+        cex: 1.0,
+        dex: 1.0,
+        perps: 1.0,
+        triangular: 1.0,
+        statistical: 1.0,
+        funding: 1.0,
+        scalp_forward: 1.0,
+        scalp_reverse: 1.0,
+        scalp_parallel: 1.0,
+      },
       autoTuning: { appliedAt: null, adjustments: [] },
       recommendations: [],
     });
@@ -2768,6 +2792,9 @@ async function runScheduledCycle(env) {
       dex: true,
       triangular: true,
       statistical: true,
+      scalp_forward: true,
+      scalp_reverse: true,
+      scalp_parallel: true,
     };
 
     if (state.spot_only_lock === true || forceSpotOnlyLock) {
@@ -2780,6 +2807,9 @@ async function runScheduledCycle(env) {
       currentFlags.dex !== true ||
       currentFlags.triangular !== true ||
       currentFlags.statistical !== true ||
+      currentFlags.scalp_forward !== true ||
+      currentFlags.scalp_reverse !== true ||
+      currentFlags.scalp_parallel !== true ||
       ((state.spot_only_lock === true || forceSpotOnlyLock) &&
         (currentFlags.perps !== false || currentFlags.funding !== false));
 
@@ -2791,6 +2821,9 @@ async function runScheduledCycle(env) {
         funding: currentFlags.funding !== false,
         triangular: currentFlags.triangular !== false,
         statistical: currentFlags.statistical !== false,
+        scalp_forward: currentFlags.scalp_forward !== false,
+        scalp_reverse: currentFlags.scalp_reverse !== false,
+        scalp_parallel: currentFlags.scalp_parallel !== false,
       };
 
       state.strategy_flags = nextFlags;

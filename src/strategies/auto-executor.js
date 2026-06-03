@@ -67,6 +67,9 @@ const DEFAULT_CONFIG = {
     triangular: { enabled: true, weight: 0.8, maxSpread: 3.0 },
     dex:        { enabled: true, weight: 0.6, maxSpread: 8.0 },
     statistical:{ enabled: true, weight: 1.1, maxSpread: 4.0 },
+    scalp_forward: { enabled: true, weight: 1.0, maxSpread: 3.5 },
+    scalp_reverse: { enabled: true, weight: 0.9, maxSpread: 2.0 },
+    scalp_parallel: { enabled: true, weight: 1.15, maxSpread: 3.5 },
   },
 };
 

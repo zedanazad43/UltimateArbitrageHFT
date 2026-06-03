@@ -44,7 +44,7 @@ export async function saveBotMemory(env, memory) {
  * Records a single trade outcome for a given strategy.
  *
  * @param {object} env
- * @param {string} strategy — strategy name: 'cex' | 'dex' | 'perps' | 'triangular' | 'statistical' | 'funding'
+ * @param {string} strategy — strategy name: 'cex' | 'dex' | 'perps' | 'triangular' | 'statistical' | 'funding' | 'scalp_forward' | 'scalp_reverse' | 'scalp_parallel'
  * @param {{ success: boolean, pnlUsd: number, symbol?: string, exchange?: string }} outcome
  */
 export async function recordStrategyOutcome(env, strategy, outcome) {
@@ -197,6 +197,7 @@ function _emptyMemory() {
     strategyWeights: {
       cex: 1.0, dex: 1.0, perps: 1.0,
       triangular: 1.0, statistical: 1.0, funding: 1.0,
+      scalp_forward: 1.0, scalp_reverse: 1.0, scalp_parallel: 1.0,
     },
     autoTuning: { appliedAt: null, adjustments: [] },
     recommendations: [],

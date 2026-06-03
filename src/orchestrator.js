@@ -11,10 +11,14 @@ import { scanPerps } from './strategies/perps.js';
 import { scanFundingRate } from './strategies/funding.js';
 import { scanTriangular, TRIANGLES } from './strategies/triangular.js';
 import { scanStatistical, CORRELATED_PAIRS } from './strategies/statistical.js';
+import { scanScalpingForward } from './strategies/scalping-forward.js';
+import { scanScalpingReverse } from './strategies/scalping-reverse.js';
+import { scanScalpingParallel } from './strategies/scalping-parallel.js';
 import { scanFromHFT, isHFTEngineConfigured } from './hft-client.js';
 import { logTrade, openPaperPosition, getOpenPaperPositions, closePaperPosition, logBotEvent } from './db.js';
 import { calculateAdaptiveLeverage, calculatePositionSize, MAX_POSITION_EQUITY_FRACTION, checkDrawdownGuard, checkExposureLimit } from './risk.js';
 import { logEvent, incrementMetric, observeLatency } from './infra/observability.js';
+import { loadBotMemory, recordStrategyOutcome } from './bot-memory.js';
 import {
   placeMEXCFuturesOrder, hasSufficientUSDT,
   hasExchangeCredentials, getRequiredCredentialKeys, getExchangeBalance, placeExchangeMarketOrder
@@ -491,6 +495,9 @@ export async function runScan(env, state, sendAlert) {
       ? configuredPerpsMinSafety
       : (aggressiveScanMode ? 0.20 : 0.35),
   };
+  const botMemory = await loadBotMemory(env).catch(() => null);
+  const strategyWeights = botMemory?.strategyWeights || {};
+  const strategyOutcomes = botMemory?.strategyOutcomes || {};
   const strategyFlags  = {
     cex:         state?.strategy_flags?.cex !== false,
     dex:         state?.strategy_flags?.dex !== false,
@@ -498,11 +505,25 @@ export async function runScan(env, state, sendAlert) {
     funding:     state?.strategy_flags?.funding !== false,
     triangular:  state?.strategy_flags?.triangular !== false,
     statistical: state?.strategy_flags?.statistical !== false,
+    scalp_forward: state?.strategy_flags?.scalp_forward !== false,
+    scalp_reverse: state?.strategy_flags?.scalp_reverse !== false,
+    scalp_parallel: state?.strategy_flags?.scalp_parallel !== false,
   };
   const perpsExecutionEnabled = strategyFlags.perps && state?.spot_only_lock !== true;
 
   const allOpportunities = [];
-  const lastScan = { timestamp: Date.now(), cex: null, dex: null, perps: null, funding: null, triangular: null, statistical: null };
+  const lastScan = {
+    timestamp: Date.now(),
+    cex: null,
+    dex: null,
+    perps: null,
+    funding: null,
+    triangular: null,
+    statistical: null,
+    scalp_forward: null,
+    scalp_reverse: null,
+    scalp_parallel: null,
+  };
 
   // Load circuit-breaker state from KV once per cycle
   const cb = await getCircuitBreaker(env);
@@ -632,6 +653,32 @@ export async function runScan(env, state, sendAlert) {
             }
           }
 
+          const scalpingOptions = {
+            minNetPct: Number(state?.scalp_min_net_pct || 0.10),
+          };
+
+          const scalpForwardOpp = strategyFlags.scalp_forward
+            ? scanScalpingForward(symbol, effectiveSpotSources, {
+              ...scalpingOptions,
+              minSafety: 0.30,
+              maxGrossPct: maxSpreadPct,
+            })
+            : null;
+
+          const scalpReverseOpp = strategyFlags.scalp_reverse
+            ? scanScalpingReverse(symbol, effectiveSpotSources, {
+              ...scalpingOptions,
+              minSafety: 0.42,
+            })
+            : null;
+
+          const scalpParallelOpp = strategyFlags.scalp_parallel
+            ? scanScalpingParallel(symbol, effectiveSpotSources, {
+              ...scalpingOptions,
+              minSafety: 0.28,
+            })
+            : null;
+
           if (cexOpp) {
             allOpportunities.push(cexOpp);
             if ((paperMode || isLiveExecutableOpportunityWithEnv(cexOpp, env)) &&
@@ -658,6 +705,27 @@ export async function runScan(env, state, sendAlert) {
             if ((paperMode || isLiveExecutableOpportunityWithEnv(triangularOpp, env)) &&
                 (!lastScan.triangular || triangularOpp.netPct > lastScan.triangular.netPct)) {
               lastScan.triangular = triangularOpp;
+            }
+          }
+          if (scalpForwardOpp) {
+            allOpportunities.push(scalpForwardOpp);
+            if ((paperMode || isLiveExecutableOpportunityWithEnv(scalpForwardOpp, env)) &&
+                (!lastScan.scalp_forward || scalpForwardOpp.netPct > lastScan.scalp_forward.netPct)) {
+              lastScan.scalp_forward = scalpForwardOpp;
+            }
+          }
+          if (scalpReverseOpp) {
+            allOpportunities.push(scalpReverseOpp);
+            if ((paperMode || isLiveExecutableOpportunityWithEnv(scalpReverseOpp, env)) &&
+                (!lastScan.scalp_reverse || scalpReverseOpp.netPct > lastScan.scalp_reverse.netPct)) {
+              lastScan.scalp_reverse = scalpReverseOpp;
+            }
+          }
+          if (scalpParallelOpp) {
+            allOpportunities.push(scalpParallelOpp);
+            if ((paperMode || isLiveExecutableOpportunityWithEnv(scalpParallelOpp, env)) &&
+                (!lastScan.scalp_parallel || scalpParallelOpp.netPct > lastScan.scalp_parallel.netPct)) {
+              lastScan.scalp_parallel = scalpParallelOpp;
             }
           }
         } catch (e) {
@@ -731,64 +799,44 @@ export async function runScan(env, state, sendAlert) {
     return null;
   }
 
-  // ── Pick highest net-profit opportunity ──────────────────────────────────
-  const best = executableOpportunities.reduce((a, b) => (a.netPct > b.netPct ? a : b));
+  // ── Differential ranking and multi-strategy execution plan ───────────────
+  const rankedOpportunities = executableOpportunities
+    .map((opp) => ({
+      ...opp,
+      score: scoreOpportunity(opp, strategyWeights, strategyOutcomes),
+    }))
+    .sort((a, b) => {
+      if (b.score !== a.score) return b.score - a.score;
+      return Number(b.netPct || 0) - Number(a.netPct || 0);
+    });
+
+  const maxTradesPerScan = state.multi_strategy_live !== false
+    ? clamp(Math.floor(Number(state.max_live_trades_per_scan || 1)), 1, 5)
+    : 1;
+  const selected = [];
+  const usedSymbols = new Set();
+
+  for (const opp of rankedOpportunities) {
+    const key = String(opp.symbol || '').toUpperCase();
+    if (usedSymbols.has(key) && opp.strategy !== 'scalp_parallel') continue;
+    selected.push(opp);
+    usedSymbols.add(key);
+    if (selected.length >= maxTradesPerScan) break;
+  }
+  if (selected.length === 0 && rankedOpportunities.length > 0) {
+    selected.push(rankedOpportunities[0]);
+  }
+
+  const top = selected[0];
   console.log(
-    `🎯 Best [${best.strategy.toUpperCase()}] ${best.symbol} ${best.direction}` +
-    ` net ${best.netPct.toFixed(4)}%  safety ${(best.safetyFactor * 100).toFixed(1)}%`
+    `🎯 Top now [${String(top.strategy || '').toUpperCase()}] ${top.symbol} ${top.direction}` +
+    ` net ${Number(top.netPct || 0).toFixed(4)}% score ${Number(top.score || 0).toFixed(5)}`
   );
 
-  // ── Sizing ───────────────────────────────────────────────────────────────
-  const leverage = best.isPerp || best.strategy === 'funding'
-    ? calculateAdaptiveLeverage(equity, best.netPct, initialCapital)
-    : 1;
-  const baseSize = calculatePositionSize(
-    equity,
-    state.win_rate          || 0.55,
-    state.risk_reward_ratio || 2.0
-  );
-  const requestedSizeUsd = Math.min(baseSize * leverage, equity * MAX_POSITION_EQUITY_FRACTION);
-  const liveBalanceCapUsd = paperMode ? Number.POSITIVE_INFINITY : await getLiveExecutionCapUsd(env, best);
-  const sizeUsd = Math.min(requestedSizeUsd, liveBalanceCapUsd);
   const dailyLimitUsd = Number.isFinite(state.daily_limit_usd) && state.daily_limit_usd > 0
     ? state.daily_limit_usd
     : 0;
-  const dailyVolumeUsd = Number(state.daily_volume_usd || 0);
 
-  if (dailyLimitUsd > 0 && dailyVolumeUsd + sizeUsd > dailyLimitUsd) {
-    state.auto_stopped = true;
-    state.auto_stop_reason = `تجاوز حد الحجم اليومي $${dailyLimitUsd}`;
-    await saveState(env, state);
-    await logBotEvent(env, 'auto_stop', { reason: state.auto_stop_reason });
-    await sendAlert(env, `🛑 *إيقاف تلقائي*\n${state.auto_stop_reason}`);
-    return null;
-  }
-
-  if (!Number.isFinite(sizeUsd) || sizeUsd <= 0) {
-    // Balance check failed (likely exchange IP restriction) — record as paper observation
-    console.warn(
-      `[fallback-paper] Live balance check blocked for ${best.symbol} ` +
-      `(${best.strategy} ${best.direction} net=${best.netPct.toFixed(4)}%) — ` +
-      `recording as paper observation`
-    );
-    await sendAlert(
-      env,
-      `📊 [OPP] [${best.strategy.toUpperCase()}] ${best.symbol}\n` +
-      `${best.direction}\n` +
-      `صافي: ${best.netPct.toFixed(4)}%  أمان: ${(best.safetyFactor * 100).toFixed(1)}%\n` +
-      `⚠️ تعذّر التحقق من الرصيد — الفرصة مرصودة فقط`
-    );
-    return null;
-  }
-
-  if (!paperMode && sizeUsd < requestedSizeUsd) {
-    console.log(`💱 Live size capped from $${requestedSizeUsd.toFixed(2)} to $${sizeUsd.toFixed(2)} by available balances`);
-  }
-  const mode          = paperMode ? 'paper' : 'live';
-  const strategyLabel = `${best.strategy}:${best.direction}`;
-  const levStr        = leverage > 1 ? ` | ${leverage}x` : '';
-
-  // ── Pre-execution risk checks ────────────────────────────────────────────
   const drawdownCheck = checkDrawdownGuard(state, equity);
   if (drawdownCheck.halt) {
     state.auto_stopped = true;
@@ -800,73 +848,150 @@ export async function runScan(env, state, sendAlert) {
     return null;
   }
 
-  const currentExposure = state.total_trades
-    ? Math.min(sizeUsd * 3, equity * MAX_POSITION_EQUITY_FRACTION * 3)
-    : 0;
-  const exposureCheck = checkExposureLimit(equity, currentExposure, sizeUsd);
-  if (!exposureCheck.allowed) {
-    console.log(`🔍 Nexus: exposure limit blocked trade — ${exposureCheck.reason}`);
-    return null;
-  }
+  const mode = paperMode ? 'paper' : 'live';
+  const executed = [];
 
-  // ── Execute or log paper trade ───────────────────────────────────────────
-  if (paperMode) {
-    await openPaperPosition(env, best, sizeUsd);
-    state.daily_volume_usd = (state.daily_volume_usd || 0) + sizeUsd;
-    state.last_trade_timestamp = Date.now();
-
-    await sendAlert(
-      env,
-      `📄 [PAPER] [${best.strategy.toUpperCase()}] ${best.symbol}\n` +
-      `${best.direction}\n` +
-      `$${sizeUsd.toFixed(2)}${levStr}\n` +
-      `net ${best.netPct.toFixed(4)}%  safety ${(best.safetyFactor * 100).toFixed(1)}%`
+  for (const opp of selected) {
+    const liveEquity = initialCapital + (state.total_pnl || 0);
+    const leverage = opp.isPerp || opp.strategy === 'funding'
+      ? calculateAdaptiveLeverage(liveEquity, opp.netPct, initialCapital)
+      : 1;
+    const baseSize = calculatePositionSize(
+      liveEquity,
+      state.win_rate || 0.55,
+      state.risk_reward_ratio || 2.0
     );
-    incrementMetric('trade.executed', 1, { mode: 'paper', strategy: best.strategy });
-  } else {
-    try {
-      await executeTrade(env, best, sizeUsd, leverage);
+    const requestedSizeUsd = Math.min(baseSize * leverage, liveEquity * MAX_POSITION_EQUITY_FRACTION);
+    const liveBalanceCapUsd = paperMode ? Number.POSITIVE_INFINITY : await getLiveExecutionCapUsd(env, opp);
+    const sizeUsd = Math.min(requestedSizeUsd, liveBalanceCapUsd);
 
-      const tradePnl = sizeUsd * best.netPct / 100;
-      state.daily_pnl          = (state.daily_pnl   || 0) + tradePnl;
-      state.total_pnl          = (state.total_pnl   || 0) + tradePnl;
-      state.daily_trades       = (state.daily_trades || 0) + 1;
-      state.daily_volume_usd   = (state.daily_volume_usd || 0) + sizeUsd;
-      state.total_trades       = (state.total_trades || 0) + 1;
+    if (dailyLimitUsd > 0 && Number(state.daily_volume_usd || 0) + sizeUsd > dailyLimitUsd) {
+      state.auto_stopped = true;
+      state.auto_stop_reason = `تجاوز حد الحجم اليومي $${dailyLimitUsd}`;
+      await saveState(env, state);
+      await logBotEvent(env, 'auto_stop', { reason: state.auto_stop_reason });
+      await sendAlert(env, `🛑 *إيقاف تلقائي*\n${state.auto_stop_reason}`);
+      break;
+    }
+
+    if (!Number.isFinite(sizeUsd) || sizeUsd <= 0) {
+      console.warn(
+        `[fallback-paper] Live balance check blocked for ${opp.symbol} ` +
+        `(${opp.strategy} ${opp.direction} net=${Number(opp.netPct || 0).toFixed(4)}%)`
+      );
+      await sendAlert(
+        env,
+        `📊 [OPP] [${String(opp.strategy || '').toUpperCase()}] ${opp.symbol}\n` +
+        `${opp.direction}\n` +
+        `صافي: ${Number(opp.netPct || 0).toFixed(4)}%  أمان: ${(Number(opp.safetyFactor || 0) * 100).toFixed(1)}%\n` +
+        `⚠️ تعذّر التحقق من الرصيد — الفرصة مرصودة فقط`
+      );
+      continue;
+    }
+
+    const currentExposure = state.total_trades
+      ? Math.min(sizeUsd * 3, liveEquity * MAX_POSITION_EQUITY_FRACTION * 3)
+      : 0;
+    const exposureCheck = checkExposureLimit(liveEquity, currentExposure, sizeUsd);
+    if (!exposureCheck.allowed) {
+      console.log(`🔍 Nexus: exposure limit blocked trade — ${exposureCheck.reason}`);
+      continue;
+    }
+
+    const strategyLabel = `${opp.strategy}:${opp.direction}`;
+    const levStr = leverage > 1 ? ` | ${leverage}x` : '';
+
+    if (paperMode) {
+      await openPaperPosition(env, opp, sizeUsd);
+      state.daily_volume_usd = (state.daily_volume_usd || 0) + sizeUsd;
       state.last_trade_timestamp = Date.now();
 
-      await logTrade(env, { strategy: strategyLabel, sizeUsd, netPct: best.netPct, mode });
+      const estimatedPnl = sizeUsd * Number(opp.netPct || 0) / 100;
+      await recordStrategyOutcome(env, String(opp.strategy || '').toLowerCase(), {
+        success: true,
+        pnlUsd: estimatedPnl,
+        symbol: opp.symbol,
+        exchange: opp.buyExchange,
+      });
 
       await sendAlert(
         env,
-        `✅ [LIVE] [${best.strategy.toUpperCase()}] ${best.symbol}\n` +
-        `${best.direction}\n` +
+        `📄 [PAPER] [${String(opp.strategy || '').toUpperCase()}] ${opp.symbol}\n` +
+        `${opp.direction}\n` +
         `$${sizeUsd.toFixed(2)}${levStr}\n` +
-        `net ${best.netPct.toFixed(4)}%`
+        `net ${Number(opp.netPct || 0).toFixed(4)}%  safety ${(Number(opp.safetyFactor || 0) * 100).toFixed(1)}%`
       );
-      incrementMetric('trade.executed', 1, { mode: 'live', strategy: best.strategy });
+      incrementMetric('trade.executed', 1, { mode: 'paper', strategy: opp.strategy });
+      executed.push({ opportunity: opp, sizeUsd, leverage, mode });
+      continue;
+    }
+
+    try {
+      await executeTrade(env, opp, sizeUsd, leverage);
+
+      const tradePnl = sizeUsd * Number(opp.netPct || 0) / 100;
+      state.daily_pnl = (state.daily_pnl || 0) + tradePnl;
+      state.total_pnl = (state.total_pnl || 0) + tradePnl;
+      state.daily_trades = (state.daily_trades || 0) + 1;
+      state.daily_volume_usd = (state.daily_volume_usd || 0) + sizeUsd;
+      state.total_trades = (state.total_trades || 0) + 1;
+      state.last_trade_timestamp = Date.now();
+
+      await recordStrategyOutcome(env, String(opp.strategy || '').toLowerCase(), {
+        success: true,
+        pnlUsd: tradePnl,
+        symbol: opp.symbol,
+        exchange: opp.buyExchange,
+      });
+
+      await logTrade(env, { strategy: strategyLabel, sizeUsd, netPct: opp.netPct, mode });
+
+      await sendAlert(
+        env,
+        `✅ [LIVE] [${String(opp.strategy || '').toUpperCase()}] ${opp.symbol}\n` +
+        `${opp.direction}\n` +
+        `$${sizeUsd.toFixed(2)}${levStr}\n` +
+        `net ${Number(opp.netPct || 0).toFixed(4)}%`
+      );
+      incrementMetric('trade.executed', 1, { mode: 'live', strategy: opp.strategy });
+      executed.push({ opportunity: opp, sizeUsd, leverage, mode });
     } catch (execErr) {
       console.error('Trade execution error:', execErr.message);
       logEvent('error', 'trade.execution_failed', {
-        strategy: best.strategy,
-        symbol: best.symbol,
+        strategy: opp.strategy,
+        symbol: opp.symbol,
         reason: execErr.message,
       });
-      incrementMetric('trade.execution_failed', 1, { strategy: best.strategy });
+      incrementMetric('trade.execution_failed', 1, { strategy: opp.strategy });
+      await recordStrategyOutcome(env, String(opp.strategy || '').toLowerCase(), {
+        success: false,
+        pnlUsd: 0,
+        symbol: opp.symbol,
+        exchange: opp.buyExchange,
+      });
       await sendAlert(
         env,
-        `❌ [${best.strategy.toUpperCase()}] فشل التنفيذ ${best.symbol}: ${execErr.message}`
+        `❌ [${String(opp.strategy || '').toUpperCase()}] فشل التنفيذ ${opp.symbol}: ${execErr.message}`
       );
-      return null;
     }
   }
 
+  if (!executed.length) return null;
+
   observeLatency('scan.duration_ms', scanStartedAt, {
-    strategy: best.strategy,
+    strategy: executed[0].opportunity.strategy,
     mode: paperMode ? 'paper' : 'live',
   });
 
-  return { opportunity: best, sizeUsd, leverage };
+  return {
+    executed,
+    rankedTop: rankedOpportunities.slice(0, 5).map((x) => ({
+      strategy: x.strategy,
+      symbol: x.symbol,
+      netPct: x.netPct,
+      score: x.score,
+    })),
+  };
   } finally {
     await releaseExecutionLock(env, lock.token);
   }
@@ -931,6 +1056,22 @@ export async function executeCexArbWithHedge(
 async function executeTrade(env, opp, sizeUsd, leverage) {
   if (opp.strategy === 'dex') {
     await executeDexTrade(env, opp, sizeUsd);
+    return;
+  }
+
+  if (opp.strategy === 'scalp_parallel' && Array.isArray(opp.parallelLegs) && opp.parallelLegs.length > 0) {
+    const perLegSize = sizeUsd / opp.parallelLegs.length;
+    for (const leg of opp.parallelLegs) {
+      const syntheticOpp = {
+        ...opp,
+        strategy: 'cex',
+        buyExchange: leg.buyExchange,
+        sellExchange: leg.sellExchange,
+        buyPrice: leg.buyPrice,
+        sellPrice: leg.sellPrice,
+      };
+      await executeTrade(env, syntheticOpp, perLegSize, leverage);
+    }
     return;
   }
 
@@ -1054,4 +1195,29 @@ async function executeTrade(env, opp, sizeUsd, leverage) {
     amount,
     requiredQuote,
   });
+}
+
+function clamp(n, min, max) {
+  return Math.max(min, Math.min(max, n));
+}
+
+function getRecentWinRate(bucket) {
+  const outcomes = Array.isArray(bucket?.outcomes) ? bucket.outcomes.slice(-40) : [];
+  if (!outcomes.length) return 0.5;
+  const wins = outcomes.reduce((sum, x) => sum + (x?.success ? 1 : 0), 0);
+  return wins / outcomes.length;
+}
+
+function scoreOpportunity(opp, strategyWeights, strategyOutcomes) {
+  const strategy = String(opp?.strategy || '').toLowerCase();
+  const netPct = Number(opp?.netPct || 0);
+  if (!Number.isFinite(netPct) || netPct <= 0) return -1;
+
+  const weight = Number(strategyWeights?.[strategy] ?? 1);
+  const safety = clamp(Number(opp?.safetyFactor ?? 0.5), 0.1, 1.5);
+  const confidence = clamp(Number(opp?.confidence ?? 0.6), 0.2, 1.0);
+  const winRate = getRecentWinRate(strategyOutcomes?.[strategy]);
+  const winBoost = clamp(0.8 + (winRate * 0.5), 0.8, 1.3);
+
+  return netPct * safety * confidence * weight * winBoost;
 }
