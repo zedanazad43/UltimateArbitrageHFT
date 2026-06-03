@@ -141,6 +141,25 @@ const AUTO_PROFILES = {
   },
 };
 
+function parseEnvBool(value) {
+  return ['1', 'true', 'on', 'yes'].includes(String(value || '').toLowerCase());
+}
+
+function applyForcedManualRiskLockFromEnv(state, env) {
+  if (!parseEnvBool(env.MANUAL_RISK_LOCK_FORCE)) return state;
+  return {
+    ...state,
+    manual_risk_lock: true,
+    auto_profiler_enabled: false,
+    burst_overdrive_until_ts: 0,
+    position_size_usd: 2,
+    max_live_trades_per_scan: 2,
+    max_daily_loss_usd: 20,
+    max_per_trade_loss_pct: 0.015,
+    min_seconds_between_trades: 8,
+  };
+}
+
 function clampInt(v, min, max) {
   const n = Number(v);
   if (!Number.isFinite(n)) return min;
@@ -196,7 +215,7 @@ async function getState(env) {
     return null;
   }) || { ...DEFAULT_STATE };
 
-  return {
+  const merged = {
     ...DEFAULT_STATE,
     ...state,
     rebalance_policy: {
@@ -208,6 +227,8 @@ async function getState(env) {
       ...(state?.strategy_flags || {}),
     },
   };
+
+  return applyForcedManualRiskLockFromEnv(merged, env);
 }
 
 async function saveState(env, state) {
@@ -834,6 +855,7 @@ app.post('/config', async (c) => {
   let body;
   try { body = await c.req.json(); } catch (_) { return c.text('Invalid JSON', 400); }
   const state = await getState(c.env);
+  const forceManualRiskLock = parseEnvBool(c.env.MANUAL_RISK_LOCK_FORCE);
   const forceUnlockRequested = body.force_unlock_manual_risk_lock === true;
   const unlockHeader = String(c.req.header('x-risk-unlock-token') || '').trim();
   const unlockTokenConfigured = String(c.env.RISK_UNLOCK_TOKEN || '').trim();
@@ -866,6 +888,15 @@ app.post('/config', async (c) => {
     isFiniteNum(body.min_seconds_between_trades) ||
     isFiniteNum(body.burst_overdrive_minutes) ||
     typeof body.burst_revert_profile === 'string';
+
+  if (forceManualRiskLock && touchingProtectedRiskConfig) {
+    await logAdminEvent(c.env, 'config_forced_lock_rejected', c.req.raw);
+    return c.json({
+      success: false,
+      error: 'MANUAL_RISK_LOCK_FORCE is enabled; protected risk settings are immutable',
+      forcedByEnvironment: true,
+    }, 423);
+  }
 
   if (state.manual_risk_lock === true && touchingProtectedRiskConfig && !forceUnlockManualRiskLock) {
     await logAdminEvent(c.env, 'config_locked_rejected', c.req.raw);

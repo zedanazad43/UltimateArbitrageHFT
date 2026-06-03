@@ -197,6 +197,10 @@ STRATEGY_MODE = "multi_exchange"
 # be re-enabled through admin endpoints and scheduled cycle self-heals drift.
 SPOT_ONLY_LOCK_FORCE = "true"
 
+# Force manual risk lock profile at runtime. While enabled, protected risk
+# settings become immutable via /config and execution always uses strict limits.
+MANUAL_RISK_LOCK_FORCE = "true"
+
 # Skip exchange balance check when it's blocked by WAF (e.g. MEXC blocks CF Worker IPs).
 # When enabled, uses position_size_usd as the default trade size and attempts execution directly.
 # The order endpoint may have different IP restrictions than the account/balance endpoint.
