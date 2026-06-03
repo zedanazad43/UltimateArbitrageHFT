@@ -43,3 +43,9 @@ strategy-evaluation.json
 test-exchanges.js
 # Kimi project memory
 .kimi-memory/
+
+# Runtime and generated ops artifacts
+logs/exec-stability-*.jsonl
+logs/exec-stability-*.summary.json
+logs/live-ops-snapshot-*.md
+scripts/.runtime/
