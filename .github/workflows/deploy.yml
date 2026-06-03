@@ -80,7 +80,6 @@ jobs:
           keys = [
             "MEXC_API_KEY", "MEXC_API_SECRET",
             "BINANCE_API_KEY", "BINANCE_API_SECRET",
-            "OKX_API_KEY", "OKX_API_SECRET", "OKX_PASSPHRASE",
             "KUCOIN_API_KEY", "KUCOIN_SECRET_KEY", "KUCOIN_PASSPHRASE",
             "COINBASE_API_KEY", "COINBASE_SECRET_KEY",
             "BITGET_API_KEY", "BITGET_SECRET_KEY", "BITGET_API_PASSPHRASE",
@@ -118,9 +117,6 @@ jobs:
           MEXC_API_SECRET: ${{ secrets.MEXC_API_SECRET }}
           BINANCE_API_KEY: ${{ secrets.BINANCE_API_KEY }}
           BINANCE_API_SECRET: ${{ secrets.BINANCE_API_SECRET }}
-          OKX_API_KEY: ${{ secrets.OKX_API_KEY }}
-          OKX_API_SECRET: ${{ secrets.OKX_API_SECRET }}
-          OKX_PASSPHRASE: ${{ secrets.OKX_PASSPHRASE }}
           KUCOIN_API_KEY: ${{ secrets.KUCOIN_API_KEY }}
           KUCOIN_SECRET_KEY: ${{ secrets.KUCOIN_SECRET_KEY }}
           KUCOIN_PASSPHRASE: ${{ secrets.KUCOIN_PASSPHRASE }}
