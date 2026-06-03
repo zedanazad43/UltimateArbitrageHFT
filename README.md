@@ -5,6 +5,20 @@ Live URL: <https://ultimatearbitragehft.zedanazad43.workers.dev>
 
 ---
 
+## Agent Instruction Sources (Local + Cloud)
+
+This repository enforces Advisor Mode instructions for local and cloud agents from these files:
+
+- `.github/copilot-instructions.md` (GitHub Copilot in this repo)
+- `AGENTS.md` (repository-wide cloud/automation agent guidance)
+- `.cloudflare/agent-instructions.md` (Cloudflare-side agent guidance)
+
+For local/global VS Code Copilot sessions across all projects, user-level instructions are also configured at:
+
+- `~/.copilot/instructions/advisor-mode.instructions.md`
+
+---
+
 ## Prerequisites — do these ONCE before first deploy
 
 ### 1. Cloudflare API Token
