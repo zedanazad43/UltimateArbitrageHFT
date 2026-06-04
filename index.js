@@ -144,7 +144,7 @@ const AUTO_PROFILES = {
     min_seconds_between_trades: 1,
     max_live_trades_per_scan: 5,
     max_dynamic_symbols: 2000,
-    max_spread_pct: 15,
+    max_spread_pct: 25,
   },
 };
 
@@ -1017,7 +1017,7 @@ app.post('/config', async (c) => {
     }
   }
   if (Number.isFinite(body.burst_overdrive_minutes)) {
-    const mins = clampInt(body.burst_overdrive_minutes, 0, 30);
+    const mins = clampInt(body.burst_overdrive_minutes, 0, 120);
     state.burst_overdrive_until_ts = state.manual_risk_lock ? 0 : (mins > 0 ? (Date.now() + mins * 60_000) : 0);
     if (!state.manual_risk_lock && mins > 0) {
       applyProfileToState(state, 'overdrive');

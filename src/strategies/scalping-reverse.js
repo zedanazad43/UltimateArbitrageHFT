@@ -3,10 +3,10 @@
 
 const DATA_ONLY_EXCHANGES = new Set(['bybit', 'gateio', 'kraken', 'coinbase']);
 
-const DEFAULT_MIN_NET_PCT = 0.08;
-const DEFAULT_MIN_SAFETY = 0.42;
-const DEFAULT_MIN_GROSS_PCT = 0.20;
-const DEFAULT_MAX_GROSS_PCT = 1.80;
+const DEFAULT_MIN_NET_PCT = 0.03;
+const DEFAULT_MIN_SAFETY = 0.18;
+const DEFAULT_MIN_GROSS_PCT = 0.05;
+const DEFAULT_MAX_GROSS_PCT = 4.0;
 
 function getOneWaySlippagePct(exchange) {
   const map = {

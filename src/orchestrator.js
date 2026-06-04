@@ -498,7 +498,7 @@ export async function runScan(env, state, sendAlert) {
   const cexScanOptions = {
     minSafetyFactor: Number.isFinite(configuredCexMinSafety)
       ? configuredCexMinSafety
-      : (aggressiveScanMode ? 0.20 : 0.35),
+      : (aggressiveScanMode ? 0.12 : 0.25),
     slippageMultiplier: Number.isFinite(configuredCexSlippageMultiplier)
       ? configuredCexSlippageMultiplier
       : (aggressiveScanMode ? 0.75 : 1),
@@ -506,7 +506,7 @@ export async function runScan(env, state, sendAlert) {
   const perpsScanOptions = {
     minSafetyFactor: Number.isFinite(configuredPerpsMinSafety)
       ? configuredPerpsMinSafety
-      : (aggressiveScanMode ? 0.20 : 0.35),
+      : (aggressiveScanMode ? 0.12 : 0.25),
   };
   const botMemory = await loadBotMemory(env).catch(() => null);
   const strategyWeights = botMemory?.strategyWeights || {};
@@ -588,7 +588,7 @@ export async function runScan(env, state, sendAlert) {
     }
   }
 
-  async function scanSymbolsConcurrently(syms, handler, maxConcurrency = 2) {
+  async function scanSymbolsConcurrently(syms, handler, maxConcurrency = 4) {
     for await (const batch of batchedSymbols(syms, maxConcurrency)) {
       await Promise.all(batch.map(handler));
     }
@@ -680,7 +680,7 @@ export async function runScan(env, state, sendAlert) {
           const scalpForwardOpp = strategyFlags.scalp_forward
             ? scanScalpingForward(symbol, effectiveSpotSources, {
               ...scalpingOptions,
-              minSafety: 0.30,
+              minSafety: 0.18,
               maxGrossPct: maxSpreadPct,
             })
             : null;
@@ -688,14 +688,14 @@ export async function runScan(env, state, sendAlert) {
           const scalpReverseOpp = strategyFlags.scalp_reverse
             ? scanScalpingReverse(symbol, effectiveSpotSources, {
               ...scalpingOptions,
-              minSafety: 0.42,
+              minSafety: 0.18,
             })
             : null;
 
           const scalpParallelOpp = strategyFlags.scalp_parallel
             ? scanScalpingParallel(symbol, effectiveSpotSources, {
               ...scalpingOptions,
-              minSafety: 0.28,
+              minSafety: 0.18,
             })
             : null;
 

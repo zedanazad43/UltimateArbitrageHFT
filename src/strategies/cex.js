@@ -1,6 +1,6 @@
 // nexus/src/strategies/cex.js — CEX Spatial Arbitrage Strategy
 
-const MIN_SAFETY_FACTOR = 0.35; // net/gross must be >= 35%
+const MIN_SAFETY_FACTOR = 0.20; // net/gross must be >= 20% (aggressive mode)
 
 // Data-only exchanges that should never appear as execution venues.
 // These exchanges are restricted by regulation (BaFin Germany) or lack API credentials.

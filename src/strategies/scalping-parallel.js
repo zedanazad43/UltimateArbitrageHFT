@@ -2,8 +2,8 @@
 // Parallel scalping: bundles the top two independent CEX spread legs for one symbol.
 
 const DATA_ONLY_EXCHANGES = new Set(['bybit', 'gateio', 'kraken', 'coinbase']);
-const DEFAULT_MIN_NET_PCT = 0.08;
-const DEFAULT_MIN_SAFETY = 0.28;
+const DEFAULT_MIN_NET_PCT = 0.03;
+const DEFAULT_MIN_SAFETY = 0.18;
 
 function getOneWaySlippagePct(exchange) {
   const map = {
