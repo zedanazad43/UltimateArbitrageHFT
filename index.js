@@ -1245,6 +1245,17 @@ app.get('/api/status', async (c) => {
   });
 });
 
+// ── API: Scan rejection telemetry snapshot ──────────────────────────────────
+app.get('/api/scan-rejections', async (c) => {
+  if (!isAuthorized(c.env, c)) return authDenied(c.env, c, true);
+  const snapshot = await c.env.BOT_STATE.get('nexus_scan_rejections_last', 'json').catch(() => null);
+  return c.json({
+    success: true,
+    data: snapshot,
+    timestamp: new Date().toISOString(),
+  });
+});
+
 // ── API: Safety state snapshot ───────────────────────────────────────────────
 // Single payload for operational guardrails and runtime safety checks.
 app.get('/api/safety-state', async (c) => {

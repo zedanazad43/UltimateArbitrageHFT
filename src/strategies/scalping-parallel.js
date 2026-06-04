@@ -17,30 +17,58 @@ function getOneWaySlippagePct(exchange) {
   return map[String(exchange || '').toLowerCase()] ?? 0.07;
 }
 
+function addRejection(options, reason, count = 1) {
+  if (!options || !options.rejections || !reason || count <= 0) return;
+  options.rejections[reason] = Number(options.rejections[reason] || 0) + Number(count || 0);
+}
+
 export function scanScalpingParallel(symbol, sources, options = {}) {
-  if (!Array.isArray(sources) || sources.length < 3) return null;
+  if (!Array.isArray(sources) || sources.length < 3) {
+    addRejection(options, 'insufficient_sources');
+    return null;
+  }
 
   const minNetPct = Number.isFinite(options.minNetPct) ? options.minNetPct : DEFAULT_MIN_NET_PCT;
   const minSafety = Number.isFinite(options.minSafety) ? options.minSafety : DEFAULT_MIN_SAFETY;
 
   const candidates = [];
+  let rejectedInvalidInput = 0;
+  let rejectedNonPositiveSpread = 0;
+  let rejectedDataOnlyVenue = 0;
+  let rejectedNetBelowMin = 0;
+  let rejectedLowSafety = 0;
   for (let i = 0; i < sources.length; i++) {
     for (let j = 0; j < sources.length; j++) {
       if (i === j) continue;
       const buy = sources[i];
       const sell = sources[j];
-      if (!buy || !sell || !Number.isFinite(buy.price) || !Number.isFinite(sell.price)) continue;
-      if (sell.price <= buy.price) continue;
-      if (DATA_ONLY_EXCHANGES.has(buy.exchange) || DATA_ONLY_EXCHANGES.has(sell.exchange)) continue;
+      if (!buy || !sell || !Number.isFinite(buy.price) || !Number.isFinite(sell.price)) {
+        rejectedInvalidInput++;
+        continue;
+      }
+      if (sell.price <= buy.price) {
+        rejectedNonPositiveSpread++;
+        continue;
+      }
+      if (DATA_ONLY_EXCHANGES.has(buy.exchange) || DATA_ONLY_EXCHANGES.has(sell.exchange)) {
+        rejectedDataOnlyVenue++;
+        continue;
+      }
 
       const grossPct = ((sell.price - buy.price) / buy.price) * 100;
       const feePct = (Number(buy.fee || 0) + Number(sell.fee || 0)) * 100;
       const slippagePct = getOneWaySlippagePct(buy.exchange) + getOneWaySlippagePct(sell.exchange);
       const netPct = grossPct - feePct - slippagePct;
-      if (!Number.isFinite(netPct) || netPct < minNetPct) continue;
+      if (!Number.isFinite(netPct) || netPct < minNetPct) {
+        rejectedNetBelowMin++;
+        continue;
+      }
 
       const safetyFactor = netPct / grossPct;
-      if (!Number.isFinite(safetyFactor) || safetyFactor < minSafety) continue;
+      if (!Number.isFinite(safetyFactor) || safetyFactor < minSafety) {
+        rejectedLowSafety++;
+        continue;
+      }
 
       candidates.push({
         buyExchange: buy.exchange,
@@ -55,7 +83,15 @@ export function scanScalpingParallel(symbol, sources, options = {}) {
     }
   }
 
-  if (candidates.length < 2) return null;
+  if (candidates.length < 2) {
+    addRejection(options, 'invalid_input_prices', rejectedInvalidInput);
+    addRejection(options, 'non_positive_spread', rejectedNonPositiveSpread);
+    addRejection(options, 'data_only_execution_venue', rejectedDataOnlyVenue);
+    addRejection(options, 'net_below_min', rejectedNetBelowMin);
+    addRejection(options, 'safety_below_threshold', rejectedLowSafety);
+    addRejection(options, 'insufficient_parallel_candidates');
+    return null;
+  }
   candidates.sort((a, b) => b.netPct - a.netPct);
 
   const legs = [];
@@ -70,7 +106,10 @@ export function scanScalpingParallel(symbol, sources, options = {}) {
     if (legs.length >= 2) break;
   }
 
-  if (legs.length < 2) return null;
+  if (legs.length < 2) {
+    addRejection(options, 'parallel_leg_overlap_conflict');
+    return null;
+  }
 
   const combinedNet = legs.reduce((s, x) => s + x.netPct, 0) / legs.length;
   const combinedGross = legs.reduce((s, x) => s + x.grossPct, 0) / legs.length;

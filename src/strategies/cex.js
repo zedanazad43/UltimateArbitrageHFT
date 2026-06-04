@@ -32,6 +32,11 @@ function slippagePct(exchange) {
   return SLIPPAGE_OVERRIDES[exchange] ?? DEFAULT_SLIPPAGE_PCT;
 }
 
+function addRejection(options, reason, count = 1) {
+  if (!options || !options.rejections || !reason || count <= 0) return;
+  options.rejections[reason] = Number(options.rejections[reason] || 0) + Number(count || 0);
+}
+
 /**
  * Finds the best CEX arbitrage opportunity across the provided price sources.
  *
@@ -41,7 +46,10 @@ function slippagePct(exchange) {
  * @returns {object|null}  OpportunityObject or null
  */
 export function scanCEX(symbol, sources, maxSpreadPct, options = {}) {
-  if (sources.length < 2) return null;
+  if (sources.length < 2) {
+    addRejection(options, 'insufficient_sources');
+    return null;
+  }
 
   const minSafetyFactor = Number.isFinite(options?.minSafetyFactor)
     ? options.minSafetyFactor
@@ -59,29 +67,46 @@ export function scanCEX(symbol, sources, maxSpreadPct, options = {}) {
     console.log(
       `⚠️  CEX ${symbol}: spread ${observedSpread.toFixed(2)}% exceeds ${maxSpreadPct}% guard — skipped`
     );
+    addRejection(options, 'spread_guard_exceeded');
     return null;
   }
 
   let best = null;
+  let rejectedNonPositiveSpread = 0;
+  let rejectedDataOnlyVenue = 0;
+  let rejectedNonPositiveNet = 0;
+  let rejectedLowSafety = 0;
   for (let i = 0; i < sources.length; i++) {
     for (let j = 0; j < sources.length; j++) {
       if (i === j) continue;
       const buy  = sources[i];
       const sell = sources[j];
-      if (sell.price <= buy.price) continue;
+      if (sell.price <= buy.price) {
+        rejectedNonPositiveSpread++;
+        continue;
+      }
 
       // Skip opportunities involving data-only exchanges as execution venues
-      if (DATA_ONLY_EXCHANGES.has(buy.exchange) || DATA_ONLY_EXCHANGES.has(sell.exchange)) continue;
+      if (DATA_ONLY_EXCHANGES.has(buy.exchange) || DATA_ONLY_EXCHANGES.has(sell.exchange)) {
+        rejectedDataOnlyVenue++;
+        continue;
+      }
 
       const grossPct    = ((sell.price - buy.price) / buy.price) * 100;
       const totalFeePct = (buy.fee + sell.fee) * 100;
       // Deduct estimated market-impact slippage on both legs
       const totalSlippagePct = (slippagePct(buy.exchange) + slippagePct(sell.exchange)) * slippageMultiplier;
       const netPct      = grossPct - totalFeePct - totalSlippagePct;
-      if (netPct <= 0) continue;
+      if (netPct <= 0) {
+        rejectedNonPositiveNet++;
+        continue;
+      }
 
       const safetyFactor = netPct / grossPct;
-      if (safetyFactor < minSafetyFactor) continue;
+      if (safetyFactor < minSafetyFactor) {
+        rejectedLowSafety++;
+        continue;
+      }
 
       if (!best || netPct > best.netPct) {
         best = {
@@ -100,6 +125,12 @@ export function scanCEX(symbol, sources, maxSpreadPct, options = {}) {
         };
       }
     }
+  }
+  if (!best) {
+    addRejection(options, 'non_positive_spread', rejectedNonPositiveSpread);
+    addRejection(options, 'data_only_execution_venue', rejectedDataOnlyVenue);
+    addRejection(options, 'non_positive_net_after_fees_slippage', rejectedNonPositiveNet);
+    addRejection(options, 'safety_below_threshold', rejectedLowSafety);
   }
   return best;
 }

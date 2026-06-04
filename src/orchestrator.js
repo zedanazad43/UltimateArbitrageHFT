@@ -282,6 +282,7 @@ export async function executeDexTrade(env, opp, sizeUsd) {
 // is skipped. Additional protection: if failures exceed a very high threshold
 // (e.g. 100), the circuit enters a long cool-down to prevent resource waste.
 const CB_KEY                 = 'nexus_circuit_breaker';
+const SCAN_REJECTIONS_KEY    = 'nexus_scan_rejections_last';
 const EXECUTION_LOCK_KEY     = 'nexus_execution_lock';
 const EXECUTION_LOCK_TTL_MS  = 30 * 1000;
 const MAX_CB_FAILURES        = 3;
@@ -532,6 +533,17 @@ export async function runScan(env, state, sendAlert) {
   const perpsExecutionEnabled = strategyFlags.perps && state?.spot_only_lock !== true;
 
   const allOpportunities = [];
+  const rejectionBuckets = {
+    cex: {},
+    perps: {},
+    scalp_forward: {},
+    scalp_reverse: {},
+    scalp_parallel: {},
+    triangular: {},
+    statistical: {},
+    live_execution: {},
+    system: {},
+  };
   const lastScan = {
     timestamp: Date.now(),
     cex: null,
@@ -640,12 +652,18 @@ export async function runScan(env, state, sendAlert) {
 
           // ── Strategy 1: CEX Spatial ────────────────────────────────────────
           const cexOpp = (strategyFlags.cex && !mexcOnlyMode)
-            ? scanCEX(symbol, cexSources, maxSpreadPct, cexScanOptions)
+            ? scanCEX(symbol, cexSources, maxSpreadPct, {
+              ...cexScanOptions,
+              rejections: rejectionBuckets.cex,
+            })
             : null;
 
           // ── Strategy 2: Perpetuals vs Spot ─────────────────────────────────
           const perpsOpp = strategyFlags.perps
-            ? scanPerps(symbol, effectiveSpotSources, perpSource, maxSpreadPct, perpsScanOptions)
+            ? scanPerps(symbol, effectiveSpotSources, perpSource, maxSpreadPct, {
+              ...perpsScanOptions,
+              rejections: rejectionBuckets.perps,
+            })
             : null;
 
           // ── Strategy 3: Funding Rate Harvest ──────────────────────────────
@@ -670,7 +688,11 @@ export async function runScan(env, state, sendAlert) {
                 // Additional prices would be gathered in a more comprehensive scan
                 // For now, we just flag it as available
               });
+            } else {
+              incrementRejection(rejectionBuckets.triangular, 'missing_primary_symbol_price');
             }
+          } else if (strategyFlags.triangular) {
+            incrementRejection(rejectionBuckets.triangular, 'missing_spot_sources');
           }
 
           const scalpingOptions = {
@@ -682,6 +704,7 @@ export async function runScan(env, state, sendAlert) {
               ...scalpingOptions,
               minSafety: 0.18,
               maxGrossPct: maxSpreadPct,
+              rejections: rejectionBuckets.scalp_forward,
             })
             : null;
 
@@ -689,6 +712,7 @@ export async function runScan(env, state, sendAlert) {
             ? scanScalpingReverse(symbol, effectiveSpotSources, {
               ...scalpingOptions,
               minSafety: 0.18,
+              rejections: rejectionBuckets.scalp_reverse,
             })
             : null;
 
@@ -696,6 +720,7 @@ export async function runScan(env, state, sendAlert) {
             ? scanScalpingParallel(symbol, effectiveSpotSources, {
               ...scalpingOptions,
               minSafety: 0.18,
+              rejections: rejectionBuckets.scalp_parallel,
             })
             : null;
 
@@ -752,7 +777,7 @@ export async function runScan(env, state, sendAlert) {
           console.error(`[${symbol}] scan error:`, e.message);
         }
       },
-      2
+      4
     ),
     strategyFlags.dex ? scanDEX(env) : Promise.resolve(null)
   ]);
@@ -773,7 +798,11 @@ export async function runScan(env, state, sendAlert) {
                 (!lastScan.statistical || statOpp.netPct > lastScan.statistical.netPct)) {
               lastScan.statistical = statOpp;
             }
+          } else {
+            incrementRejection(rejectionBuckets.statistical, 'no_signal_for_pair');
           }
+        } else {
+          incrementRejection(rejectionBuckets.statistical, 'missing_pair_prices');
         }
       }
     } catch (e) {
@@ -813,15 +842,45 @@ export async function runScan(env, state, sendAlert) {
     );
   } catch (_) {}
 
+  const executableOpportunities = paperMode
+    ? allOpportunities
+    : allOpportunities.filter((opp) => isLiveExecutableOpportunityWithEnv(opp, env));
+
+  if (!paperMode && allOpportunities.length > 0) {
+    for (const opp of allOpportunities) {
+      if (isLiveExecutableOpportunityWithEnv(opp, env)) continue;
+      incrementRejection(rejectionBuckets.live_execution, classifyLiveRejectReason(opp, env));
+    }
+  }
+
+  if (allOpportunities.length === 0) {
+    incrementRejection(rejectionBuckets.system, 'no_opportunities_after_scan');
+  }
+  if (allOpportunities.length > 0 && executableOpportunities.length === 0) {
+    incrementRejection(rejectionBuckets.system, 'no_live_executable_opportunities');
+  }
+
+  const rejectionSnapshot = buildRejectionSnapshot(rejectionBuckets, {
+    symbolCount: Number(symbols.length || 0),
+    strategyMode,
+    paperMode,
+    maxSpreadPct,
+    opportunitiesFound: allOpportunities.length,
+    executableFound: executableOpportunities.length,
+  });
+  try {
+    await env.BOT_STATE.put(
+      SCAN_REJECTIONS_KEY,
+      JSON.stringify(rejectionSnapshot),
+      { expirationTtl: 3600 }
+    );
+  } catch (_) {}
+
   if (allOpportunities.length === 0) {
     console.log(`🔍 Nexus: no opportunities across ${symbols.length} symbols (all strategies)`);
     incrementMetric('scan.no_opportunities');
     return null;
   }
-
-  const executableOpportunities = paperMode
-    ? allOpportunities
-    : allOpportunities.filter((opp) => isLiveExecutableOpportunityWithEnv(opp, env));
 
   if (executableOpportunities.length === 0) {
     console.log(`🔍 Nexus: no executable opportunities in ${paperMode ? 'paper' : 'live'} mode`);
@@ -1235,6 +1294,61 @@ async function executeTrade(env, opp, sizeUsd, leverage) {
 
 function clamp(n, min, max) {
   return Math.max(min, Math.min(max, n));
+}
+
+function incrementRejection(bucket, reason, count = 1) {
+  if (!bucket || !reason || count <= 0) return;
+  bucket[reason] = Number(bucket[reason] || 0) + Number(count || 0);
+}
+
+function classifyLiveRejectReason(opp, env) {
+  if (!opp) return 'unknown';
+  if (opp.strategy === 'dex' && !hasDexExecutionConfigured(env)) return 'dex_executor_not_configured';
+  if (opp.strategy === 'statistical' && opp.buyExchange !== opp.sellExchange) return 'statistical_cross_exchange_not_supported';
+  if (opp.strategy === 'triangular' && !hasExchangeCredentials(env, opp.buyExchange)) return 'triangular_missing_exchange_credentials';
+
+  const buyExchange = String(opp.buyExchange || '').toLowerCase();
+  const sellExchange = String(opp.sellExchange || '').toLowerCase();
+  if (['0x', 'ethereum', 'bsc'].includes(buyExchange) || ['0x', 'ethereum', 'bsc'].includes(sellExchange)) {
+    return 'onchain_execution_not_supported';
+  }
+
+  if (opp.isPerp || opp.strategy === 'perps' || opp.strategy === 'funding') {
+    const counterparty = buyExchange.endsWith('_perp') ? sellExchange : buyExchange;
+    if (!hasExchangeCredentials(env, 'mexc')) return 'perps_missing_mexc_credentials';
+    if (!hasExchangeCredentials(env, counterparty)) return 'perps_missing_counterparty_credentials';
+    return 'perps_not_live_executable';
+  }
+
+  if (!hasExchangeCredentials(env, buyExchange)) return 'missing_buy_exchange_credentials';
+  if (!hasExchangeCredentials(env, sellExchange)) return 'missing_sell_exchange_credentials';
+  return 'not_live_executable';
+}
+
+function buildRejectionSnapshot(rejectionBuckets, metadata = {}) {
+  const entries = [];
+  for (const [strategy, reasons] of Object.entries(rejectionBuckets || {})) {
+    for (const [reason, count] of Object.entries(reasons || {})) {
+      const n = Number(count || 0);
+      if (n > 0) entries.push({ strategy, reason, count: n, key: `${strategy}.${reason}` });
+    }
+  }
+  entries.sort((a, b) => b.count - a.count);
+
+  const totalsByStrategy = Object.fromEntries(
+    Object.entries(rejectionBuckets || {}).map(([strategy, reasons]) => {
+      const total = Object.values(reasons || {}).reduce((sum, x) => sum + Number(x || 0), 0);
+      return [strategy, total];
+    })
+  );
+
+  return {
+    timestamp: Date.now(),
+    metadata,
+    totalsByStrategy,
+    topReasons: entries.slice(0, 15),
+    reasons: rejectionBuckets,
+  };
 }
 
 function getRecentWinRate(bucket) {

@@ -30,6 +30,11 @@ function slippagePct(exchange) {
   return SLIPPAGE_OVERRIDES[exchange] ?? DEFAULT_SLIPPAGE_PCT;
 }
 
+function addRejection(options, reason, count = 1) {
+  if (!options || !options.rejections || !reason || count <= 0) return;
+  options.rejections[reason] = Number(options.rejections[reason] || 0) + Number(count || 0);
+}
+
 /**
  * Finds arbitrage between spot sources and the perpetual (funding rate spread).
  * The perp price diverges from spot during high funding — we exploit that gap.
@@ -42,7 +47,14 @@ function slippagePct(exchange) {
  * @returns {object|null} OpportunityObject or null
  */
 export function scanPerps(symbol, spotSources, perpSource, maxSpreadPct, options = {}) {
-  if (!perpSource || spotSources.length < 1) return null;
+  if (!perpSource) {
+    addRejection(options, 'missing_perp_source');
+    return null;
+  }
+  if (spotSources.length < 1) {
+    addRejection(options, 'missing_spot_sources');
+    return null;
+  }
 
   const minSafetyFactor = Number.isFinite(options?.minSafetyFactor)
     ? options.minSafetyFactor
@@ -57,26 +69,45 @@ export function scanPerps(symbol, spotSources, perpSource, maxSpreadPct, options
   const priceMin   = Math.min(...prices);
   const priceMax   = Math.max(...prices);
   const spread     = ((priceMax - priceMin) / priceMin) * 100;
-  if (spread > maxSpreadPct) return null;
+  if (spread > maxSpreadPct) {
+    addRejection(options, 'spread_guard_exceeded');
+    return null;
+  }
 
   let best = null;
+  let rejectedNonPositiveSpread = 0;
+  let rejectedDataOnlyVenue = 0;
+  let rejectedNonPositiveNet = 0;
+  let rejectedLowSafety = 0;
   // Evaluate spot→perp and perp→spot directions for each spot source
   for (const spot of spotSources) {
     for (const [buy, sell] of [[spot, perpSource], [perpSource, spot]]) {
-      if (sell.price <= buy.price) continue;
+      if (sell.price <= buy.price) {
+        rejectedNonPositiveSpread++;
+        continue;
+      }
 
       // Skip opportunities involving data-only exchanges as execution venues
-      if (DATA_ONLY_EXCHANGES.has(buy.exchange) || DATA_ONLY_EXCHANGES.has(sell.exchange)) continue;
+      if (DATA_ONLY_EXCHANGES.has(buy.exchange) || DATA_ONLY_EXCHANGES.has(sell.exchange)) {
+        rejectedDataOnlyVenue++;
+        continue;
+      }
 
       const grossPct    = ((sell.price - buy.price) / buy.price) * 100;
       const totalFeePct = (buy.fee + sell.fee) * 100;
       // Deduct estimated market-impact slippage on both legs
       const totalSlippagePct = (slippagePct(buy.exchange) + slippagePct(sell.exchange)) * slippageMultiplier;
       const netPct      = grossPct - totalFeePct - totalSlippagePct;
-      if (netPct <= 0) continue;
+      if (netPct <= 0) {
+        rejectedNonPositiveNet++;
+        continue;
+      }
 
       const safetyFactor = netPct / grossPct;
-      if (safetyFactor < minSafetyFactor) continue;
+      if (safetyFactor < minSafetyFactor) {
+        rejectedLowSafety++;
+        continue;
+      }
 
       if (!best || netPct > best.netPct) {
         best = {
@@ -95,6 +126,12 @@ export function scanPerps(symbol, spotSources, perpSource, maxSpreadPct, options
         };
       }
     }
+  }
+  if (!best) {
+    addRejection(options, 'non_positive_spread', rejectedNonPositiveSpread);
+    addRejection(options, 'data_only_execution_venue', rejectedDataOnlyVenue);
+    addRejection(options, 'non_positive_net_after_fees_slippage', rejectedNonPositiveNet);
+    addRejection(options, 'safety_below_threshold', rejectedLowSafety);
   }
   return best;
 }
