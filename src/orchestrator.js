@@ -479,6 +479,34 @@ export async function runScan(env, state, sendAlert) {
   const scanStartedAt = Date.now();
   const lock = await tryAcquireExecutionLock(env);
   if (!lock.acquired) {
+    const lockOnlyBuckets = {
+      cex: {},
+      perps: {},
+      scalp_forward: {},
+      scalp_reverse: {},
+      scalp_parallel: {},
+      triangular: {},
+      statistical: {},
+      live_execution: {},
+      system: {},
+    };
+    incrementRejection(lockOnlyBuckets.system, 'execution_lock_active');
+    const lockSnapshot = buildRejectionSnapshot(lockOnlyBuckets, {
+      symbolCount: 0,
+      strategyMode: String(env?.STRATEGY_MODE || 'multi_exchange').toLowerCase(),
+      paperMode: state?.paper_trading !== false,
+      maxSpreadPct: Number(state?.max_spread_pct || 0),
+      opportunitiesFound: 0,
+      executableFound: 0,
+      lockAcquired: false,
+    });
+    try {
+      await env?.BOT_STATE?.put(
+        SCAN_REJECTIONS_KEY,
+        JSON.stringify(lockSnapshot),
+        { expirationTtl: 3600 }
+      );
+    } catch (_) {}
     console.warn('[scan] skipped: execution lock is active');
     incrementMetric('scan.skipped.lock_active');
     return null;
