@@ -71,7 +71,7 @@ async function fetchJson(pathname, init = {}) {
   });
 
   const text = await response.text();
-  let json = null;
+  let json;
   try {
     json = text ? JSON.parse(text) : null;
   } catch {
@@ -257,8 +257,6 @@ async function main() {
 
   for (let i = 1; i <= samples; i++) {
     const ts = new Date().toISOString();
-    let sample = null;
-    let evalResult = null;
 
     try {
       const [status, safety, readiness, executionHealth] = await Promise.all([
@@ -268,8 +266,7 @@ async function main() {
         fetchJson('/api/execution-health'),
       ]);
 
-      sample = { i, ts, status, safety, readiness, executionHealth };
-      evalResult = evaluateCritical(sample, state);
+      const evalResult = evaluateCritical({ i, ts, status, safety, readiness, executionHealth }, state);
 
       const row = {
         i,

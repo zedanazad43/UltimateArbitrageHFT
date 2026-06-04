@@ -19,13 +19,26 @@ import { logTrade, openPaperPosition, getOpenPaperPositions, closePaperPosition,
 import { calculateAdaptiveLeverage, calculatePositionSize, MAX_POSITION_EQUITY_FRACTION, checkDrawdownGuard, checkExposureLimit } from './risk.js';
 import { logEvent, incrementMetric, observeLatency } from './infra/observability.js';
 import { loadBotMemory, recordStrategyOutcome } from './bot-memory.js';
+import { normalizeRebalancePolicy, buildRebalanceWeights } from './rebalancer.js';
 import {
   placeMEXCFuturesOrder, hasSufficientUSDT,
-  hasExchangeCredentials, getRequiredCredentialKeys, getExchangeBalance, placeExchangeMarketOrder
+  hasExchangeCredentials, getRequiredCredentialKeys, getExchangeBalance, placeExchangeMarketOrder,
+  getEnabledExecutionExchanges
 } from './exchange.js';
 
 const QUOTE_ASSETS = ['USDT', 'USDC', 'FDUSD', 'BUSD', 'DAI', 'TUSD', 'BTC', 'ETH'];
 const STABLE_QUOTES = new Set(['USDT', 'USDC', 'FDUSD', 'BUSD', 'DAI', 'TUSD']);
+const STRATEGY_SPEED_WEIGHTS = {
+  cex: 1.08,
+  scalp_forward: 1.18,
+  scalp_reverse: 1.15,
+  scalp_parallel: 1.12,
+  triangular: 0.95,
+  statistical: 0.92,
+  perps: 1.0,
+  funding: 0.88,
+  dex: 0.85,
+};
 
 function splitSymbol(symbol) {
   const normalized = String(symbol || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
@@ -509,6 +522,13 @@ export async function runScan(env, state, sendAlert) {
     scalp_reverse: state?.strategy_flags?.scalp_reverse !== false,
     scalp_parallel: state?.strategy_flags?.scalp_parallel !== false,
   };
+  const rebalancePolicy = normalizeRebalancePolicy(state?.rebalance_policy || {});
+  const routingBalances = rebalancePolicy.enabled
+    ? await getRoutingBalancesSnapshot(env)
+    : [];
+  const exchangeRoutingWeights = rebalancePolicy.enabled
+    ? (buildRebalanceWeights(routingBalances, rebalancePolicy).weights || {})
+    : {};
   const perpsExecutionEnabled = strategyFlags.perps && state?.spot_only_lock !== true;
 
   const allOpportunities = [];
@@ -781,6 +801,16 @@ export async function runScan(env, state, sendAlert) {
       JSON.stringify(lastScan),
       { expirationTtl: 300 }
     );
+    await env.BOT_STATE.put(
+      'nexus_capital_routing_last',
+      JSON.stringify({
+        ts: Date.now(),
+        policy: rebalancePolicy,
+        weights: exchangeRoutingWeights,
+        balances: routingBalances,
+      }),
+      { expirationTtl: 3600 }
+    );
   } catch (_) {}
 
   if (allOpportunities.length === 0) {
@@ -803,7 +833,7 @@ export async function runScan(env, state, sendAlert) {
   const rankedOpportunities = executableOpportunities
     .map((opp) => ({
       ...opp,
-      score: scoreOpportunity(opp, strategyWeights, strategyOutcomes),
+      score: scoreOpportunity(opp, strategyWeights, strategyOutcomes, exchangeRoutingWeights),
     }))
     .sort((a, b) => {
       if (b.score !== a.score) return b.score - a.score;
@@ -862,8 +892,14 @@ export async function runScan(env, state, sendAlert) {
       state.risk_reward_ratio || 2.0
     );
     const requestedSizeUsd = Math.min(baseSize * leverage, liveEquity * MAX_POSITION_EQUITY_FRACTION);
+    const capitalRoutingBoost = clamp(
+      getOpportunityExchangeWeight(opp, exchangeRoutingWeights) * getStrategySpeedWeight(opp.strategy),
+      0.7,
+      1.5
+    );
+    const routedRequestedSizeUsd = requestedSizeUsd * capitalRoutingBoost;
     const liveBalanceCapUsd = paperMode ? Number.POSITIVE_INFINITY : await getLiveExecutionCapUsd(env, opp);
-    const sizeUsd = Math.min(requestedSizeUsd, liveBalanceCapUsd);
+    const sizeUsd = Math.min(routedRequestedSizeUsd, liveBalanceCapUsd);
 
     if (dailyLimitUsd > 0 && Number(state.daily_volume_usd || 0) + sizeUsd > dailyLimitUsd) {
       state.auto_stopped = true;
@@ -1208,7 +1244,7 @@ function getRecentWinRate(bucket) {
   return wins / outcomes.length;
 }
 
-function scoreOpportunity(opp, strategyWeights, strategyOutcomes) {
+function scoreOpportunity(opp, strategyWeights, strategyOutcomes, exchangeRoutingWeights = {}) {
   const strategy = String(opp?.strategy || '').toLowerCase();
   const netPct = Number(opp?.netPct || 0);
   if (!Number.isFinite(netPct) || netPct <= 0) return -1;
@@ -1218,6 +1254,42 @@ function scoreOpportunity(opp, strategyWeights, strategyOutcomes) {
   const confidence = clamp(Number(opp?.confidence ?? 0.6), 0.2, 1.0);
   const winRate = getRecentWinRate(strategyOutcomes?.[strategy]);
   const winBoost = clamp(0.8 + (winRate * 0.5), 0.8, 1.3);
+  const speedBoost = clamp(getStrategySpeedWeight(strategy), 0.75, 1.25);
+  const exchangeBoost = getOpportunityExchangeWeight(opp, exchangeRoutingWeights);
 
-  return netPct * safety * confidence * weight * winBoost;
+  return netPct * safety * confidence * weight * winBoost * speedBoost * exchangeBoost;
+}
+
+async function getRoutingBalancesSnapshot(env) {
+  const exchanges = getEnabledExecutionExchanges(env);
+  const rows = await Promise.all(
+    exchanges.map(async (exchange) => {
+      if (!hasExchangeCredentials(env, exchange)) {
+        return { exchange, configured: false, balance: 0 };
+      }
+      try {
+        const balance = await getExchangeBalance(env, exchange, 'USDT');
+        return { exchange, configured: true, balance: Number(balance || 0) };
+      } catch (_) {
+        return { exchange, configured: true, balance: 0, error: true };
+      }
+    })
+  );
+  return rows;
+}
+
+function getStrategySpeedWeight(strategy) {
+  const key = String(strategy || '').toLowerCase();
+  return Number(STRATEGY_SPEED_WEIGHTS[key] ?? 1);
+}
+
+function getOpportunityExchangeWeight(opp, exchangeWeights = {}) {
+  const buy = String(opp?.buyExchange || '').toLowerCase();
+  const sell = String(opp?.sellExchange || '').toLowerCase();
+  const wb = Number(exchangeWeights[buy] ?? 1);
+  const ws = Number(exchangeWeights[sell] ?? 1);
+
+  if (!buy && !sell) return 1;
+  if (buy && sell) return clamp((wb + ws) / 2, 0.5, 1.5);
+  return clamp(buy ? wb : ws, 0.5, 1.5);
 }

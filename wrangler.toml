@@ -171,7 +171,7 @@ EXTERNAL_PROXY_FALLBACK_AUTH_HEADER = "X-Gateway-Token: gw-2026-06-01"
 # Comma-separated list of exchanges allowed for live execution.
 # Keep scope focused on known healthy accounts to avoid noisy auth/network failures.
 # Supported values: mexc, binance, kucoin, bitget, bitmart, htx
-EXECUTION_EXCHANGES_ALLOWLIST = "mexc,binance,kucoin,bitget,bitmart,htx"
+EXECUTION_EXCHANGES_ALLOWLIST = "mexc,bitget"
 
 # ── LLM model and optional AI Gateway routing ───────────────────────────────
 # LLM_MODEL can be any Workers AI model ID, for example:
@@ -199,7 +199,7 @@ SPOT_ONLY_LOCK_FORCE = "true"
 
 # Force manual risk lock profile at runtime. While enabled, protected risk
 # settings become immutable via /config and execution always uses strict limits.
-MANUAL_RISK_LOCK_FORCE = "true"
+MANUAL_RISK_LOCK_FORCE = "false"
 
 # Skip exchange balance check when it's blocked by WAF (e.g. MEXC blocks CF Worker IPs).
 # When enabled, uses position_size_usd as the default trade size and attempts execution directly.

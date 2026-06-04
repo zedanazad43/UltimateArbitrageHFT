@@ -1644,6 +1644,32 @@ app.get('/api/rebalance/status', async (c) => {
   });
 });
 
+// ── API: Capital routing snapshot (auth-protected) ─────────────────────────
+// Returns both the latest scan-time routing snapshot and a live recomputed
+// view using current balances/policy.
+app.get('/api/capital-routing', async (c) => {
+  if (!isAuthorized(c.env, c)) return authDenied(c.env, c, true);
+
+  const state = await getState(c.env);
+  const policy = normalizeRebalancePolicy(state.rebalance_policy || {});
+  const balances = await getExecutionBalancesSnapshot(c.env);
+  const liveWeights = buildRebalanceWeights(balances, policy);
+  const last = await c.env.BOT_STATE.get('nexus_capital_routing_last', 'json').catch(() => null);
+
+  return c.json({
+    success: true,
+    policy,
+    lastSnapshot: last,
+    live: {
+      balances,
+      targetBalance: liveWeights.targetBalance,
+      totalBalance: liveWeights.totalBalance,
+      weights: liveWeights.weights,
+    },
+    generatedAt: new Date().toISOString(),
+  });
+});
+
 // ── API: Rebalance policy update (auth-protected) ───────────────────────────
 app.post('/api/rebalance/policy', async (c) => {
   const limited = await checkRateLimit(c.env, c);
