@@ -1,8 +1,0 @@
-CREATE TABLE IF NOT EXISTS trades (
-  id                 INTEGER PRIMARY KEY AUTOINCREMENT,
-  strategy           TEXT    NOT NULL,
-  size_usd           REAL    NOT NULL,
-  net_profit_percent REAL    NOT NULL,
-  mode               TEXT    NOT NULL DEFAULT 'paper',
-  created_at         INTEGER NOT NULL
-);

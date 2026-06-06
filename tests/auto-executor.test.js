@@ -296,9 +296,13 @@ describe('AutoExecutor.getStats()', () => {
     assert.equal(exe.getStats().paperMode, false);
   });
 
-  test('includes 6 strategies by default', () => {
+  test('includes 9 strategies by default', () => {
     const exe = new AutoExecutor(makeEnv());
-    assert.equal(exe.getStats().strategies.length, 6);
+    const strategies = exe.getStats().strategies;
+    assert.equal(strategies.length, 9);
+    for (const key of ['cex', 'perps', 'funding', 'triangular', 'dex', 'statistical', 'scalp_forward', 'scalp_reverse', 'scalp_parallel']) {
+      assert.ok(strategies.includes(key), `expected default strategies to include ${key}`);
+    }
   });
 });
 

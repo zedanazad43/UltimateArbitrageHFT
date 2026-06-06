@@ -49,3 +49,14 @@ logs/exec-stability-*.jsonl
 logs/exec-stability-*.summary.json
 logs/live-ops-snapshot-*.md
 scripts/.runtime/
+
+# Local SQLite runtime database (never commit)
+*.db
+ultimate-arbitrage.db
+
+# Generated scan / inventory reports and archived/stray files
+reports/
+archive/
+gitleaks-*.json
+scan-inventory.json
+scripts-catalog.json

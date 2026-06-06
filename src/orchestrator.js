@@ -19,7 +19,7 @@ import { logTrade, openPaperPosition, getOpenPaperPositions, closePaperPosition,
 import { calculateAdaptiveLeverage, calculatePositionSize, MAX_POSITION_EQUITY_FRACTION, checkDrawdownGuard, checkExposureLimit } from './risk.js';
 import { logEvent, incrementMetric, observeLatency } from './infra/observability.js';
 import { loadBotMemory, recordStrategyOutcome, recordVenueOutcome } from './bot-memory.js';
-import { normalizeRebalancePolicy, buildRebalanceWeights, buildVenueRoutingWeights } from './rebalancer.js';
+import { normalizeRebalancePolicy, buildVenueRoutingWeights } from './rebalancer.js';
 import {
   placeMEXCFuturesOrder, hasSufficientUSDT,
   hasExchangeCredentials, getRequiredCredentialKeys, getExchangeBalance, placeExchangeMarketOrder,
@@ -542,30 +542,6 @@ async function settleOpenPaperPositions(env, currentPrices, state) {
   }
 }
 
-/**
- * Collects cross-pair prices needed for triangular arbitrage from a single exchange.
- * Uses the first exchange from spotSources as the primary price feed.
- */
-function collectTriangularPrices(spotPriceMap, symbols) {
-  const prices = {};
-  for (const sym of symbols) {
-    const src = spotPriceMap[sym];
-    if (src) prices[sym] = src.price;
-  }
-  return prices;
-}
-
-/**
- * Builds a spotPriceMap from spotSources array: symbol -> { price, exchange, fee }
- */
-function buildSpotPriceMap(symbol, spotSources) {
-  const map = {};
-  // Use the first available exchange as the primary source for triangular/statistical
-  const bestSource = spotSources.reduce((a, b) => (a.fee < b.fee ? a : b), spotSources[0]);
-  map[symbol] = { price: bestSource.price, exchange: bestSource.exchange, fee: bestSource.fee };
-  return map;
-}
-
 // ── Symbols needed for extended strategies ──────────────────────────────────
 // Extract all unique symbols from TRIANGLES and CORRELATED_PAIRS
 const _EXTRA_SCAN_SYMBOLS = (() => {
@@ -885,8 +861,6 @@ export async function runScan(env, state, sendAlert, scanContext = {}) {
           const fundingOpp = (strategyFlags.funding && perpSource && perpSource.fundingRate !== undefined)
             ? scanFundingRate(symbol, effectiveSpotSources, perpSource, maxSpreadPct)
             : null;
-
-          let triangularOpp = null;
 
           const scalpingOptions = {
             minNetPct: Number(state?.scalp_min_net_pct || 0.10),
