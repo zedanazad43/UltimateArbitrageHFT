@@ -31,6 +31,15 @@ function parseDateSafe(value) {
     return Number.isNaN(d.getTime()) ? null : d;
   }
 
+  if (/^\d+(?:\.\d+)?$/.test(raw)) {
+    const n = Number.parseFloat(raw);
+    if (Number.isFinite(n)) {
+      const ms = n < 1e12 ? n * 1000 : n;
+      const d = new Date(ms);
+      return Number.isNaN(d.getTime()) ? null : d;
+    }
+  }
+
   const normalized = raw.includes(' ') && !raw.includes('T') ? raw.replace(' ', 'T') : raw;
   const d = new Date(normalized);
   return Number.isNaN(d.getTime()) ? null : d;
@@ -44,6 +53,21 @@ function formatDateTimeAr(value) {
 function formatTimeAr(value) {
   const d = parseDateSafe(value);
   return d ? d.toLocaleTimeString('ar-SA', { hour: '2-digit', minute: '2-digit' }) : '—';
+}
+
+function formatRelativeAge(value) {
+  const d = parseDateSafe(value);
+  if (!d) return '—';
+  const diffMs = Date.now() - d.getTime();
+  if (!Number.isFinite(diffMs) || diffMs < 0) return '—';
+
+  const minutes = Math.floor(diffMs / 60_000);
+  const hours = Math.floor(minutes / 60);
+  const days = Math.floor(hours / 24);
+  if (minutes < 1) return 'قبل لحظات';
+  if (minutes < 60) return `قبل ${minutes} دقيقة`;
+  if (hours < 24) return `قبل ${hours} ساعة`;
+  return `قبل ${days} يوم`;
 }
 
 // ── Main dashboard ────────────────────────────────────────────────────────────
@@ -156,7 +180,7 @@ export async function renderDashboard(env) {
   const totalTrades = Number(metrics.total_trades ?? state.total_trades ?? 0);
   const apiSnapshotInitial = {
     status: `${state.trading_enabled ? '▶️ مفعّل' : '⏸️ متوقف'} | ${paperMode ? 'Paper' : 'Live'}`,
-    trades: `${totalTrades || trades.length || 0} صفقة`,
+    trades: `${Number.isFinite(totalTrades) ? totalTrades : (trades.length || 0)} صفقة`,
     pnl: `إجمالي $${(state.total_pnl || 0).toFixed(2)}`,
     report: `WR ${winRatePct}% | PF ${profitFactor}`,
     logs: 'قيد التحميل…',
@@ -201,6 +225,44 @@ export async function renderDashboard(env) {
     cumPnl += (t.size_usd || 0) * (t.net_profit_percent || 0) / 100;
     return cumPnl.toFixed(2);
   });
+
+  const latestTrade = trades[0] || null;
+  const latestTradeTime = latestTrade?.created_at ? formatDateTimeAr(latestTrade.created_at) : '—';
+  const latestTradeAge = latestTrade?.created_at ? formatRelativeAge(latestTrade.created_at) : '—';
+  const latestTradeAgeMs = latestTrade?.created_at ? (Date.now() - parseDateSafe(latestTrade.created_at).getTime()) : null;
+  const latestTradeBanner = latestTrade
+    ? `<div style="margin:10px 0 14px;padding:10px 12px;border-radius:10px;background:${latestTradeAgeMs != null && latestTradeAgeMs > 24 * 60 * 60 * 1000 ? '#3d2f08' : '#15261f'};border:1px solid ${latestTradeAgeMs != null && latestTradeAgeMs > 24 * 60 * 60 * 1000 ? '#f0b90b' : '#2ecc71'};color:#ddd;font-size:.82em">
+         أحدث تنفيذ محفوظ: <strong>${latestTradeTime}</strong> &nbsp;|&nbsp; ${latestTradeAge}
+         ${latestTradeAgeMs != null && latestTradeAgeMs > 24 * 60 * 60 * 1000 ? ' — هذه بيانات تنفيذات محفوظة وليست صفقة حديثة من هذه الساعة.' : ''}
+       </div>`
+    : `<div style="margin:10px 0 14px;padding:10px 12px;border-radius:10px;background:#1a1e26;border:1px solid #2a2e38;color:#888;font-size:.82em">لا توجد صفقات محفوظة بعد.</div>`;
+
+  const liveDealCards = [
+    { key: 'cex', label: 'CEX', data: lastScan?.cex, color: '#3498db' },
+    { key: 'dex', label: 'DEX', data: lastScan?.dex, color: '#9b59b6' },
+    { key: 'triangular', label: 'Triangular', data: lastScan?.triangular, color: '#1abc9c' },
+    { key: 'statistical', label: 'Statistical', data: lastScan?.statistical, color: '#e91e8c' },
+  ].filter((item) => item.data);
+  const liveDealsHtml = liveDealCards.length
+    ? `<div class="grid" style="margin-top:10px">
+        ${liveDealCards.map((item) => {
+          const d = item.data || {};
+          const netPct = Number(d.netPct);
+          const safety = Number(d.safetyFactor);
+          const buy = d.buyPrice ?? '—';
+          const sell = d.sellPrice ?? '—';
+          return `<div class="card" style="border-top:3px solid ${item.color}">
+            <div class="card-label">LIVE DEAL — ${item.label}</div>
+            <div class="card-value" style="font-size:1.05em;color:${item.color}">${d.symbol || '—'}</div>
+            <div style="margin-top:6px;font-size:.8em;line-height:1.7">
+              <div>الاتجاه: <strong>${d.direction || '—'}</strong></div>
+              <div>صافي: <strong style="color:#2ecc71">${Number.isFinite(netPct) ? netPct.toFixed(4) : '0.0000'}%</strong> | أمان: ${Number.isFinite(safety) ? (safety * 100).toFixed(1) : '0.0'}%</div>
+              <div>شراء: $${formatMoneyAdaptive(buy)} → بيع: $${formatMoneyAdaptive(sell)}</div>
+            </div>
+          </div>`;
+        }).join('')}
+      </div>`
+    : `<div style="margin-top:10px;padding:10px 12px;border-radius:10px;background:#1a1e26;border:1px solid #2a2e38;color:#888;font-size:.82em">لا توجد فرص حية الآن.</div>`;
 
   // Trade history table
   const tradesHtml = trades.map(t => {
@@ -817,6 +879,10 @@ ${autoStopBanner}
 </div>
 
 <h2>📊 آخر الصفقات</h2>
+${latestTradeBanner}
+<h2 style="margin-top:14px">🔥 الصفقات الحية الآن</h2>
+<div style="font-size:.8em;color:#888;margin-bottom:8px">هذه فرص مباشرة من آخر مسح، وليست سجلًا تاريخيًا.</div>
+${liveDealsHtml}
 <table>
   <thead><tr><th>الوضع</th><th>الاستراتيجية</th><th>الاتجاه</th><th>الحجم (USD)</th><th>الربح</th><th>الوقت</th></tr></thead>
   <tbody id="recentTradesBody">
@@ -1232,11 +1298,11 @@ ${autoStopBanner}
     }
     const raw = String(value).trim();
     if (!raw) return null;
-    if (/^\\d+$/.test(raw)) {
-      const n = Number(raw);
+    const n = Number(raw);
+    if (Number.isFinite(n)) {
       const ms = n < 1e12 ? n * 1000 : n;
       const d = new Date(ms);
-      return Number.isNaN(d.getTime()) ? null : d;
+      if (!Number.isNaN(d.getTime())) return d;
     }
     const normalized = raw.includes(' ') && !raw.includes('T') ? raw.replace(' ', 'T') : raw;
     const d = new Date(normalized);
@@ -1372,7 +1438,11 @@ ${autoStopBanner}
           return \`<div class="bal-card" style="border:1px solid #e67e22"><div class="bal-name">\${b.exchange.toUpperCase()}</div><div class="bal-value" style="color:#e67e22;font-size:.82em">تعذر جلب الرصيد</div><div style="font-size:.72em;color:#888;margin-top:4px;word-break:break-word">\${msg}</div></div>\`;
         }
         const color=b.balance>0?'#2ecc71':'#888';
-        return \`<div class="bal-card"><div class="bal-name">\${b.exchange.toUpperCase()}</div><div class="bal-value" style="color:\${color}">$\${Number(b.balance).toFixed(2)}</div></div>\`;
+        const spotFreeLine = \`<div class="bal-value" style="color:\${color}">$\${Number(b.balance).toFixed(2)}</div>\`;
+        const bitgetEquity = b.exchange === 'bitget' && b.usdt_equity
+          ? \`<div style="font-size:.76em;color:#9ad0ff;margin-top:4px">Spot Free: $\${Number(b.usdt_equity.spot || 0).toFixed(2)} | Total Eq: $\${Number(b.usdt_equity.total || 0).toFixed(2)}</div>\`
+          : '';
+        return \`<div class="bal-card"><div class="bal-name">\${b.exchange.toUpperCase()}</div>\${spotFreeLine}\${bitgetEquity}</div>\`;
       }).join('');
       const setupBanner=!anyConfigured
         ?\`<div style="background:#c0392b;color:#fff;padding:10px 14px;border-radius:8px;margin-bottom:12px;font-size:.85em">
@@ -1752,6 +1822,15 @@ ${autoStopBanner}
       const reportJson = reportOk ? JSON.parse(reportSettle.value.text) : null;
       const logsJson   = logsOk   ? JSON.parse(logsSettle.value.text)   : null;
 
+      const reportTotalTradesRaw = reportJson?.totalTrades
+        ?? reportJson?.metrics?.total_trades
+        ?? reportJson?.data?.total_trades
+        ?? null;
+      const reportTotalTrades = Number(reportTotalTradesRaw);
+      const normalizedTotalTrades = Number.isFinite(reportTotalTrades)
+        ? reportTotalTrades
+        : (Array.isArray(tradesJson?.data) ? tradesJson.data.length : 0);
+
       if (statusOk && statusJson) {
         const statusColor = statusJson.trading_enabled ? '#2ecc71' : '#e74c3c';
         const statusLabel = statusJson.trading_enabled ? '▶️ مفعّل' : '⏸️ متوقف';
@@ -1762,10 +1841,12 @@ ${autoStopBanner}
       }
 
       const rows = Array.isArray(tradesJson?.data) ? tradesJson.data : [];
-      tradesEl.textContent = tradesOk ? (rows.length + ' صفقة (آخر تحديث)') : 'خطأ';
+      tradesEl.textContent = tradesOk
+        ? (normalizedTotalTrades + ' صفقة (إجمالي)')
+        : 'خطأ';
       pnlEl.textContent = pnlOk ? (Object.keys(pnlJson?.data || {}).length + ' استراتيجيات') : 'خطأ';
       reportEl.textContent = reportOk
-        ? ('WinRate ' + ((((reportJson?.data || {}).win_rate || 0) * 100).toFixed(1)) + '% | PF ' + ((reportJson?.data || {}).profit_factor ? Number((reportJson?.data || {}).profit_factor).toFixed(2) : '—'))
+        ? ('WinRate ' + ((((reportJson?.data || {}).win_rate || 0) * 100).toFixed(1)) + '% | PF ' + ((reportJson?.data || {}).profit_factor ? Number((reportJson?.data || {}).profit_factor).toFixed(2) : '—') + ' | Trades ' + normalizedTotalTrades)
         : 'خطأ';
       if (logsOk) {
         const archiveCount = Array.isArray(logsJson?.objects) ? logsJson.objects.length : null;

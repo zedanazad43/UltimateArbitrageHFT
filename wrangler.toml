@@ -209,10 +209,21 @@ SKIP_BALANCE_CHECK = "true"
 # Aggressive scan profile (stronger/faster opportunity capture)
 AGGRESSIVE_SCAN_MODE = "on"
 # Lower safety-factor thresholds allow more candidate opportunities to pass.
-CEX_MIN_SAFETY_FACTOR = "0.10"
-PERPS_MIN_SAFETY_FACTOR = "0.10"
+CEX_MIN_SAFETY_FACTOR = "0.02"
+PERPS_MIN_SAFETY_FACTOR = "0.02"
 # < 1.0 reduces estimated slippage penalty; use carefully in live mode.
-CEX_SLIPPAGE_MULTIPLIER = "0.40"
+CEX_SLIPPAGE_MULTIPLIER = "0.05"
+# Global trade exposure scaler used by the orchestrator for larger/faster sizing.
+EXPOSURE_BOOST_MULTIPLIER = "2.40"
+VENUE_READY_PRIORITY_MULTIPLIER = "1.45"
+
+# Enforce aggressive live runtime profile at state-read level to resist stale KV rewrites.
+AGGRESSIVE_EXECUTION_FORCE = "on"
+AGGRESSIVE_FORCED_POSITION_SIZE_USD = "15"
+AGGRESSIVE_FORCED_MAX_LIVE_TRADES_PER_SCAN = "10"
+AGGRESSIVE_FORCED_SCALP_MIN_NET_PCT = "0.005"
+AGGRESSIVE_FORCED_MIN_SECONDS_BETWEEN_TRADES = "1"
+AGGRESSIVE_FORCED_SUPPORTED_SYMBOLS = "BTCUSDT,ETHUSDT,SOLUSDT,XRPUSDT,BNBUSDT,ADAUSDT,DOGEUSDT,LTCUSDT,TRXUSDT,LINKUSDT,AVAXUSDT,DOTUSDT,ETHBTC,BNBBTC,SOLBTC,XRPBTC,ADABTC,DOTBTC,LINKBTC,LTCBTC,AVAXBTC,BNBETH,LINKETH,DOTETH,UNIETH,SOLBNB,XRPBNB,ADABNB"
 
 # ── Exchange feature flags ─────────────────────────────────────────────────────
 # bybit and gateio are excluded from live execution (German regulatory law).

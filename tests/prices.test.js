@@ -383,6 +383,56 @@ describe('getBitgetPrice', () => {
     installMockFetch(() => makeResponse({ code: '00000', data: [{}] }));
     assert.equal(await getBitgetPrice('BTCUSDT'), null);
   });
+
+  test('tries alternate symbol formats and succeeds on fallback candidate', async () => {
+    globalThis.fetch = async (url) => {
+      if (String(url).includes('symbol=BTC-USDT') && String(url).includes('/api/v2/spot/market/tickers')) {
+        return makeResponse({ code: '00000', data: [{ lastPr: '45123.4' }] });
+      }
+      return makeResponse({ code: '40006' }, 400);
+    };
+
+    const result = await getBitgetPrice('BTCUSDT');
+    assert.notEqual(result, null);
+    assert.equal(result.price, 45123.4);
+    assert.equal(result.exchange, 'bitget');
+  });
+
+  test('uses proxy gateway fallback when direct endpoint fails', async () => {
+    let sawProxyAttempt = false;
+    globalThis.fetch = async (url) => {
+      const asText = String(url);
+      if (asText.startsWith('https://proxy.gateway.local/?target=')) {
+        sawProxyAttempt = true;
+        return makeResponse({ code: '00000', data: [{ lastPr: '45077.0' }] });
+      }
+      return makeResponse({}, 503);
+    };
+
+    const result = await getBitgetPrice('BTCUSDT', {
+      PROXY_FALLBACK_URL: 'https://proxy.gateway.local/',
+    });
+
+    assert.equal(sawProxyAttempt, true);
+    assert.notEqual(result, null);
+    assert.equal(result.price, 45077.0);
+  });
+
+  test('uses controlled fail-soft source when configured', async () => {
+    globalThis.fetch = async (url) => {
+      const host = new URL(url).hostname;
+      if (host.includes('bitget.com')) return makeResponse({}, 503);
+      if (host === 'api.binance.com') return makeResponse({ price: '44999.1' });
+      return makeResponse({}, 500);
+    };
+
+    const result = await getBitgetPrice('BTCUSDT', { BITGET_FAILSOFT_SOURCE: 'binance' });
+    assert.notEqual(result, null);
+    assert.equal(result.exchange, 'bitget');
+    assert.equal(result.synthetic, true);
+    assert.equal(result.sourceExchange, 'binance');
+    assert.equal(result.price, 44999.1);
+  });
 });
 
 // ─────────────────────────────────────────────────────────────────────────────

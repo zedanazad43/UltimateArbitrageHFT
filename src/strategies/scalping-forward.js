@@ -4,8 +4,8 @@
 const DATA_ONLY_EXCHANGES = new Set(['bybit', 'gateio', 'kraken', 'coinbase']);
 const LIQUIDITY_BONUS = new Set(['binance', 'mexc', 'bitget']);
 
-const DEFAULT_MIN_NET_PCT = 0.03;
-const DEFAULT_MIN_SAFETY = 0.18;
+const DEFAULT_MIN_NET_PCT = 0.01;
+const DEFAULT_MIN_SAFETY = 0.12;
 const DEFAULT_MAX_GROSS_PCT = 8.0;
 
 function getOneWaySlippagePct(exchange) {
@@ -26,8 +26,13 @@ function addRejection(options, reason, count = 1) {
 }
 
 export function scanScalpingForward(symbol, sources, options = {}) {
-  if (!Array.isArray(sources) || sources.length < 2) {
+  const executionSources = (Array.isArray(sources) ? sources : []).filter(
+    (s) => s && !DATA_ONLY_EXCHANGES.has(String(s.exchange || '').toLowerCase())
+  );
+
+  if (executionSources.length < 2) {
     addRejection(options, 'insufficient_sources');
+    addRejection(options, 'insufficient_execution_sources');
     return null;
   }
 
@@ -43,12 +48,12 @@ export function scanScalpingForward(symbol, sources, options = {}) {
   let rejectedNetBelowMin = 0;
   let rejectedLowSafety = 0;
 
-  for (let i = 0; i < sources.length; i++) {
-    for (let j = 0; j < sources.length; j++) {
+  for (let i = 0; i < executionSources.length; i++) {
+    for (let j = 0; j < executionSources.length; j++) {
       if (i === j) continue;
 
-      const buy = sources[i];
-      const sell = sources[j];
+      const buy = executionSources[i];
+      const sell = executionSources[j];
       if (!buy || !sell || !Number.isFinite(buy.price) || !Number.isFinite(sell.price)) {
         rejectedInvalidInput++;
         continue;

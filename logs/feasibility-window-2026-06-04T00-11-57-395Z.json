@@ -1,0 +1,122 @@
+{
+  "startedAt": "2026-06-04T00:11:51.712Z",
+  "endedAt": "2026-06-04T00:11:57.391Z",
+  "baseUrl": "https://ultimatearbitragehft.zedanazad43.workers.dev",
+  "hours": 6,
+  "intervalMs": 300000,
+  "before": {
+    "label": "before",
+    "ts": "2026-06-04T00:11:51.716Z",
+    "live": {
+      "tradingEnabled": true,
+      "paperTrading": false,
+      "readyForLive": true,
+      "noOpportunityStreak": 2,
+      "dailyTrades": 0,
+      "dailyPnl": 0,
+      "totalTrades": 0,
+      "totalPnl": 0,
+      "maxSpreadPct": 12,
+      "maxDynamicSymbols": 2000,
+      "scanSymbolMode": "cex_intersection",
+      "strategyFlags": {
+        "cex": true,
+        "dex": true,
+        "perps": false,
+        "funding": false,
+        "triangular": true,
+        "statistical": true,
+        "scalp_forward": true,
+        "scalp_reverse": true,
+        "scalp_parallel": true
+      },
+      "openPositions": 0
+    },
+    "window": {
+      "hours": 6,
+      "trades": 0,
+      "byMode": {},
+      "byStrategy": {},
+      "avgNetPct": null,
+      "bestStrategyByCount": null
+    },
+    "memory": {
+      "hasData": false,
+      "leader": null,
+      "laggard": null,
+      "strategyWeights": null,
+      "recommendations": []
+    }
+  },
+  "after": {
+    "label": "after",
+    "ts": "2026-06-04T00:11:55.276Z",
+    "live": {
+      "tradingEnabled": true,
+      "paperTrading": false,
+      "readyForLive": true,
+      "noOpportunityStreak": 2,
+      "dailyTrades": 0,
+      "dailyPnl": 0,
+      "totalTrades": 0,
+      "totalPnl": 0,
+      "maxSpreadPct": 12,
+      "maxDynamicSymbols": 2000,
+      "scanSymbolMode": "cex_intersection",
+      "strategyFlags": {
+        "cex": true,
+        "dex": true,
+        "perps": false,
+        "funding": false,
+        "triangular": true,
+        "statistical": true,
+        "scalp_forward": true,
+        "scalp_reverse": true,
+        "scalp_parallel": true
+      },
+      "openPositions": 0
+    },
+    "window": {
+      "hours": 6,
+      "trades": 0,
+      "byMode": {},
+      "byStrategy": {},
+      "avgNetPct": null,
+      "bestStrategyByCount": null
+    },
+    "memory": {
+      "hasData": false,
+      "leader": null,
+      "laggard": null,
+      "strategyWeights": null,
+      "recommendations": []
+    }
+  },
+  "comparison": {
+    "windowHours": 6,
+    "before": {
+      "hours": 6,
+      "trades": 0,
+      "byMode": {},
+      "byStrategy": {},
+      "avgNetPct": null,
+      "bestStrategyByCount": null
+    },
+    "after": {
+      "hours": 6,
+      "trades": 0,
+      "byMode": {},
+      "byStrategy": {},
+      "avgNetPct": null,
+      "bestStrategyByCount": null
+    },
+    "delta": {
+      "trades": 0,
+      "avgNetPct": 0
+    },
+    "streakDelta": 0,
+    "bestStrategyBefore": null,
+    "bestStrategyAfter": null,
+    "memoryLeaderAfter": null
+  }
+}

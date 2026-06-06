@@ -18,12 +18,12 @@ import { scanFromHFT, isHFTEngineConfigured } from './hft-client.js';
 import { logTrade, openPaperPosition, getOpenPaperPositions, closePaperPosition, logBotEvent } from './db.js';
 import { calculateAdaptiveLeverage, calculatePositionSize, MAX_POSITION_EQUITY_FRACTION, checkDrawdownGuard, checkExposureLimit } from './risk.js';
 import { logEvent, incrementMetric, observeLatency } from './infra/observability.js';
-import { loadBotMemory, recordStrategyOutcome } from './bot-memory.js';
-import { normalizeRebalancePolicy, buildRebalanceWeights } from './rebalancer.js';
+import { loadBotMemory, recordStrategyOutcome, recordVenueOutcome } from './bot-memory.js';
+import { normalizeRebalancePolicy, buildRebalanceWeights, buildVenueRoutingWeights } from './rebalancer.js';
 import {
   placeMEXCFuturesOrder, hasSufficientUSDT,
   hasExchangeCredentials, getRequiredCredentialKeys, getExchangeBalance, placeExchangeMarketOrder,
-  getEnabledExecutionExchanges
+  getEnabledExecutionExchanges, isExecutionExchangeEnabled
 } from './exchange.js';
 
 const QUOTE_ASSETS = ['USDT', 'USDC', 'FDUSD', 'BUSD', 'DAI', 'TUSD', 'BTC', 'ETH'];
@@ -114,12 +114,15 @@ export function isLiveExecutableOpportunityWithEnv(opp, env) {
 
   // Statistical arb is always executable in paper mode; in live, requires both legs on same exchange
   if (opp.strategy === 'statistical') {
-    return opp.buyExchange === opp.sellExchange && hasExchangeCredentials(env, opp.buyExchange);
+    return opp.buyExchange === opp.sellExchange &&
+      isExecutionExchangeEnabled(env, opp.buyExchange) &&
+      hasExchangeCredentials(env, opp.buyExchange);
   }
 
   // Triangular arb executes on a single exchange
   if (opp.strategy === 'triangular') {
-    return hasExchangeCredentials(env, opp.buyExchange);
+    return isExecutionExchangeEnabled(env, opp.buyExchange) &&
+      hasExchangeCredentials(env, opp.buyExchange);
   }
 
   const buyExchange = String(opp.buyExchange || '').toLowerCase();
@@ -130,10 +133,14 @@ export function isLiveExecutableOpportunityWithEnv(opp, env) {
 
   if (opp.isPerp || opp.strategy === 'perps' || opp.strategy === 'funding') {
     const counterparty = buyExchange.endsWith('_perp') ? sellExchange : buyExchange;
-    return hasExchangeCredentials(env, 'mexc') && hasExchangeCredentials(env, counterparty);
+    return isExecutionExchangeEnabled(env, counterparty) &&
+      hasExchangeCredentials(env, 'mexc') && hasExchangeCredentials(env, counterparty);
   }
 
-  return hasExchangeCredentials(env, buyExchange) && hasExchangeCredentials(env, sellExchange);
+  return isExecutionExchangeEnabled(env, buyExchange) &&
+    isExecutionExchangeEnabled(env, sellExchange) &&
+    hasExchangeCredentials(env, buyExchange) &&
+    hasExchangeCredentials(env, sellExchange);
 }
 
 /**
@@ -142,7 +149,11 @@ export function isLiveExecutableOpportunityWithEnv(opp, env) {
 export async function getLiveExecutionCapUsd(env, opp) {
   if (!opp) return 0;
   if (opp.strategy === 'dex') return Number.POSITIVE_INFINITY;
-  if (opp.strategy === 'triangular') return Number.POSITIVE_INFINITY; // single-exchange, no cross-exchange cap
+  if (opp.strategy === 'triangular') {
+    const ex = String(opp.buyExchange || '').toLowerCase();
+    if (!isExecutionExchangeEnabled(env, ex) || !hasExchangeCredentials(env, ex)) return 0;
+    return Number.POSITIVE_INFINITY;
+  }
 
   const skipBalanceCheck = ['1', 'true', 'on', 'yes'].includes(
     String(env?.SKIP_BALANCE_CHECK || '').toLowerCase()
@@ -164,6 +175,10 @@ export async function getLiveExecutionCapUsd(env, opp) {
   };
 
   if (opp.isPerp || opp.strategy === 'funding') {
+    const buyExchange = String(opp.buyExchange || '').toLowerCase();
+    const sellExchange = String(opp.sellExchange || '').toLowerCase();
+    const counterparty = buyExchange.endsWith('_perp') ? sellExchange : buyExchange;
+    if (!isExecutionExchangeEnabled(env, counterparty)) return 0;
     return safeBalance('mexc', 'USDT');
   }
 
@@ -172,6 +187,10 @@ export async function getLiveExecutionCapUsd(env, opp) {
 
   const quoteToUsd = await getQuoteToUsdRate(env, parsed.quote);
   if (!Number.isFinite(quoteToUsd) || quoteToUsd <= 0) return 0;
+
+  if (!isExecutionExchangeEnabled(env, opp.buyExchange) || !isExecutionExchangeEnabled(env, opp.sellExchange)) {
+    return 0;
+  }
 
   const buyBalance = await safeBalance(opp.buyExchange, parsed.quote);
   const sellBalance = await safeBalance(opp.sellExchange, parsed.base);
@@ -291,8 +310,8 @@ const CB_COOLDOWN_MS         = 5 * 60 * 1000;   // 5 min skip when open
 const CB_MAX_FATAL_THRESHOLD = 100;             // if > 100 failures → fatal, skip 1h
 const CB_FATAL_COOLDOWN_MS   = 60 * 60 * 1000;  // 1 hour cooldown for fatal failures
 
-async function tryAcquireExecutionLock(env) {
-  if (!env?.BOT_STATE) return { acquired: true, token: null };
+async function tryAcquireExecutionLock(env, context = {}) {
+  if (!env?.BOT_STATE) return { acquired: true, token: null, existing: null, lock: null };
 
   const now = Date.now();
   const token = crypto.randomUUID();
@@ -300,10 +319,28 @@ async function tryAcquireExecutionLock(env) {
   const expiresAt = Number(existing?.expiresAt || 0);
 
   if (existing?.token && expiresAt > now) {
-    return { acquired: false, token: null };
+    return {
+      acquired: false,
+      token: null,
+      existing: {
+        acquiredAt: Number(existing?.acquiredAt || 0),
+        expiresAt,
+        source: String(existing?.source || 'unknown'),
+        trigger: String(existing?.trigger || 'unknown'),
+        scanId: existing?.scanId || null,
+      },
+      lock: null,
+    };
   }
 
-  const nextLock = { token, expiresAt: now + EXECUTION_LOCK_TTL_MS };
+  const nextLock = {
+    token,
+    acquiredAt: now,
+    expiresAt: now + EXECUTION_LOCK_TTL_MS,
+    source: String(context?.source || 'unknown'),
+    trigger: String(context?.trigger || 'unknown'),
+    scanId: context?.scanId || crypto.randomUUID(),
+  };
   await env.BOT_STATE.put(
     EXECUTION_LOCK_KEY,
     JSON.stringify(nextLock),
@@ -311,11 +348,80 @@ async function tryAcquireExecutionLock(env) {
   ).catch(() => {});
 
   const verify = await env.BOT_STATE.get(EXECUTION_LOCK_KEY, 'json').catch(() => null);
-  if (verify?.token !== token) {
-    return { acquired: false, token: null };
+  if (!verify?.token) {
+    // KV can be eventually consistent on immediate read-after-write.
+    // If we cannot verify yet, continue optimistically with our lock token
+    // to avoid false "execution_lock_active" negatives.
+    return {
+      acquired: true,
+      token,
+      existing: null,
+      lock: {
+        acquiredAt: nextLock.acquiredAt,
+        expiresAt: nextLock.expiresAt,
+        source: nextLock.source,
+        trigger: nextLock.trigger,
+        scanId: nextLock.scanId,
+      },
+    };
   }
 
-  return { acquired: true, token };
+  if (verify?.token !== token) {
+    const latestExpiresAt = Number(verify?.expiresAt || 0);
+    return {
+      acquired: false,
+      token: null,
+      existing: {
+        acquiredAt: Number(verify?.acquiredAt || 0),
+        expiresAt: latestExpiresAt,
+        source: String(verify?.source || 'unknown'),
+        trigger: String(verify?.trigger || 'unknown'),
+        scanId: verify?.scanId || null,
+      },
+      lock: null,
+    };
+  }
+
+  return {
+    acquired: true,
+    token,
+    existing: null,
+    lock: {
+      acquiredAt: nextLock.acquiredAt,
+      expiresAt: nextLock.expiresAt,
+      source: nextLock.source,
+      trigger: nextLock.trigger,
+      scanId: nextLock.scanId,
+    },
+  };
+}
+
+export async function getExecutionLockState(env) {
+  if (!env?.BOT_STATE) {
+    return {
+      active: false,
+      reason: 'missing_bot_state_binding',
+      now: Date.now(),
+    };
+  }
+
+  const now = Date.now();
+  const lock = await env.BOT_STATE.get(EXECUTION_LOCK_KEY, 'json').catch(() => null);
+  const expiresAt = Number(lock?.expiresAt || 0);
+  const acquiredAt = Number(lock?.acquiredAt || 0);
+  const active = Boolean(lock?.token && expiresAt > now);
+
+  return {
+    active,
+    now,
+    acquiredAt: acquiredAt || null,
+    expiresAt: expiresAt || null,
+    ageMs: active && acquiredAt ? Math.max(0, now - acquiredAt) : null,
+    ttlRemainingMs: active ? Math.max(0, expiresAt - now) : 0,
+    source: lock?.source || null,
+    trigger: lock?.trigger || null,
+    scanId: lock?.scanId || null,
+  };
 }
 
 async function releaseExecutionLock(env, token) {
@@ -475,10 +581,17 @@ const _EXTRA_SCAN_SYMBOLS = (() => {
  * Main scan-and-execute cycle.
  * Now supports ALL strategies: CEX, DEX, Perps, Funding, Triangular, Statistical
  */
-export async function runScan(env, state, sendAlert) {
+export async function runScan(env, state, sendAlert, scanContext = {}) {
   const scanStartedAt = Date.now();
-  const lock = await tryAcquireExecutionLock(env);
+  const normalizedScanContext = {
+    source: String(scanContext?.source || 'unknown'),
+    trigger: String(scanContext?.trigger || 'unknown'),
+    scanId: scanContext?.scanId || crypto.randomUUID(),
+  };
+  const lock = await tryAcquireExecutionLock(env, normalizedScanContext);
   if (!lock.acquired) {
+    const now = Date.now();
+    const lockOwner = lock?.existing || null;
     const lockOnlyBuckets = {
       cex: {},
       perps: {},
@@ -499,6 +612,14 @@ export async function runScan(env, state, sendAlert) {
       opportunitiesFound: 0,
       executableFound: 0,
       lockAcquired: false,
+      scanSource: normalizedScanContext.source,
+      scanTrigger: normalizedScanContext.trigger,
+      scanId: normalizedScanContext.scanId,
+      lockOwnerSource: lockOwner?.source || null,
+      lockOwnerTrigger: lockOwner?.trigger || null,
+      lockOwnerScanId: lockOwner?.scanId || null,
+      lockAgeMs: lockOwner?.acquiredAt ? Math.max(0, now - Number(lockOwner.acquiredAt || 0)) : null,
+      lockTtlRemainingMs: lockOwner?.expiresAt ? Math.max(0, Number(lockOwner.expiresAt || 0) - now) : null,
     });
     try {
       await env?.BOT_STATE?.put(
@@ -540,6 +661,7 @@ export async function runScan(env, state, sendAlert) {
   const botMemory = await loadBotMemory(env).catch(() => null);
   const strategyWeights = botMemory?.strategyWeights || {};
   const strategyOutcomes = botMemory?.strategyOutcomes || {};
+  const venueOutcomes = botMemory?.venueOutcomes || {};
   const strategyFlags  = {
     cex:         state?.strategy_flags?.cex !== false,
     dex:         state?.strategy_flags?.dex !== false,
@@ -555,12 +677,69 @@ export async function runScan(env, state, sendAlert) {
   const routingBalances = rebalancePolicy.enabled
     ? await getRoutingBalancesSnapshot(env)
     : [];
-  const exchangeRoutingWeights = rebalancePolicy.enabled
-    ? (buildRebalanceWeights(routingBalances, rebalancePolicy).weights || {})
-    : {};
+  const exchangeRoutingWeights = buildVenueRoutingWeights(routingBalances, venueOutcomes, rebalancePolicy).weights || {};
+  const exposureBoost = clamp(
+    Number(env?.EXPOSURE_BOOST_MULTIPLIER || 1),
+    0.5,
+    3
+  );
+  const venueReadyPriorityMultiplier = clamp(
+    Number(env?.VENUE_READY_PRIORITY_MULTIPLIER || 1.2),
+    1,
+    1.6
+  );
   const perpsExecutionEnabled = strategyFlags.perps && state?.spot_only_lock !== true;
+  const liveMinBalanceUsd = Math.max(
+    0,
+    Number(
+      state?.live_execution_min_balance_usd
+      ?? env?.LIVE_EXECUTION_MIN_BALANCE_USD
+      ?? 1
+    ) || 0
+  );
+  const liveEligibleExchanges = new Set();
+  const liveExchangeBalanceSnapshot = {};
+
+  if (!paperMode) {
+    const enabledExecutionExchanges = getEnabledExecutionExchanges(env);
+    await Promise.all(enabledExecutionExchanges.map(async (exchange) => {
+      const normalizedExchange = String(exchange || '').toLowerCase();
+      if (!normalizedExchange) return;
+
+      if (!hasExchangeCredentials(env, normalizedExchange)) {
+        liveExchangeBalanceSnapshot[normalizedExchange] = {
+          configured: false,
+          balance: 0,
+          eligible: false,
+          reason: 'missing_credentials',
+        };
+        return;
+      }
+
+      try {
+        const balance = Math.max(0, Number(await getExchangeBalance(env, normalizedExchange, 'USDT') || 0));
+        const eligible = balance >= liveMinBalanceUsd;
+        if (eligible) liveEligibleExchanges.add(normalizedExchange);
+        liveExchangeBalanceSnapshot[normalizedExchange] = {
+          configured: true,
+          balance,
+          eligible,
+          reason: eligible ? 'ok' : 'insufficient_balance',
+        };
+      } catch (error) {
+        liveExchangeBalanceSnapshot[normalizedExchange] = {
+          configured: true,
+          balance: 0,
+          eligible: false,
+          reason: 'balance_check_failed',
+          error: String(error?.message || error || 'unknown_error'),
+        };
+      }
+    }));
+  }
 
   const allOpportunities = [];
+  const exchangePriceBooks = new Map();
   const rejectionBuckets = {
     cex: {},
     perps: {},
@@ -678,6 +857,13 @@ export async function runScan(env, state, sendAlert) {
             ? [...effectiveSpotSources, zeroXSource]
             : effectiveSpotSources;
 
+          for (const src of effectiveSpotSources) {
+            const ex = String(src?.exchange || '').toLowerCase();
+            if (!ex) continue;
+            if (!exchangePriceBooks.has(ex)) exchangePriceBooks.set(ex, {});
+            exchangePriceBooks.get(ex)[symbol] = Number(src.price || 0);
+          }
+
           // ── Strategy 1: CEX Spatial ────────────────────────────────────────
           const cexOpp = (strategyFlags.cex && !mexcOnlyMode)
             ? scanCEX(symbol, cexSources, maxSpreadPct, {
@@ -700,28 +886,7 @@ export async function runScan(env, state, sendAlert) {
             ? scanFundingRate(symbol, effectiveSpotSources, perpSource, maxSpreadPct)
             : null;
 
-          // ── Strategy 4: Triangular ─────────────────────────────────────────
-          // Triangular arb uses the spotPriceMap from the primary exchange
           let triangularOpp = null;
-          if (strategyFlags.triangular && effectiveSpotSources.length > 0) {
-            const primaryExchange = effectiveSpotSources[0].exchange;
-            const fee = effectiveSpotSources[0].fee;
-            // We need cross-pair prices — use the primary exchange
-            // For now, triangular is available only on MEXC (primary)
-            const spotPriceMap = buildSpotPriceMap(symbol, effectiveSpotSources);
-            const triPrices = collectTriangularPrices(spotPriceMap, [symbol]);
-            if (triPrices[symbol]) {
-              triangularOpp = scanTriangular(primaryExchange, fee, {
-                [symbol]: triPrices[symbol],
-                // Additional prices would be gathered in a more comprehensive scan
-                // For now, we just flag it as available
-              });
-            } else {
-              incrementRejection(rejectionBuckets.triangular, 'missing_primary_symbol_price');
-            }
-          } else if (strategyFlags.triangular) {
-            incrementRejection(rejectionBuckets.triangular, 'missing_spot_sources');
-          }
 
           const scalpingOptions = {
             minNetPct: Number(state?.scalp_min_net_pct || 0.10),
@@ -771,13 +936,6 @@ export async function runScan(env, state, sendAlert) {
             if ((paperMode || isLiveExecutableOpportunityWithEnv(fundingOpp, env)) &&
                 (!lastScan.funding || fundingOpp.netPct > lastScan.funding.netPct)) {
               lastScan.funding = fundingOpp;
-            }
-          }
-          if (triangularOpp) {
-            allOpportunities.push(triangularOpp);
-            if ((paperMode || isLiveExecutableOpportunityWithEnv(triangularOpp, env)) &&
-                (!lastScan.triangular || triangularOpp.netPct > lastScan.triangular.netPct)) {
-              lastScan.triangular = triangularOpp;
             }
           }
           if (scalpForwardOpp) {
@@ -838,6 +996,25 @@ export async function runScan(env, state, sendAlert) {
     }
   }
 
+  // ── Strategy 4: Triangular Arbitrage (exchange-wide, runs once per cycle) ─
+  if (strategyFlags.triangular) {
+    let foundTriangular = false;
+    for (const [exchange, prices] of exchangePriceBooks.entries()) {
+      const fee = 0.001;
+      const triOpp = scanTriangular(exchange, fee, prices);
+      if (!triOpp) continue;
+      foundTriangular = true;
+      allOpportunities.push(triOpp);
+      if ((paperMode || isLiveExecutableOpportunityWithEnv(triOpp, env)) &&
+          (!lastScan.triangular || triOpp.netPct > lastScan.triangular.netPct)) {
+        lastScan.triangular = triOpp;
+      }
+    }
+    if (!foundTriangular) {
+      incrementRejection(rejectionBuckets.triangular, 'no_valid_triangle_from_price_book');
+    }
+  }
+
   // Persist updated circuit-breaker state
   saveCircuitBreaker(env, cb);
 
@@ -895,6 +1072,13 @@ export async function runScan(env, state, sendAlert) {
     maxSpreadPct,
     opportunitiesFound: allOpportunities.length,
     executableFound: executableOpportunities.length,
+    liveMinBalanceUsd,
+    liveEligibleExecutionExchanges: paperMode ? [] : [...liveEligibleExchanges],
+    liveExecutionExchangeBalances: paperMode ? {} : liveExchangeBalanceSnapshot,
+    lockAcquired: true,
+    scanSource: normalizedScanContext.source,
+    scanTrigger: normalizedScanContext.trigger,
+    scanId: normalizedScanContext.scanId,
   });
   try {
     await env.BOT_STATE.put(
@@ -917,18 +1101,42 @@ export async function runScan(env, state, sendAlert) {
   }
 
   // ── Differential ranking and multi-strategy execution plan ───────────────
-  const rankedOpportunities = executableOpportunities
-    .map((opp) => ({
-      ...opp,
-      score: scoreOpportunity(opp, strategyWeights, strategyOutcomes, exchangeRoutingWeights),
-    }))
+  const scoredOpportunities = await Promise.all(
+    executableOpportunities.map(async (opp) => {
+      const liveCapUsd = paperMode ? Number.POSITIVE_INFINITY : await getLiveExecutionCapUsd(env, opp);
+      return {
+        ...opp,
+        liveCapUsd,
+        score: scoreOpportunity(
+          opp,
+          strategyWeights,
+          strategyOutcomes,
+          exchangeRoutingWeights,
+          liveExchangeBalanceSnapshot,
+          liveMinBalanceUsd,
+          venueReadyPriorityMultiplier,
+          liveCapUsd,
+        ),
+      };
+    })
+  );
+
+  const rankedOpportunities = scoredOpportunities
+    .filter((opp) => paperMode || Number(opp.liveCapUsd || 0) >= Math.max(1, liveMinBalanceUsd))
     .sort((a, b) => {
       if (b.score !== a.score) return b.score - a.score;
+      if (Number(b.liveCapUsd || 0) !== Number(a.liveCapUsd || 0)) {
+        return Number(b.liveCapUsd || 0) - Number(a.liveCapUsd || 0);
+      }
       return Number(b.netPct || 0) - Number(a.netPct || 0);
     });
 
+  if (!paperMode && scoredOpportunities.length > 0 && rankedOpportunities.length === 0) {
+    incrementRejection(rejectionBuckets.live_execution, 'insufficient_live_execution_cap');
+  }
+
   const maxTradesPerScan = state.multi_strategy_live !== false
-    ? clamp(Math.floor(Number(state.max_live_trades_per_scan || 1)), 1, 5)
+    ? clamp(Math.ceil(Number(state.max_live_trades_per_scan || 1) * exposureBoost), 1, 10)
     : 1;
   const selected = [];
   const usedSymbols = new Set();
@@ -978,14 +1186,14 @@ export async function runScan(env, state, sendAlert) {
       state.win_rate || 0.55,
       state.risk_reward_ratio || 2.0
     );
-    const requestedSizeUsd = Math.min(baseSize * leverage, liveEquity * MAX_POSITION_EQUITY_FRACTION);
+    const requestedSizeUsd = Math.min(baseSize * leverage * exposureBoost, liveEquity * MAX_POSITION_EQUITY_FRACTION);
     const capitalRoutingBoost = clamp(
-      getOpportunityExchangeWeight(opp, exchangeRoutingWeights) * getStrategySpeedWeight(opp.strategy),
+      getOpportunityExchangeWeight(opp, exchangeRoutingWeights) * getStrategySpeedWeight(opp.strategy) * exposureBoost,
       0.7,
-      1.5
+      2.4
     );
     const routedRequestedSizeUsd = requestedSizeUsd * capitalRoutingBoost;
-    const liveBalanceCapUsd = paperMode ? Number.POSITIVE_INFINITY : await getLiveExecutionCapUsd(env, opp);
+    const liveBalanceCapUsd = paperMode ? Number.POSITIVE_INFINITY : Number(opp.liveCapUsd || 0);
     const sizeUsd = Math.min(routedRequestedSizeUsd, liveBalanceCapUsd);
 
     if (dailyLimitUsd > 0 && Number(state.daily_volume_usd || 0) + sizeUsd > dailyLimitUsd) {
@@ -1024,6 +1232,8 @@ export async function runScan(env, state, sendAlert) {
     const strategyLabel = `${opp.strategy}:${opp.direction}`;
     const levStr = leverage > 1 ? ` | ${leverage}x` : '';
 
+    const venueList = getOpportunityVenues(opp);
+
     if (paperMode) {
       await openPaperPosition(env, opp, sizeUsd);
       state.daily_volume_usd = (state.daily_volume_usd || 0) + sizeUsd;
@@ -1036,6 +1246,15 @@ export async function runScan(env, state, sendAlert) {
         symbol: opp.symbol,
         exchange: opp.buyExchange,
       });
+      await Promise.allSettled(
+        venueList.map((venue) => recordVenueOutcome(env, venue, {
+          success: true,
+          pnlUsd: venueList.length > 0 ? estimatedPnl / venueList.length : estimatedPnl,
+          latencyMs: 0,
+          symbol: opp.symbol,
+          strategy: opp.strategy,
+        }))
+      );
 
       await sendAlert(
         env,
@@ -1050,7 +1269,9 @@ export async function runScan(env, state, sendAlert) {
     }
 
     try {
+      const execStartedAt = Date.now();
       await executeTrade(env, opp, sizeUsd, leverage);
+      const executionLatencyMs = Date.now() - execStartedAt;
 
       const tradePnl = sizeUsd * Number(opp.netPct || 0) / 100;
       state.daily_pnl = (state.daily_pnl || 0) + tradePnl;
@@ -1066,6 +1287,15 @@ export async function runScan(env, state, sendAlert) {
         symbol: opp.symbol,
         exchange: opp.buyExchange,
       });
+      await Promise.allSettled(
+        venueList.map((venue) => recordVenueOutcome(env, venue, {
+          success: true,
+          pnlUsd: venueList.length > 0 ? tradePnl / venueList.length : tradePnl,
+          latencyMs: executionLatencyMs,
+          symbol: opp.symbol,
+          strategy: opp.strategy,
+        }))
+      );
 
       await logTrade(env, { strategy: strategyLabel, sizeUsd, netPct: opp.netPct, mode });
 
@@ -1092,6 +1322,15 @@ export async function runScan(env, state, sendAlert) {
         symbol: opp.symbol,
         exchange: opp.buyExchange,
       });
+      await Promise.allSettled(
+        venueList.map((venue) => recordVenueOutcome(env, venue, {
+          success: false,
+          pnlUsd: 0,
+          latencyMs: 0,
+          symbol: opp.symbol,
+          strategy: opp.strategy,
+        }))
+      );
       await sendAlert(
         env,
         `❌ [${String(opp.strategy || '').toUpperCase()}] فشل التنفيذ ${opp.symbol}: ${execErr.message}`
@@ -1204,13 +1443,21 @@ async function executeTrade(env, opp, sizeUsd, leverage) {
     if (!hasExchangeCredentials(env, exchange)) {
       throw new Error(`No execution credentials for triangular arb on ${exchange}`);
     }
-    // Execute all 3 legs sequentially to capture the spread
-    const legs = opp.legs || [];
-    if (legs.length < 3) throw new Error('Invalid triangular legs');
-    // Estimate: execute first leg with sizeUsd/3 per leg
-    const legSize = sizeUsd / 3;
-    for (const leg of legs) {
-      await placeExchangeMarketOrder(env, exchange, leg, 'BUY', null, legSize);
+    const plan = Array.isArray(opp.executionPlan) && opp.executionPlan.length >= 3
+      ? opp.executionPlan
+      : [];
+    if (plan.length < 3) {
+      throw new Error('Invalid triangular execution plan');
+    }
+    for (const leg of plan) {
+      await placeExchangeMarketOrder(
+        env,
+        exchange,
+        leg.symbol,
+        String(leg.side || 'BUY').toUpperCase(),
+        null,
+        sizeUsd
+      );
     }
     return;
   }
@@ -1386,7 +1633,16 @@ function getRecentWinRate(bucket) {
   return wins / outcomes.length;
 }
 
-function scoreOpportunity(opp, strategyWeights, strategyOutcomes, exchangeRoutingWeights = {}) {
+function scoreOpportunity(
+  opp,
+  strategyWeights,
+  strategyOutcomes,
+  exchangeRoutingWeights = {},
+  liveExchangeBalanceSnapshot = {},
+  liveMinBalanceUsd = 0,
+  venueReadyPriorityMultiplier = 1.2,
+  liveCapUsd = Number.POSITIVE_INFINITY,
+) {
   const strategy = String(opp?.strategy || '').toLowerCase();
   const netPct = Number(opp?.netPct || 0);
   if (!Number.isFinite(netPct) || netPct <= 0) return -1;
@@ -1398,8 +1654,53 @@ function scoreOpportunity(opp, strategyWeights, strategyOutcomes, exchangeRoutin
   const winBoost = clamp(0.8 + (winRate * 0.5), 0.8, 1.3);
   const speedBoost = clamp(getStrategySpeedWeight(strategy), 0.75, 1.25);
   const exchangeBoost = getOpportunityExchangeWeight(opp, exchangeRoutingWeights);
+  const balanceReadyBoost = getOpportunityBalanceReadinessBoost(
+    opp,
+    liveExchangeBalanceSnapshot,
+    liveMinBalanceUsd,
+    venueReadyPriorityMultiplier,
+  );
+  const liveCapBoost = getLiveExecutionCapBoost(liveCapUsd, liveMinBalanceUsd, venueReadyPriorityMultiplier);
 
-  return netPct * safety * confidence * weight * winBoost * speedBoost * exchangeBoost;
+  return netPct * safety * confidence * weight * winBoost * speedBoost * exchangeBoost * balanceReadyBoost * liveCapBoost;
+}
+
+function getLiveExecutionCapBoost(liveCapUsd, liveMinBalanceUsd, venueReadyPriorityMultiplier = 1.2) {
+  const cap = Number(liveCapUsd || 0);
+  if (!Number.isFinite(cap)) return 1;
+  if (cap <= 0) return 0.6;
+
+  const baseline = Math.max(1, Number(liveMinBalanceUsd || 0));
+  const ratio = cap / baseline;
+  return clamp(0.9 + (Math.min(ratio, 8) * 0.06), 0.9, Math.max(1.05, venueReadyPriorityMultiplier));
+}
+
+function getOpportunityBalanceReadinessBoost(
+  opp,
+  liveExchangeBalanceSnapshot = {},
+  liveMinBalanceUsd = 0,
+  venueReadyPriorityMultiplier = 1.2,
+) {
+  const venues = getOpportunityVenues(opp);
+  if (!venues.length) return 1;
+
+  let totalBoost = 0;
+  for (const venue of venues) {
+    const key = String(venue || '').toLowerCase();
+    const snap = liveExchangeBalanceSnapshot?.[key] || null;
+    if (!snap || snap.configured === false) {
+      totalBoost += 0.85;
+      continue;
+    }
+
+    const balance = Math.max(0, Number(snap.balance || 0));
+    const eligible = snap.eligible === true || balance >= liveMinBalanceUsd;
+    const ratio = liveMinBalanceUsd > 0 ? (balance / Math.max(1, liveMinBalanceUsd)) : 1;
+    const balanceStrength = clamp(0.85 + (Math.min(ratio, 4) * 0.12), 0.85, venueReadyPriorityMultiplier);
+    totalBoost += eligible ? balanceStrength : 0.9;
+  }
+
+  return clamp(totalBoost / venues.length, 0.8, venueReadyPriorityMultiplier);
 }
 
 async function getRoutingBalancesSnapshot(env) {
@@ -1426,12 +1727,38 @@ function getStrategySpeedWeight(strategy) {
 }
 
 function getOpportunityExchangeWeight(opp, exchangeWeights = {}) {
-  const buy = String(opp?.buyExchange || '').toLowerCase();
-  const sell = String(opp?.sellExchange || '').toLowerCase();
-  const wb = Number(exchangeWeights[buy] ?? 1);
-  const ws = Number(exchangeWeights[sell] ?? 1);
+  const venues = getOpportunityVenues(opp);
+  if (!venues.length) return 1;
 
-  if (!buy && !sell) return 1;
-  if (buy && sell) return clamp((wb + ws) / 2, 0.5, 1.5);
-  return clamp(buy ? wb : ws, 0.5, 1.5);
+  const total = venues.reduce((sum, venue) => {
+    return sum + Number(exchangeWeights[String(venue || '').toLowerCase()] ?? 1);
+  }, 0);
+  const avg = total / venues.length;
+  return clamp(avg, 0.45, 1.75);
+}
+
+function getOpportunityVenues(opp) {
+  const venues = new Set();
+  const addVenue = (value) => {
+    const v = String(value || '').toLowerCase().trim();
+    if (v && !['0x', 'ethereum', 'bsc'].includes(v)) venues.add(v);
+  };
+
+  if (Array.isArray(opp?.parallelLegs)) {
+    for (const leg of opp.parallelLegs) {
+      addVenue(leg?.buyExchange);
+      addVenue(leg?.sellExchange);
+    }
+  }
+  if (Array.isArray(opp?.legs)) {
+    for (const leg of opp.legs) {
+      addVenue(leg?.buyExchange);
+      addVenue(leg?.sellExchange);
+    }
+  }
+
+  addVenue(opp?.buyExchange);
+  addVenue(opp?.sellExchange);
+
+  return [...venues];
 }

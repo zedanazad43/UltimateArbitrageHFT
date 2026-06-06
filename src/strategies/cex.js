@@ -46,8 +46,13 @@ function addRejection(options, reason, count = 1) {
  * @returns {object|null}  OpportunityObject or null
  */
 export function scanCEX(symbol, sources, maxSpreadPct, options = {}) {
-  if (sources.length < 2) {
+  const executionSources = (Array.isArray(sources) ? sources : []).filter(
+    (s) => s && !DATA_ONLY_EXCHANGES.has(String(s.exchange || '').toLowerCase())
+  );
+
+  if (executionSources.length < 2) {
     addRejection(options, 'insufficient_sources');
+    addRejection(options, 'insufficient_execution_sources');
     return null;
   }
 
@@ -58,7 +63,7 @@ export function scanCEX(symbol, sources, maxSpreadPct, options = {}) {
     ? options.slippageMultiplier
     : 1;
 
-  const prices = sources.map(s => s.price);
+  const prices = executionSources.map(s => s.price);
   const priceMin = Math.min(...prices);
   const priceMax = Math.max(...prices);
   const observedSpread = ((priceMax - priceMin) / priceMin) * 100;
@@ -76,11 +81,11 @@ export function scanCEX(symbol, sources, maxSpreadPct, options = {}) {
   let rejectedDataOnlyVenue = 0;
   let rejectedNonPositiveNet = 0;
   let rejectedLowSafety = 0;
-  for (let i = 0; i < sources.length; i++) {
-    for (let j = 0; j < sources.length; j++) {
+  for (let i = 0; i < executionSources.length; i++) {
+    for (let j = 0; j < executionSources.length; j++) {
       if (i === j) continue;
-      const buy  = sources[i];
-      const sell = sources[j];
+      const buy  = executionSources[i];
+      const sell = executionSources[j];
       if (sell.price <= buy.price) {
         rejectedNonPositiveSpread++;
         continue;

@@ -8,9 +8,9 @@ import PerformanceOptimizer from './src/performance-optimizer.js';
 import ReliabilityManager from './src/reliability-manager.js';
 import AnalyticsEngine from './src/analytics-engine.js';
 import { renderDashboard, renderChecklist } from './src/dashboard.js';
-import { runScan } from './src/orchestrator.js';
+import { runScan, getExecutionLockState } from './src/orchestrator.js';
 import { ensureSchema, logAdminEvent, logBotEvent, getRecentTrades, getStrategyPnL, getPerformanceMetrics, exportTrades } from './src/db.js';
-import { hasExchangeCredentials, getExchangeBalance, placeExchangeMarketOrder, getMissingCredentialKeys, getConfiguredExchanges, ACTIVE_EXECUTION_EXCHANGES, DATA_ONLY_EXCHANGES, getMEXCFuturesBalance, getMEXCBalance, getEnabledExecutionExchanges, isExecutionExchangeEnabled } from './src/exchange.js';
+import { hasExchangeCredentials, getExchangeBalance, placeExchangeMarketOrder, getMissingCredentialKeys, getConfiguredExchanges, ACTIVE_EXECUTION_EXCHANGES, DATA_ONLY_EXCHANGES, getMEXCFuturesBalance, getMEXCBalance, getEnabledExecutionExchanges, isExecutionExchangeEnabled, getBitgetAccountEquityUSDT } from './src/exchange.js';
 import { scanDEX } from './src/strategies/dex.js';
 import { isHFTEngineConfigured } from './src/hft-client.js';
 import { runBacktest } from './src/backtest.js';
@@ -21,7 +21,7 @@ import { getAutoExecutor } from './src/strategies/auto-executor.js';
 import { resetCircuitBreaker } from './src/orchestrator.js';
 import { renderControlPanel } from './src/control-panel.js';
 import { loadBotMemory, saveBotMemory, recordEvaluation, summarizeMemory } from './src/bot-memory.js';
-import { normalizeRebalancePolicy, computeRebalancePlan, buildRebalanceWeights } from './src/rebalancer.js';
+import { normalizeRebalancePolicy, computeRebalancePlan, buildRebalanceWeights, buildVenueRoutingWeights } from './src/rebalancer.js';
 import { discoverSymbolCatalog, resolveDynamicScanSymbols, getAllSpotPrices, isLikelyTradeableSymbol } from './src/prices.js';
 import { SUPPORTED_BROKERS, hasBrokerCredentials, getMissingBrokerCredentialKeys, getBrokerAccountSummary, placeBrokerMarketOrder } from './src/brokerage.js';
 import {
@@ -73,6 +73,7 @@ const DEFAULT_STATE = {
   max_metamask_symbols: 10000,
   auto_profiler_enabled: true,
   manual_risk_lock: false,
+  manual_risk_lock_override: false,
   auto_profile: 'balanced',
   auto_profile_last_change_ts: 0,
   no_opportunity_streak: 0,
@@ -83,7 +84,7 @@ const DEFAULT_STATE = {
   enforce_core_spot_strategies: true,
   minute_report_last_ts: 0,
   multi_strategy_live: true,
-  max_live_trades_per_scan: 5,
+  max_live_trades_per_scan: 8,
   daily_volume_usd: 0,
   daily_limit_usd: 0,           // 0 = no daily limit (use max_daily_loss_usd for risk)
   rebalance_policy: {
@@ -124,25 +125,25 @@ const DEFAULT_STATE = {
 const AUTO_PROFILES = {
   conservative: {
     min_seconds_between_trades: 5,
-    max_live_trades_per_scan: 3,
+    max_live_trades_per_scan: 4,
     max_dynamic_symbols: 500,
     max_spread_pct: 5,
   },
   balanced: {
     min_seconds_between_trades: 3,
-    max_live_trades_per_scan: 4,
+    max_live_trades_per_scan: 6,
     max_dynamic_symbols: 1200,
     max_spread_pct: 7,
   },
   turbo: {
     min_seconds_between_trades: 1,
-    max_live_trades_per_scan: 5,
+    max_live_trades_per_scan: 8,
     max_dynamic_symbols: 2000,
     max_spread_pct: 12,
   },
   overdrive: {
     min_seconds_between_trades: 1,
-    max_live_trades_per_scan: 5,
+    max_live_trades_per_scan: 10,
     max_dynamic_symbols: 2000,
     max_spread_pct: 25,
   },
@@ -154,6 +155,7 @@ function parseEnvBool(value) {
 
 function applyForcedManualRiskLockFromEnv(state, env) {
   if (!parseEnvBool(env.MANUAL_RISK_LOCK_FORCE)) return state;
+  if (state?.manual_risk_lock_override === true) return state;
   return {
     ...state,
     manual_risk_lock: true,
@@ -165,6 +167,45 @@ function applyForcedManualRiskLockFromEnv(state, env) {
     max_per_trade_loss_pct: 0.015,
     min_seconds_between_trades: 8,
   };
+}
+
+function parseForcedSymbolsEnv(raw) {
+  return String(raw || '')
+    .split(',')
+    .map((s) => String(s || '').toUpperCase().replace(/[^A-Z0-9]/g, ''))
+    .filter((s) => s.length >= 6 && s.length <= 20)
+    .slice(0, 64);
+}
+
+function applyForcedAggressiveExecutionFromEnv(state, env) {
+  if (!parseEnvBool(env.AGGRESSIVE_EXECUTION_FORCE)) return state;
+
+  const forcedPosition = Number(env.AGGRESSIVE_FORCED_POSITION_SIZE_USD || 80);
+  const forcedMaxLive = Number(env.AGGRESSIVE_FORCED_MAX_LIVE_TRADES_PER_SCAN || 10);
+  const forcedScalpMinNet = Number(env.AGGRESSIVE_FORCED_SCALP_MIN_NET_PCT || 0.005);
+  const forcedMinGap = Number(env.AGGRESSIVE_FORCED_MIN_SECONDS_BETWEEN_TRADES || 1);
+  const forcedSymbols = parseForcedSymbolsEnv(env.AGGRESSIVE_FORCED_SUPPORTED_SYMBOLS);
+
+  const next = {
+    ...state,
+    manual_risk_lock: false,
+    manual_risk_lock_override: true,
+    auto_profiler_enabled: false,
+    auto_profile: 'overdrive',
+    scalp_min_net_pct: Math.max(0.005, Math.min(2.5, forcedScalpMinNet)),
+    min_seconds_between_trades: Math.max(1, Math.min(60, Math.floor(forcedMinGap))),
+    max_live_trades_per_scan: Math.max(1, Math.min(10, Math.floor(forcedMaxLive))),
+    position_size_usd: Math.max(1, Math.min(500, forcedPosition)),
+    multi_strategy_live: true,
+  };
+
+  if (forcedSymbols.length > 0) {
+    next.supported_symbols = forcedSymbols;
+    next.scan_symbol_mode = 'cex_intersection';
+    next.scan_quote_assets = ['USDT'];
+  }
+
+  return next;
 }
 
 function clampInt(v, min, max) {
@@ -222,9 +263,13 @@ async function getState(env) {
     return null;
   }) || { ...DEFAULT_STATE };
 
+  const persistedOverride = await env.BOT_STATE.get('manual_risk_lock_override', 'text').catch(() => null);
+  const overrideEnabled = String(persistedOverride || '').trim() === '1' || String(persistedOverride || '').trim().toLowerCase() === 'true';
+
   const merged = {
     ...DEFAULT_STATE,
     ...state,
+    manual_risk_lock_override: state?.manual_risk_lock_override === true || overrideEnabled,
     rebalance_policy: {
       ...DEFAULT_STATE.rebalance_policy,
       ...(state?.rebalance_policy || {}),
@@ -235,11 +280,44 @@ async function getState(env) {
     },
   };
 
-  return applyForcedManualRiskLockFromEnv(merged, env);
+  return applyForcedAggressiveExecutionFromEnv(
+    applyForcedManualRiskLockFromEnv(merged, env),
+    env
+  );
 }
 
 async function saveState(env, state) {
   await env.BOT_STATE.put('trading_state', JSON.stringify(state));
+}
+
+async function saveStateWithConfigGuard(env, state, baselineConfigTs = 0) {
+  const baselineTs = Number(baselineConfigTs || 0);
+  const latest = await getState(env).catch(() => null);
+  const latestTs = Number(latest?.last_config_change_ts || 0);
+
+  if (!latest || latestTs <= baselineTs) {
+    await saveState(env, state);
+    return;
+  }
+
+  // Preserve newer operator config and only merge runtime counters from this cycle.
+  const merged = {
+    ...latest,
+    daily_pnl: state.daily_pnl,
+    daily_trades: state.daily_trades,
+    total_pnl: state.total_pnl,
+    total_trades: state.total_trades,
+    daily_volume_usd: state.daily_volume_usd,
+    last_daily_reset: state.last_daily_reset,
+    last_trade_timestamp: state.last_trade_timestamp,
+    no_opportunity_streak: state.no_opportunity_streak,
+    opportunity_hit_streak: state.opportunity_hit_streak,
+    minute_report_last_ts: state.minute_report_last_ts,
+    auto_stopped: state.auto_stopped,
+    auto_stop_reason: state.auto_stop_reason,
+  };
+
+  await saveState(env, merged);
 }
 
 function normalizeRequestedAssets(rawAssets) {
@@ -300,12 +378,21 @@ async function getExecutionBalancesSnapshot(env, assets = ['USDT']) {
           const value = await getExchangeBalance(env, ex, asset);
           balances[asset] = Number(value || 0);
         }));
+        let accountEquityUSDT = null;
+        if (ex === 'bitget') {
+          try {
+            accountEquityUSDT = await getBitgetAccountEquityUSDT(env);
+          } catch (_) {
+            accountEquityUSDT = null;
+          }
+        }
         return {
           exchange: ex,
           configured: true,
           asset: primaryAsset,
           balance: Number(balances[primaryAsset] || 0),
           balances,
+          ...(accountEquityUSDT ? { usdt_equity: accountEquityUSDT } : {}),
         };
       } catch (e) {
         console.error(`[balances] ${ex} fetch failed:`, e.message);
@@ -803,7 +890,10 @@ app.get('/scan', async (c) => {
   if (limited) return limited;
   if (!isAuthorized(c.env, c)) return authDenied(c.env, c);
   const state = await getState(c.env);
-  const result = await runScan(c.env, state, sendTelegramAlert);
+  const result = await runScan(c.env, state, sendTelegramAlert, {
+    source: 'manual_api',
+    trigger: '/scan',
+  });
   if (result) {
     const opp = result.opportunity;
     if (Array.isArray(result.trades) && result.trades.length > 1) {
@@ -822,6 +912,38 @@ app.get('/scan', async (c) => {
     );
   }
   return c.text('✅ مسح اكتمل — لا توجد فرص مربحة حالياً');
+});
+
+// ── Admin: Queue live-deal execution in the background ───────────────────────
+// Triggers the same live scan/execution pipeline as /scan, but returns
+// immediately so the dashboard can initiate a trade without waiting for a
+// potentially long-running scan request to finish.
+app.post('/api/live-deal/execute', async (c) => {
+  const limited = await checkRateLimit(c.env, c);
+  if (limited) return limited;
+  if (!isAuthorized(c.env, c)) return authDenied(c.env, c);
+
+  const state = await getState(c.env);
+  const execution = runScan(c.env, state, sendTelegramAlert, {
+    source: 'manual_api',
+    trigger: '/api/live-deal/execute',
+  }).catch((err) => {
+    console.error('[live-deal-execute] error:', err?.message || err);
+    return null;
+  });
+
+  if (c.executionCtx?.waitUntil) {
+    c.executionCtx.waitUntil(execution);
+  }
+
+  const live = await c.env.BOT_STATE.get('nexus_last_scan', 'json').catch(() => null);
+  return c.json({
+    success: true,
+    queued: true,
+    message: 'Live deal execution queued',
+    liveScanTimestamp: live?.timestamp || null,
+    liveOpportunity: live?.cex || live?.triangular || live?.statistical || live?.dex || null,
+  });
 });
 
 // ── Admin: Set mode Paper ─────────────────────────────────────────────────────
@@ -881,6 +1003,7 @@ app.post('/config', async (c) => {
       }, 403);
     }
     forceUnlockManualRiskLock = true;
+    await c.env.BOT_STATE.put('manual_risk_lock_override', '1').catch(() => {});
   }
 
   const isFiniteNum = (v) => typeof v === 'number' && Number.isFinite(v);
@@ -933,7 +1056,7 @@ app.post('/config', async (c) => {
   if (num(body.min_seconds_between_trades))   state.min_seconds_between_trades   = body.min_seconds_between_trades;
   if (num(body.initial_capital))              state.initial_capital              = body.initial_capital;
   if (num(body.max_spread_pct))               state.max_spread_pct               = body.max_spread_pct;
-  if (num(body.scalp_min_net_pct))            state.scalp_min_net_pct            = Math.max(0.02, Math.min(2.5, body.scalp_min_net_pct));
+  if (num(body.scalp_min_net_pct))            state.scalp_min_net_pct            = Math.max(0.005, Math.min(2.5, body.scalp_min_net_pct));
   if (num(body.scalp_max_hold_seconds))       state.scalp_max_hold_seconds       = Math.max(2, Math.min(120, Math.floor(body.scalp_max_hold_seconds)));
   if (num(body.scalp_parallel_legs))          state.scalp_parallel_legs          = Math.max(1, Math.min(3, Math.floor(body.scalp_parallel_legs)));
   if (num(body.scalp_cooldown_ms))            state.scalp_cooldown_ms            = Math.max(200, Math.min(15000, Math.floor(body.scalp_cooldown_ms)));
@@ -990,7 +1113,7 @@ app.post('/config', async (c) => {
     state.multi_strategy_live = body.multi_strategy_live;
   }
   if (Number.isFinite(body.max_live_trades_per_scan)) {
-    const clamped = Math.max(1, Math.min(5, Math.floor(body.max_live_trades_per_scan)));
+    const clamped = Math.max(1, Math.min(10, Math.floor(body.max_live_trades_per_scan)));
     state.max_live_trades_per_scan = clamped;
   }
   if (typeof body.auto_profiler_enabled === 'boolean') {
@@ -1001,6 +1124,16 @@ app.post('/config', async (c) => {
       state.manual_risk_lock = true;
     } else {
       state.manual_risk_lock = body.manual_risk_lock;
+    }
+    state.manual_risk_lock_override = body.manual_risk_lock === false && forceUnlockManualRiskLock
+      ? true
+      : body.manual_risk_lock === true
+        ? false
+        : (state.manual_risk_lock_override === true);
+    if (forceUnlockManualRiskLock && body.manual_risk_lock === false) {
+      await c.env.BOT_STATE.put('manual_risk_lock_override', '1').catch(() => {});
+    } else if (body.manual_risk_lock === true) {
+      await c.env.BOT_STATE.put('manual_risk_lock_override', '0').catch(() => {});
     }
   }
   if (typeof body.minute_report_enabled === 'boolean') {
@@ -1249,9 +1382,91 @@ app.get('/api/status', async (c) => {
 app.get('/api/scan-rejections', async (c) => {
   if (!isAuthorized(c.env, c)) return authDenied(c.env, c, true);
   const snapshot = await c.env.BOT_STATE.get('nexus_scan_rejections_last', 'json').catch(() => null);
+  let data = snapshot;
+
+  if (snapshot && typeof snapshot === 'object') {
+    const state = await getState(c.env);
+    const enabledExecutionExchanges = getEnabledExecutionExchanges(c.env);
+    const liveMinBalanceUsd = Math.max(
+      0,
+      Number(
+        state?.live_execution_min_balance_usd
+        ?? c.env?.LIVE_EXECUTION_MIN_BALANCE_USD
+        ?? 1
+      ) || 0
+    );
+
+    const liveExecutionExchangeBalances = {};
+    const liveEligibleExecutionExchanges = [];
+
+    await Promise.all(enabledExecutionExchanges.map(async (exchange) => {
+      const ex = String(exchange || '').toLowerCase();
+      if (!ex) return;
+
+      if (!hasExchangeCredentials(c.env, ex)) {
+        liveExecutionExchangeBalances[ex] = {
+          configured: false,
+          balance: 0,
+          eligible: false,
+          reason: 'missing_credentials',
+        };
+        return;
+      }
+
+      try {
+        const balance = Math.max(0, Number(await getExchangeBalance(c.env, ex, 'USDT') || 0));
+        const eligible = balance >= liveMinBalanceUsd;
+        if (eligible) liveEligibleExecutionExchanges.push(ex);
+        liveExecutionExchangeBalances[ex] = {
+          configured: true,
+          balance,
+          eligible,
+          reason: eligible ? 'ok' : 'insufficient_balance',
+        };
+      } catch (error) {
+        liveExecutionExchangeBalances[ex] = {
+          configured: true,
+          balance: 0,
+          eligible: false,
+          reason: 'balance_check_failed',
+          error: String(error?.message || error || 'unknown_error'),
+        };
+      }
+    }));
+
+    const metadata = {
+      ...(snapshot.metadata || {}),
+      snapshotSchemaVersion: Number(snapshot?.metadata?.snapshotSchemaVersion || 2),
+      liveMinBalanceUsd: Number(snapshot?.metadata?.liveMinBalanceUsd ?? liveMinBalanceUsd),
+      liveEligibleExecutionExchanges: Array.isArray(snapshot?.metadata?.liveEligibleExecutionExchanges)
+        ? snapshot.metadata.liveEligibleExecutionExchanges
+        : liveEligibleExecutionExchanges,
+      liveExecutionExchangeBalances:
+        snapshot?.metadata?.liveExecutionExchangeBalances && typeof snapshot.metadata.liveExecutionExchangeBalances === 'object'
+          ? snapshot.metadata.liveExecutionExchangeBalances
+          : liveExecutionExchangeBalances,
+    };
+
+    data = {
+      ...snapshot,
+      metadata,
+    };
+  }
+
   return c.json({
     success: true,
-    data: snapshot,
+    data,
+    timestamp: new Date().toISOString(),
+  });
+});
+
+// ── API: Execution lock diagnostics ─────────────────────────────────────────
+app.get('/api/execution-lock', async (c) => {
+  if (!isAuthorized(c.env, c)) return authDenied(c.env, c, true);
+  const lockState = await getExecutionLockState(c.env);
+  return c.json({
+    success: true,
+    data: lockState,
     timestamp: new Date().toISOString(),
   });
 });
@@ -1537,6 +1752,9 @@ app.get('/api/report', async (c) => {
     getPerformanceMetrics(c.env, fromMs, toMs),
   ]);
   const summary = getStateSummary(state);
+  if (metrics && Number.isFinite(Number(metrics.total_trades))) {
+    summary.totalTrades = Number(metrics.total_trades);
+  }
   return c.json({
     success: true,
     ...summary,
@@ -1661,10 +1879,14 @@ app.get('/api/rebalance/status', async (c) => {
 app.get('/api/capital-routing', async (c) => {
   if (!isAuthorized(c.env, c)) return authDenied(c.env, c, true);
 
-  const state = await getState(c.env);
+  const [state, memory] = await Promise.all([
+    getState(c.env),
+    loadBotMemory(c.env).catch(() => null),
+  ]);
   const policy = normalizeRebalancePolicy(state.rebalance_policy || {});
   const balances = await getExecutionBalancesSnapshot(c.env);
-  const liveWeights = buildRebalanceWeights(balances, policy);
+  const balanceWeights = buildRebalanceWeights(balances, policy);
+  const venueWeights = buildVenueRoutingWeights(balances, memory?.venueOutcomes || {}, policy);
   const last = await c.env.BOT_STATE.get('nexus_capital_routing_last', 'json').catch(() => null);
 
   return c.json({
@@ -1673,10 +1895,80 @@ app.get('/api/capital-routing', async (c) => {
     lastSnapshot: last,
     live: {
       balances,
-      targetBalance: liveWeights.targetBalance,
-      totalBalance: liveWeights.totalBalance,
-      weights: liveWeights.weights,
+      targetBalance: balanceWeights.targetBalance,
+      totalBalance: balanceWeights.totalBalance,
+      balanceWeights: balanceWeights.weights,
+      venueWeights: venueWeights.weights,
+      weights: venueWeights.weights,
+      venuePolicy: venueWeights.policy,
+      venueOutcomeKeys: Object.keys(memory?.venueOutcomes || {}),
     },
+    generatedAt: new Date().toISOString(),
+  });
+});
+
+// ── API: Venue performance snapshot (auth-protected) ───────────────────────
+// Merges live balances, venue-aware routing weights, and bot-memory venue
+// stats into one sortable payload for operator diagnostics.
+app.get('/api/venue-performance', async (c) => {
+  if (!isAuthorized(c.env, c)) return authDenied(c.env, c, true);
+  const includeDataOnly = c.req.query('includeDataOnly') === '1';
+
+  const [state, memory] = await Promise.all([
+    getState(c.env),
+    loadBotMemory(c.env).catch(() => null),
+  ]);
+
+  const policy = normalizeRebalancePolicy(state.rebalance_policy || {});
+  const balances = await getExecutionBalancesSnapshot(c.env);
+  const balanceWeights = buildRebalanceWeights(balances, policy);
+  const venueWeights = buildVenueRoutingWeights(balances, memory?.venueOutcomes || {}, policy);
+  const memorySummary = summarizeMemory(memory || null);
+  const venueStats = Array.isArray(memorySummary?.venueStats) ? memorySummary.venueStats : [];
+  const venueStatsMap = Object.fromEntries(
+    venueStats.map((item) => [String(item.venue || '').toLowerCase(), item])
+  );
+
+  const rows = balances.map((entry) => {
+    const exchange = String(entry.exchange || '').toLowerCase();
+    const stats = venueStatsMap[exchange] || null;
+    const wins = Number(stats?.wins || 0);
+    const losses = Number(stats?.losses || 0);
+    const sampleCount = wins + losses;
+
+    return {
+      exchange,
+      configured: !!entry.configured,
+      dataOnly: !!entry.dataOnly,
+      balanceUsd: Number(entry.balance || 0),
+      balanceWeights: Number(balanceWeights.weights?.[exchange] ?? 1),
+      venueWeight: Number(venueWeights.weights?.[exchange] ?? 1),
+      sampleCount,
+      wins,
+      losses,
+      winRate: stats?.winRate ?? null,
+      avgLatencyMs: stats?.avgLatencyMs ?? null,
+      totalPnlUsd: stats?.totalPnlUsd ?? 0,
+      missingKeys: entry.missing_keys || [],
+      warning: entry.warning || null,
+      error: entry.error || null,
+    };
+  }).filter((row) => includeDataOnly ? true : !row.dataOnly).sort((a, b) => {
+    if (Number(b.configured) !== Number(a.configured)) return Number(b.configured) - Number(a.configured);
+    if (Number(a.dataOnly) !== Number(b.dataOnly)) return Number(a.dataOnly) - Number(b.dataOnly);
+    if (b.venueWeight !== a.venueWeight) return b.venueWeight - a.venueWeight;
+    if ((b.sampleCount || 0) !== (a.sampleCount || 0)) return (b.sampleCount || 0) - (a.sampleCount || 0);
+    if ((b.winRate ?? -1) !== (a.winRate ?? -1)) return (b.winRate ?? -1) - (a.winRate ?? -1);
+    return (b.balanceUsd || 0) - (a.balanceUsd || 0);
+  });
+
+  return c.json({
+    success: true,
+    policy,
+    venuePolicy: venueWeights.policy,
+    totalBalanceUsd: venueWeights.totalBalance,
+    targetBalanceUsd: venueWeights.targetBalance,
+    rows,
     generatedAt: new Date().toISOString(),
   });
 });
@@ -1863,6 +2155,13 @@ app.get('/api/exchange/:exchange', async (c) => {
   }
   try {
     const balance = await getExchangeBalance(c.env, exchange, 'USDT');
+    if (exchange === 'bitget') {
+      let usdt_equity = null;
+      try {
+        usdt_equity = await getBitgetAccountEquityUSDT(c.env);
+      } catch (_) {}
+      return c.json({ exchange, configured: true, balance, ...(usdt_equity ? { usdt_equity } : {}) });
+    }
     return c.json({ exchange, configured: true, balance });
   } catch (e) {
     return c.json({ exchange, configured: true, balance: null, error: e.message }, 502);
@@ -2584,7 +2883,10 @@ app.post('/telegram/webhook', async (c) => {
       );
     } else if (cmd === '/scan') {
       await send('🔍 جاري المسح عبر CEX + DEX + Perps...');
-      const result = await runScan(c.env, state, sendTelegramAlert);
+      const result = await runScan(c.env, state, sendTelegramAlert, {
+        source: 'telegram',
+        trigger: '/telegram/webhook:/scan',
+      });
       await saveState(c.env, state);
       if (result) {
         const opp = result.opportunity;
@@ -2754,6 +3056,7 @@ app.post('/api/memory/reset', async (c) => {
       updatedAt: Date.now(),
       evaluations: [],
       strategyOutcomes: {},
+      venueOutcomes: {},
       strategyWeights: {
         cex: 1.0,
         dex: 1.0,
@@ -2778,6 +3081,7 @@ app.post('/api/memory/reset', async (c) => {
 // ─── Scheduled cron cycle ─────────────────────────────────────────────────────
 async function runScheduledCycle(env) {
   const state = await getState(env);
+  const cycleStartConfigTs = Number(state?.last_config_change_ts || 0);
   const forceSpotOnlyLock = ['1', 'true', 'on', 'yes'].includes(String(env.SPOT_ONLY_LOCK_FORCE || '').toLowerCase());
 
   const now = Date.now();
@@ -2807,7 +3111,7 @@ async function runScheduledCycle(env) {
   }
 
   if (lockStateAdjusted) {
-    await saveState(env, state);
+    await saveStateWithConfigGuard(env, state, cycleStartConfigTs);
     await logBotEvent(env, 'spot_lock_enforced', {
       at: now,
       strategy_flags: state.strategy_flags,
@@ -2874,7 +3178,7 @@ async function runScheduledCycle(env) {
       }
       guardStats.count = Number(guardStats.count || 0) + 1;
 
-      await saveState(env, state);
+      await saveStateWithConfigGuard(env, state, cycleStartConfigTs);
       await env.BOT_STATE.put(
         CORE_STRATEGY_GUARD_STATS_KEY,
         JSON.stringify(guardStats),
@@ -2957,7 +3261,7 @@ async function runScheduledCycle(env) {
   if (state.daily_pnl <= -maxDailyLoss) {
     state.auto_stopped = true;
     state.auto_stop_reason = `تجاوز حد الخسارة اليومية $${maxDailyLoss}`;
-    await saveState(env, state);
+    await saveStateWithConfigGuard(env, state, cycleStartConfigTs);
     await logBotEvent(env, 'auto_stop', { reason: state.auto_stop_reason });
     await sendTelegramAlert(env, `🛑 *إيقاف تلقائي*\n${state.auto_stop_reason}`);
     return null;
@@ -2974,7 +3278,10 @@ async function runScheduledCycle(env) {
   const equity = (state.initial_capital || 1000) + (state.total_pnl || 0);
   await sendDrawdownWarning(env, state, equity);
 
-  const result = await runScan(env, state, sendTelegramAlert);
+  const result = await runScan(env, state, sendTelegramAlert, {
+    source: 'scheduled',
+    trigger: 'cron.scheduled',
+  });
 
   const lastScan = await env.BOT_STATE.get('nexus_last_scan', 'json').catch(() => null);
   const hadOpportunity = hasLastScanOpportunity(lastScan);
@@ -3018,7 +3325,7 @@ async function runScheduledCycle(env) {
     }
   }
 
-  await saveState(env, state);
+  await saveStateWithConfigGuard(env, state, cycleStartConfigTs);
   return result;
 }
 

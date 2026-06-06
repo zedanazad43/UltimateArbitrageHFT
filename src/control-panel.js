@@ -243,6 +243,19 @@ export function renderControlPanel() {
       </div>
     </div>
 
+    <div class="card card-wide">
+      <h2>&#128202; Venue Performance <span class="status-dot status-idle" id="venue-dot"></span></h2>
+      <div class="stat-row"><span class="stat-label">Policy</span><span class="stat-value" id="venue-policy">Loading...</span></div>
+      <div class="stat-row"><span class="stat-label">Target Balance</span><span class="stat-value" id="venue-target">Loading...</span></div>
+      <div class="stat-row"><span class="stat-label">Tracked Venues</span><span class="stat-value" id="venue-count">Loading...</span></div>
+      <div id="venue-wrap" style="overflow-x:auto;margin-top:10px">
+        <div style="color:#555;font-size:0.85em">Loading venue diagnostics...</div>
+      </div>
+      <div class="button-group">
+        <button onclick="loadVenuePerformance()">&#8635; Refresh Venue Performance</button>
+      </div>
+    </div>
+
     <div class="card">
       <h2>&#8646; Liquidity Rebalancer <span class="status-dot status-idle" id="rebalance-dot"></span></h2>
       <div class="stat-row"><span class="stat-label">Enabled</span><span class="stat-value" id="rb-enabled">Loading...</span></div>
@@ -785,6 +798,51 @@ export function renderControlPanel() {
     setDot('rebalance-dot', policy.enabled ? (transfers.length ? 'status-ok' : 'status-warn') : 'status-idle');
   }
 
+  async function loadVenuePerformance() {
+    setDot('venue-dot', 'status-warn');
+    var r = await api('/api/venue-performance');
+    if (!r.ok) {
+      setDot('venue-dot', 'status-error');
+      document.getElementById('venue-wrap').innerHTML = '<div style="color:#e74c3c;font-size:0.85em">' + escHtml(errMsg(r)) + '</div>';
+      return;
+    }
+
+    var d = r.data || {};
+    var rows = Array.isArray(d.rows) ? d.rows : [];
+    setText('venue-policy', d.policy && d.policy.enabled ? 'Enabled' : 'Disabled', d.policy && d.policy.enabled ? 'ok' : 'warn');
+    setText('venue-target', usd(d.targetBalanceUsd || 0));
+    setText('venue-count', String(rows.length || 0));
+
+    var wrap = document.getElementById('venue-wrap');
+    if (!rows.length) {
+      wrap.innerHTML = '<div style="color:#555;font-size:0.85em">No venue rows available</div>';
+      setDot('venue-dot', 'status-warn');
+      return;
+    }
+
+    var html = '<table><thead><tr>' +
+      '<th>Venue</th><th>Weight</th><th>Balance</th><th>Samples</th><th>Win Rate</th><th>Latency</th><th>P&amp;L</th>' +
+      '</tr></thead><tbody>';
+    for (var i = 0; i < rows.length; i++) {
+      var item = rows[i];
+      var wr = item.winRate == null ? '---' : Number(item.winRate).toFixed(1) + '%';
+      var lat = item.avgLatencyMs == null ? '---' : Number(item.avgLatencyMs).toFixed(0) + ' ms';
+      var pnl = Number(item.totalPnlUsd || 0);
+      html += '<tr>' +
+        '<td>' + escHtml(String(item.exchange || '').toUpperCase()) + '</td>' +
+        '<td>' + Number(item.venueWeight || 0).toFixed(2) + '</td>' +
+        '<td>' + usd(item.balanceUsd || 0) + '</td>' +
+        '<td>' + String(item.sampleCount || 0) + '</td>' +
+        '<td>' + wr + '</td>' +
+        '<td>' + lat + '</td>' +
+        '<td class="' + (pnl >= 0 ? 'pos' : 'neg') + '">' + usd(pnl) + '</td>' +
+      '</tr>';
+    }
+    html += '</tbody></table>';
+    wrap.innerHTML = html;
+    setDot('venue-dot', 'status-ok');
+  }
+
   async function toggleRebalance() {
     var current = await api('/api/rebalance/status');
     if (!current.ok) {
@@ -805,7 +863,7 @@ export function renderControlPanel() {
   var ENDPOINTS_TO_CHECK = [
     '/api/status', '/api/readiness', '/api/proxy-stats',
     '/api/execution-health', '/api/report', '/api/balances',
-    '/api/platforms', '/api/bitmart/stats', '/api/perps', '/api/safety-state', '/api/rebalance/status',
+    '/api/platforms', '/api/bitmart/stats', '/api/perps', '/api/safety-state', '/api/rebalance/status', '/api/venue-performance',
     '/health',
   ];
 
@@ -882,6 +940,7 @@ export function renderControlPanel() {
       loadSafetyState(),
       loadBalances(false),
       loadRebalanceStatus(),
+      loadVenuePerformance(),
       checkBitmartStatus(),
       checkProxyStats(),
       checkAllEndpoints(),
@@ -901,6 +960,7 @@ export function renderControlPanel() {
     loadSafetyState();
     checkProxyStats();
     loadRebalanceStatus();
+    loadVenuePerformance();
   }, 30000);
 </script>
 </body>

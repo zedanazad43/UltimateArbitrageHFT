@@ -7,10 +7,10 @@
 // Profit arises when the implied cross rate differs from the quoted cross rate.
 
 // Minimum net profit to report (after 3 legs of taker fees).
-const MIN_NET_PCT = 0.01; // 0.01% — triangular arb margins are tight
+const MIN_NET_PCT = 0.005; // 0.005% — tighter live capture for MEXC-focused execution
 
 // Maximum allowed cross-rate deviation (used to reject extreme outliers only).
-const MAX_LEG_SPREAD_PCT = 15.0;
+const MAX_LEG_SPREAD_PCT = 20.0;
 
 /**
  * Triangular path definition.
@@ -92,6 +92,17 @@ function evalTriangle(tri, pA, pB, pC, exchange, fee) {
   const netPct    = bestDir === 1 ? netPct1 : netPct2;
   const grossPct  = Math.abs(netPct) + (fee * 3 * 100); // approx gross
   const direction = bestDir === 1 ? tri.route : tri.route.split('→').reverse().join('→');
+  const executionPlan = bestDir === 1
+    ? [
+      { symbol: tri.a, side: 'BUY' },
+      { symbol: tri.b, side: 'BUY' },
+      { symbol: tri.c, side: 'SELL' },
+    ]
+    : [
+      { symbol: tri.c, side: 'BUY' },
+      { symbol: tri.b, side: 'SELL' },
+      { symbol: tri.a, side: 'SELL' },
+    ];
 
   if (netPct < MIN_NET_PCT) return null;
 
@@ -116,6 +127,7 @@ function evalTriangle(tri, pA, pB, pC, exchange, fee) {
     direction,
     isPerp:       false,
     legs: [tri.a, tri.b, tri.c],
+    executionPlan,
     crossPrice:     pB,
     crossDeviation: deviation
   };

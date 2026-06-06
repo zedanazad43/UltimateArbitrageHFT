@@ -1,0 +1,871 @@
+{
+  "interesting_files": [
+    {
+      "file": ".cloudflare\\agent-instructions.md",
+      "cli": false,
+      "webhook": false,
+      "db_related": false,
+      "mcp_related": false,
+      "agent_related": true,
+      "exports_count": 0,
+      "routes_count": 0
+    },
+    {
+      "file": ".github\\copilot-instructions.md",
+      "cli": false,
+      "webhook": false,
+      "db_related": false,
+      "mcp_related": false,
+      "agent_related": true,
+      "exports_count": 0,
+      "routes_count": 0
+    },
+    {
+      "file": ".github\\workflows\\monitor-production.yml",
+      "cli": false,
+      "webhook": true,
+      "db_related": true,
+      "mcp_related": false,
+      "agent_related": false,
+      "exports_count": 0,
+      "routes_count": 0
+    },
+    {
+      "file": ".kimi-memory\\static\\architecture.md",
+      "cli": false,
+      "webhook": false,
+      "db_related": false,
+      "mcp_related": false,
+      "agent_related": true,
+      "exports_count": 0,
+      "routes_count": 0
+    },
+    {
+      "file": ".kimi-memory\\static\\coding_rules.md",
+      "cli": false,
+      "webhook": false,
+      "db_related": false,
+      "mcp_related": false,
+      "agent_related": true,
+      "exports_count": 0,
+      "routes_count": 0
+    },
+    {
+      "file": ".tmp\\actionlint\\docs\\api.md",
+      "cli": false,
+      "webhook": true,
+      "db_related": false,
+      "mcp_related": false,
+      "agent_related": false,
+      "exports_count": 0,
+      "routes_count": 0
+    },
+    {
+      "file": ".tmp\\actionlint\\docs\\checks.md",
+      "cli": false,
+      "webhook": true,
+      "db_related": true,
+      "mcp_related": false,
+      "agent_related": false,
+      "exports_count": 0,
+      "routes_count": 0
+    },
+    {
+      "file": ".tmp\\actionlint\\docs\\reference.md",
+      "cli": false,
+      "webhook": true,
+      "db_related": false,
+      "mcp_related": false,
+      "agent_related": false,
+      "exports_count": 0,
+      "routes_count": 0
+    },
+    {
+      "file": "AGENTS.md",
+      "cli": false,
+      "webhook": false,
+      "db_related": false,
+      "mcp_related": false,
+      "agent_related": true,
+      "exports_count": 0,
+      "routes_count": 0
+    },
+    {
+      "file": "README.md",
+      "cli": false,
+      "webhook": true,
+      "db_related": true,
+      "mcp_related": false,
+      "agent_related": true,
+      "exports_count": 0,
+      "routes_count": 0
+    },
+    {
+      "file": "SETUP.md",
+      "cli": false,
+      "webhook": false,
+      "db_related": true,
+      "mcp_related": false,
+      "agent_related": false,
+      "exports_count": 0,
+      "routes_count": 0
+    },
+    {
+      "file": "check-codegeex-health.py",
+      "cli": true,
+      "webhook": false,
+      "db_related": false,
+      "mcp_related": false,
+      "agent_related": false,
+      "exports_count": 0,
+      "routes_count": 0
+    },
+    {
+      "file": "ci-prod.yml",
+      "cli": false,
+      "webhook": true,
+      "db_related": false,
+      "mcp_related": false,
+      "agent_related": false,
+      "exports_count": 0,
+      "routes_count": 0
+    },
+    {
+      "file": "codegeex-server.py",
+      "cli": true,
+      "webhook": false,
+      "db_related": false,
+      "mcp_related": false,
+      "agent_related": false,
+      "exports_count": 0,
+      "routes_count": 0
+    },
+    {
+      "file": "db.js",
+      "cli": false,
+      "webhook": false,
+      "db_related": true,
+      "mcp_related": false,
+      "agent_related": false,
+      "exports_count": 0,
+      "routes_count": 0
+    },
+    {
+      "file": "deploy.ps1",
+      "cli": false,
+      "webhook": true,
+      "db_related": true,
+      "mcp_related": false,
+      "agent_related": false,
+      "exports_count": 0,
+      "routes_count": 0
+    },
+    {
+      "file": "docs\\dlp.md",
+      "cli": false,
+      "webhook": false,
+      "db_related": true,
+      "mcp_related": false,
+      "agent_related": false,
+      "exports_count": 0,
+      "routes_count": 0
+    },
+    {
+      "file": "gitleaks-report-after.json",
+      "cli": false,
+      "webhook": true,
+      "db_related": true,
+      "mcp_related": false,
+      "agent_related": true,
+      "exports_count": 0,
+      "routes_count": 0
+    },
+    {
+      "file": "gitleaks-report.json",
+      "cli": false,
+      "webhook": true,
+      "db_related": true,
+      "mcp_related": false,
+      "agent_related": true,
+      "exports_count": 0,
+      "routes_count": 0
+    },
+    {
+      "file": "hft\\README.md",
+      "cli": false,
+      "webhook": false,
+      "db_related": true,
+      "mcp_related": false,
+      "agent_related": false,
+      "exports_count": 0,
+      "routes_count": 0
+    },
+    {
+      "file": "index.js",
+      "cli": false,
+      "webhook": true,
+      "db_related": true,
+      "mcp_related": false,
+      "agent_related": false,
+      "exports_count": 0,
+      "routes_count": 65
+    },
+    {
+      "file": "package-lock.json",
+      "cli": true,
+      "webhook": false,
+      "db_related": true,
+      "mcp_related": false,
+      "agent_related": false,
+      "exports_count": 0,
+      "routes_count": 0
+    },
+    {
+      "file": "package.json",
+      "cli": false,
+      "webhook": false,
+      "db_related": true,
+      "mcp_related": false,
+      "agent_related": false,
+      "exports_count": 0,
+      "routes_count": 0
+    },
+    {
+      "file": "proxy-gateway\\node-gateway.mjs",
+      "cli": false,
+      "webhook": false,
+      "db_related": false,
+      "mcp_related": false,
+      "agent_related": true,
+      "exports_count": 0,
+      "routes_count": 0
+    },
+    {
+      "file": "proxy-gateway\\src\\index.js",
+      "cli": false,
+      "webhook": false,
+      "db_related": false,
+      "mcp_related": false,
+      "agent_related": true,
+      "exports_count": 0,
+      "routes_count": 0
+    },
+    {
+      "file": "scripts\\automation-smoke.ps1",
+      "cli": false,
+      "webhook": false,
+      "db_related": true,
+      "mcp_related": false,
+      "agent_related": false,
+      "exports_count": 0,
+      "routes_count": 0
+    },
+    {
+      "file": "scripts\\aws-s3-dlp-scanner.js",
+      "cli": false,
+      "webhook": false,
+      "db_related": true,
+      "mcp_related": false,
+      "agent_related": false,
+      "exports_count": 0,
+      "routes_count": 0
+    },
+    {
+      "file": "scripts\\backup-database.ps1",
+      "cli": false,
+      "webhook": false,
+      "db_related": true,
+      "mcp_related": false,
+      "agent_related": false,
+      "exports_count": 0,
+      "routes_count": 0
+    },
+    {
+      "file": "scripts\\check-connection.js",
+      "cli": false,
+      "webhook": false,
+      "db_related": true,
+      "mcp_related": false,
+      "agent_related": false,
+      "exports_count": 0,
+      "routes_count": 0
+    },
+    {
+      "file": "scripts\\monitor-performance.js",
+      "cli": false,
+      "webhook": false,
+      "db_related": false,
+      "mcp_related": false,
+      "agent_related": true,
+      "exports_count": 0,
+      "routes_count": 0
+    },
+    {
+      "file": "scripts\\setup-live-production.sh",
+      "cli": false,
+      "webhook": false,
+      "db_related": true,
+      "mcp_related": false,
+      "agent_related": true,
+      "exports_count": 0,
+      "routes_count": 0
+    },
+    {
+      "file": "setup-dev-env.ps1",
+      "cli": false,
+      "webhook": false,
+      "db_related": false,
+      "mcp_related": false,
+      "agent_related": true,
+      "exports_count": 0,
+      "routes_count": 0
+    },
+    {
+      "file": "src\\backtest.js",
+      "cli": false,
+      "webhook": false,
+      "db_related": true,
+      "mcp_related": false,
+      "agent_related": false,
+      "exports_count": 0,
+      "routes_count": 0
+    },
+    {
+      "file": "src\\bots\\logger.js",
+      "cli": false,
+      "webhook": false,
+      "db_related": true,
+      "mcp_related": false,
+      "agent_related": false,
+      "exports_count": 0,
+      "routes_count": 0
+    },
+    {
+      "file": "src\\dashboard.js",
+      "cli": false,
+      "webhook": false,
+      "db_related": true,
+      "mcp_related": false,
+      "agent_related": false,
+      "exports_count": 0,
+      "routes_count": 0
+    },
+    {
+      "file": "src\\data\\bitget-symbols-fallback.js",
+      "cli": false,
+      "webhook": false,
+      "db_related": true,
+      "mcp_related": false,
+      "agent_related": false,
+      "exports_count": 0,
+      "routes_count": 0
+    },
+    {
+      "file": "src\\db.js",
+      "cli": false,
+      "webhook": false,
+      "db_related": true,
+      "mcp_related": false,
+      "agent_related": false,
+      "exports_count": 0,
+      "routes_count": 0
+    },
+    {
+      "file": "src\\ecosystem.js",
+      "cli": false,
+      "webhook": false,
+      "db_related": false,
+      "mcp_related": false,
+      "agent_related": true,
+      "exports_count": 0,
+      "routes_count": 0
+    },
+    {
+      "file": "src\\exchange.js",
+      "cli": false,
+      "webhook": false,
+      "db_related": false,
+      "mcp_related": false,
+      "agent_related": true,
+      "exports_count": 0,
+      "routes_count": 0
+    },
+    {
+      "file": "src\\prices.js",
+      "cli": false,
+      "webhook": false,
+      "db_related": false,
+      "mcp_related": false,
+      "agent_related": true,
+      "exports_count": 0,
+      "routes_count": 0
+    },
+    {
+      "file": "src\\routes\\ai-routes.js",
+      "cli": false,
+      "webhook": false,
+      "db_related": false,
+      "mcp_related": false,
+      "agent_related": false,
+      "exports_count": 0,
+      "routes_count": 3
+    },
+    {
+      "file": "src\\routes\\system-routes.js",
+      "cli": false,
+      "webhook": false,
+      "db_related": false,
+      "mcp_related": false,
+      "agent_related": false,
+      "exports_count": 0,
+      "routes_count": 5
+    },
+    {
+      "file": "src\\routes\\temporal-routes.js",
+      "cli": false,
+      "webhook": false,
+      "db_related": false,
+      "mcp_related": false,
+      "agent_related": false,
+      "exports_count": 0,
+      "routes_count": 4
+    },
+    {
+      "file": "src\\strategies\\dex.js",
+      "cli": false,
+      "webhook": false,
+      "db_related": true,
+      "mcp_related": false,
+      "agent_related": false,
+      "exports_count": 0,
+      "routes_count": 0
+    },
+    {
+      "file": "tests\\ecosystem.test.js",
+      "cli": false,
+      "webhook": false,
+      "db_related": false,
+      "mcp_related": false,
+      "agent_related": true,
+      "exports_count": 0,
+      "routes_count": 0
+    },
+    {
+      "file": "tests\\exchange.integration.test.js",
+      "cli": false,
+      "webhook": false,
+      "db_related": true,
+      "mcp_related": false,
+      "agent_related": false,
+      "exports_count": 0,
+      "routes_count": 0
+    },
+    {
+      "file": "tests\\security-auth.test.js",
+      "cli": false,
+      "webhook": true,
+      "db_related": false,
+      "mcp_related": false,
+      "agent_related": false,
+      "exports_count": 0,
+      "routes_count": 0
+    },
+    {
+      "file": "wrangler.toml",
+      "cli": false,
+      "webhook": false,
+      "db_related": true,
+      "mcp_related": false,
+      "agent_related": false,
+      "exports_count": 0,
+      "routes_count": 0
+    }
+  ],
+  "api_routes": [
+    {
+      "file": "index.js",
+      "method": "GET",
+      "path": "/"
+    },
+    {
+      "file": "index.js",
+      "method": "POST",
+      "path": "/api/alerts/test"
+    },
+    {
+      "file": "index.js",
+      "method": "POST",
+      "path": "/api/backtest"
+    },
+    {
+      "file": "index.js",
+      "method": "GET",
+      "path": "/api/backtest/runs"
+    },
+    {
+      "file": "index.js",
+      "method": "GET",
+      "path": "/api/balances"
+    },
+    {
+      "file": "index.js",
+      "method": "POST",
+      "path": "/api/bitmart/reset-circuit-breaker"
+    },
+    {
+      "file": "index.js",
+      "method": "GET",
+      "path": "/api/bitmart/stats"
+    },
+    {
+      "file": "index.js",
+      "method": "GET",
+      "path": "/api/broker/:broker"
+    },
+    {
+      "file": "index.js",
+      "method": "POST",
+      "path": "/api/broker/:broker/order"
+    },
+    {
+      "file": "index.js",
+      "method": "GET",
+      "path": "/api/brokers"
+    },
+    {
+      "file": "index.js",
+      "method": "GET",
+      "path": "/api/capital-routing"
+    },
+    {
+      "file": "index.js",
+      "method": "GET",
+      "path": "/api/dex"
+    },
+    {
+      "file": "index.js",
+      "method": "GET",
+      "path": "/api/ecosystem"
+    },
+    {
+      "file": "index.js",
+      "method": "GET",
+      "path": "/api/ecosystem/recommendation"
+    },
+    {
+      "file": "index.js",
+      "method": "GET",
+      "path": "/api/exchange/:exchange"
+    },
+    {
+      "file": "index.js",
+      "method": "POST",
+      "path": "/api/exchange/:exchange/order"
+    },
+    {
+      "file": "index.js",
+      "method": "GET",
+      "path": "/api/execution-health"
+    },
+    {
+      "file": "index.js",
+      "method": "GET",
+      "path": "/api/execution-lock"
+    },
+    {
+      "file": "index.js",
+      "method": "GET",
+      "path": "/api/export"
+    },
+    {
+      "file": "index.js",
+      "method": "GET",
+      "path": "/api/free-sources"
+    },
+    {
+      "file": "index.js",
+      "method": "POST",
+      "path": "/api/integrations/executive/execute"
+    },
+    {
+      "file": "index.js",
+      "method": "POST",
+      "path": "/api/integrations/executive/execute-all"
+    },
+    {
+      "file": "index.js",
+      "method": "GET",
+      "path": "/api/integrations/executive/status"
+    },
+    {
+      "file": "index.js",
+      "method": "GET",
+      "path": "/api/logs"
+    },
+    {
+      "file": "index.js",
+      "method": "GET",
+      "path": "/api/logs/archives"
+    },
+    {
+      "file": "index.js",
+      "method": "GET",
+      "path": "/api/market/price/:symbol"
+    },
+    {
+      "file": "index.js",
+      "method": "GET",
+      "path": "/api/memory"
+    },
+    {
+      "file": "index.js",
+      "method": "POST",
+      "path": "/api/memory/reset"
+    },
+    {
+      "file": "index.js",
+      "method": "GET",
+      "path": "/api/perps"
+    },
+    {
+      "file": "index.js",
+      "method": "GET",
+      "path": "/api/platforms"
+    },
+    {
+      "file": "index.js",
+      "method": "GET",
+      "path": "/api/pnl"
+    },
+    {
+      "file": "index.js",
+      "method": "GET",
+      "path": "/api/proxy-stats"
+    },
+    {
+      "file": "index.js",
+      "method": "GET",
+      "path": "/api/readiness"
+    },
+    {
+      "file": "index.js",
+      "method": "POST",
+      "path": "/api/rebalance/policy"
+    },
+    {
+      "file": "index.js",
+      "method": "GET",
+      "path": "/api/rebalance/status"
+    },
+    {
+      "file": "index.js",
+      "method": "GET",
+      "path": "/api/report"
+    },
+    {
+      "file": "index.js",
+      "method": "GET",
+      "path": "/api/safety-state"
+    },
+    {
+      "file": "index.js",
+      "method": "GET",
+      "path": "/api/scan-rejections"
+    },
+    {
+      "file": "index.js",
+      "method": "GET",
+      "path": "/api/security/api-keys"
+    },
+    {
+      "file": "index.js",
+      "method": "GET",
+      "path": "/api/status"
+    },
+    {
+      "file": "index.js",
+      "method": "POST",
+      "path": "/api/strategies/self-evaluate"
+    },
+    {
+      "file": "index.js",
+      "method": "GET",
+      "path": "/api/symbols/catalog"
+    },
+    {
+      "file": "index.js",
+      "method": "GET",
+      "path": "/api/trades"
+    },
+    {
+      "file": "index.js",
+      "method": "GET",
+      "path": "/api/venue-performance"
+    },
+    {
+      "file": "index.js",
+      "method": "GET",
+      "path": "/api/version"
+    },
+    {
+      "file": "index.js",
+      "method": "GET",
+      "path": "/checklist"
+    },
+    {
+      "file": "index.js",
+      "method": "POST",
+      "path": "/config"
+    },
+    {
+      "file": "index.js",
+      "method": "GET",
+      "path": "/control-panel"
+    },
+    {
+      "file": "index.js",
+      "method": "GET",
+      "path": "/control-panel.html"
+    },
+    {
+      "file": "index.js",
+      "method": "GET",
+      "path": "/cron"
+    },
+    {
+      "file": "index.js",
+      "method": "GET",
+      "path": "/dashboard"
+    },
+    {
+      "file": "index.js",
+      "method": "GET",
+      "path": "/debug-futures"
+    },
+    {
+      "file": "index.js",
+      "method": "GET",
+      "path": "/health"
+    },
+    {
+      "file": "index.js",
+      "method": "GET",
+      "path": "/login"
+    },
+    {
+      "file": "index.js",
+      "method": "POST",
+      "path": "/login"
+    },
+    {
+      "file": "index.js",
+      "method": "GET",
+      "path": "/logout"
+    },
+    {
+      "file": "index.js",
+      "method": "POST",
+      "path": "/mode/live"
+    },
+    {
+      "file": "index.js",
+      "method": "POST",
+      "path": "/mode/paper"
+    },
+    {
+      "file": "index.js",
+      "method": "POST",
+      "path": "/reset-daily"
+    },
+    {
+      "file": "index.js",
+      "method": "GET",
+      "path": "/scan"
+    },
+    {
+      "file": "index.js",
+      "method": "GET",
+      "path": "/start"
+    },
+    {
+      "file": "index.js",
+      "method": "GET",
+      "path": "/stop"
+    },
+    {
+      "file": "index.js",
+      "method": "POST",
+      "path": "/strategy/perps/:mode"
+    },
+    {
+      "file": "index.js",
+      "method": "POST",
+      "path": "/strategy/spot-lock/:mode"
+    },
+    {
+      "file": "index.js",
+      "method": "POST",
+      "path": "/telegram/webhook"
+    },
+    {
+      "file": "src\\routes\\ai-routes.js",
+      "method": "POST",
+      "path": "/api/ai"
+    },
+    {
+      "file": "src\\routes\\ai-routes.js",
+      "method": "POST",
+      "path": "/api/ai-analysis"
+    },
+    {
+      "file": "src\\routes\\ai-routes.js",
+      "method": "GET",
+      "path": "/api/ai/health"
+    },
+    {
+      "file": "src\\routes\\system-routes.js",
+      "method": "GET",
+      "path": "/api/analytics"
+    },
+    {
+      "file": "src\\routes\\system-routes.js",
+      "method": "POST",
+      "path": "/api/cb/reset"
+    },
+    {
+      "file": "src\\routes\\system-routes.js",
+      "method": "GET",
+      "path": "/api/health"
+    },
+    {
+      "file": "src\\routes\\system-routes.js",
+      "method": "POST",
+      "path": "/api/metrics/reset"
+    },
+    {
+      "file": "src\\routes\\system-routes.js",
+      "method": "GET",
+      "path": "/api/performance"
+    },
+    {
+      "file": "src\\routes\\temporal-routes.js",
+      "method": "POST",
+      "path": "/api/temporal/mode"
+    },
+    {
+      "file": "src\\routes\\temporal-routes.js",
+      "method": "POST",
+      "path": "/api/temporal/start"
+    },
+    {
+      "file": "src\\routes\\temporal-routes.js",
+      "method": "GET",
+      "path": "/api/temporal/status"
+    },
+    {
+      "file": "src\\routes\\temporal-routes.js",
+      "method": "POST",
+      "path": "/api/temporal/stop"
+    }
+  ]
+}

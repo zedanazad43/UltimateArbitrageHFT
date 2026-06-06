@@ -11,7 +11,7 @@
 // ── Constants ─────────────────────────────────────────────────────────────────
 
 // Minimum number of historical data points before a z-score is considered valid.
-const MIN_HISTORY_LENGTH = 10;
+const MIN_HISTORY_LENGTH = 8;
 
 // Maximum history length stored in KV (circular buffer).
 const MAX_HISTORY_LENGTH = 60;
@@ -19,13 +19,13 @@ const MAX_HISTORY_LENGTH = 60;
 // Z-score threshold: signal only when |z| exceeds this value.
 // 2.0σ covers ≈95.4% of observations (two-tailed ±2σ), i.e. only ~4.6% of
 // normal spread fluctuations trigger a signal (false-positive guard).
-const ZSCORE_THRESHOLD = 2.0;
+const ZSCORE_THRESHOLD = 1.2;
 
 // Maximum z-score: extreme outliers are likely data errors, not arb opportunities.
 const MAX_ZSCORE = 5.0;
 
 // Minimum gross spread between the two assets on their respective exchanges.
-const MIN_CROSS_SPREAD_PCT = 0.15;
+const MIN_CROSS_SPREAD_PCT = 0.02;
 
 // KV key prefix for ratio history storage.
 const KV_PREFIX = 'statarb_history_';

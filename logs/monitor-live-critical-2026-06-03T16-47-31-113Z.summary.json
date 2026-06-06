@@ -1,0 +1,59 @@
+{
+  "startedAt": "2026-06-03T16:47:31.113Z",
+  "endedAt": "2026-06-03T16:47:35.684Z",
+  "sampleCount": 1,
+  "requestedSamples": 1,
+  "intervalMs": 2000,
+  "maxDailyLossUsd": 12,
+  "stoppedByCritical": false,
+  "criticalCount": 0,
+  "stopReasons": [],
+  "autoStop": false,
+  "stopResult": null,
+  "first": {
+    "i": 1,
+    "ts": "2026-06-03T16:47:31.154Z",
+    "critical": false,
+    "reasons": [],
+    "diagnostics": {
+      "readyForLive": true,
+      "lock": true,
+      "perpsEnabled": false,
+      "fundingEnabled": false,
+      "coreFlagsStable": true,
+      "authFailures": 0,
+      "dailyPnl": 0,
+      "protectedEndpointFailuresConsecutive": 0,
+      "exchangeAuthFailuresConsecutive": 0
+    },
+    "httpCodes": {
+      "status": 200,
+      "safety": 200,
+      "readiness": 200,
+      "executionHealth": 200
+    }
+  },
+  "last": {
+    "i": 1,
+    "ts": "2026-06-03T16:47:31.154Z",
+    "critical": false,
+    "reasons": [],
+    "diagnostics": {
+      "readyForLive": true,
+      "lock": true,
+      "perpsEnabled": false,
+      "fundingEnabled": false,
+      "coreFlagsStable": true,
+      "authFailures": 0,
+      "dailyPnl": 0,
+      "protectedEndpointFailuresConsecutive": 0,
+      "exchangeAuthFailuresConsecutive": 0
+    },
+    "httpCodes": {
+      "status": 200,
+      "safety": 200,
+      "readiness": 200,
+      "executionHealth": 200
+    }
+  }
+}

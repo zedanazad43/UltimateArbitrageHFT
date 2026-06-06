@@ -39,6 +39,21 @@ const DEFAULT_SCAN_SYMBOLS = [
 export const DEFAULT_QUOTE_ASSETS = ['USDT', 'USDC', 'FDUSD', 'BUSD', 'DAI', 'TUSD', 'BTC', 'ETH'];
 const STABLE_QUOTES = new Set(['USDT', 'USDC', 'FDUSD', 'BUSD', 'DAI', 'TUSD']);
 
+function isTruthy(value) {
+  return /^(1|true|on|yes)$/i.test(String(value ?? '').trim());
+}
+
+function parseHeaderSpec(value) {
+  const raw = String(value || '').trim();
+  if (!raw) return {};
+  const sep = raw.indexOf(':');
+  if (sep <= 0) return {};
+  const key = raw.slice(0, sep).trim();
+  const headerValue = raw.slice(sep + 1).trim();
+  if (!key || !headerValue) return {};
+  return { [key]: headerValue };
+}
+
 function normalizeQuoteAssets(values) {
   const raw = Array.isArray(values)
     ? values
@@ -766,19 +781,162 @@ export async function getTwelveDataPrice(env, symbol) {
 
 // ── Bitget spot price ─────────────────────────────────────────────────────────
 
-export async function getBitgetPrice(symbol) {
-  try {
-    const resp = await fetchWithRetry(
-      `https://api.bitget.com/api/v2/spot/market/tickers?symbol=${symbol}`,
-      FETCH_CF
-    );
-    if (!resp || !resp.ok) { await resp?.body?.cancel(); return null; }
-    const data = await resp.json();
-    if (data.code !== '00000' || !data.data?.[0]?.lastPr) return null;
-    const price = parseFloat(data.data[0].lastPr);
-    if (!price || isNaN(price)) return null;
-    return { price, exchange: 'bitget', fee: 0.001 };
-  } catch (_) { return null; }
+export async function getBitgetPrice(symbol, env = {}) {
+  const debugEnabled = isTruthy(env.BITGET_DIAGNOSTICS || env.BITGET_DEBUG);
+  const proxyGatewayUrl = String(
+    env.PROXY_FALLBACK_URL || env.EXTERNAL_PROXY_FALLBACK_URL || env.PROXY_URL || ''
+  ).trim();
+  const proxyAuthHeaders = {
+    ...parseHeaderSpec(env.PROXY_FALLBACK_AUTH_HEADER),
+    ...parseHeaderSpec(env.EXTERNAL_PROXY_FALLBACK_AUTH_HEADER),
+  };
+
+  const requestOptions = {
+    ...FETCH_CF,
+    headers: {
+      Accept: 'application/json',
+      'Accept-Language': 'en-US,en;q=0.9',
+      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36',
+      Origin: 'https://www.bitget.com',
+      Referer: 'https://www.bitget.com/',
+      'Sec-Fetch-Site': 'same-site',
+      'Sec-Fetch-Mode': 'cors',
+    },
+  };
+
+  const parsed = splitTradingSymbol(symbol);
+  const symbolCandidates = parsed
+    ? [
+        `${parsed.base}${parsed.quote}`,
+        `${parsed.base}-${parsed.quote}`,
+        `${parsed.base}_${parsed.quote}`,
+      ]
+    : [String(symbol || '').toUpperCase()];
+  const uniqueCandidates = [...new Set(symbolCandidates.filter(Boolean))];
+
+  const attemptLogs = [];
+  const logAttempt = (entry) => {
+    if (!debugEnabled) return;
+    attemptLogs.push(entry);
+  };
+
+  const endpointFactories = [
+    {
+      label: 'v2-api',
+      target: (sym) => `https://api.bitget.com/api/v2/spot/market/tickers?symbol=${sym}`,
+      pickPrice: (data) => data?.code === '00000' ? data?.data?.[0]?.lastPr : null,
+    },
+    {
+      label: 'v2-capi',
+      target: (sym) => `https://capi.bitget.com/api/v2/spot/market/tickers?symbol=${sym}`,
+      pickPrice: (data) => data?.code === '00000' ? data?.data?.[0]?.lastPr : null,
+    },
+    {
+      label: 'v1-api',
+      target: (sym) => `https://api.bitget.com/api/spot/v1/market/ticker?symbol=${sym}`,
+      pickPrice: (data) => data?.code === '00000' ? data?.data?.close : null,
+    },
+    {
+      label: 'v1-capi',
+      target: (sym) => `https://capi.bitget.com/api/spot/v1/market/ticker?symbol=${sym}`,
+      pickPrice: (data) => data?.code === '00000' ? data?.data?.close : null,
+    },
+  ];
+
+  const endpointAttempts = [];
+  for (const sym of uniqueCandidates) {
+    for (const factory of endpointFactories) {
+      const directTarget = factory.target(sym);
+      endpointAttempts.push({
+        label: `${factory.label}:direct`,
+        symbol: sym,
+        url: directTarget,
+        pickPrice: factory.pickPrice,
+        options: requestOptions,
+      });
+
+      if (proxyGatewayUrl) {
+        endpointAttempts.push({
+          label: `${factory.label}:proxy`,
+          symbol: sym,
+          url: `${proxyGatewayUrl}?target=${encodeURIComponent(directTarget)}`,
+          pickPrice: factory.pickPrice,
+          options: {
+            ...requestOptions,
+            headers: {
+              ...requestOptions.headers,
+              'X-Proxy-Target': directTarget,
+              ...proxyAuthHeaders,
+            },
+          },
+        });
+      }
+    }
+  }
+
+  for (const attempt of endpointAttempts) {
+    try {
+      const resp = await fetchWithRetry(attempt.url, attempt.options, 0);
+      if (!resp || !resp.ok) {
+        logAttempt({
+          label: attempt.label,
+          symbol: attempt.symbol,
+          status: resp?.status || null,
+          reason: 'non_ok_response',
+        });
+        await resp?.body?.cancel();
+        continue;
+      }
+      const data = await resp.json();
+      const rawPrice = attempt.pickPrice(data);
+      const price = parseFloat(rawPrice);
+      if (price && !isNaN(price)) {
+        if (debugEnabled && attemptLogs.length) {
+          console.log(`[bitget-price] recovered ${symbol} via ${attempt.label}/${attempt.symbol} after ${attemptLogs.length} failed attempts`);
+        }
+        return { price, exchange: 'bitget', fee: 0.001 };
+      }
+
+      logAttempt({
+        label: attempt.label,
+        symbol: attempt.symbol,
+        status: 200,
+        reason: 'missing_or_invalid_price',
+      });
+    } catch (err) {
+      logAttempt({
+        label: attempt.label,
+        symbol: attempt.symbol,
+        reason: err?.message || 'fetch_error',
+      });
+    }
+  }
+
+  const failSoftSource = String(env.BITGET_FAILSOFT_SOURCE || '').trim().toLowerCase();
+  if (failSoftSource === 'binance' || failSoftSource === 'kucoin') {
+    const fallbackResult = failSoftSource === 'binance'
+      ? await getBinancePrice(symbol)
+      : await getKuCoinPrice(symbol);
+    if (fallbackResult?.price) {
+      if (debugEnabled) {
+        console.warn(`[bitget-price] failsoft(${failSoftSource}) used for ${symbol}`);
+      }
+      return {
+        price: fallbackResult.price,
+        exchange: 'bitget',
+        fee: 0.001,
+        synthetic: true,
+        sourceExchange: fallbackResult.exchange,
+      };
+    }
+  }
+
+  if (debugEnabled) {
+    const sample = attemptLogs.slice(0, 8);
+    console.warn(`[bitget-price] failed for ${symbol}; sampledAttempts=${JSON.stringify(sample)}`);
+  }
+
+  return null;
 }
 
 // ── Bitmart spot price ────────────────────────────────────────────────────────
@@ -1020,7 +1178,7 @@ export async function getAllSpotPrices(env, symbol, openCircuits = new Set()) {
     ['mexc',     () => getMEXCSpotPrice(symbol, proxyUrl)],
     ['binance',  () => getBinancePrice(symbol)],            // (*) public
     ['kucoin',   () => getKuCoinPrice(symbol)],             // (*) public
-    ['bitget',   () => getBitgetPrice(symbol)],             // (*) public
+    ['bitget',   () => getBitgetPrice(symbol, env)],        // (*) public
     ['bitmart',  () => getBitmartPrice(symbol)],            // (*) public
     ['bybit',    () => getBybitSpotPrice(symbol)],          // (*) public
     ['gateio',   () => getGateioPrice(symbol)],             // (*) public

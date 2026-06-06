@@ -70,6 +70,58 @@ export async function recordStrategyOutcome(env, strategy, outcome) {
 }
 
 /**
+ * Records a venue-level outcome for capital rotation and speed weighting.
+ *
+ * @param {object} env
+ * @param {string} exchange — venue name: 'mexc' | 'bitget' | 'binance' | ...
+ * @param {{ success: boolean, pnlUsd: number, latencyMs?: number, symbol?: string, strategy?: string }} outcome
+ */
+export async function recordVenueOutcome(env, exchange, outcome) {
+  const venue = String(exchange || '').toLowerCase();
+  if (!venue) return;
+
+  const memory = await loadBotMemory(env);
+  if (!memory.venueOutcomes) memory.venueOutcomes = {};
+  if (!memory.venueOutcomes[venue]) {
+    memory.venueOutcomes[venue] = {
+      outcomes: [],
+      wins: 0,
+      losses: 0,
+      totalPnlUsd: 0,
+      latencyMsTotal: 0,
+      latencySamples: 0,
+    };
+  }
+
+  const bucket = memory.venueOutcomes[venue];
+  const latencyMs = Number(outcome.latencyMs || 0);
+
+  bucket.outcomes.push({
+    ts: Date.now(),
+    success: !!outcome.success,
+    pnlUsd: Number(outcome.pnlUsd || 0),
+    latencyMs: Number.isFinite(latencyMs) && latencyMs > 0 ? latencyMs : 0,
+    symbol: outcome.symbol || '',
+    strategy: outcome.strategy || '',
+  });
+
+  if (bucket.outcomes.length > MAX_STRATEGY_OUTCOMES) {
+    bucket.outcomes = bucket.outcomes.slice(-MAX_STRATEGY_OUTCOMES);
+  }
+
+  if (outcome.success) bucket.wins = (bucket.wins || 0) + 1;
+  else bucket.losses = (bucket.losses || 0) + 1;
+
+  bucket.totalPnlUsd = (bucket.totalPnlUsd || 0) + Number(outcome.pnlUsd || 0);
+  if (Number.isFinite(latencyMs) && latencyMs > 0) {
+    bucket.latencyMsTotal = (bucket.latencyMsTotal || 0) + latencyMs;
+    bucket.latencySamples = (bucket.latencySamples || 0) + 1;
+  }
+
+  await saveBotMemory(env, memory);
+}
+
+/**
  * Records a self-evaluation snapshot and applies bounded auto-tuning.
  *
  * @param {object} env
@@ -170,6 +222,22 @@ export function summarizeMemory(memory) {
     };
   });
 
+  const venueStats = Object.entries(memory.venueOutcomes || {}).map(([venue, bucket]) => {
+    const total = (bucket.wins || 0) + (bucket.losses || 0);
+    const winRate = total > 0 ? +((bucket.wins / total) * 100).toFixed(1) : null;
+    const avgLatencyMs = (bucket.latencySamples || 0) > 0
+      ? +((bucket.latencyMsTotal || 0) / bucket.latencySamples).toFixed(1)
+      : null;
+    return {
+      venue,
+      wins: bucket.wins || 0,
+      losses: bucket.losses || 0,
+      winRate,
+      totalPnlUsd: +(bucket.totalPnlUsd || 0).toFixed(2),
+      avgLatencyMs,
+    };
+  });
+
   return {
     hasData: true,
     lastEvalAt: latest.ts,
@@ -178,6 +246,7 @@ export function summarizeMemory(memory) {
     autoTuning: memory.autoTuning || null,
     strategyWeights: { ...memory.strategyWeights },
     strategyStats,
+    venueStats,
     leader: latest.leader,
     laggard: latest.laggard,
     lastReturnPct: latest.return_pct,
@@ -194,6 +263,7 @@ function _emptyMemory() {
     updatedAt: Date.now(),
     evaluations: [],
     strategyOutcomes: {},
+    venueOutcomes: {},
     strategyWeights: {
       cex: 1.0, dex: 1.0, perps: 1.0,
       triangular: 1.0, statistical: 1.0, funding: 1.0,

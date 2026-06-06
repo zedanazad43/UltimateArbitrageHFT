@@ -796,6 +796,7 @@ const BITGET_API_HOSTS = [
   'capi.bitget.info',
 ];
 const BITGET_BALANCE_ENDPOINTS = ['/api/v2/spot/account/assets', '/api/spot/v1/account/assets'];
+const BITGET_ACCOUNT_BALANCE_ENDPOINT = '/api/v2/account/all-account-balance';
 const BITGET_BROWSER_HEADERS = {
   'Accept': 'application/json, text/plain, */*',
   'Accept-Language': 'en-US,en;q=0.9',
@@ -874,6 +875,69 @@ export async function getBitgetBalance(env, asset = 'USDT') {
   }
 
   throw new Error(normalizeExchangeErrorMessage('Bitget', `Bitget balance failed: ${errors.join(' | ') || 'unknown error'}`));
+}
+
+/**
+ * Fetches Bitget account-level USDT-equivalent balances across account types.
+ * Returns spot/futures/funding breakdown + total (all in USDT terms).
+ */
+export async function getBitgetAccountEquityUSDT(env) {
+  const apiKey     = resolveEnvKey(env, 'BITGET_API_KEY');
+  const apiSecret  = resolveEnvKey(env, 'BITGET_SECRET_KEY');
+  const passphrase = resolveEnvKey(env, 'BITGET_API_PASSPHRASE');
+  if (!apiKey)     throw new Error('BITGET_API_KEY is not configured');
+  if (!apiSecret)  throw new Error(missingCredError('BITGET_SECRET_KEY'));
+  if (!passphrase) throw new Error('BITGET_API_PASSPHRASE is not configured');
+
+  const errors = [];
+  for (const host of BITGET_API_HOSTS) {
+    try {
+      const timestamp = Date.now().toString();
+      const requestPath = BITGET_ACCOUNT_BALANCE_ENDPOINT;
+      const signature = await hmacBase64(apiSecret, timestamp + 'GET' + requestPath);
+      const resp = await bitgetFetch(env, `https://${host}${requestPath}`, {
+        headers: {
+          'ACCESS-KEY':        apiKey,
+          'ACCESS-SIGN':       signature,
+          'ACCESS-TIMESTAMP':  timestamp,
+          'ACCESS-PASSPHRASE': passphrase,
+          'Content-Type':      'application/json',
+          locale:              'en-US',
+          ...BITGET_BROWSER_HEADERS,
+        }
+      });
+      const data = await parseJsonResponse(resp, 'Bitget all-account-balance');
+      if (data?.code !== '00000') {
+        const msg = data?.msg || data?.message || data?.error || JSON.stringify(data);
+        errors.push(`${host}${requestPath}: ${msg}`);
+        continue;
+      }
+
+      const rows = Array.isArray(data?.data) ? data.data : [];
+      const summary = {
+        spot: 0,
+        futures: 0,
+        funding: 0,
+        total: 0,
+      };
+
+      for (const row of rows) {
+        const type = String(row?.accountType || '').toLowerCase();
+        const value = Number.parseFloat(row?.usdtBalance ?? '0');
+        const usdt = Number.isFinite(value) ? value : 0;
+        if (type === 'spot') summary.spot = usdt;
+        else if (type === 'futures') summary.futures = usdt;
+        else if (type === 'funding') summary.funding = usdt;
+      }
+      summary.total = summary.spot + summary.futures + summary.funding;
+      return summary;
+    } catch (err) {
+      const errMsg = (err?.cause?.message || err?.message || String(err) || 'unknown fetch error');
+      errors.push(`${host}${BITGET_ACCOUNT_BALANCE_ENDPOINT}: ${errMsg}`);
+    }
+  }
+
+  throw new Error(normalizeExchangeErrorMessage('Bitget', `Bitget account equity failed: ${errors.join(' | ') || 'unknown error'}`));
 }
 
 /**
