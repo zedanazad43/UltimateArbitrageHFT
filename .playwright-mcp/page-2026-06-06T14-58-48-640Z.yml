@@ -1,0 +1,528 @@
+- generic [active] [ref=e1]:
+  - generic [ref=e2]:
+    - generic [ref=e3]:
+      - generic [ref=e4]: "تحديث تلقائي:"
+      - strong [ref=e5]: "30"
+      - text: ث |
+      - button "🔄 تحديث الآن" [ref=e6] [cursor=pointer]
+    - link "🔓 خروج" [ref=e7] [cursor=pointer]:
+      - /url: /logout
+  - heading "🔷 Nexus Arbitrage System — Control Center" [level=1] [ref=e8]
+  - generic [ref=e9]: "منظومة موحدة: CEX + DEX (Spot-only) | آخر مسح: 6‏/6‏/2026 2:58:06 م"
+  - generic [ref=e10]:
+    - generic [ref=e11]:
+      - text: "الحالة:"
+      - strong [ref=e12]: ▶️ مفعّل
+    - generic [ref=e13]:
+      - text: "الوضع:"
+      - strong [ref=e14]: 📄 PAPER
+    - generic [ref=e15]:
+      - text: "💎 رأس المال:"
+      - strong [ref=e16]: $1000.00
+    - generic [ref=e17]:
+      - text: "📈 إجمالي الأرباح:"
+      - strong [ref=e18]: $0.00
+    - generic [ref=e19]:
+      - text: "📊 ربح اليوم:"
+      - strong [ref=e20]: $0.00
+    - generic [ref=e21]:
+      - text: "⚡ رافعة:"
+      - strong [ref=e22]: 3x
+    - generic [ref=e23]:
+      - text: "🎯 صفقات اليوم:"
+      - strong [ref=e24]: "0"
+    - generic [ref=e25]:
+      - text: "📊 الإجمالي:"
+      - strong [ref=e26]: "864"
+  - heading "🔍 آخر فرص المسح — الاستراتيجيات الفعّالة (Spot-only)" [level=2] [ref=e27]
+  - generic [ref=e28]:
+    - generic [ref=e29]:
+      - generic [ref=e30]:
+        - text: 📊 CEX Arbitrage
+        - generic [ref=e31]: 0 صفقة
+        - generic [ref=e32]: $0.00
+      - generic [ref=e33]: UNIETH | MEXC→BINANCE
+      - generic [ref=e34]:
+        - text: "صافي:"
+        - strong [ref=e35]: 8.4542%
+        - text: "| أمان: 98.3%"
+      - generic [ref=e36]: "شراء: $0.001569 → بيع: $0.001704"
+    - generic [ref=e37]:
+      - generic [ref=e38]:
+        - text: 🌐 DEX Cross-Chain
+        - generic [ref=e39]: 0 صفقة
+        - generic [ref=e40]: $0.00
+      - generic [ref=e41]: لا توجد فرصة في آخر مسح
+    - generic [ref=e42]:
+      - generic [ref=e43]:
+        - text: 🔺 Triangular Arb
+        - generic [ref=e44]: 0 صفقة
+        - generic [ref=e45]: $0.00
+      - generic [ref=e46]: لا توجد فرصة في آخر مسح
+    - generic [ref=e47]:
+      - generic [ref=e48]:
+        - text: 📐 Statistical Arb
+        - generic [ref=e49]: 0 صفقة
+        - generic [ref=e50]: $0.00
+      - generic [ref=e51]: لا توجد فرصة في آخر مسح
+  - generic [ref=e52]:
+    - heading "⚡ تحكم سريع" [level=2] [ref=e53]
+    - button "▶️ تشغيل" [ref=e54] [cursor=pointer]
+    - button "⏸️ إيقاف" [ref=e55] [cursor=pointer]
+    - button "🔍 مسح فوري" [ref=e56] [cursor=pointer]
+    - button "🔄 تحديث" [ref=e57] [cursor=pointer]
+    - button "✅ قائمة التشغيل" [ref=e58] [cursor=pointer]
+    - button "🔄 إعادة تعيين اليوم" [ref=e59] [cursor=pointer]
+  - generic [ref=e60]:
+    - heading "🎛️ إعدادات التشغيل" [level=2] [ref=e61]
+    - generic [ref=e62]:
+      - strong [ref=e63]: "وضع التداول:"
+      - button "📄 Paper" [ref=e64] [cursor=pointer]
+      - button "🔴 Live" [ref=e65] [cursor=pointer]
+      - text: 📄 PAPER
+    - generic [ref=e66]:
+      - generic [ref=e67]:
+        - generic [ref=e68]: أقصى خسارة يومية ($)
+        - spinbutton "أقصى خسارة يومية ($)" [ref=e69]: "20"
+      - generic [ref=e70]:
+        - generic [ref=e71]: حد الحجم اليومي ($)
+        - spinbutton "حد الحجم اليومي ($)" [ref=e72]: "500"
+        - generic [ref=e73]: يُستخدم كفرامل أمان قبل التنفيذ الحي
+      - generic [ref=e74]:
+        - generic [ref=e75]: أقصى خسارة للصفقة (%)
+        - spinbutton "أقصى خسارة للصفقة (%)" [ref=e76]: "0.015"
+      - generic [ref=e77]:
+        - generic [ref=e78]: فاصل بين الصفقات (ثانية)
+        - spinbutton "فاصل بين الصفقات (ثانية)" [ref=e79]: "10"
+      - generic [ref=e80]:
+        - generic [ref=e81]: رأس المال الابتدائي ($)
+        - spinbutton "رأس المال الابتدائي ($)" [ref=e82]: "1000"
+      - generic [ref=e83]:
+        - generic [ref=e84]: حجم المركز الافتراضي ($)
+        - spinbutton "حجم المركز الافتراضي ($)" [ref=e85]: "15"
+        - generic [ref=e86]: ابتدئ بـ 5 USDT لاختبار آمن
+      - generic [ref=e87]:
+        - generic [ref=e88]: تعدد الاستراتيجيات (LIVE)
+        - generic [ref=e89]:
+          - checkbox "تنفيذ أكثر من استراتيجية في نفس دورة المسح" [checked] [ref=e90]
+          - text: تنفيذ أكثر من استراتيجية في نفس دورة المسح
+      - generic [ref=e91]:
+        - generic [ref=e92]: أقصى صفقات لكل دورة LIVE
+        - spinbutton "أقصى صفقات لكل دورة LIVE" [ref=e93]: "5"
+      - generic [ref=e94]:
+        - generic [ref=e95]: وضع اختيار الرموز
+        - combobox "وضع اختيار الرموز" [ref=e96]:
+          - option "CEX Union (أوسع تغطية)"
+          - option "CEX Intersection (أكثر تحفظاً)" [selected]
+          - option "Wallet Readable (ملائم لـ MetaMask)"
+      - generic [ref=e97]:
+        - generic [ref=e98]: عدد الرموز الديناميكية
+        - spinbutton "عدد الرموز الديناميكية" [ref=e99]: "2000"
+      - generic [ref=e100]:
+        - generic [ref=e101]: سقف رموز MetaMask
+        - spinbutton "سقف رموز MetaMask" [ref=e102]: "10000"
+      - generic [ref=e103]:
+        - generic [ref=e104]: Quote Assets للمسح
+        - textbox "Quote Assets للمسح" [ref=e105]:
+          - /placeholder: USDT,USDC,BTC,ETH
+          - text: USDT
+        - generic [ref=e106]: "مثال: USDT,USDC,BTC,ETH"
+      - generic [ref=e107]:
+        - generic [ref=e108]: استخدام اكتشاف ديناميكي
+        - generic [ref=e109]:
+          - checkbox "تفعيل المسح على كل رموز CEX المتاحة (بدلاً من قائمة ثابتة)" [ref=e110]
+          - text: تفعيل المسح على كل رموز CEX المتاحة (بدلاً من قائمة ثابتة)
+    - generic [ref=e111]: "ملاحظة: المسح الشامل جدًا يرفع الحمل. القيمة المقترحة للبداية: 300–500 رمز."
+    - generic [ref=e112]:
+      - button "💾 حفظ الإعدادات" [ref=e113] [cursor=pointer]
+      - button "🌐 تفعيل وضع كل الرموز (MEXC/BINANCE/BITGET + MetaMask)" [ref=e114] [cursor=pointer]
+  - generic [ref=e115]:
+    - heading "🧠 تفعيل الاستراتيجيات" [level=2] [ref=e116]
+    - generic [ref=e117]: فعّل/عطّل كل استراتيجية مباشرة من الواجهة. يتم حفظ الإعدادات في حالة البوت.
+    - generic [ref=e118]:
+      - generic [ref=e119]:
+        - checkbox "CEX Arbitrage" [checked] [ref=e120]
+        - text: CEX Arbitrage
+      - generic [ref=e121]:
+        - checkbox "DEX Cross-Chain" [checked] [ref=e122]
+        - text: DEX Cross-Chain
+      - generic [ref=e123]:
+        - checkbox "Perps Arbitrage Locked" [disabled] [ref=e124]
+        - text: Perps Arbitrage Locked
+      - generic [ref=e125]:
+        - checkbox "Funding Rate" [disabled] [ref=e126]
+        - text: Funding Rate
+      - generic [ref=e127]:
+        - checkbox "Triangular" [checked] [ref=e128]
+        - text: Triangular
+      - generic [ref=e129]:
+        - checkbox "Statistical" [checked] [ref=e130]
+        - text: Statistical
+      - generic [ref=e131]:
+        - checkbox "Scalping Forward" [checked] [ref=e132]
+        - text: Scalping Forward
+      - generic [ref=e133]:
+        - checkbox "Scalping Reverse" [checked] [ref=e134]
+        - text: Scalping Reverse
+      - generic [ref=e135]:
+        - checkbox "Scalping Parallel" [checked] [ref=e136]
+        - text: Scalping Parallel
+    - button "💾 حفظ إعدادات الاستراتيجيات" [ref=e138] [cursor=pointer]
+  - generic [ref=e139]:
+    - generic [ref=e140]:
+      - generic [ref=e141]: رأس المال الفعلي
+      - generic [ref=e142]: $1000.00
+    - generic [ref=e143]:
+      - generic [ref=e144]: إجمالي الأرباح
+      - generic [ref=e145]: $0.00
+    - generic [ref=e146]:
+      - generic [ref=e147]: CEX — P&L
+      - generic [ref=e148]: $0.00
+    - generic [ref=e149]:
+      - generic [ref=e150]: DEX — P&L
+      - generic [ref=e151]: $0.00
+    - generic [ref=e152]:
+      - generic [ref=e153]: Triangular — P&L
+      - generic [ref=e154]: $0.00
+    - generic [ref=e155]:
+      - generic [ref=e156]: Statistical — P&L
+      - generic [ref=e157]: $0.00
+    - generic [ref=e158]:
+      - generic [ref=e159]: إجمالي الصفقات
+      - generic [ref=e160]: "864"
+  - heading "📈 مقاييس الأداء" [level=2] [ref=e161]
+  - generic [ref=e162]:
+    - generic [ref=e163]:
+      - generic [ref=e164]: نسبة الربح (Win Rate)
+      - generic [ref=e165]: 97.8%
+      - generic [ref=e166]: 845 ربح / 19 خسارة
+    - generic [ref=e167]:
+      - generic [ref=e168]: أقصى تراجع (Max Drawdown)
+      - generic [ref=e169]: $0.00
+    - generic [ref=e170]:
+      - generic [ref=e171]: أفضل صفقة
+      - generic [ref=e172]: $0.09
+    - generic [ref=e173]:
+      - generic [ref=e174]: أسوأ صفقة
+      - generic [ref=e175]: $0.00
+    - generic [ref=e176]:
+      - generic [ref=e177]: Sharpe Ratio
+      - generic [ref=e178]: "109.98"
+    - generic [ref=e179]:
+      - generic [ref=e180]: Sortino Ratio
+      - generic [ref=e181]: "0.00"
+    - generic [ref=e182]:
+      - generic [ref=e183]: Profit Factor
+      - generic [ref=e184]: —
+    - generic [ref=e185]:
+      - generic [ref=e186]: Expectancy ($)
+      - generic [ref=e187]: $0.000
+    - generic [ref=e188]:
+      - generic [ref=e189]: تصدير البيانات
+      - generic [ref=e190]:
+        - link "⬇️ تحميل CSV (الكل)" [ref=e191] [cursor=pointer]:
+          - /url: /api/export
+        - link "📊 تقرير JSON" [ref=e192] [cursor=pointer]:
+          - /url: /api/report
+  - generic [ref=e193]:
+    - heading "🧩 تكاملات مجانية ومفتوحة المصدر" [level=2] [ref=e194]
+    - generic [ref=e195]: حالة مزودي البيانات/الرسم/التنفيذ المجانيين المستخدمين لتقوية البوت.
+    - generic [ref=e197]: جارٍ التحميل...
+  - generic [ref=e198]:
+    - heading "🔬 اختبار الأداء السابق (Backtest)" [level=2] [ref=e199]
+    - generic [ref=e200]:
+      - generic [ref=e201]:
+        - generic [ref=e202]: رأس المال الابتدائي ($)
+        - spinbutton "رأس المال الابتدائي ($)" [ref=e203]: "1000"
+      - generic [ref=e204]:
+        - generic [ref=e205]: نسبة الحجم من رأس المال
+        - spinbutton "نسبة الحجم من رأس المال" [ref=e206]: "0.10"
+      - generic [ref=e207]:
+        - generic [ref=e208]: الحد الأدنى لصافي الربح (%)
+        - spinbutton "الحد الأدنى لصافي الربح (%)" [ref=e209]: "0"
+      - generic [ref=e210]:
+        - generic [ref=e211]: فترة (أيام)
+        - spinbutton "فترة (أيام)" [ref=e212]: "30"
+    - button "🔬 تشغيل Backtest" [ref=e213] [cursor=pointer]
+    - button "📋 تاريخ الاختبارات" [ref=e214] [cursor=pointer]
+  - generic [ref=e219]:
+    - heading "💰 أرصدة المنصات (USDT)" [level=2] [ref=e220]
+    - generic [ref=e222]: جارٍ التحميل...
+  - generic [ref=e223]:
+    - heading "🧭 جاهزية منصات التنفيذ" [level=2] [ref=e224]
+    - generic [ref=e225]: MEXC و Binance و Bitget للتنفيذ المركزي، وMetaMask لتوقيع Web3 فقط.
+    - generic [ref=e226]:
+      - 'textbox "ابحث: mexc / web3 / configured" [ref=e227]'
+      - button "تحديث الآن" [ref=e228] [cursor=pointer]
+      - generic [ref=e229]: "آخر تحديث: —"
+    - generic [ref=e230]: ⏳ جاري تحميل بيانات المنصات...
+    - generic [ref=e232]: جارٍ التحميل...
+  - generic [ref=e233]:
+    - heading "🔌 حالة Circuit Breaker — المنصات الفعّالة" [level=2] [ref=e234]
+    - generic [ref=e235]: "⚠️ Gate.io و Bybit: مصادر أسعار فقط (القانون الألماني — لا تنفيذ حقيقي)"
+    - generic [ref=e237]: جارٍ التحميل...
+  - generic [ref=e238]:
+    - heading "⚡ حالة Perps — العقود الدائمة" [level=2] [ref=e239]
+    - generic [ref=e240]: "مصادر أسعار Perps: MEXC Futures (تنفيذ) + Binance USDM + OKX Swap + Bybit (بيانات فقط). يتم التنفيذ الحقيقي عبر MEXC Futures أو Spot Hedge في حالة عدم توفر MEXC Futures."
+    - generic [ref=e242]: جارٍ التحميل...
+  - generic [ref=e243]:
+    - heading "🦊 MetaMask — عقود Perps على السلسلة" [level=2] [ref=e244]
+    - generic [ref=e245]: ربط MetaMask لتنفيذ عقود Perps اللامركزية (GMX, dYdX v4) على السلسلة مباشرةً من المتصفح. لا يُرسَل مفتاحك الخاص للسيرفر.
+    - button "🦊 ربط MetaMask" [ref=e247] [cursor=pointer]
+  - generic [ref=e248]:
+    - heading "🧠 الذاكرة والتعلم الذاتي" [level=2] [ref=e249]
+    - generic [ref=e250]:
+      - text: يراكم البوت الخبرة عبر تقييمات دورية ذاتية. نتائج كل تقييم تُحفظ وتُستخدم لضبط أوزان الاستراتيجيات تلقائياً ضمن حدود أمان محددة. كل تعديل ذاتي مقيّد بحدود (
+      - strong [ref=e251]: +0.1 / -0.1
+      - text: لكل دورة، بين 0.2 و 2.0).
+    - generic [ref=e252]:
+      - button "🔬 تشغيل تقييم ذاتي" [ref=e253] [cursor=pointer]
+      - button "📂 تحميل الذاكرة" [ref=e254] [cursor=pointer]
+      - button "🗑️ مسح الذاكرة" [ref=e255] [cursor=pointer]
+  - generic [ref=e256]:
+    - heading "🤖 تحليل الفرصة بالذكاء الاصطناعي" [level=2] [ref=e257]
+    - generic [ref=e258]: أدخل بيانات الفرصة وسيحللها نموذج الذكاء الاصطناعي ويعطيك توصية فورية.
+    - generic [ref=e259]:
+      - generic [ref=e260]:
+        - generic [ref=e261]: الزوج (Symbol)
+        - textbox "الزوج (Symbol)" [ref=e262]:
+          - /placeholder: BTC/USDT
+          - text: UNIETH
+      - generic [ref=e263]:
+        - generic [ref=e264]: الاستراتيجية
+        - combobox "الاستراتيجية" [ref=e265]:
+          - option "CEX" [selected]
+          - option "DEX"
+          - option "Perps"
+          - option "Triangular"
+          - option "Statistical"
+      - generic [ref=e266]:
+        - generic [ref=e267]: الاتجاه
+        - textbox "الاتجاه" [ref=e268]:
+          - /placeholder: buy_mexc_sell_binance
+          - text: MEXC→BINANCE
+      - generic [ref=e269]:
+        - generic [ref=e270]: سعر الشراء ($)
+        - spinbutton "سعر الشراء ($)" [ref=e271]: "0.001569"
+      - generic [ref=e272]:
+        - generic [ref=e273]: سعر البيع ($)
+        - spinbutton "سعر البيع ($)" [ref=e274]: "0.001704"
+      - generic [ref=e275]:
+        - generic [ref=e276]: صافي الربح (%)
+        - spinbutton "صافي الربح (%)" [ref=e277]: "8.454206500956017"
+    - button "🤖 تحليل بالذكاء الاصطناعي" [ref=e278] [cursor=pointer]
+  - generic [ref=e279]:
+    - heading "⏱️ Temporal — جلسة التداول المستدامة" [level=2] [ref=e280]
+    - generic [ref=e281]:
+      - text: Temporal يضمن استمرار جلسة التداول حتى في حالة إعادة تشغيل الـ Worker. يتطلب تهيئة
+      - code [ref=e282]: TEMPORAL_API_KEY
+      - text: .
+    - generic [ref=e283]:
+      - button "▶️ تشغيل Temporal" [ref=e284] [cursor=pointer]
+      - button "⏸️ إيقاف ناعم" [ref=e285] [cursor=pointer]
+      - button "🛑 إنهاء فوري" [ref=e286] [cursor=pointer]
+      - button "📊 الحالة" [ref=e287] [cursor=pointer]
+      - button "📄 Paper" [ref=e288] [cursor=pointer]
+      - button "🔴 Live" [ref=e289] [cursor=pointer]
+  - generic [ref=e290]:
+    - heading "🔌 التكاملات التنفيذية الأربعة" [level=2] [ref=e291]
+    - generic [ref=e292]: Hummingbot + Freqtrade + CrewAI + AutoGPT
+    - generic [ref=e293]:
+      - button "📊 الحالة" [ref=e294] [cursor=pointer]
+      - button "▶️ Hummingbot" [ref=e295] [cursor=pointer]
+      - button "▶️ Freqtrade" [ref=e296] [cursor=pointer]
+      - button "▶️ CrewAI" [ref=e297] [cursor=pointer]
+      - button "▶️ AutoGPT" [ref=e298] [cursor=pointer]
+      - button "🚀 تشغيل الأربعة معًا" [ref=e299] [cursor=pointer]
+    - generic [ref=e300]: جارٍ التحميل...
+  - generic [ref=e301]:
+    - heading "🗄️ أرشيف ملفات السجلات (R2)" [level=2] [ref=e302]
+    - button "📂 تحميل قائمة الأرشيف" [ref=e303] [cursor=pointer]
+  - generic [ref=e304]:
+    - heading "🔗 مزامنة الواجهة مع API" [level=2] [ref=e305]
+    - generic [ref=e306]: جارٍ مزامنة البيانات…
+    - generic [ref=e307]:
+      - generic [ref=e308]:
+        - generic [ref=e309]: /api/status
+        - generic [ref=e310]: ▶️ مفعّل | Paper
+      - generic [ref=e311]:
+        - generic [ref=e312]: /api/trades
+        - generic [ref=e313]: 864 صفقة
+      - generic [ref=e314]:
+        - generic [ref=e315]: /api/pnl
+        - generic [ref=e316]: إجمالي $0.00
+      - generic [ref=e317]:
+        - generic [ref=e318]: /api/report
+        - generic [ref=e319]: WR 97.8% | PF —
+      - generic [ref=e320]:
+        - generic [ref=e321]: /api/logs
+        - generic [ref=e322]: قيد التحميل…
+  - heading "📊 آخر الصفقات" [level=2] [ref=e323]
+  - generic [ref=e324]:
+    - text: "أحدث تنفيذ محفوظ:"
+    - strong [ref=e325]: 21‏/5‏/2026 8:44:53 م
+    - text: "| قبل 15 يوم — هذه بيانات تنفيذات محفوظة وليست صفقة حديثة من هذه الساعة."
+  - heading "🔥 الصفقات الحية الآن" [level=2] [ref=e326]
+  - generic [ref=e327]: هذه فرص مباشرة من آخر مسح، وليست سجلًا تاريخيًا.
+  - generic [ref=e329]:
+    - generic [ref=e330]: LIVE DEAL — CEX
+    - generic [ref=e331]: UNIETH
+    - generic [ref=e332]:
+      - generic [ref=e333]:
+        - text: "الاتجاه:"
+        - strong [ref=e334]: MEXC→BINANCE
+      - generic [ref=e335]:
+        - text: "صافي:"
+        - strong [ref=e336]: 8.4542%
+        - text: "| أمان: 98.3%"
+      - generic [ref=e337]: "شراء: $0.001569 → بيع: $0.001704"
+  - table [ref=e338]:
+    - rowgroup [ref=e339]:
+      - row "الوضع الاستراتيجية الاتجاه الحجم (USD) الربح الوقت" [ref=e340]:
+        - columnheader "الوضع" [ref=e341]
+        - columnheader "الاستراتيجية" [ref=e342]
+        - columnheader "الاتجاه" [ref=e343]
+        - columnheader "الحجم (USD)" [ref=e344]
+        - columnheader "الربح" [ref=e345]
+        - columnheader "الوقت" [ref=e346]
+    - rowgroup [ref=e347]:
+      - row "PAPER PERPS KRAKEN→MEXC_PERP $18.29 0.3517% 21‏/5‏/2026 8:44:53 م" [ref=e348]:
+        - cell "PAPER" [ref=e349]
+        - cell "PERPS" [ref=e350]
+        - cell "KRAKEN→MEXC_PERP" [ref=e351]
+        - cell "$18.29" [ref=e352]
+        - cell "0.3517%" [ref=e353]
+        - cell "21‏/5‏/2026 8:44:53 م" [ref=e354]
+      - row "LIVE TRIANGULAR USDT→DOT→ETH→USDT $10.00 0.6134% 17‏/5‏/2026 1:49:55 م" [ref=e355]:
+        - cell "LIVE" [ref=e356]
+        - cell "TRIANGULAR" [ref=e357]
+        - cell "USDT→DOT→ETH→USDT" [ref=e358]
+        - cell "$10.00" [ref=e359]
+        - cell "0.6134%" [ref=e360]
+        - cell "17‏/5‏/2026 1:49:55 م" [ref=e361]
+      - row "LIVE TRIANGULAR USDT→DOT→ETH→USDT $10.00 0.5054% 17‏/5‏/2026 1:48:54 م" [ref=e362]:
+        - cell "LIVE" [ref=e363]
+        - cell "TRIANGULAR" [ref=e364]
+        - cell "USDT→DOT→ETH→USDT" [ref=e365]
+        - cell "$10.00" [ref=e366]
+        - cell "0.5054%" [ref=e367]
+        - cell "17‏/5‏/2026 1:48:54 م" [ref=e368]
+      - row "LIVE TRIANGULAR USDT→DOT→ETH→USDT $10.00 0.5712% 17‏/5‏/2026 1:47:53 م" [ref=e369]:
+        - cell "LIVE" [ref=e370]
+        - cell "TRIANGULAR" [ref=e371]
+        - cell "USDT→DOT→ETH→USDT" [ref=e372]
+        - cell "$10.00" [ref=e373]
+        - cell "0.5712%" [ref=e374]
+        - cell "17‏/5‏/2026 1:47:53 م" [ref=e375]
+      - row "LIVE TRIANGULAR USDT→DOT→ETH→USDT $10.00 0.6693% 17‏/5‏/2026 1:46:54 م" [ref=e376]:
+        - cell "LIVE" [ref=e377]
+        - cell "TRIANGULAR" [ref=e378]
+        - cell "USDT→DOT→ETH→USDT" [ref=e379]
+        - cell "$10.00" [ref=e380]
+        - cell "0.6693%" [ref=e381]
+        - cell "17‏/5‏/2026 1:46:54 م" [ref=e382]
+      - row "LIVE TRIANGULAR USDT→DOT→ETH→USDT $10.00 0.6289% 17‏/5‏/2026 1:45:54 م" [ref=e383]:
+        - cell "LIVE" [ref=e384]
+        - cell "TRIANGULAR" [ref=e385]
+        - cell "USDT→DOT→ETH→USDT" [ref=e386]
+        - cell "$10.00" [ref=e387]
+        - cell "0.6289%" [ref=e388]
+        - cell "17‏/5‏/2026 1:45:54 م" [ref=e389]
+      - row "LIVE TRIANGULAR USDT→DOT→ETH→USDT $10.00 0.6417% 17‏/5‏/2026 1:44:55 م" [ref=e390]:
+        - cell "LIVE" [ref=e391]
+        - cell "TRIANGULAR" [ref=e392]
+        - cell "USDT→DOT→ETH→USDT" [ref=e393]
+        - cell "$10.00" [ref=e394]
+        - cell "0.6417%" [ref=e395]
+        - cell "17‏/5‏/2026 1:44:55 م" [ref=e396]
+      - row "LIVE TRIANGULAR USDT→DOT→ETH→USDT $10.00 0.5945% 17‏/5‏/2026 1:43:54 م" [ref=e397]:
+        - cell "LIVE" [ref=e398]
+        - cell "TRIANGULAR" [ref=e399]
+        - cell "USDT→DOT→ETH→USDT" [ref=e400]
+        - cell "$10.00" [ref=e401]
+        - cell "0.5945%" [ref=e402]
+        - cell "17‏/5‏/2026 1:43:54 م" [ref=e403]
+      - row "LIVE TRIANGULAR USDT→DOT→ETH→USDT $10.00 0.6170% 17‏/5‏/2026 1:42:54 م" [ref=e404]:
+        - cell "LIVE" [ref=e405]
+        - cell "TRIANGULAR" [ref=e406]
+        - cell "USDT→DOT→ETH→USDT" [ref=e407]
+        - cell "$10.00" [ref=e408]
+        - cell "0.6170%" [ref=e409]
+        - cell "17‏/5‏/2026 1:42:54 م" [ref=e410]
+      - row "LIVE TRIANGULAR USDT→DOT→ETH→USDT $10.00 0.6092% 17‏/5‏/2026 1:41:53 م" [ref=e411]:
+        - cell "LIVE" [ref=e412]
+        - cell "TRIANGULAR" [ref=e413]
+        - cell "USDT→DOT→ETH→USDT" [ref=e414]
+        - cell "$10.00" [ref=e415]
+        - cell "0.6092%" [ref=e416]
+        - cell "17‏/5‏/2026 1:41:53 م" [ref=e417]
+      - row "LIVE TRIANGULAR USDT→DOT→ETH→USDT $10.00 0.6358% 17‏/5‏/2026 1:40:55 م" [ref=e418]:
+        - cell "LIVE" [ref=e419]
+        - cell "TRIANGULAR" [ref=e420]
+        - cell "USDT→DOT→ETH→USDT" [ref=e421]
+        - cell "$10.00" [ref=e422]
+        - cell "0.6358%" [ref=e423]
+        - cell "17‏/5‏/2026 1:40:55 م" [ref=e424]
+      - row "LIVE TRIANGULAR USDT→DOT→ETH→USDT $10.00 0.6505% 17‏/5‏/2026 1:39:54 م" [ref=e425]:
+        - cell "LIVE" [ref=e426]
+        - cell "TRIANGULAR" [ref=e427]
+        - cell "USDT→DOT→ETH→USDT" [ref=e428]
+        - cell "$10.00" [ref=e429]
+        - cell "0.6505%" [ref=e430]
+        - cell "17‏/5‏/2026 1:39:54 م" [ref=e431]
+      - row "LIVE TRIANGULAR USDT→DOT→ETH→USDT $10.00 0.6541% 17‏/5‏/2026 1:38:56 م" [ref=e432]:
+        - cell "LIVE" [ref=e433]
+        - cell "TRIANGULAR" [ref=e434]
+        - cell "USDT→DOT→ETH→USDT" [ref=e435]
+        - cell "$10.00" [ref=e436]
+        - cell "0.6541%" [ref=e437]
+        - cell "17‏/5‏/2026 1:38:56 م" [ref=e438]
+      - row "LIVE TRIANGULAR USDT→DOT→ETH→USDT $10.00 0.6454% 17‏/5‏/2026 1:37:53 م" [ref=e439]:
+        - cell "LIVE" [ref=e440]
+        - cell "TRIANGULAR" [ref=e441]
+        - cell "USDT→DOT→ETH→USDT" [ref=e442]
+        - cell "$10.00" [ref=e443]
+        - cell "0.6454%" [ref=e444]
+        - cell "17‏/5‏/2026 1:37:53 م" [ref=e445]
+      - row "LIVE TRIANGULAR USDT→DOT→ETH→USDT $10.00 0.5982% 17‏/5‏/2026 1:36:53 م" [ref=e446]:
+        - cell "LIVE" [ref=e447]
+        - cell "TRIANGULAR" [ref=e448]
+        - cell "USDT→DOT→ETH→USDT" [ref=e449]
+        - cell "$10.00" [ref=e450]
+        - cell "0.5982%" [ref=e451]
+        - cell "17‏/5‏/2026 1:36:53 م" [ref=e452]
+      - row "LIVE TRIANGULAR USDT→DOT→ETH→USDT $10.00 0.5321% 17‏/5‏/2026 1:35:54 م" [ref=e453]:
+        - cell "LIVE" [ref=e454]
+        - cell "TRIANGULAR" [ref=e455]
+        - cell "USDT→DOT→ETH→USDT" [ref=e456]
+        - cell "$10.00" [ref=e457]
+        - cell "0.5321%" [ref=e458]
+        - cell "17‏/5‏/2026 1:35:54 م" [ref=e459]
+      - row "LIVE TRIANGULAR USDT→DOT→ETH→USDT $10.00 0.6732% 17‏/5‏/2026 1:34:58 م" [ref=e460]:
+        - cell "LIVE" [ref=e461]
+        - cell "TRIANGULAR" [ref=e462]
+        - cell "USDT→DOT→ETH→USDT" [ref=e463]
+        - cell "$10.00" [ref=e464]
+        - cell "0.6732%" [ref=e465]
+        - cell "17‏/5‏/2026 1:34:58 م" [ref=e466]
+      - row "LIVE TRIANGULAR USDT→DOT→ETH→USDT $10.00 0.6774% 17‏/5‏/2026 1:33:55 م" [ref=e467]:
+        - cell "LIVE" [ref=e468]
+        - cell "TRIANGULAR" [ref=e469]
+        - cell "USDT→DOT→ETH→USDT" [ref=e470]
+        - cell "$10.00" [ref=e471]
+        - cell "0.6774%" [ref=e472]
+        - cell "17‏/5‏/2026 1:33:55 م" [ref=e473]
+      - row "LIVE TRIANGULAR USDT→DOT→ETH→USDT $10.00 0.7169% 17‏/5‏/2026 1:32:57 م" [ref=e474]:
+        - cell "LIVE" [ref=e475]
+        - cell "TRIANGULAR" [ref=e476]
+        - cell "USDT→DOT→ETH→USDT" [ref=e477]
+        - cell "$10.00" [ref=e478]
+        - cell "0.7169%" [ref=e479]
+        - cell "17‏/5‏/2026 1:32:57 م" [ref=e480]
+      - row "LIVE TRIANGULAR USDT→DOT→ETH→USDT $10.00 0.6879% 17‏/5‏/2026 1:31:55 م" [ref=e481]:
+        - cell "LIVE" [ref=e482]
+        - cell "TRIANGULAR" [ref=e483]
+        - cell "USDT→DOT→ETH→USDT" [ref=e484]
+        - cell "$10.00" [ref=e485]
+        - cell "0.6879%" [ref=e486]
+        - cell "17‏/5‏/2026 1:31:55 م" [ref=e487]

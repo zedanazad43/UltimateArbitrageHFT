@@ -1,0 +1,10 @@
+- generic [ref=e2]:
+  - generic [ref=e3]: 🔷
+  - heading "Nexus Arbitrage Hub" [level=1] [ref=e4]
+  - paragraph [ref=e5]: أدخل رمز الإدارة للمتابعة
+  - generic [ref=e6]:
+    - generic [ref=e7]: رمز الإدارة (ADMIN_TOKEN)
+    - textbox "رمز الإدارة (ADMIN_TOKEN)" [active] [ref=e8]:
+      - /placeholder: ••••••••••••
+    - button "🔑 دخول" [ref=e9] [cursor=pointer]
+  - paragraph [ref=e10]: مبني على Cloudflare Workers
