@@ -17,7 +17,7 @@ permissions:
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
-  NODE_VERSION: '24'
+  NODE_VERSION: '22'
 
 # ─────────────────────────────────────────────────────────────────────────────
 # 1. LINT
@@ -71,7 +71,7 @@ jobs:
     needs: [lint, audit]
     strategy:
       matrix:
-        node: ['24']
+        node: ['22']
     steps:
       - uses: actions/checkout@v5
 
@@ -156,6 +156,7 @@ jobs:
         run: npm ci
 
       - name: Deploy to staging Worker
+        timeout-minutes: 5
         run: |
           for attempt in 1 2 3; do
             echo "--- Staging deploy attempt $attempt/3 ---"
@@ -177,6 +178,7 @@ jobs:
   deploy-production:
     name: Deploy → Production (with approval)
     runs-on: ubuntu-latest
+    timeout-minutes: 90
     needs: build
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     environment:
@@ -195,6 +197,7 @@ jobs:
         run: npm ci
 
       - name: Deploy Worker (production, 3 retries)
+        timeout-minutes: 5
         run: |
           for attempt in 1 2 3; do
             echo "--- Production deploy attempt $attempt/3 ---"
@@ -206,6 +209,48 @@ jobs:
           done
           echo "::error::Production deployment failed after 3 attempts."
           exit 1
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+
+      - name: Upload secrets to Cloudflare Worker
+        timeout-minutes: 5
+        run: |
+          python3 - <<'PYEOF'
+          import json, os
+          keys = [
+            "MEXC_API_KEY", "MEXC_API_SECRET",
+            "BINANCE_API_KEY", "BINANCE_API_SECRET",
+            "KUCOIN_API_KEY", "KUCOIN_SECRET_KEY", "KUCOIN_PASSPHRASE",
+            "COINBASE_API_KEY", "COINBASE_SECRET_KEY",
+            "BITGET_API_KEY", "BITGET_SECRET_KEY", "BITGET_API_PASSPHRASE",
+            "BITMART_API_KEY", "BITMART_SECRET_KEY", "BITMART_MEMO",
+            "BYBIT_API_KEY", "BYBIT_API_SECRET",
+            "GATEIO_API_KEY", "GATEIO_API_SECRET",
+            "HTX_API_KEY", "HTX_API_SECRET",
+            "ZEROX_API_KEY", "ALCHEMY_API_KEY",
+            "TELEGRAM_BOT_TOKEN", "TELEGRAM_CHAT_ID",
+            "ADMIN_TOKEN", "WORKFLOW_ADMIN_TOKEN",
+            "GITHUB_TOKEN",
+            "HFT_ENGINE_SECRET",
+            "TEMPORAL_API_KEY",
+            "PROXY_URL",
+            "PROXY_LIST",
+            "PROXY_AUTH_HEADER",
+            "EXTERNAL_PROXY_URL",
+            "EXTERNAL_PROXY_GATEWAY_URL",
+            "EXTERNAL_PROXY_PROVIDER",
+            "EXTERNAL_PROXY_USERNAME",
+            "EXTERNAL_PROXY_PASSWORD",
+            "EXTERNAL_PROXY_AUTH_HEADER",
+          ]
+          secrets = {k: os.environ[k] for k in keys if os.environ.get(k)}
+          fd = os.open("/tmp/cf_secrets.json", os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+          with os.fdopen(fd, "w") as f:
+            json.dump(secrets, f)
+          PYEOF
+          npx --yes wrangler@4 secret bulk /tmp/cf_secrets.json
+          rm /tmp/cf_secrets.json
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
@@ -315,6 +360,7 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
 
       - name: Enable live trading in KV
+        timeout-minutes: 5
         run: |
           python3 - <<'PYEOF'
           import json, subprocess, sys, re
@@ -435,6 +481,7 @@ jobs:
 
       - name: Enforce spot-only lock before safety validation
         id: enforce_spot_lock
+        timeout-minutes: 3
         run: |
           API_BASE="https://ultimatearbitragehft.zedanazad43.workers.dev"
 
@@ -468,6 +515,7 @@ jobs:
 
       - name: Post-deploy endpoint smoke test
         id: smoke_test
+        timeout-minutes: 8
         run: |
           for attempt in 1 2 3 4; do
             echo "--- Smoke check attempt $attempt/4 ---"
@@ -490,6 +538,7 @@ jobs:
 
       - name: Post-deploy safety lock smoke test
         id: safety_smoke_test
+        timeout-minutes: 8
         run: |
           for attempt in 1 2 3; do
             echo "--- Safety smoke check attempt $attempt/3 ---"
@@ -510,6 +559,7 @@ jobs:
 
       - name: Post-deploy lock bypass guard test
         id: lock_bypass_guard_test
+        timeout-minutes: 8
         run: |
           for attempt in 1 2 3; do
             echo "--- Lock bypass guard attempt $attempt/3 ---"
@@ -530,6 +580,7 @@ jobs:
 
       - name: Post-deploy core flags stability smoke test
         id: core_flags_smoke_test
+        timeout-minutes: 8
         run: |
           for attempt in 1 2 3; do
             echo "--- Core flags stability smoke attempt $attempt/3 ---"
@@ -550,6 +601,7 @@ jobs:
 
       - name: Post-deploy canary guard (30-minute)
         id: canary_guard_test
+        timeout-minutes: 35
         run: |
           echo "--- Canary guard window start (30 samples x 60s) ---"
           npm run smoke:core-flags -- --base "$API_BASE" --samples 30 --interval-ms 60000

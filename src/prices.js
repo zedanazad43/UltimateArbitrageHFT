@@ -58,9 +58,9 @@ function normalizeQuoteAssets(values) {
   const raw = Array.isArray(values)
     ? values
     : String(values || '')
-        .split(',')
-        .map((v) => v.trim())
-        .filter(Boolean);
+      .split(',')
+      .map((v) => v.trim())
+      .filter(Boolean);
 
   const normalized = [...new Set(raw.map((q) => String(q).toUpperCase().replace(/[^A-Z0-9]/g, '')))]
     .filter((q) => q.length >= 3 && q.length <= 10);
@@ -349,7 +349,7 @@ export async function getMarketStreamerPrice(env, symbol) {
     const resp = await obj.fetch(`https://dummy/price?symbol=${symbol}`);
     const data = await resp.json();
     if (data.price > 0) return { price: data.price, exchange: 'mexc', fee: 0.0005 };
-  } catch (_) {}
+  } catch (_) { }
   // Fallback to REST if WebSocket cache is cold
   return getMEXCSpotPrice(symbol);
 }
@@ -592,12 +592,12 @@ export async function get0xPrice(env, symbol) {
   const tokenMap = {
     'ETHUSDT': {
       sell: '0xdAC17F958D2ee523a2206206994597C13D831ec7',
-      buy:  '0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2',
+      buy: '0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2',
       decimals: 18
     },
     'BTCUSDT': {
       sell: '0xdAC17F958D2ee523a2206206994597C13D831ec7',
-      buy:  '0x2260FAC5E5542a773Aa44fBCfeDf7C193bc2C599',
+      buy: '0x2260FAC5E5542a773Aa44fBCfeDf7C193bc2C599',
       decimals: 8
     }
   };
@@ -807,10 +807,10 @@ export async function getBitgetPrice(symbol, env = {}) {
   const parsed = splitTradingSymbol(symbol);
   const symbolCandidates = parsed
     ? [
-        `${parsed.base}${parsed.quote}`,
-        `${parsed.base}-${parsed.quote}`,
-        `${parsed.base}_${parsed.quote}`,
-      ]
+      `${parsed.base}${parsed.quote}`,
+      `${parsed.base}-${parsed.quote}`,
+      `${parsed.base}_${parsed.quote}`,
+    ]
     : [String(symbol || '').toUpperCase()];
   const uniqueCandidates = [...new Set(symbolCandidates.filter(Boolean))];
 
@@ -998,8 +998,8 @@ export async function getBybitPerpData(symbol) {
     if (!price || isNaN(price)) return null;
     return {
       price,
-      exchange:    'bybit_perp',
-      fee:         0.0006,
+      exchange: 'bybit_perp',
+      fee: 0.0006,
       fundingRate: parseFloat(ticker.fundingRate || '0')
     };
   } catch (_) { return null; }
@@ -1011,7 +1011,7 @@ export async function getHTXPrice(symbol) {
   try {
     // HTX uses lowercase symbols: BTCUSDT → btcusdt
     const htxSymbol = symbol.toLowerCase();
-    const resp = await fetchWithRetry(
+    const resp = fetchWithRetry(
       `https://api.huobi.pro/market/detail/merged?symbol=${htxSymbol}`,
       FETCH_CF
     );
@@ -1146,8 +1146,8 @@ export async function getCrossPairPrices(crossSymbols) {
     // Each source is a public endpoint — no API key or IP whitelist required.
     const price = (
       await getBinanceCrossPrice(sym) ??
-      await getMEXCCrossPrice(sym)    ??
-      await getKuCoinCrossPrice(sym)  ??
+      await getMEXCCrossPrice(sym) ??
+      await getKuCoinCrossPrice(sym) ??
       await getBybitCrossPrice(sym)
     );
     return [sym, price];
@@ -1175,15 +1175,15 @@ export async function getCrossPairPrices(crossSymbols) {
 export async function getAllSpotPrices(env, symbol, openCircuits = new Set()) {
   const proxyUrl = String(env?.PROXY_URL || '').trim() || null;
   const exchangeFetchers = [
-    ['mexc',     () => getMEXCSpotPrice(symbol, proxyUrl)],
-    ['binance',  () => getBinancePrice(symbol)],            // (*) public
-    ['kucoin',   () => getKuCoinPrice(symbol)],             // (*) public
-    ['bitget',   () => getBitgetPrice(symbol, env)],        // (*) public
-    ['bitmart',  () => getBitmartPrice(symbol)],            // (*) public
-    ['bybit',    () => getBybitSpotPrice(symbol)],          // (*) public
-    ['gateio',   () => getGateioPrice(symbol)],             // (*) public
-    ['htx',      () => getHTXPrice(symbol)],                // (*) public
-    ['kraken',   () => getKrakenPrice(symbol)],             // (*) public — no IP restriction
+    ['mexc', () => getMEXCSpotPrice(symbol, proxyUrl)],
+    ['binance', () => getBinancePrice(symbol)],            // (*) public
+    ['kucoin', () => getKuCoinPrice(symbol)],             // (*) public
+    ['bitget', () => getBitgetPrice(symbol, env)],        // (*) public
+    ['bitmart', () => getBitmartPrice(symbol)],            // (*) public
+    ['bybit', () => getBybitSpotPrice(symbol)],          // (*) public
+    ['gateio', () => getGateioPrice(symbol)],             // (*) public
+    ['htx', () => getHTXPrice(symbol)],                // (*) public
+    ['kraken', () => getKrakenPrice(symbol)],             // (*) public — no IP restriction
     ['coinbase', () => getCoinbasePrice(symbol)],           // (*) public — no IP restriction
     ['alpha_vantage', () => getAlphaVantagePrice(env, symbol)], // optional free API key
     ['twelve_data', () => getTwelveDataPrice(env, symbol)],     // optional free API key

@@ -12,13 +12,14 @@ jobs:
   deploy:
     name: Deploy
     runs-on: ubuntu-latest
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v5
 
       - name: Setup Node.js
         uses: actions/setup-node@v6
         with:
-          node-version: "24"
+          node-version: "22"
           cache: "npm"
 
       - name: Install dependencies
@@ -44,6 +45,7 @@ jobs:
           include-hidden-files: false
 
       - name: Deploy Worker
+        timeout-minutes: 5
         # Retry up to 3 times: Cloudflare's Workers API occasionally returns transient
         # 10500 errors. For API auth failures (for example 10013), ensure
         # CLOUDFLARE_API_TOKEN has "Account > Workers Scripts > Edit" and no
@@ -72,6 +74,7 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
 
       - name: Upload secrets to Cloudflare Worker
+        timeout-minutes: 5
         run: |
           python3 - <<'PYEOF'
           import json, os
@@ -153,6 +156,7 @@ jobs:
 
       - name: Post-deploy endpoint smoke test
         id: smoke_test
+        timeout-minutes: 5
         run: |
           node ./scripts/verify-production-endpoints.js
         env:
