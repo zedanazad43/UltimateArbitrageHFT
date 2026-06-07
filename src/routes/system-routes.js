@@ -10,6 +10,49 @@ export function registerSystemRoutes(app, deps) {
     analyticsEngine,
   } = deps;
 
+  app.get('/api/balances', async (c) => {
+    if (!isAuthorized(c.env, c)) return authDenied(c.env, c, true);
+
+    try {
+      const { getExchangeBalance } = await import('../exchange.js');
+      const assets = (c.req.query('assets') || 'USDT,USDC,BTC,ETH,BNB,SOL').split(',').map(a => a.trim().toUpperCase());
+      const exchanges = ['mexc', 'binance', 'kucoin', 'bitget', 'bitmart', 'htx', 'bybit', 'gateio'];
+
+      const data = await Promise.all(
+        exchanges.map(async (ex) => {
+          const balances = {};
+          const configured = c.env[`${ex.toUpperCase()}_API_KEY`] ? true : false;
+
+          if (configured) {
+            for (const asset of assets) {
+              try {
+                balances[asset] = await getExchangeBalance(c.env, ex, asset);
+              } catch (_) {
+                balances[asset] = 0;
+              }
+            }
+          }
+
+          return { exchange: ex, configured, balances };
+        })
+      );
+
+      return c.json({
+        ok: true,
+        data,
+        timestamp: new Date().toISOString(),
+      });
+    } catch (err) {
+      console.error('[/api/balances] error:', err.message);
+      return c.json({
+        ok: false,
+        error: err.message,
+        data: [],
+        timestamp: new Date().toISOString(),
+      }, 500);
+    }
+  });
+
   app.get('/api/analytics', async (c) => {
     if (!isAuthorized(c.env, c)) return authDenied(c.env, c, true);
 
@@ -89,5 +132,30 @@ export function registerSystemRoutes(app, deps) {
       message: 'All metrics have been reset',
       timestamp: new Date().toISOString(),
     });
+  });
+
+  app.get('/api/trades', async (c) => {
+    if (!isAuthorized(c.env, c)) return authDenied(c.env, c, true);
+
+    try {
+      const limit = parseInt(c.req.query('limit') || '20', 10);
+      const trades = analyticsEngine.getRecentTrades(limit);
+
+      return c.json({
+        ok: true,
+        data: trades || [],
+        count: (trades || []).length,
+        timestamp: new Date().toISOString(),
+      });
+    } catch (err) {
+      console.error('[trades endpoint] error:', err.message);
+      return c.json({
+        ok: true,
+        data: [],
+        count: 0,
+        timestamp: new Date().toISOString(),
+        note: 'Trade history not available',
+      });
+    }
   });
 }

@@ -29,14 +29,14 @@ class AnalyticsEngine {
     const enrichedTrade = {
       ...trade,
       timestamp: trade.timestamp || new Date(),
-      id: `${trade.strategy}-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-      pnl: trade.exitPrice 
+      id: `${trade.strategy}-${Date.now()}-${Math.random().toString(36).slice(2, 11)}`,
+      pnl: trade.exitPrice
         ? (trade.exitPrice - trade.entryPrice) * trade.quantity
         : 0,
       pnlPercent: trade.exitPrice
         ? ((trade.exitPrice - trade.entryPrice) / trade.entryPrice) * 100
         : 0,
-      duration: trade.exitTime 
+      duration: trade.exitTime
         ? new Date(trade.exitTime) - new Date(trade.entryTime)
         : null
     };
@@ -51,7 +51,7 @@ class AnalyticsEngine {
    */
   updateStrategyStats(trade) {
     const strategyName = trade.strategy;
-    
+
     if (!this.strategies.has(strategyName)) {
       this.strategies.set(strategyName, {
         name: strategyName,
@@ -81,7 +81,9 @@ class AnalyticsEngine {
     }
 
     stats.winRate = stats.trades > 0 ? (stats.wins / stats.trades) * 100 : 0;
-    stats.profitFactor = stats.avgLoss > 0 ? stats.avgWin / stats.avgLoss : 0;
+    const totalWins = this.trades.filter(t => t.strategy === strategyName && t.pnl > 0).reduce((sum, t) => sum + t.pnl, 0);
+    const totalLosses = this.trades.filter(t => t.strategy === strategyName && t.pnl < 0).reduce((sum, t) => sum + Math.abs(t.pnl), 0);
+    stats.profitFactor = totalLosses > 0 ? totalWins / totalLosses : 0;
   }
 
   /**
@@ -139,6 +141,8 @@ class AnalyticsEngine {
    * Calculate drawdown curve
    */
   calculateDrawdownCurve(equity) {
+    if (equity.length === 0 || equity[0] === 0) return [];
+
     const drawdowns = [];
     let peak = equity[0];
 
@@ -175,7 +179,7 @@ class AnalyticsEngine {
         finalEquity: this.portfolio.currentCapital.toFixed(2)
       },
       performance: {
-        winRate: (this.trades.filter(t => t.pnl > 0).length / this.trades.length * 100).toFixed(2) + '%',
+        winRate: this.trades.length > 0 ? (this.trades.filter(t => t.pnl > 0).length / this.trades.length * 100).toFixed(2) + '%' : '0.00%',
         avgWin: this.trades.filter(t => t.pnl > 0).length > 0
           ? (this.trades.filter(t => t.pnl > 0).reduce((sum, t) => sum + t.pnl, 0) / this.trades.filter(t => t.pnl > 0).length).toFixed(2)
           : '0.00',
@@ -183,7 +187,7 @@ class AnalyticsEngine {
           ? (Math.abs(this.trades.filter(t => t.pnl < 0).reduce((sum, t) => sum + t.pnl, 0)) / this.trades.filter(t => t.pnl < 0).length).toFixed(2)
           : '0.00',
         sharpeRatio: this.calculateSharpeRatio(returns).toFixed(2),
-        maxDrawdown: (this.calculateMaxDrawdown(this.portfolio.equity) * 100).toFixed(2) + '%'
+        maxDrawdown: this.portfolio.equity.length > 0 ? (this.calculateMaxDrawdown(this.portfolio.equity) * 100).toFixed(2) + '%' : '0.00%'
       },
       strategies: Array.from(this.strategies.values()).map(s => ({
         ...s,
@@ -203,7 +207,21 @@ class AnalyticsEngine {
     return this.portfolio.equity.map((value, index) => ({
       timestamp: new Date(Date.now() - (this.portfolio.equity.length - index) * 1000),
       equity: value.toFixed(2),
-      drawdown: (this.portfolio.drawdown[index] * 100).toFixed(2)
+      drawdown: this.portfolio.drawdown[index] ? (this.portfolio.drawdown[index] * 100).toFixed(2) : '0.00'
+    }));
+  }
+
+  getRecentTrades(limit = 20) {
+    return this.trades.slice(-limit).reverse().map(t => ({
+      symbol: t.symbol,
+      strategy: t.strategy,
+      direction: t.direction || 'UNKNOWN',
+      pnl: (t.pnl || 0).toFixed(4),
+      pnlPercent: (t.pnlPercent || 0).toFixed(4),
+      size_usd: (t.sizeUsd || 0).toFixed(2),
+      net_pct: (t.pnlPercent || 0).toFixed(4),
+      timestamp: t.timestamp ? new Date(t.timestamp).toISOString() : new Date().toISOString(),
+      created_at: t.timestamp ? new Date(t.timestamp).toISOString().replace('T', ' ').slice(0, 16) : '---',
     }));
   }
 

@@ -16,8 +16,7 @@ permissions:
   pull-requests: write
 
 env:
-  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
-  NODE_VERSION: '22'
+  NODE_VERSION: "22"
 
 # ─────────────────────────────────────────────────────────────────────────────
 # 1. LINT
@@ -41,9 +40,9 @@ jobs:
       - name: Run ESLint
         run: npm run lint
 
-# ─────────────────────────────────────────────────────────────────────────────
-# 2. SECURITY AUDIT
-# ─────────────────────────────────────────────────────────────────────────────
+  # ─────────────────────────────────────────────────────────────────────────────
+  # 2. SECURITY AUDIT
+  # ─────────────────────────────────────────────────────────────────────────────
   audit:
     name: Security audit (npm audit)
     runs-on: ubuntu-latest
@@ -62,16 +61,16 @@ jobs:
       - name: Audit dependencies (high/critical only)
         run: npm audit --audit-level=high
 
-# ─────────────────────────────────────────────────────────────────────────────
-# 3. UNIT + INTEGRATION TESTS
-# ─────────────────────────────────────────────────────────────────────────────
+  # ─────────────────────────────────────────────────────────────────────────────
+  # 3. UNIT + INTEGRATION TESTS
+  # ─────────────────────────────────────────────────────────────────────────────
   test:
     name: Tests (Node ${{ matrix.node }})
     runs-on: ubuntu-latest
     needs: [lint, audit]
     strategy:
       matrix:
-        node: ['22']
+        node: ["22"]
     steps:
       - uses: actions/checkout@v5
 
@@ -96,9 +95,9 @@ jobs:
           if-no-files-found: ignore
           retention-days: 14
 
-# ─────────────────────────────────────────────────────────────────────────────
-# 4. BUILD (validate bundle compiles)
-# ─────────────────────────────────────────────────────────────────────────────
+  # ─────────────────────────────────────────────────────────────────────────────
+  # 4. BUILD (validate bundle compiles)
+  # ─────────────────────────────────────────────────────────────────────────────
   build:
     name: Build (dry-run wrangler)
     runs-on: ubuntu-latest
@@ -135,9 +134,9 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
-# ─────────────────────────────────────────────────────────────────────────────
-# 5. DEPLOY — STAGING  (push to staging branch only)
-# ─────────────────────────────────────────────────────────────────────────────
+  # ─────────────────────────────────────────────────────────────────────────────
+  # 5. DEPLOY — STAGING  (push to staging branch only)
+  # ─────────────────────────────────────────────────────────────────────────────
   deploy-staging:
     name: Deploy → Staging
     runs-on: ubuntu-latest
@@ -172,9 +171,9 @@ jobs:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
 
-# ─────────────────────────────────────────────────────────────────────────────
-# 6. DEPLOY — PRODUCTION  (push to main, with environment approval gate)
-# ─────────────────────────────────────────────────────────────────────────────
+  # ─────────────────────────────────────────────────────────────────────────────
+  # 6. DEPLOY — PRODUCTION  (push to main, with environment approval gate)
+  # ─────────────────────────────────────────────────────────────────────────────
   deploy-production:
     name: Deploy → Production (with approval)
     runs-on: ubuntu-latest
@@ -640,9 +639,9 @@ jobs:
           echo "   Commit  : ${{ github.sha }}"
           echo "   Actor   : ${{ github.actor }}"
 
-# ─────────────────────────────────────────────────────────────────────────────
-# 7. GLOBAL FAILURE NOTIFICATION (any job, any branch)
-# ─────────────────────────────────────────────────────────────────────────────
+  # ─────────────────────────────────────────────────────────────────────────────
+  # 7. GLOBAL FAILURE NOTIFICATION (any job, any branch)
+  # ─────────────────────────────────────────────────────────────────────────────
   notify-failure:
     name: Notify on any failure
     runs-on: ubuntu-latest
