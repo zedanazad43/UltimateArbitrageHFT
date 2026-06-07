@@ -166,7 +166,7 @@ jobs:
           SKIP_CUSTOM_DOMAIN_CHECK: "true"
 
       - name: Telegram alert on smoke test failure
-        if: ${{ failure() && steps.smoke_test.outcome == 'failure' }}
+        if: ${{ failure() }}
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}

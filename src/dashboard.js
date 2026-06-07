@@ -229,7 +229,8 @@ export async function renderDashboard(env) {
   const latestTrade = trades[0] || null;
   const latestTradeTime = latestTrade?.created_at ? formatDateTimeAr(latestTrade.created_at) : '—';
   const latestTradeAge = latestTrade?.created_at ? formatRelativeAge(latestTrade.created_at) : '—';
-  const latestTradeAgeMs = latestTrade?.created_at ? (Date.now() - parseDateSafe(latestTrade.created_at).getTime()) : null;
+  const parsedLatestTradeDate = latestTrade?.created_at ? parseDateSafe(latestTrade.created_at) : null;
+  const latestTradeAgeMs = parsedLatestTradeDate ? (Date.now() - parsedLatestTradeDate.getTime()) : null;
   const latestTradeBanner = latestTrade
     ? `<div style="margin:10px 0 14px;padding:10px 12px;border-radius:10px;background:${latestTradeAgeMs != null && latestTradeAgeMs > 24 * 60 * 60 * 1000 ? '#3d2f08' : '#15261f'};border:1px solid ${latestTradeAgeMs != null && latestTradeAgeMs > 24 * 60 * 60 * 1000 ? '#f0b90b' : '#2ecc71'};color:#ddd;font-size:.82em">
          أحدث تنفيذ محفوظ: <strong>${latestTradeTime}</strong> &nbsp;|&nbsp; ${latestTradeAge}

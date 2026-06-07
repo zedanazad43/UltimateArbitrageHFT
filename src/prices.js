@@ -996,11 +996,12 @@ export async function getBybitPerpData(symbol) {
     if (!ticker?.lastPrice) return null;
     const price = parseFloat(ticker.lastPrice);
     if (!price || isNaN(price)) return null;
+    const fundingRate = parseFloat(ticker.fundingRate || data?.result?.fundingRate || '0') || 0;
     return {
       price,
       exchange: 'bybit_perp',
       fee: 0.0006,
-      fundingRate: parseFloat(ticker.fundingRate || '0')
+      fundingRate
     };
   } catch (_) { return null; }
 }
