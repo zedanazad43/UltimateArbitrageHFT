@@ -1,6 +1,8 @@
 // src/routes/ai-routes.js
 
 const DEFAULT_LLM_MODEL = '@cf/meta/llama-3.1-8b-instruct';
+const VALID_EFFORTS = new Set(['none', 'low', 'medium', 'high']);
+const EFFORT_MULTIPLIER = { none: 0.25, low: 0.5, medium: 1, high: 2 };
 
 function getConfiguredLlmModel(env) {
   const model = typeof env.LLM_MODEL === 'string' ? env.LLM_MODEL.trim() : '';
@@ -27,6 +29,22 @@ function resolveAiGatewayChatUrl(env) {
   }
 
   return '';
+}
+
+/**
+ * Generate a UUID v4 compatible with Cloudflare Workers runtime.
+ * Uses crypto.randomUUID() when available (compat date ≥ 2022-01-01),
+ * otherwise falls back to crypto.getRandomValues().
+ */
+function generateUUID() {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID();
+  }
+  // Fallback for older Workers compat dates
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
+    const r = (crypto.getRandomValues(new Uint8Array(1))[0] & 15) >> (c === 'x' ? 0 : 3);
+    return (c === 'x' ? r : (r & 0x3) | 0x8).toString(16);
+  });
 }
 
 async function runConfiguredLlm(env, aiParams) {
@@ -57,7 +75,7 @@ async function runConfiguredLlm(env, aiParams) {
     let data = null;
     try {
       data = responseText ? JSON.parse(responseText) : null;
-    } catch (_) {}
+    } catch (_) { /* non-JSON response handled below */ }
 
     if (!response.ok) {
       const detail = data?.error?.message || data?.error || responseText || `Gateway HTTP ${response.status}`;
@@ -147,11 +165,12 @@ export function registerAiRoutes(app, deps) {
       messages.push({ role: 'user', content: body.input });
     } else if (Array.isArray(body.input)) {
       for (const item of body.input) {
-        if (item && typeof item === 'object' && typeof item.role === 'string' && item.role && item.content !== undefined) {
+        if (item && typeof item === 'object' && typeof item.role === 'string' && item.role && item.content != null) {
           messages.push({ role: item.role, content: item.content });
         } else if (typeof item === 'string') {
           messages.push({ role: 'user', content: item });
         }
+        // Silently skip malformed items; they are non-actionable at the API layer
       }
     }
 
@@ -159,8 +178,6 @@ export function registerAiRoutes(app, deps) {
       return c.json({ error: 'input produced no messages' }, 400);
     }
 
-    const VALID_EFFORTS = new Set(['none', 'low', 'medium', 'high']);
-    const effortMultiplier = { none: 0.25, low: 0.5, medium: 1, high: 2 };
     const effort = body.reasoning?.effort ?? 'medium';
     if (!VALID_EFFORTS.has(effort)) {
       return c.json({ error: `Invalid reasoning.effort value: "${effort}". Must be one of: none, low, medium, high` }, 400);
@@ -168,14 +185,14 @@ export function registerAiRoutes(app, deps) {
     const baseMaxTokens = typeof body.max_output_tokens === 'number' && body.max_output_tokens > 0
       ? body.max_output_tokens
       : 512;
-    const max_tokens = Math.round(baseMaxTokens * effortMultiplier[effort]);
+    const max_tokens = Math.round(baseMaxTokens * EFFORT_MULTIPLIER[effort]);
 
     const aiParams = { messages, max_tokens };
     if (typeof body.temperature === 'number') aiParams.temperature = body.temperature;
     if (typeof body.top_p === 'number') aiParams.top_p = body.top_p;
 
     const createdAt = Math.floor(Date.now() / 1000);
-    const responseId = `resp_${crypto.randomUUID().replace(/-/g, '')}`;
+    const responseId = `resp_${generateUUID().replace(/-/g, '')}`;
 
     try {
       const ai = await runConfiguredLlm(c.env, aiParams);
@@ -273,12 +290,12 @@ export function registerAiRoutes(app, deps) {
     } catch (err) {
       console.error('[/api/trades] error:', err.message);
       return c.json({
-        ok: true,
+        ok: false,
+        error: 'Trade history unavailable',
         data: [],
         count: 0,
         timestamp: new Date().toISOString(),
-        note: 'Trade history not available',
-      });
+      }, 500);
     }
   });
 }
