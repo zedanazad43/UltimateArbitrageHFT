@@ -1,11 +1,11 @@
-name = "ultimatearbitragehft"
+﻿name = "ultimatearbitragehft"
 main = "index.js"
 compatibility_date = "2025-04-18"
 compatibility_flags = ["nodejs_compat"]
 account_id = "652e53f35781522e2745784cc4425d9d"
 workers_dev = true
 
-# ── Existing bindings ──────────────────────────────────────────────────────────
+# â”€â”€ Existing bindings â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 [[kv_namespaces]]
 binding = "BOT_STATE"
@@ -24,15 +24,15 @@ class_name = "MarketStreamer"
 tag = "v1"
 new_classes = ["MarketStreamer"]
 
-# ── Analytics Engine ───────────────────────────────────────────────────────────
+# â”€â”€ Analytics Engine â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 # Streams trade events, scan results, and errors to Cloudflare Analytics Engine.
-# Dashboard: https://dash.cloudflare.com/ → Workers & Pages → Analytics Engine
+# Dashboard: https://dash.cloudflare.com/ â†’ Workers & Pages â†’ Analytics Engine
 
 [[analytics_engine_datasets]]
 binding = "ANALYTICS"
 dataset = "arbitrage_events"
 
-# ── R2 Bucket — trade log archives ────────────────────────────────────────────
+# â”€â”€ R2 Bucket â€” trade log archives â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 # Stores CSV trade exports and daily PDF-style reports.
 # Create: `npx wrangler r2 bucket create ultimate-arbitrage-logs`
 
@@ -40,14 +40,14 @@ dataset = "arbitrage_events"
 binding = "TRADE_LOGS"
 bucket_name = "ultimate-arbitrage-logs"
 
-# ── Workers AI ────────────────────────────────────────────────────────────────
+# â”€â”€ Workers AI â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 # Runs LLM-powered opportunity analysis and market summaries entirely on
-# Cloudflare's GPU fleet — no external API keys required.
+# Cloudflare's GPU fleet â€” no external API keys required.
 
 [ai]
 binding = "AIWORKER"
 
-# ── Queue — async trade-log pipeline ──────────────────────────────────────────
+# â”€â”€ Queue â€” async trade-log pipeline â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 # Producers: enqueue trade-log messages immediately after order execution so
 # the hot path is never blocked by slow DB writes.
 # Create: `npx wrangler queues create ultimate-arbitrage-queue`
@@ -61,7 +61,7 @@ queue = "ultimate-arbitrage-queue"
 max_batch_size = 10
 max_batch_timeout = 30
 
-# ── Rate Limiter — admin endpoint protection ───────────────────────────────────
+# â”€â”€ Rate Limiter â€” admin endpoint protection â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 # 20 requests per 60 seconds per IP on all admin routes.
 # Uses Cloudflare's built-in rate limiting; no external service needed.
 
@@ -71,14 +71,14 @@ name = "RATE_LIMITER"
 namespace_id = "1001"
 simple = { limit = 20, period = 60 }
 
-# ── Version Metadata ──────────────────────────────────────────────────────────
+# â”€â”€ Version Metadata â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 # Exposes the current Worker deployment version ID, tag, and timestamp.
 # Accessible at /api/version.
 
 [version_metadata]
 binding = "METADATA"
 
-# ── Observability ──────────────────────────────────────────────────────────────
+# â”€â”€ Observability â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 [observability]
 enabled = true
@@ -102,7 +102,7 @@ crons = ["* * * * *"]
 pattern = "api.ecostamp.net"
 custom_domain = true
 
-# ── Temporal Cloud — non-sensitive config vars ────────────────────────────────
+# â”€â”€ Temporal Cloud â€” non-sensitive config vars â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 # These are plain (non-secret) configuration values exposed to the Worker.
 # Update TEMPORAL_ADDRESS and TEMPORAL_NAMESPACE to match your Cloud namespace.
 #
@@ -120,7 +120,7 @@ TEMPORAL_ADDRESS    = ""
 # Set to your deployed Worker URL, e.g. https://ultimatearbitragehft.workers.dev
 TEMPORAL_WORKER_URL = "https://ultimatearbitragehft.zedanazad43.workers.dev"
 
-# ── Go HFT engine — non-sensitive connection config ───────────────────────────
+# â”€â”€ Go HFT engine â€” non-sensitive connection config â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 # The Go engine exposes a REST API (GET /api/scan, POST /api/execute) that the
 # Worker calls for WebSocket-fed price data and on-chain DEX execution.
 #
@@ -133,7 +133,7 @@ TEMPORAL_WORKER_URL = "https://ultimatearbitragehft.zedanazad43.workers.dev"
 #                    Set the same value as HFT_ENGINE_SECRET env var on the engine.
 HFT_ENGINE_URL = "https://don-instruction-arabia-distributions.trycloudflare.com"
 
-# ── Executable ecosystem integrations (non-sensitive endpoint URLs) ────────────
+# â”€â”€ Executable ecosystem integrations (non-sensitive endpoint URLs) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 # Set each URL to enable remote execution from dashboard/API.
 # Tokens for these services should be configured as Worker secrets:
 #   HUMMINGBOT_API_TOKEN, FREQTRADE_API_TOKEN, CREWAI_API_TOKEN, AUTOGPT_API_TOKEN
@@ -147,7 +147,7 @@ AUTOGPT_EXECUTE_URL    = ""
 AUTOGPT_STATUS_URL     = ""
 EXECUTIVE_LOCAL_ADAPTERS = "true"
 
-# ── Proxy routing behavior ───────────────────────────────────────────────────
+# â”€â”€ Proxy routing behavior â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 # auto: use proxy when configured, fallback to direct requests when proxy fails
 # off: force direct requests (useful for servers outside proxy)
 # required: require proxy; fail request if proxy is unavailable
@@ -173,7 +173,7 @@ EXTERNAL_PROXY_FALLBACK_AUTH_HEADER = "X-Gateway-Token: gw-2026-06-01"
 # Supported values: mexc, binance, kucoin, bitget, bitmart, htx
 EXECUTION_EXCHANGES_ALLOWLIST = "mexc,bitget"
 
-# ── LLM model and optional AI Gateway routing ───────────────────────────────
+# â”€â”€ LLM model and optional AI Gateway routing â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 # LLM_MODEL can be any Workers AI model ID, for example:
 #   @cf/meta/llama-3.1-8b-instruct
 #   @cf/meta/llama-3.1-70b-instruct
@@ -185,11 +185,11 @@ LLM_MODEL = "@cf/meta/llama-3.1-8b-instruct"
 AI_GATEWAY_URL = ""
 AI_GATEWAY_ID = ""
 
-# ── Strategy mode: 'multi_exchange' (default) or 'mexc_only' ──────────────────
+# â”€â”€ Strategy mode: 'multi_exchange' (default) or 'mexc_only' â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 # When set to mexc_only, the orchestrator will:
 #   - Concentrate all scanning and execution on MEXC spot + futures
 #   - Enable Perps, Funding, Triangular, and Statistical strategies
-#   - Bypass multi-exchange CEX spatial arb (requires ≥2 exchanges)
+#   - Bypass multi-exchange CEX spatial arb (requires â‰¥2 exchanges)
 #   - Use reduced cooldowns and faster execution intervals
 STRATEGY_MODE = "multi_exchange"
 
@@ -223,15 +223,15 @@ VENUE_READY_PRIORITY_MULTIPLIER = "1.45"
 # Enforce aggressive live runtime profile at state-read level to resist stale KV rewrites.
 AGGRESSIVE_EXECUTION_FORCE = "on"
 AGGRESSIVE_FORCED_POSITION_SIZE_USD = "15"
-AGGRESSIVE_FORCED_MAX_LIVE_TRADES_PER_SCAN = "10"
+AGGRESSIVE_FORCED_MAX_LIVE_TRADES_PER_SCAN = "20"
 # Minimum net % for scalping entries. 0.05% comfortably clears taker fee noise.
 AGGRESSIVE_FORCED_SCALP_MIN_NET_PCT = "0.05"
 # Minimum spacing between trades. 10s curbs burst/over-trading risk while still
 # allowing high cadence (raised from 1s).
-AGGRESSIVE_FORCED_MIN_SECONDS_BETWEEN_TRADES = "10"
+AGGRESSIVE_FORCED_MIN_SECONDS_BETWEEN_TRADES = "5"
 AGGRESSIVE_FORCED_SUPPORTED_SYMBOLS = "BTCUSDT,ETHUSDT,SOLUSDT,XRPUSDT,BNBUSDT,ADAUSDT,DOGEUSDT,LTCUSDT,TRXUSDT,LINKUSDT,AVAXUSDT,DOTUSDT,ETHBTC,BNBBTC,SOLBTC,XRPBTC,ADABTC,DOTBTC,LINKBTC,LTCBTC,AVAXBTC,BNBETH,LINKETH,DOTETH,UNIETH,SOLBNB,XRPBNB,ADABNB"
 
-# ── Exchange feature flags ─────────────────────────────────────────────────────
+# â”€â”€ Exchange feature flags â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 # bybit and gateio are excluded from live execution (German regulatory law).
 # They remain active as price-data sources only.
 # Other exchanges can be re-enabled by extending EXECUTION_EXCHANGES_ALLOWLIST.
@@ -243,3 +243,4 @@ AGGRESSIVE_FORCED_SUPPORTED_SYMBOLS = "BTCUSDT,ETHUSDT,SOLUSDT,XRPUSDT,BNBUSDT,A
 #   Bitget:  BITGET_API_KEY, BITGET_SECRET_KEY, BITGET_API_PASSPHRASE
 #   Bitmart: BITMART_API_KEY, BITMART_SECRET_KEY, BITMART_MEMO
 #   HTX:     HTX_API_KEY, HTX_API_SECRET
+
