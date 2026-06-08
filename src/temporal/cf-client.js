@@ -1,4 +1,4 @@
-// src/temporal/cf-client.js — Temporal Cloud HTTP API client
+﻿// src/temporal/cf-client.js â€” Temporal Cloud HTTP API client
 //
 // Cloudflare Workers cannot run a Temporal worker process (no long-lived
 // poll loop), but they *can* call the Temporal Cloud HTTP API via fetch().
@@ -6,18 +6,18 @@
 // the ArbitrageTradingWorkflow running on a Temporal Cloud namespace.
 //
 // Required env vars / Worker secrets:
-//   TEMPORAL_API_KEY    — Temporal Cloud API key (wrangler secret put TEMPORAL_API_KEY)
-//   TEMPORAL_ADDRESS    — Temporal Cloud namespace base URL
+//   TEMPORAL_API_KEY    â€” Temporal Cloud API key (wrangler secret put TEMPORAL_API_KEY)
+//   TEMPORAL_ADDRESS    â€” Temporal Cloud namespace base URL
 //                         e.g. https://default.abc123.tmprl.cloud
-//   TEMPORAL_NAMESPACE  — Temporal namespace name (default: "default")
+//   TEMPORAL_NAMESPACE  â€” Temporal namespace name (default: "default")
 
-// ── Constants ─────────────────────────────────────────────────────────────────
+// â”€â”€ Constants â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 const TASK_QUEUE    = 'arbitrage-tasks';
 const WORKFLOW_TYPE = 'arbitrageTradingWorkflow';
 const WORKFLOW_ID   = 'arbitrage-trading-session';
 
-// ── Payload helpers ───────────────────────────────────────────────────────────
+// â”€â”€ Payload helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 //
 // The Temporal HTTP gateway uses the protobuf JSON encoding for payloads.
 // Each payload is:
@@ -39,7 +39,7 @@ function decodePayload(payload) {
   }
 }
 
-// ── HTTP helper ───────────────────────────────────────────────────────────────
+// â”€â”€ HTTP helper â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 /**
  * Make an authenticated HTTP request to the Temporal Cloud API.
@@ -79,7 +79,7 @@ async function temporalFetch(env, path, fetchOptions = {}) {
   return body;
 }
 
-// ── Public API ────────────────────────────────────────────────────────────────
+// â”€â”€ Public API â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 /**
  * Start the ArbitrageTradingWorkflow on Temporal Cloud.
@@ -179,7 +179,7 @@ export async function queryWorkflowStatus(env) {
  * Send a signal to switch the trading mode.
  *
  * @param {object}  env   - CF Worker env bindings
- * @param {boolean} paper - true → paper mode; false → live mode
+ * @param {boolean} paper - true â†’ paper mode; false â†’ live mode
  */
 export async function setTradingModeSignal(env, paper) {
   return temporalFetch(env, `/workflows/${WORKFLOW_ID}/signal/setPaperMode`, {

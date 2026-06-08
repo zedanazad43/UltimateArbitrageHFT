@@ -1,4 +1,4 @@
-/**
+﻿/**
  * External Proxy Server Manager
  * Connects to premium proxy providers (Bright Data, Oxylabs, Rotating Proxies)
  * Handles authentication, rotation, health checks, and fallback to local pool.
@@ -123,6 +123,7 @@ export class ExternalProxyManager {
 
       const probeTarget = 'https://www.binance.com';
       const response = await fetch(`${proxyUrl}?target=${encodeURIComponent(probeTarget)}`, {
+      await response.body?.cancel();
         method: 'HEAD',
         signal: controller.signal,
         headers: {

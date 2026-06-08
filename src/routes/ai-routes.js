@@ -1,4 +1,4 @@
-// src/routes/ai-routes.js
+﻿// src/routes/ai-routes.js
 
 const DEFAULT_LLM_MODEL = '@cf/meta/llama-3.1-8b-instruct';
 const VALID_EFFORTS = new Set(['none', 'low', 'medium', 'high']);
@@ -33,14 +33,14 @@ function resolveAiGatewayChatUrl(env) {
 
 /**
  * Generate a UUID v4 compatible with Cloudflare Workers runtime.
- * Uses crypto.randomUUID() when available (compat date ≥ 2022-01-01),
+ * Uses crypto.randomUUID() when available (compat date â‰¥ 2022-01-01),
  * otherwise falls back to crypto.getRandomValues().
  */
 function generateUUID() {
   if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
     return crypto.randomUUID();
   }
-  // Fallback for older Workers compat dates – RFC 4122 v4 using 16 random bytes
+  // Fallback for older Workers compat dates â€“ RFC 4122 v4 using 16 random bytes
   const bytes = new Uint8Array(16);
   if (typeof crypto !== 'undefined' && typeof crypto.getRandomValues === 'function') {
     crypto.getRandomValues(bytes);
@@ -252,12 +252,12 @@ export function registerAiRoutes(app, deps) {
     const MIN_VIABLE_SPREAD_PCT = 0.3;
 
     const prompt = [
-      'You are an expert crypto arbitrage analyst. Analyze the following trading opportunity and provide a concise recommendation (2–4 sentences) covering: whether to execute, key risks, and any concerns about liquidity or timing.',
+      'You are an expert crypto arbitrage analyst. Analyze the following trading opportunity and provide a concise recommendation (2â€“4 sentences) covering: whether to execute, key risks, and any concerns about liquidity or timing.',
       '',
       'Opportunity:',
-      `- Symbol: ${opp.symbol || '—'}`,
-      `- Strategy: ${opp.strategy || '—'}`,
-      `- Direction: ${opp.direction || '—'}`,
+      `- Symbol: ${opp.symbol || 'â€”'}`,
+      `- Strategy: ${opp.strategy || 'â€”'}`,
+      `- Direction: ${opp.direction || 'â€”'}`,
       `- Buy Price: $${opp.buyPrice || 0}`,
       `- Sell Price: $${opp.sellPrice || 0}`,
       `- Net Profit %: ${opp.netPct || 0}%`,
@@ -265,8 +265,8 @@ export function registerAiRoutes(app, deps) {
 
     if (!c.env.AIWORKER && !resolveAiGatewayChatUrl(c.env)) {
       const fallback = opp.netPct > MIN_VIABLE_SPREAD_PCT
-        ? `✅ Potential opportunity: net spread of ${opp.netPct}% is above threshold. Verify liquidity and fee structure before executing. Monitor for slippage — position size should remain small (≤$5 for initial trades).`
-        : `⚠️ Low spread: net spread of ${opp.netPct}% may not cover execution costs after slippage. Consider waiting for a higher-quality opportunity.`;
+        ? `âœ… Potential opportunity: net spread of ${opp.netPct}% is above threshold. Verify liquidity and fee structure before executing. Monitor for slippage â€” position size should remain small (â‰¤$5 for initial trades).`
+        : `âš ï¸ Low spread: net spread of ${opp.netPct}% may not cover execution costs after slippage. Consider waiting for a higher-quality opportunity.`;
       return c.json({ analysis: fallback, provider: 'fallback' });
     }
 
@@ -308,3 +308,4 @@ export function registerAiRoutes(app, deps) {
     }
   });
 }
+

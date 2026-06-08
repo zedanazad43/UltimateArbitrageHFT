@@ -1,11 +1,11 @@
-// src/temporal/activities.js — Temporal Activity implementations
+﻿// src/temporal/activities.js â€” Temporal Activity implementations
 //
 // Activities are the units of work executed by the Temporal worker.  They
 // make HTTP calls to the Cloudflare Worker so the CF Worker remains the
 // single source of truth for trading logic, state, and DB access.
 //
 // All activities are safe to retry (idempotent where possible) and report
-// failures by throwing — Temporal will retry them according to the policy
+// failures by throwing â€” Temporal will retry them according to the policy
 // defined in the workflow.
 
 import { Context } from '@temporalio/activity';
@@ -86,7 +86,7 @@ export async function getStatusActivity({ workerUrl, adminToken }) {
  * @param {object}  params
  * @param {string}  params.workerUrl   - CF Worker base URL
  * @param {string}  params.adminToken  - x-admin-token header value
- * @param {boolean} params.paper       - true → paper mode; false → live mode
+ * @param {boolean} params.paper       - true â†’ paper mode; false â†’ live mode
  */
 export async function updateTradingModeActivity({ workerUrl, adminToken, paper }) {
   const baseUrl = normalizeWorkerUrl(workerUrl);

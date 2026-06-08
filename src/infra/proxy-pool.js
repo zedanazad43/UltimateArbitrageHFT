@@ -1,5 +1,5 @@
-/**
- * Proxy Pool Manager — Manages a rotating pool of proxy servers
+﻿/**
+ * Proxy Pool Manager â€” Manages a rotating pool of proxy servers
  * for API requests to prevent rate-limiting and IP bans.
  * 
  * Features:
@@ -33,7 +33,7 @@ function parseHeaderLine(raw) {
   return { key, value: headerValue };
 }
 
-// Exchange → preferred proxy region mapping for optimal latency
+// Exchange â†’ preferred proxy region mapping for optimal latency
 const EXCHANGE_REGION_MAP = {
   mexc:    'eu',    // Malta
   binance: 'eu',    // Ireland
@@ -101,7 +101,7 @@ class ProxyEndpoint {
 }
 
 /**
- * ProxyPool — manages a pool of proxy endpoints with rotation and health tracking.
+ * ProxyPool â€” manages a pool of proxy endpoints with rotation and health tracking.
  */
 export class ProxyPool {
   /**
@@ -112,7 +112,7 @@ export class ProxyPool {
     this.currentIndex = 0;
     this.env = env;
     this._initialized = false;
-    this._stickySessions = new Map();  // exchange → { proxy, expiresAt }
+    this._stickySessions = new Map();  // exchange â†’ { proxy, expiresAt }
     this._lastHealthCheck = 0;
     const mode = String(env.PROXY_MODE || 'auto').toLowerCase();
     this.proxyMode = PROXY_MODE_VALUES.has(mode) ? mode : 'auto';
@@ -164,10 +164,10 @@ export class ProxyPool {
   /**
    * Initialize the proxy pool from environment configuration.
    * Expected env vars:
-   *   PROXY_LIST — JSON array of { url, type?, priority?, region? }
-   *   PROXY_URL  — Single proxy URL (fallback)
-   *   RESIDENTIAL_PROXY_URL — Residential proxy for sensitive exchanges
-   *   RESIDENTIAL_PROXY_REGION — Region for residential proxy (default: 'us')
+   *   PROXY_LIST â€” JSON array of { url, type?, priority?, region? }
+   *   PROXY_URL  â€” Single proxy URL (fallback)
+   *   RESIDENTIAL_PROXY_URL â€” Residential proxy for sensitive exchanges
+   *   RESIDENTIAL_PROXY_REGION â€” Region for residential proxy (default: 'us')
    */
   initialize() {
     if (this._initialized) return;
@@ -205,7 +205,7 @@ export class ProxyPool {
       idx++;
     }
 
-    // Residential proxy — higher priority for sensitive exchange operations
+    // Residential proxy â€” higher priority for sensitive exchange operations
     if (this.env.RESIDENTIAL_PROXY_URL) {
       const region = this.env.RESIDENTIAL_PROXY_REGION || 'us';
       this.proxies.push(new ProxyEndpoint(
@@ -219,7 +219,7 @@ export class ProxyPool {
     this._initialized = true;
 
     console.log(
-      `[proxy-pool] Initialized with ${this.proxies.length} proxy(ies) — mode=${this.proxyMode}, regions: ${[...new Set(this.proxies.map(p => p.region))].join(', ')}`
+      `[proxy-pool] Initialized with ${this.proxies.length} proxy(ies) â€” mode=${this.proxyMode}, regions: ${[...new Set(this.proxies.map(p => p.region))].join(', ')}`
     );
   }
 
@@ -240,7 +240,7 @@ export class ProxyPool {
 
     const available = this.proxies.filter(p => p.isAvailable);
     if (available.length === 0) {
-      // All in cooldown — pick the one with earliest cooldown end
+      // All in cooldown â€” pick the one with earliest cooldown end
       available.sort((a, b) => a.cooldownUntil - b.cooldownUntil);
       return available[0] || null;
     }
@@ -437,7 +437,7 @@ export class ProxyPool {
       }
     }
 
-    // All proxies failed — direct fallback unless proxy mode is strict.
+    // All proxies failed â€” direct fallback unless proxy mode is strict.
     if (this.proxyMode === 'required') {
       throw new Error('All proxies failed while PROXY_MODE=required');
     }

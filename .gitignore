@@ -70,3 +70,4 @@ scripts-catalog.json
 samples/java/target/
 *.jar
 *.class
+backup_*/
