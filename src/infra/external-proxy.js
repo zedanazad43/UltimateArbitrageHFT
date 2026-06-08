@@ -123,7 +123,6 @@ export class ExternalProxyManager {
 
       const probeTarget = 'https://www.binance.com';
       const response = await fetch(`${proxyUrl}?target=${encodeURIComponent(probeTarget)}`, {
-      response.body?.cancel();
         method: 'HEAD',
         signal: controller.signal,
         headers: {
@@ -133,6 +132,7 @@ export class ExternalProxyManager {
       });
 
       clearTimeout(timeoutId);
+      response.body && response.body.cancel();
       this.isHealthy = response.ok || response.status === 403; // 403 is OK (auth works, endpoint blocked)
       this.failureCount = 0;
 
@@ -195,6 +195,7 @@ export class ExternalProxyManager {
       return this.localProxyPool.fetchWithProxy(url, options, 2);
     } finally {
       if (timeoutId) clearTimeout(timeoutId);
+      response.body && response.body.cancel();
     }
   }
 
