@@ -60,3 +60,13 @@ archive/
 gitleaks-*.json
 scan-inventory.json
 scripts-catalog.json
+.aider*
+
+# Aider virtual environment
+.venv_aider/
+
+# Java build artifacts and JDK bundles
+.github/workflows/oracleJdk-26/
+samples/java/target/
+*.jar
+*.class

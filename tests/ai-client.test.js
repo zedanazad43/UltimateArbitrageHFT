@@ -62,7 +62,7 @@ describe('filterOpportunityWithAI', () => {
     assert.deepEqual(result, high);
   });
 
-  test('falls back to highest netPct when AI returns an unparseable response', async () => {
+  test('falls back to highest netPct when AI returns an unparsable response', async () => {
     const low  = opp('cex',  'BTCUSDT', 0.3);
     const high = opp('perps', 'ETHUSDT', 1.1);
 
@@ -129,7 +129,7 @@ describe('filterOpportunityWithAI', () => {
   test('considers at most 5 candidates even when more opportunities are provided', async () => {
     // If more than 5 opportunities are passed, only the top 5 by netPct are sent
     // to the AI. Index 6 should not be selectable.
-    const opps = [
+    const oops = [
       opp('cex', 'BTC', 6.0), opp('cex', 'ETH', 5.0),
       opp('cex', 'SOL', 4.0), opp('cex', 'BNB', 3.0),
       opp('cex', 'XRP', 2.0), opp('cex', 'ADA', 1.0), // 6th — must NOT be selectable
@@ -137,7 +137,7 @@ describe('filterOpportunityWithAI', () => {
 
     // AI tries to pick index 6 (beyond MAX_CANDIDATES) → fallback to highest netPct
     const env = { AIWORKER: { run: async () => ({ response: '6' }) } };
-    const result = await filterOpportunityWithAI(env, opps);
+    const result = await filterOpportunityWithAI(env, oops);
     // Fallback: highest netPct (BTC)
     assert.equal(result.symbol,  'BTC');
     assert.equal(result.netPct,  6.0);

@@ -8,7 +8,7 @@
 //  - Presents up to 5 opportunities to the model in a compact text format.
 //  - Asks the model to return ONLY the 1-based index of the best opportunity.
 //  - Degrades gracefully: if AIWORKER is absent, if the AI call times out, or
-//    if the model returns an unparseable response, the function falls back to
+//    if the model returns an unparsable response, the function falls back to
 //    selecting the highest net-profit opportunity unchanged.
 //
 // Required binding (wrangler.toml):

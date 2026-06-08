@@ -2,7 +2,7 @@ name: CI/CD Secure Production Bot
 
 on:
   push:
-    branches: [main, "release/**", refactor/bots-unified-setup, develop]
+    branches: [main, "release/**", "refactor/bots-unified-setup", "develop"]
   pull_request:
     branches: [main, "release/**"]
 
@@ -17,6 +17,7 @@ permissions:
 jobs:
   build-test-audit:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
 
     steps:
       - name: Checkout code
@@ -25,7 +26,8 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: "20"
+          cache: "npm"
 
       - name: Install dependencies
         run: npm ci
@@ -37,18 +39,18 @@ jobs:
 
       - name: Lint code quality
         run: |
-          if npm run | grep -q lint; then npm run lint; else echo "No linter."; fi
+          if npm run | grep -q lint; then npm run lint; else echo "No linter configured — skipping lint step."; fi
 
       - name: Run unit/integration tests
         run: |
-          if npm run | grep -q test:all; then npm run test:all; elif npm run | grep -q test; then npm test; else echo "No tests defined."; fi
+          if npm run | grep -q test:all; then npm run test:all; elif npm run | grep -q test; then npm test; else echo "No tests defined — skipping test step."; fi
 
-      - name: Upload test coverage (اختياري)
+      - name: Upload test coverage (optional)
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: coverage
-          path: coverage # عدّل المسار إذا كنت تستعمل أداة تغطية مختلفة
+          path: coverage
 
       - name: Build Project
         run: npm run build
@@ -59,7 +61,7 @@ jobs:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
         run: npm run deploy
 
-      - name: Notify On Failure (Slack Example) # تفعيل عند إعداد سر token
+      - name: Notify On Failure (Slack)
         if: failure()
         uses: rtCamp/action-slack-notify@v2
         env:
@@ -67,9 +69,14 @@ jobs:
 
   dependabot:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     if: github.actor == 'dependabot[bot]'
     steps:
       - uses: actions/checkout@v4
-      - run: npm install
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - run: npm ci
       - run: npm test || true
       - run: npm audit || true

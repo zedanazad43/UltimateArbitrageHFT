@@ -155,7 +155,7 @@ func newEngine(cfg *config.Config, database *db.DB) *engine {
 // scan evaluates all strategies across all symbols and returns the list of
 // opportunities found, sorted by netPct descending.
 func (e *engine) scan() []*cex.Opportunity {
-	var opps []*cex.Opportunity
+	var oops []*cex.Opportunity
 
 	for _, sym := range supportedSymbols {
 		spotSources := e.book.SpotSources(sym)
@@ -165,7 +165,7 @@ func (e *engine) scan() []*cex.Opportunity {
 
 		// CEX spatial arbitrage
 		if o := cex.Scan(sym, spotSources, e.cfg.MaxSpreadPct); o != nil {
-			opps = append(opps, o)
+			oops = append(oops, o)
 		}
 
 		// Perps vs spot
@@ -176,27 +176,27 @@ func (e *engine) scan() []*cex.Opportunity {
 			perpSource = perpBybit
 		}
 		if o := perps.Scan(sym, spotSources, perpSource, e.cfg.MaxSpreadPct); o != nil {
-			opps = append(opps, o)
+			oops = append(oops, o)
 		}
 
 		// Funding-rate harvest (prefer Bybit — has fundingRate field)
 		if o := funding.Scan(sym, spotSources, perpBybit, e.cfg.MaxSpreadPct); o != nil {
-			opps = append(opps, o.Opportunity)
+			oops = append(oops, o.Opportunity)
 		}
 	}
 
 	// DEX cross-chain scan
 	if dexOpp, err := dex.Scan(e.cfg.AlchemyAPIKey); err == nil && dexOpp != nil {
-		opps = append(opps, dexOpp)
+		oops = append(oops, dexOpp)
 	}
 
-	return opps
+	return oops
 }
 
 // best returns the opportunity with the highest netPct, or nil.
-func best(opps []*cex.Opportunity) *cex.Opportunity {
+func best(oops []*cex.Opportunity) *cex.Opportunity {
 	var b *cex.Opportunity
-	for _, o := range opps {
+	for _, o := range oops {
 		if b == nil || o.NetPct > b.NetPct {
 			b = o
 		}
@@ -359,11 +359,11 @@ func (e *engine) run(ctx context.Context) {
 		}
 
 		start := time.Now()
-		opps := e.scan()
+		oops := e.scan()
 		elapsed := float64(time.Since(start).Milliseconds())
 		scanLatency.Observe(elapsed)
 
-		if b := best(opps); b != nil {
+		if b := best(oops); b != nil {
 			e.execute(ctx, b)
 		}
 	}
@@ -446,8 +446,8 @@ func newAPIServer(eng *engine, secret string) *http.Server {
 			writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
 			return
 		}
-		opps := eng.scan()
-		b := best(opps)
+		oops := eng.scan()
+		b := best(oops)
 		if b == nil {
 			writeJSON(w, http.StatusOK, map[string]any{"opportunity": nil})
 			return

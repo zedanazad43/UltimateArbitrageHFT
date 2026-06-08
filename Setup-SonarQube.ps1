@@ -1,0 +1,3 @@
+# .SYNOPSIS
+#     Automates SonarQube + VS Code setup
+# ... (full script content from previous answer) ...

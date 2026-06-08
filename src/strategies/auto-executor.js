@@ -56,8 +56,8 @@ const DEFAULT_CONFIG = {
   autoReinvest: true,            // Reinvest profits
   strategyFailureLimit: 3,       // Consecutive failures before strategy cooldown
   strategyCooldownMs: 120000,    // 2 min strategy cooldown
-  riskWinRate: 0.55,             // Kelly input assumption (overrideable)
-  riskRewardRatio: 2.0,          // Kelly input assumption (overrideable)
+  riskWinRate: 0.55,             // Kelly input assumption (overridable)
+  riskRewardRatio: 2.0,          // Kelly input assumption (overridable)
   initialCapitalUsd: 1000,       // Risk guard baseline capital
   maxDailyLossUsd: 25,           // Drawdown guard daily loss cap
   strategies: {

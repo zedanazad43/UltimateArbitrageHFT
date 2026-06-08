@@ -2,29 +2,29 @@ name: Spot Lock Monitor
 
 on:
   schedule:
-    - cron: '*/15 * * * *'
+    - cron: "*/15 * * * *"
   workflow_dispatch:
     inputs:
       samples:
         description: Number of samples to collect
         required: false
-        default: '2'
+        default: "2"
       interval_ms:
         description: Delay between samples in milliseconds
         required: false
-        default: '5000'
+        default: "5000"
       fetch_retries:
         description: Retries for transient fetch failures
         required: false
-        default: '1'
+        default: "1"
       retry_delay_ms:
         description: Delay between fetch retries in milliseconds
         required: false
-        default: '500'
+        default: "500"
       base_url:
         description: Base URL for protected monitor checks
         required: false
-        default: 'https://ultimatearbitragehft.zedanazad43.workers.dev'
+        default: "https://ultimatearbitragehft.zedanazad43.workers.dev"
 
 permissions:
   contents: read

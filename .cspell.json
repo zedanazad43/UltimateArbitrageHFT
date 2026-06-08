@@ -1,0 +1,30 @@
+﻿{
+  "version": "0.2",
+  "ignorePaths": [
+    "node_modules",
+    ".git",
+    ".venv_aider",
+    "aider-env",
+    ".aider",
+    "dist",
+    "package-lock.json",
+    "*.log"
+  ],
+  "words": [
+    "Arbitrage",
+    "HFT",
+    "mexc",
+    "binance",
+    "CEX",
+    "DEX",
+    "perp",
+    "perps",
+    "mjs",
+    "cjs",
+    "dedupe",
+    "wrangler",
+    "cloudflare",
+    "ESLint",
+    "precommit"
+  ]
+}
