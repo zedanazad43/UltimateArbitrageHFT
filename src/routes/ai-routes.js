@@ -40,11 +40,21 @@ function generateUUID() {
   if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
     return crypto.randomUUID();
   }
-  // Fallback for older Workers compat dates
-  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
-    const r = (crypto.getRandomValues(new Uint8Array(1))[0] & 15) >> (c === 'x' ? 0 : 3);
-    return (c === 'x' ? r : (r & 0x3) | 0x8).toString(16);
-  });
+  // Fallback for older Workers compat dates – RFC 4122 v4 using 16 random bytes
+  const bytes = new Uint8Array(16);
+  if (typeof crypto !== 'undefined' && typeof crypto.getRandomValues === 'function') {
+    crypto.getRandomValues(bytes);
+  } else {
+    // Last resort: Math.random (not cryptographically secure, but better than nothing)
+    for (let i = 0; i < 16; i++) {
+      bytes[i] = Math.floor(Math.random() * 256);
+    }
+  }
+  // Set version (4) and variant (RFC 4122)
+  bytes[6] = (bytes[6] & 0x0f) | 0x40; // version 4
+  bytes[8] = (bytes[8] & 0x3f) | 0x80; // variant 10xx
+  const hex = Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('');
+  return `${hex.slice(0,8)}-${hex.slice(8,12)}-${hex.slice(12,16)}-${hex.slice(16,20)}-${hex.slice(20)}`;
 }
 
 async function runConfiguredLlm(env, aiParams) {
@@ -130,7 +140,6 @@ export function registerAiRoutes(app, deps) {
         provider: result.provider,
         model: result.model,
         gatewayConfigured: !!gatewayUrl,
-        gatewayUrl: gatewayUrl || null,
         preview: String(result.text || '').slice(0, 80),
         usage: result.usage,
       });
@@ -290,12 +299,12 @@ export function registerAiRoutes(app, deps) {
     } catch (err) {
       console.error('[/api/trades] error:', err.message);
       return c.json({
-        ok: false,
-        error: 'Trade history unavailable',
+        ok: true,
+        note: 'Trade history unavailable',
         data: [],
         count: 0,
         timestamp: new Date().toISOString(),
-      }, 500);
+      });
     }
   });
 }
