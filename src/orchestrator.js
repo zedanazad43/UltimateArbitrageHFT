@@ -137,9 +137,11 @@ export function isLiveExecutableOpportunityWithEnv(opp, env) {
       hasExchangeCredentials(env, 'mexc') && hasExchangeCredentials(env, counterparty);
   }
 
-  return isExecutionExchangeEnabled(env, buyExchange) &&
-    isExecutionExchangeEnabled(env, sellExchange) &&
-    hasExchangeCredentials(env, buyExchange) &&
+  // Check allowlist before credentials
+  if (!isExecutionExchangeEnabled(env, buyExchange)) return false;
+  if (!isExecutionExchangeEnabled(env, sellExchange)) return false;
+
+  return hasExchangeCredentials(env, buyExchange) &&
     hasExchangeCredentials(env, sellExchange);
 }
 
