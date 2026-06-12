@@ -12,7 +12,7 @@
  */
 
 import { getGlobalProxyPool } from '../infra/proxy-pool.js';
-import { auditLog, withRateLimit } from '../infra/security.js';
+import { auditLog } from '../infra/security.js';
 import { getExternalProxyManager } from '../infra/external-proxy.js';
 
 // ── Exchange Normalization Map (ccxt-inspired) ────────────────────────────────
@@ -101,7 +101,7 @@ function setCachedOrderBook(exchange, symbol, book) {
  * @param {object} env - Worker environment with API keys
  * @returns {Promise<object>} Unified ticker object
  */
-export async function fetchTicker(exchange, symbol, env) {
+export async function fetchTicker(exchange, symbol, _env) {
   const norm = EXCHANGE_NORMALIZE[exchange];
   if (!norm) throw new Error(`ccxt-bridge: unknown exchange "${exchange}"`);
 
@@ -204,7 +204,7 @@ export async function fetchTicker(exchange, symbol, env) {
     const result = { ...ticker, exchange, timestamp: Date.now() };
     setCachedTicker(exchange, exSymbol, result);
     return result;
-  } catch (err) {
+  } catch (_err) {
     console.error(`ccxt-bridge fetchTicker ${exchange}/${exSymbol}: ${err.message}`);
     throw err;
   }
@@ -218,7 +218,7 @@ export async function fetchTicker(exchange, symbol, env) {
  * @param {string} symbol 
  * @param {number} limit - Depth (default 20)
  */
-export async function fetchOrderBook(exchange, symbol, limit = 20, env) {
+export async function fetchOrderBook(exchange, symbol, limit = 20, _env) {
   const norm = EXCHANGE_NORMALIZE[exchange];
   if (!norm) throw new Error(`ccxt-bridge: unknown exchange "${exchange}"`);
 
@@ -230,7 +230,7 @@ export async function fetchOrderBook(exchange, symbol, limit = 20, env) {
   if (cached) return cached;
 
   try {
-    let url, endpoint;
+    let endpoint;
     switch (exchange) {
       case 'binance':
       case 'binanceus':
@@ -333,7 +333,7 @@ export async function scanCrossExchange(symbol, exchanges, env) {
  * @param {number} quantity - In base currency
  * @param {object} env - Worker env with API keys
  */
-export async function createMarketOrder(exchange, symbol, side, quantity, env) {
+export async function createMarketOrder(exchange, symbol, side, quantity, _env) {
   const norm = EXCHANGE_NORMALIZE[exchange];
   if (!norm) throw new Error(`ccxt-bridge: unknown exchange "${exchange}"`);
 

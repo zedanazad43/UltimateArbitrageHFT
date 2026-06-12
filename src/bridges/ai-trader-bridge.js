@@ -285,8 +285,6 @@ export function ensembleSignal(candles, weights = {}) {
  * - Recent price volatility
  */
 export function marketSentiment(candles) {
-  const current = candles[candles.length - 1];
-  const recent = candles.slice(-5);
 
   // RSI-based heat
   const rsi = RSI(candles, 14);
