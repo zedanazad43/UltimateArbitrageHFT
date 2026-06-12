@@ -37,6 +37,13 @@ import {
   MAX_POSITION_EQUITY_FRACTION,
 } from '../risk.js';
 
+// ── Bridge Imports (open-source integrations activated) ─────────────────────
+
+import { getHFTSupervisor, PriorityQueue, CircuitBreaker } from '../bridges/botvana-bridge.js';
+import { scanCrossExchange, fetchTicker } from '../bridges/ccxt-bridge.js';
+import { scanTriangularEnhanced, scanCrossExchangeTriangular } from '../bridges/triangular-bridge.js';
+import { rankOpportunities, ensembleSignal, marketSentiment, detectMarketRegime, kellyPosition } from '../bridges/ai-trader-bridge.js';
+
 // ── Configuration ─────────────────────────────────────────────────────────────
 
 const DEFAULT_CONFIG = {

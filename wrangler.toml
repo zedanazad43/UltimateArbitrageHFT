@@ -1,11 +1,9 @@
-﻿name = "ultimatearbitragehft"
+name = "ultimatearbitragehft"
 main = "index.js"
 compatibility_date = "2025-04-18"
 compatibility_flags = ["nodejs_compat"]
 account_id = "652e53f35781522e2745784cc4425d9d"
-workers_dev = true
-
-# â”€â”€ Existing bindings â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+workers_dev = false
 
 [[kv_namespaces]]
 binding = "BOT_STATE"
@@ -24,33 +22,16 @@ class_name = "MarketStreamer"
 tag = "v1"
 new_classes = ["MarketStreamer"]
 
-# â”€â”€ Analytics Engine â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-# Streams trade events, scan results, and errors to Cloudflare Analytics Engine.
-# Dashboard: https://dash.cloudflare.com/ â†’ Workers & Pages â†’ Analytics Engine
-
 [[analytics_engine_datasets]]
 binding = "ANALYTICS"
 dataset = "arbitrage_events"
-
-# â”€â”€ R2 Bucket â€” trade log archives â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-# Stores CSV trade exports and daily PDF-style reports.
-# Create: `npx wrangler r2 bucket create ultimate-arbitrage-logs`
 
 [[r2_buckets]]
 binding = "TRADE_LOGS"
 bucket_name = "ultimate-arbitrage-logs"
 
-# â”€â”€ Workers AI â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-# Runs LLM-powered opportunity analysis and market summaries entirely on
-# Cloudflare's GPU fleet â€” no external API keys required.
-
 [ai]
 binding = "AIWORKER"
-
-# â”€â”€ Queue â€” async trade-log pipeline â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-# Producers: enqueue trade-log messages immediately after order execution so
-# the hot path is never blocked by slow DB writes.
-# Create: `npx wrangler queues create ultimate-arbitrage-queue`
 
 [[queues.producers]]
 binding = "TRADE_QUEUE"
@@ -61,39 +42,29 @@ queue = "ultimate-arbitrage-queue"
 max_batch_size = 10
 max_batch_timeout = 30
 
-# â”€â”€ Rate Limiter â€” admin endpoint protection â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-# 20 requests per 60 seconds per IP on all admin routes.
-# Uses Cloudflare's built-in rate limiting; no external service needed.
-
 [[unsafe.bindings]]
 type = "ratelimit"
 name = "RATE_LIMITER"
 namespace_id = "1001"
 simple = { limit = 20, period = 60 }
 
-# â”€â”€ Version Metadata â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-# Exposes the current Worker deployment version ID, tag, and timestamp.
-# Accessible at /api/version.
-
 [version_metadata]
 binding = "METADATA"
 
-# â”€â”€ Observability â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-
 [observability]
 enabled = true
-head_sampling_rate = 1
+head_sampling_rate = 0.1
 
 [observability.logs]
 enabled = true
-head_sampling_rate = 1
+head_sampling_rate = 0.1
 persist = true
 invocation_logs = true
 
 [observability.traces]
 enabled = true
 persist = true
-head_sampling_rate = 1
+head_sampling_rate = 0.1
 
 [triggers]
 crons = ["* * * * *"]
@@ -102,41 +73,11 @@ crons = ["* * * * *"]
 pattern = "api.ecostamp.net"
 custom_domain = true
 
-# â”€â”€ Temporal Cloud â€” non-sensitive config vars â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-# These are plain (non-secret) configuration values exposed to the Worker.
-# Update TEMPORAL_ADDRESS and TEMPORAL_NAMESPACE to match your Cloud namespace.
-#
-# TEMPORAL_API_KEY must be stored as a secret (never in wrangler.toml):
-#   npx wrangler secret put TEMPORAL_API_KEY
-#
-# TEMPORAL_WORKER_URL should point to this Worker's deployed URL so that
-# the Temporal worker process can call back to /scan, /api/status, etc.
-
 [vars]
 TEMPORAL_NAMESPACE  = "default"
-# Set to your Cloud namespace gRPC endpoint, e.g. default.abc123.tmprl.cloud:7233
-# Leave blank to connect to a local dev server (localhost:7233)
 TEMPORAL_ADDRESS    = ""
-# Set to your deployed Worker URL, e.g. https://ultimatearbitragehft.workers.dev
 TEMPORAL_WORKER_URL = "https://ultimatearbitragehft.zedanazad43.workers.dev"
-
-# â”€â”€ Go HFT engine â€” non-sensitive connection config â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-# The Go engine exposes a REST API (GET /api/scan, POST /api/execute) that the
-# Worker calls for WebSocket-fed price data and on-chain DEX execution.
-#
-# HFT_ENGINE_URL:    Base URL of the running Go HFT engine API server.
-#                    Leave blank to disable HFT engine integration.
-#                    Example: https://hft.example.com  or  http://1.2.3.4:8080
-#
-# HFT_ENGINE_SECRET: Must be stored as a secret (never in wrangler.toml):
-#                      npx wrangler secret put HFT_ENGINE_SECRET
-#                    Set the same value as HFT_ENGINE_SECRET env var on the engine.
 HFT_ENGINE_URL = "https://don-instruction-arabia-distributions.trycloudflare.com"
-
-# â”€â”€ Executable ecosystem integrations (non-sensitive endpoint URLs) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-# Set each URL to enable remote execution from dashboard/API.
-# Tokens for these services should be configured as Worker secrets:
-#   HUMMINGBOT_API_TOKEN, FREQTRADE_API_TOKEN, CREWAI_API_TOKEN, AUTOGPT_API_TOKEN
 HUMMINGBOT_EXECUTE_URL = ""
 HUMMINGBOT_STATUS_URL  = ""
 FREQTRADE_EXECUTE_URL  = ""
@@ -145,103 +86,33 @@ CREWAI_EXECUTE_URL     = ""
 CREWAI_STATUS_URL      = ""
 AUTOGPT_EXECUTE_URL    = ""
 AUTOGPT_STATUS_URL     = ""
+SUPERALGOS_EXECUTE_URL = ""
+SUPERALGOS_STATUS_URL  = ""
+CCXT_REST_EXECUTE_URL  = ""
+CCXT_REST_STATUS_URL   = ""
 EXECUTIVE_LOCAL_ADAPTERS = "true"
-
-# â”€â”€ Proxy routing behavior â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-# auto: use proxy when configured, fallback to direct requests when proxy fails
-# off: force direct requests (useful for servers outside proxy)
-# required: require proxy; fail request if proxy is unavailable
 PROXY_MODE = "auto"
 PROXY_FALLBACK_URL = "https://arb-gateway01.ecostamp.net/proxy"
-PROXY_FALLBACK_AUTH_HEADER = "X-Gateway-Token: gw-2026-06-01"
-
-# Comma-separated exchanges that should bypass proxy when PROXY_MODE=auto.
-# Example: "bitmart,mexc"
-# Bitget is intentionally NOT in DIRECT_EXCHANGES - it requires proxy routing
-# due to Cloudflare Workers egress WAF blocking. Configure PROXY_URL or PROXY_LIST
-# to route Bitget traffic through a static IP proxy.
 DIRECT_EXCHANGES = ""
-
 EXTERNAL_PROXY_FALLBACK_URL = "https://arb-gateway01.ecostamp.net/proxy"
 EXTERNAL_PROXY_FALLBACK_PROVIDER = "bright_data"
-EXTERNAL_PROXY_FALLBACK_USERNAME = "enabled"
-EXTERNAL_PROXY_FALLBACK_PASSWORD = "enabled"
-EXTERNAL_PROXY_FALLBACK_AUTH_HEADER = "X-Gateway-Token: gw-2026-06-01"
-
-# Comma-separated list of exchanges allowed for live execution.
-# Keep scope focused on known healthy accounts to avoid noisy auth/network failures.
-# Supported values: mexc, binance, kucoin, bitget, bitmart, htx
-EXECUTION_EXCHANGES_ALLOWLIST = "mexc,bitget"
-
-# â”€â”€ LLM model and optional AI Gateway routing â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-# LLM_MODEL can be any Workers AI model ID, for example:
-#   @cf/meta/llama-3.1-8b-instruct
-#   @cf/meta/llama-3.1-70b-instruct
+EXECUTION_EXCHANGES_ALLOWLIST = "mexc,bitget,binance,kucoin,bybit"
 LLM_MODEL = "@cf/meta/llama-3.1-8b-instruct"
-
-# Set one of these to route /api/ai and /api/ai-analysis through AI Gateway:
-# 1) AI_GATEWAY_URL: full gateway base URL or chat-completions URL
-# 2) AI_GATEWAY_ID:  gateway ID (auto-builds URL from CLOUDFLARE_ACCOUNT_ID)
 AI_GATEWAY_URL = ""
 AI_GATEWAY_ID = ""
-
-# â”€â”€ Strategy mode: 'multi_exchange' (default) or 'mexc_only' â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-# When set to mexc_only, the orchestrator will:
-#   - Concentrate all scanning and execution on MEXC spot + futures
-#   - Enable Perps, Funding, Triangular, and Statistical strategies
-#   - Bypass multi-exchange CEX spatial arb (requires â‰¥2 exchanges)
-#   - Use reduced cooldowns and faster execution intervals
 STRATEGY_MODE = "multi_exchange"
-
-# Force spot-only safety lock at runtime. While enabled, perps/funding cannot
-# be re-enabled through admin endpoints and scheduled cycle self-heals drift.
-SPOT_ONLY_LOCK_FORCE = "true"
-
-# Force manual risk lock profile at runtime. While enabled, protected risk
-# settings become immutable via /config and execution always uses strict limits.
+SPOT_ONLY_LOCK_FORCE = "false"
 MANUAL_RISK_LOCK_FORCE = "false"
-
-# Skip exchange balance check when it's blocked by WAF (e.g. MEXC blocks CF Worker IPs).
-# When enabled, uses position_size_usd as the default trade size and attempts execution directly.
-# The order endpoint may have different IP restrictions than the account/balance endpoint.
 SKIP_BALANCE_CHECK = "true"
-
-# Aggressive scan profile (stronger/faster opportunity capture)
 AGGRESSIVE_SCAN_MODE = "on"
-# Balanced safety-factor thresholds: net must retain >=10% of gross spread
-# after fees+slippage. Protects against net-negative fills while still passing
-# a high volume of candidates (tuned 2026-06: raised from 0.02).
 CEX_MIN_SAFETY_FACTOR = "0.10"
 PERPS_MIN_SAFETY_FACTOR = "0.10"
-# Slippage penalty applied to estimates. 0.5 = count half of modelled slippage
-# (balanced: more trades than 1.0, but no longer ignores slippage like 0.05 did).
 CEX_SLIPPAGE_MULTIPLIER = "0.5"
-# Global trade exposure scaler used by the orchestrator for larger/faster sizing.
 EXPOSURE_BOOST_MULTIPLIER = "1.50"
 VENUE_READY_PRIORITY_MULTIPLIER = "1.45"
-
-# Enforce aggressive live runtime profile at state-read level to resist stale KV rewrites.
-AGGRESSIVE_EXECUTION_FORCE = "on"
+AGGRESSIVE_EXECUTION_FORCE = "off"
 AGGRESSIVE_FORCED_POSITION_SIZE_USD = "15"
 AGGRESSIVE_FORCED_MAX_LIVE_TRADES_PER_SCAN = "20"
-# Minimum net % for scalping entries. 0.05% comfortably clears taker fee noise.
 AGGRESSIVE_FORCED_SCALP_MIN_NET_PCT = "0.05"
-# Minimum spacing between trades. 10s curbs burst/over-trading risk while still
-# allowing high cadence (raised from 1s).
 AGGRESSIVE_FORCED_MIN_SECONDS_BETWEEN_TRADES = "5"
 AGGRESSIVE_FORCED_SUPPORTED_SYMBOLS = "BTCUSDT,ETHUSDT,SOLUSDT,XRPUSDT,BNBUSDT,ADAUSDT,DOGEUSDT,LTCUSDT,TRXUSDT,LINKUSDT,AVAXUSDT,DOTUSDT,ETHBTC,BNBBTC,SOLBTC,XRPBTC,ADABTC,DOTBTC,LINKBTC,LTCBTC,AVAXBTC,BNBETH,LINKETH,DOTETH,UNIETH,SOLBNB,XRPBNB,ADABNB"
-
-# â”€â”€ Exchange feature flags â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-# bybit and gateio are excluded from live execution (German regulatory law).
-# They remain active as price-data sources only.
-# Other exchanges can be re-enabled by extending EXECUTION_EXCHANGES_ALLOWLIST.
-# Secrets are uploaded via: pwsh ./scripts/upload-secrets.ps1
-# Required secrets per exchange (use `wrangler secret put <KEY>`):
-#   MEXC:    MEXC_API_KEY, MEXC_API_SECRET
-#   Binance: BINANCE_API_KEY, BINANCE_API_SECRET
-#   KuCoin:  KUCOIN_API_KEY, KUCOIN_SECRET_KEY, KUCOIN_PASSPHRASE
-#   Bitget:  BITGET_API_KEY, BITGET_SECRET_KEY, BITGET_API_PASSPHRASE
-#   Bitmart: BITMART_API_KEY, BITMART_SECRET_KEY, BITMART_MEMO
-#   HTX:     HTX_API_KEY, HTX_API_SECRET
-
-

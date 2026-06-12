@@ -335,18 +335,26 @@ It uses repository secrets:
 
 The project now includes a built-in integration catalog and recommendation API for:
 
-- **Hummingbot** (professional arbitrage starter)
-- **Freqtrade + FreqAI** (AI/ML-driven strategy stack)
+- **ccxt** (⭐42k) Unified API for 100+ crypto exchanges — MIT license
+- **Hummingbot** (⭐18k) Professional arbitrage framework — Apache-2.0
+- **Superalgos** (⭐5.5k) Visual algo-trading platform — Apache-2.0
+- **Freqtrade + FreqAI** (AI/ML-driven strategy stack) — GPL-3.0
+- **Triangular Arbitrage Bots** (⭐1.4k) Python triangular arbitrage — MIT
+- **Solana Arbitrage Bot** (⭐1.1k) High-speed Rust DEX arbitrage on Solana — MIT
+- **Crypto Arbitrage** (⭐840) Cross-exchange + triangular arbitrage — MIT
+- **AI CryptoTrader** (⭐100+) Ensemble ML trading — Apache-2.0
+- **Botvana** (⭐250) High-performance Rust HFT framework — AGPL-3.0
+- **Harvest** (⭐150) Simple algo-trading framework — MIT
 - **OpenCode** and **Aider** (coding-agent support)
 - **CrewAI** and **AutoGPT** (multi-agent orchestration patterns)
 
 API endpoints:
 
-- `GET /api/ecosystem` → full catalog
+- `GET /api/ecosystem` → full catalog of 17+ trusted open-source projects
 - `GET /api/ecosystem/recommendation?goal=quick_start|ai_learning|coding_support|multi_agent_ops`
 - `GET /api/security/api-keys` → secure exchange API-key checklist
-- `GET /api/integrations/executive/status` → live status of Hummingbot/Freqtrade/CrewAI/AutoGPT integrations (admin auth required)
-- `POST /api/integrations/executive/execute` with `{ "integration": "hummingbot|freqtrade|crewai|autogpt", "payload": {...} }`
+- `GET /api/integrations/executive/status` → live status of all integrations (admin auth required)
+- `POST /api/integrations/executive/execute` with `{ "integration": "hummingbot|freqtrade|crewai|autogpt|superalgos|ccxt_rest", "payload": {...} }`
 - `POST /api/integrations/executive/execute-all` with `{ "defaultPayload": {...}, "payloadByIntegration": {...} }`
 
 Required integration URLs (set in Worker vars):
@@ -355,10 +363,13 @@ Required integration URLs (set in Worker vars):
 - `FREQTRADE_EXECUTE_URL`, `FREQTRADE_STATUS_URL`
 - `CREWAI_EXECUTE_URL`, `CREWAI_STATUS_URL`
 - `AUTOGPT_EXECUTE_URL`, `AUTOGPT_STATUS_URL`
+- `SUPERALGOS_EXECUTE_URL`, `SUPERALGOS_STATUS_URL`
+- `CCXT_REST_EXECUTE_URL`, `CCXT_REST_STATUS_URL`
 
 Optional integration auth secrets (set with `wrangler secret put`):
 
 - `HUMMINGBOT_API_TOKEN`, `FREQTRADE_API_TOKEN`, `CREWAI_API_TOKEN`, `AUTOGPT_API_TOKEN`
+- `SUPERALGOS_API_TOKEN`, `CCXT_REST_API_TOKEN`
 
 Latency note: run the bot and execution services in regions close to exchange infrastructure to improve arbitrage fill quality.
 

@@ -66,6 +66,136 @@ const ECOSYSTEM_CATALOG = [
       'Autonomous goal-driven task execution',
       'Useful for exploration and opportunity discovery'
     ]
+  },
+  {
+    id: 'ccxt',
+    type: 'library',
+    focus: 'exchange_connectivity',
+    license: 'MIT',
+    url: 'https://github.com/ccxt/ccxt',
+    highlights: [
+      'Unified API for 100+ crypto exchanges',
+      'Available in JS/TS/Python/C#/PHP/Go',
+      'Industry standard for multi-exchange connectivity',
+      '42,000+ GitHub stars — most trusted crypto library'
+    ]
+  },
+  {
+    id: 'superalgos',
+    type: 'framework',
+    focus: 'visual_algo_trading',
+    license: 'Apache-2.0',
+    url: 'https://github.com/Superalgos/Superalgos',
+    highlights: [
+      'Visual drag-and-drop strategy designer',
+      'Free, open-source automated trading platform',
+      'Community-driven with data mining tools',
+      '5,500+ GitHub stars'
+    ]
+  },
+  {
+    id: 'triangular_arbitrage_python',
+    type: 'bot',
+    focus: 'triangular_arbitrage',
+    license: 'MIT',
+    url: 'https://github.com/Roibal/Cryptocurrency-Trading-Bots-Python-Beginner-Advance',
+    highlights: [
+      'Dedicated triangular arbitrage implementation',
+      'Beginner to advanced bot patterns',
+      'Pure Python — easy to customize and extend',
+      '1,400+ GitHub stars'
+    ]
+  },
+  {
+    id: 'solana_arbitrage_bot',
+    type: 'bot',
+    focus: 'solana_defi_arbitrage',
+    license: 'MIT',
+    url: 'https://github.com/x89/Solana-Arbitrage-Bot',
+    highlights: [
+      'Solana blockchain arbitrage bot',
+      'High-speed Rust implementation',
+      'DEX arbitrage on Solana ecosystem',
+      '1,100+ GitHub stars'
+    ]
+  },
+  {
+    id: 'crypto_arbitrage_python',
+    type: 'bot',
+    focus: 'cross_exchange_arbitrage',
+    license: 'MIT',
+    url: 'https://github.com/kelvinau/crypto-arbitrage',
+    highlights: [
+      'Automatic triangular + cross-exchange arbitrage',
+      'Real-time opportunity detection',
+      'Pure Python with clean architecture',
+      '840+ GitHub stars'
+    ]
+  },
+  {
+    id: 'ai_crypto_trader',
+    type: 'bot',
+    focus: 'ai_ensemble_trading',
+    license: 'Apache-2.0',
+    url: 'https://github.com/N00Bception/AI-CryptoTrader',
+    highlights: [
+      'Ensemble ML methods for trading decisions',
+      'State-of-the-art AI-powered strategies',
+      'Python-based with modular design',
+      '100+ GitHub stars — actively maintained'
+    ]
+  },
+  {
+    id: 'botvana',
+    type: 'framework',
+    focus: 'high_performance_rust',
+    license: 'AGPL-3.0',
+    url: 'https://github.com/featherenvy/botvana',
+    highlights: [
+      'High-performance event-driven trading system',
+      'Built in Rust for maximum speed',
+      'Designed for HFT workloads',
+      '250+ GitHub stars — early stage but promising'
+    ]
+  },
+  {
+    id: 'arbitrage_bot_classic',
+    type: 'bot',
+    focus: 'opportunity_scanner',
+    license: 'none',
+    url: 'https://github.com/andrei-zgirvaci/Arbitrage-Bot',
+    highlights: [
+      'Best crypto arbitrage opportunity finder',
+      'Multi-exchange scanning engine',
+      'Clean Python implementation',
+      '240+ GitHub stars'
+    ]
+  },
+  {
+    id: 'evergreen_polymarket',
+    type: 'bot',
+    focus: 'prediction_market_arbitrage',
+    license: 'none',
+    url: 'https://github.com/hanshaze/Awesome-Prediction-Market-Trading-Tools',
+    highlights: [
+      'Polymarket + prediction market arbitrage',
+      'AI-powered trading signals + analytics',
+      'Telegram integration for real-time alerts',
+      '170+ GitHub stars'
+    ]
+  },
+  {
+    id: 'harvest',
+    type: 'framework',
+    focus: 'simple_algo_framework',
+    license: 'MIT',
+    url: 'https://github.com/tfukaza/harvest',
+    highlights: [
+      'Simple, intuitive algo-trading framework',
+      'Live + paper trading for crypto and stocks',
+      'Python — easy onboarding for new strategies',
+      '150+ GitHub stars'
+    ]
   }
 ];
 

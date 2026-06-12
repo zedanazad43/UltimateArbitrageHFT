@@ -38,6 +38,16 @@ const EXECUTABLE_INTEGRATIONS = Object.freeze({
     statusUrlKey: 'AUTOGPT_STATUS_URL',
     tokenKey: 'AUTOGPT_API_TOKEN',
   },
+  superalgos: {
+    executeUrlKey: 'SUPERALGOS_EXECUTE_URL',
+    statusUrlKey: 'SUPERALGOS_STATUS_URL',
+    tokenKey: 'SUPERALGOS_API_TOKEN',
+  },
+  ccxt_rest: {
+    executeUrlKey: 'CCXT_REST_EXECUTE_URL',
+    statusUrlKey: 'CCXT_REST_STATUS_URL',
+    tokenKey: 'CCXT_REST_API_TOKEN',
+  },
 });
 
 function configuredValue(env, key) {
