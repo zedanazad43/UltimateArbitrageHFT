@@ -1,15 +1,20 @@
 // nexus/src/dashboard.js — Unified Nexus Hub Dashboard
 
 import { getRecentTrades, getStrategyPnL, getPerformanceMetrics } from './db.js';
-import { calculateAdaptiveLeverage }                               from './risk.js';
+import { calculateAdaptiveLeverage } from './risk.js';
 
 const DEFAULT_RISK = {
-  MAX_DAILY_LOSS_USD:          25,
-  DAILY_LIMIT_USD:             500,
-  MIN_SECONDS_BETWEEN_TRADES:  30,
-  MAX_PER_TRADE_LOSS_PCT:      0.02,
-  MAX_SPREAD_PCT:              5.0
+  MAX_DAILY_LOSS_USD: 25,
+  DAILY_LIMIT_USD: 500,
+  MIN_SECONDS_BETWEEN_TRADES: 30,
+  MAX_PER_TRADE_LOSS_PCT: 0.02,
+  MAX_SPREAD_PCT: 5
 };
+
+function tryDateFromMs(ms) {
+  const d = new Date(ms);
+  return Number.isNaN(d.getTime()) ? null : d;
+}
 
 function parseDateSafe(value) {
   if (value == null || value === '') return null;
@@ -17,26 +22,22 @@ function parseDateSafe(value) {
 
   if (typeof value === 'number') {
     const ms = value < 1e12 ? value * 1000 : value;
-    const d = new Date(ms);
-    return Number.isNaN(d.getTime()) ? null : d;
+    return tryDateFromMs(ms);
   }
 
   const raw = String(value).trim();
   if (!raw) return null;
 
   if (/^\d+$/.test(raw)) {
-    const n = Number(raw);
-    const ms = n < 1e12 ? n * 1000 : n;
-    const d = new Date(ms);
-    return Number.isNaN(d.getTime()) ? null : d;
+    const ms = Number(raw) < 1e12 ? Number(raw) * 1000 : Number(raw);
+    return tryDateFromMs(ms);
   }
 
   if (/^\d+(?:\.\d+)?$/.test(raw)) {
     const n = Number.parseFloat(raw);
     if (Number.isFinite(n)) {
       const ms = n < 1e12 ? n * 1000 : n;
-      const d = new Date(ms);
-      return Number.isNaN(d.getTime()) ? null : d;
+      return tryDateFromMs(ms);
     }
   }
 
@@ -89,20 +90,20 @@ export async function renderDashboard(env) {
     getPerformanceMetrics(env)
   ]);
 
-  const initialCapital  = state.initial_capital ?? 1000;
-  const equity          = initialCapital + (state.total_pnl || 0);
+  const initialCapital = state.initial_capital ?? 1000;
+  const equity = initialCapital + (state.total_pnl || 0);
   const currentLeverage = calculateAdaptiveLeverage(equity, 0.05, initialCapital);
-  const paperMode       = state.paper_trading !== false;
-  const modeColor       = paperMode ? '#f0b90b' : '#e74c3c';
-  const modeLabel       = paperMode ? '📄 PAPER' : '🔴 LIVE';
-  const statusColor     = state.trading_enabled ? '#2ecc71' : '#e74c3c';
-  const maxLoss         = state.max_daily_loss_usd           ?? DEFAULT_RISK.MAX_DAILY_LOSS_USD;
-  const dailyLimit      = (Number.isFinite(state.daily_limit_usd) && state.daily_limit_usd > 0)
+  const paperMode = state.paper_trading !== false;
+  const modeColor = paperMode ? '#f0b90b' : '#e74c3c';
+  const modeLabel = paperMode ? '📄 PAPER' : '🔴 LIVE';
+  const statusColor = state.trading_enabled ? '#2ecc71' : '#e74c3c';
+  const maxLoss = state.max_daily_loss_usd ?? DEFAULT_RISK.MAX_DAILY_LOSS_USD;
+  const dailyLimit = (Number.isFinite(state.daily_limit_usd) && state.daily_limit_usd > 0)
     ? state.daily_limit_usd
     : DEFAULT_RISK.DAILY_LIMIT_USD;
-  const minSec          = state.min_seconds_between_trades   ?? DEFAULT_RISK.MIN_SECONDS_BETWEEN_TRADES;
-  const maxPerTrade     = state.max_per_trade_loss_pct       ?? DEFAULT_RISK.MAX_PER_TRADE_LOSS_PCT;
-  const positionSizeUsd = state.position_size_usd            ?? 5;
+  const minSec = state.min_seconds_between_trades ?? DEFAULT_RISK.MIN_SECONDS_BETWEEN_TRADES;
+  const maxPerTrade = state.max_per_trade_loss_pct ?? DEFAULT_RISK.MAX_PER_TRADE_LOSS_PCT;
+  const positionSizeUsd = state.position_size_usd ?? 5;
   const scanSymbolMode = String(state.scan_symbol_mode || 'cex_union');
   const maxDynamicSymbols = Math.max(15, Math.min(2000, Number(state.max_dynamic_symbols || 500)));
   const maxMetaMaskSymbols = Math.max(100, Math.min(20000, Number(state.max_metamask_symbols || 10000)));
@@ -112,7 +113,7 @@ export async function renderDashboard(env) {
   const useDynamicSymbols = !Array.isArray(state.supported_symbols) || state.supported_symbols.length === 0;
   const multiStrategyLive = state.multi_strategy_live !== false;
   const maxLiveTradesPerScan = Math.max(1, Math.min(5, Math.floor(state.max_live_trades_per_scan ?? 3)));
-  const strategyFlags   = {
+  const strategyFlags = {
     cex: state?.strategy_flags?.cex !== false,
     dex: state?.strategy_flags?.dex !== false,
     perps: state?.strategy_flags?.perps !== false,
@@ -131,7 +132,7 @@ export async function renderDashboard(env) {
   const subtitleScope = perpsEnabled
     ? 'منظومة موحدة: CEX + DEX + Perps'
     : 'منظومة موحدة: CEX + DEX (Spot-only)';
-  const lastScanTime    = lastScan?.timestamp
+  const lastScanTime = lastScan?.timestamp
     ? formatDateTimeAr(lastScan.timestamp)
     : 'لم يتم المسح بعد';
   const tvBaseSymbol = String(lastScan?.cex?.symbol || lastScan?.perps?.symbol || 'BTCUSDT')
@@ -145,38 +146,41 @@ export async function renderDashboard(env) {
        </div>`
     : '';
 
-  const adminTokenBanner = !env.ADMIN_TOKEN
-    ? `<div style="background:#e67e22;color:#fff;padding:12px 20px;border-radius:8px;margin-bottom:18px;font-weight:bold;line-height:1.8">
+  const adminTokenBanner = env.ADMIN_TOKEN
+    ? ''
+    : `<div style="background:#e67e22;color:#fff;padding:12px 20px;border-radius:8px;margin-bottom:18px;font-weight:bold;line-height:1.8">
         ⚠️ ADMIN_TOKEN غير مُهيَّأ — النظام يعمل الآن في <strong>وضع مفتوح</strong> لتسهيل الإعداد.
         فعّل الحماية لاحقاً عبر: <code style="background:rgba(0,0,0,.25);padding:2px 6px;border-radius:4px">wrangler secret put ADMIN_TOKEN</code>
         ثم أعد النشر.
-       </div>`
-    : '';
+       </div>`;
 
   // Strategy P&L
-  const cexPnl    = stratPnl.cex?.pnl    ?? 0;
-  const dexPnl    = stratPnl.dex?.pnl    ?? 0;
-  const perpsPnl  = stratPnl.perps?.pnl  ?? 0;
-  const cexTrades   = stratPnl.cex?.trades   ?? 0;
-  const dexTrades   = stratPnl.dex?.trades   ?? 0;
+  const cexPnl = stratPnl.cex?.pnl ?? 0;
+  const dexPnl = stratPnl.dex?.pnl ?? 0;
+  const perpsPnl = stratPnl.perps?.pnl ?? 0;
+  const cexTrades = stratPnl.cex?.trades ?? 0;
+  const dexTrades = stratPnl.dex?.trades ?? 0;
   const perpsTrades = stratPnl.perps?.trades ?? 0;
   // New strategies — parsed from strategy prefix
-  const triPnl    = stratPnl.triangular?.pnl    ?? 0;
-  const statPnl   = stratPnl.statistical?.pnl   ?? 0;
+  const triPnl = stratPnl.triangular?.pnl ?? 0;
+  const statPnl = stratPnl.statistical?.pnl ?? 0;
   const triTrades = stratPnl.triangular?.trades ?? 0;
-  const statTrades= stratPnl.statistical?.trades?? 0;
+  const statTrades = stratPnl.statistical?.trades ?? 0;
 
   // Performance metrics
-  const winRatePct     = ((metrics.win_rate   || 0) * 100).toFixed(1);
-  const maxDrawdown    = (metrics.max_drawdown_usd || 0).toFixed(2);
-  const bestTrade      = (metrics.best_trade_usd  || 0).toFixed(2);
-  const worstTrade     = (metrics.worst_trade_usd || 0).toFixed(2);
-  const sharpe         = (metrics.sharpe           || 0).toFixed(2);
-  const sortino        = (metrics.sortino          || 0).toFixed(2);
-  const profitFactor   = metrics.profit_factor
-    ? (isFinite(metrics.profit_factor) ? metrics.profit_factor.toFixed(2) : '∞')
-    : '—';
-  const expectancy     = (metrics.expectancy       || 0).toFixed(3);
+  const winRatePct = ((metrics.win_rate || 0) * 100).toFixed(1);
+  const maxDrawdown = (metrics.max_drawdown_usd || 0).toFixed(2);
+  const bestTrade = (metrics.best_trade_usd || 0).toFixed(2);
+  const worstTrade = (metrics.worst_trade_usd || 0).toFixed(2);
+  const sharpe = (metrics.sharpe || 0).toFixed(2);
+  const sortino = (metrics.sortino || 0).toFixed(2);
+  let profitFactor = '—';
+  if (metrics.profit_factor != null) {
+    profitFactor = Number.isFinite(metrics.profit_factor)
+      ? metrics.profit_factor.toFixed(2)
+      : '∞';
+  }
+  const expectancy = (metrics.expectancy || 0).toFixed(3);
   const totalTrades = Number(metrics.total_trades ?? state.total_trades ?? 0);
   const apiSnapshotInitial = {
     status: `${state.trading_enabled ? '▶️ مفعّل' : '⏸️ متوقف'} | ${paperMode ? 'Paper' : 'Live'}`,
@@ -187,7 +191,7 @@ export async function renderDashboard(env) {
   };
 
   // HTML attribute escaper — prevents XSS in server-interpolated input value="…"
-  const esc = (v) => String(v ?? '').replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  const esc = (v) => String(v ?? '').replaceAll('&', '&amp;').replaceAll('"', '&quot;').replaceAll('<', '&lt;').replaceAll('>', '&gt;');
 
   function formatMoneyAdaptive(value) {
     const n = Number(value);
@@ -231,10 +235,14 @@ export async function renderDashboard(env) {
   const latestTradeAge = latestTrade?.created_at ? formatRelativeAge(latestTrade.created_at) : '—';
   const parsedLatestTradeDate = latestTrade?.created_at ? parseDateSafe(latestTrade.created_at) : null;
   const latestTradeAgeMs = parsedLatestTradeDate ? (Date.now() - parsedLatestTradeDate.getTime()) : null;
+  const isLatestStale = latestTradeAgeMs != null && latestTradeAgeMs > 24 * 60 * 60 * 1000;
+  const latestBg = isLatestStale ? '#3d2f08' : '#15261f';
+  const latestBorder = isLatestStale ? '#f0b90b' : '#2ecc71';
+  const latestStaleNote = isLatestStale ? ' — هذه بيانات تنفيذات محفوظة وليست صفقة حديثة من هذه الساعة.' : '';
   const latestTradeBanner = latestTrade
-    ? `<div style="margin:10px 0 14px;padding:10px 12px;border-radius:10px;background:${latestTradeAgeMs != null && latestTradeAgeMs > 24 * 60 * 60 * 1000 ? '#3d2f08' : '#15261f'};border:1px solid ${latestTradeAgeMs != null && latestTradeAgeMs > 24 * 60 * 60 * 1000 ? '#f0b90b' : '#2ecc71'};color:#ddd;font-size:.82em">
+    ? `<div style="margin:10px 0 14px;padding:10px 12px;border-radius:10px;background:${latestBg};border:1px solid ${latestBorder};color:#ddd;font-size:.82em">
          أحدث تنفيذ محفوظ: <strong>${latestTradeTime}</strong> &nbsp;|&nbsp; ${latestTradeAge}
-         ${latestTradeAgeMs != null && latestTradeAgeMs > 24 * 60 * 60 * 1000 ? ' — هذه بيانات تنفيذات محفوظة وليست صفقة حديثة من هذه الساعة.' : ''}
+         ${latestStaleNote}
        </div>`
     : `<div style="margin:10px 0 14px;padding:10px 12px;border-radius:10px;background:#1a1e26;border:1px solid #2a2e38;color:#888;font-size:.82em">لا توجد صفقات محفوظة بعد.</div>`;
 
@@ -247,12 +255,12 @@ export async function renderDashboard(env) {
   const liveDealsHtml = liveDealCards.length
     ? `<div class="grid" style="margin-top:10px">
         ${liveDealCards.map((item) => {
-          const d = item.data || {};
-          const netPct = Number(d.netPct);
-          const safety = Number(d.safetyFactor);
-          const buy = d.buyPrice ?? '—';
-          const sell = d.sellPrice ?? '—';
-          return `<div class="card" style="border-top:3px solid ${item.color}">
+      const d = item.data || {};
+      const netPct = Number(d.netPct);
+      const safety = Number(d.safetyFactor);
+      const buy = d.buyPrice ?? '—';
+      const sell = d.sellPrice ?? '—';
+      return `<div class="card" style="border-top:3px solid ${item.color}">
             <div class="card-label">LIVE DEAL — ${item.label}</div>
             <div class="card-value" style="font-size:1.05em;color:${item.color}">${d.symbol || '—'}</div>
             <div style="margin-top:6px;font-size:.8em;line-height:1.7">
@@ -261,7 +269,7 @@ export async function renderDashboard(env) {
               <div>شراء: $${formatMoneyAdaptive(buy)} → بيع: $${formatMoneyAdaptive(sell)}</div>
             </div>
           </div>`;
-        }).join('')}
+    }).join('')}
       </div>`
     : `<div style="margin-top:10px;padding:10px 12px;border-radius:10px;background:#1a1e26;border:1px solid #2a2e38;color:#888;font-size:.82em">لا توجد فرص حية الآن.</div>`;
 
@@ -270,10 +278,10 @@ export async function renderDashboard(env) {
     const modeCell = t.mode === 'live'
       ? '<span style="color:#e74c3c;font-weight:bold">LIVE</span>'
       : '<span style="color:#f0b90b;font-weight:bold">PAPER</span>';
-    const parts    = (t.strategy || '').split(':');
+    const parts = (t.strategy || '').split(':');
     const stratType = parts[0]?.toUpperCase() || '—';
-    const stratDir  = parts[1] || '';
-    const pnlColor  = Number(t.net_profit_percent) >= 0 ? '#2ecc71' : '#e74c3c';
+    const stratDir = parts[1] || '';
+    const pnlColor = Number(t.net_profit_percent) >= 0 ? '#2ecc71' : '#e74c3c';
     return `<tr>
       <td>${modeCell}</td>
       <td><span style="color:#3498db;font-weight:bold">${stratType}</span></td>
@@ -356,10 +364,10 @@ ${autoStopBanner}
   <span>الحالة: <strong style="color:${statusColor}">${state.trading_enabled ? '▶️ مفعّل' : '⏸️ متوقف'}</strong></span>
   <span>الوضع: <strong style="color:${modeColor}">${modeLabel}</strong></span>
   <span>💎 رأس المال: <strong style="color:#2ecc71">$${equity.toFixed(2)}</strong></span>
-  <span>📈 إجمالي الأرباح: <strong style="color:${(state.total_pnl||0)>=0?'#2ecc71':'#e74c3c'}">$${(state.total_pnl||0).toFixed(2)}</strong></span>
-  <span>📊 ربح اليوم: <strong style="color:${(state.daily_pnl||0)>=0?'#2ecc71':'#e74c3c'}">$${(state.daily_pnl||0).toFixed(2)}</strong></span>
+  <span>📈 إجمالي الأرباح: <strong style="color:${(state.total_pnl || 0) >= 0 ? '#2ecc71' : '#e74c3c'}">$${(state.total_pnl || 0).toFixed(2)}</strong></span>
+  <span>📊 ربح اليوم: <strong style="color:${(state.daily_pnl || 0) >= 0 ? '#2ecc71' : '#e74c3c'}">$${(state.daily_pnl || 0).toFixed(2)}</strong></span>
   <span>⚡ رافعة: <strong style="color:#f0b90b">${currentLeverage}x</strong></span>
-  <span>🎯 صفقات اليوم: <strong>${state.daily_trades||0}</strong></span>
+  <span>🎯 صفقات اليوم: <strong>${state.daily_trades || 0}</strong></span>
   <span>📊 الإجمالي: <strong>${totalTrades}</strong></span>
 </div>
 
@@ -370,7 +378,7 @@ ${autoStopBanner}
     <div class="strat-header" style="color:#3498db">
       📊 CEX Arbitrage
       <span class="badge" style="background:#1a3a5c;color:#3498db">${cexTrades} صفقة</span>
-      <span class="badge" style="background:#1a3a5c;color:${cexPnl>=0?'#2ecc71':'#e74c3c'}">$${cexPnl.toFixed(2)}</span>
+      <span class="badge" style="background:#1a3a5c;color:${cexPnl >= 0 ? '#2ecc71' : '#e74c3c'}">$${cexPnl.toFixed(2)}</span>
     </div>
     ${oppCard(lastScan?.cex)}
   </div>
@@ -379,7 +387,7 @@ ${autoStopBanner}
     <div class="strat-header" style="color:#9b59b6">
       🌐 DEX Cross-Chain
       <span class="badge" style="background:#2d1a4a;color:#9b59b6">${dexTrades} صفقة</span>
-      <span class="badge" style="background:#2d1a4a;color:${dexPnl>=0?'#2ecc71':'#e74c3c'}">$${dexPnl.toFixed(2)}</span>
+      <span class="badge" style="background:#2d1a4a;color:${dexPnl >= 0 ? '#2ecc71' : '#e74c3c'}">$${dexPnl.toFixed(2)}</span>
     </div>
     ${oppCard(lastScan?.dex)}
   </div>
@@ -388,7 +396,7 @@ ${autoStopBanner}
     <div class="strat-header" style="color:#e67e22">
       ⚡ Perps Arbitrage
       <span class="badge" style="background:#4a2a0a;color:#e67e22">${perpsTrades} صفقة</span>
-      <span class="badge" style="background:#4a2a0a;color:${perpsPnl>=0?'#2ecc71':'#e74c3c'}">$${perpsPnl.toFixed(2)}</span>
+      <span class="badge" style="background:#4a2a0a;color:${perpsPnl >= 0 ? '#2ecc71' : '#e74c3c'}">$${perpsPnl.toFixed(2)}</span>
     </div>
     ${oppCard(lastScan?.perps)}
   </div>
@@ -397,7 +405,7 @@ ${autoStopBanner}
     <div class="strat-header" style="color:#1abc9c">
       🔺 Triangular Arb
       <span class="badge" style="background:#0a3030;color:#1abc9c">${triTrades} صفقة</span>
-      <span class="badge" style="background:#0a3030;color:${triPnl>=0?'#2ecc71':'#e74c3c'}">$${triPnl.toFixed(2)}</span>
+      <span class="badge" style="background:#0a3030;color:${triPnl >= 0 ? '#2ecc71' : '#e74c3c'}">$${triPnl.toFixed(2)}</span>
     </div>
     ${oppCard(lastScan?.triangular)}
   </div>
@@ -406,7 +414,7 @@ ${autoStopBanner}
     <div class="strat-header" style="color:#e91e8c">
       📐 Statistical Arb
       <span class="badge" style="background:#3a0a20;color:#e91e8c">${statTrades} صفقة</span>
-      <span class="badge" style="background:#3a0a20;color:${statPnl>=0?'#2ecc71':'#e74c3c'}">$${statPnl.toFixed(2)}</span>
+      <span class="badge" style="background:#3a0a20;color:${statPnl >= 0 ? '#2ecc71' : '#e74c3c'}">$${statPnl.toFixed(2)}</span>
     </div>
     ${oppCard(lastScan?.statistical)}
   </div>
@@ -528,7 +536,7 @@ ${autoStopBanner}
 
 <div class="grid">
   <div class="card"><div class="card-label">رأس المال الفعلي</div><div class="card-value" style="color:#2ecc71">$${equity.toFixed(2)}</div></div>
-  <div class="card"><div class="card-label">إجمالي الأرباح</div><div class="card-value" style="color:${(state.total_pnl||0)>=0?'#2ecc71':'#e74c3c'}">$${(state.total_pnl||0).toFixed(2)}</div></div>
+  <div class="card"><div class="card-label">إجمالي الأرباح</div><div class="card-value" style="color:${(state.total_pnl || 0) >= 0 ? '#2ecc71' : '#e74c3c'}">$${(state.total_pnl || 0).toFixed(2)}</div></div>
   <div class="card"><div class="card-label">CEX — P&amp;L</div><div class="card-value" style="color:#3498db">$${cexPnl.toFixed(2)}</div></div>
   <div class="card"><div class="card-label">DEX — P&amp;L</div><div class="card-value" style="color:#9b59b6">$${dexPnl.toFixed(2)}</div></div>
   <div id="summary-card-perps" class="card" style="${perpsEnabled ? '' : 'display:none;'}"><div class="card-label">Perps — P&amp;L</div><div class="card-value" style="color:#e67e22">$${perpsPnl.toFixed(2)}</div></div>
@@ -541,8 +549,8 @@ ${autoStopBanner}
 <div class="grid">
   <div class="card">
     <div class="card-label">نسبة الربح (Win Rate)</div>
-    <div class="card-value" style="color:${parseFloat(winRatePct)>=50?'#2ecc71':'#e74c3c'}">${winRatePct}%</div>
-    <div style="font-size:.78em;color:#888;margin-top:4px">${metrics.win_trades||0} ربح / ${metrics.loss_trades||0} خسارة</div>
+    <div class="card-value" style="color:${Number.parseFloat(winRatePct) >= 50 ? '#2ecc71' : '#e74c3c'}">${winRatePct}%</div>
+    <div style="font-size:.78em;color:#888;margin-top:4px">${metrics.win_trades || 0} ربح / ${metrics.loss_trades || 0} خسارة</div>
   </div>
   <div class="card">
     <div class="card-label">أقصى تراجع (Max Drawdown)</div>
@@ -558,19 +566,19 @@ ${autoStopBanner}
   </div>
   <div class="card">
     <div class="card-label">Sharpe Ratio</div>
-    <div class="card-value" style="color:${parseFloat(sharpe)>=1?'#2ecc71':parseFloat(sharpe)>=0?'#f0b90b':'#e74c3c'}">${sharpe}</div>
+    <div class="card-value" style="color:${Number.parseFloat(sharpe) >= 1 ? '#2ecc71' : Number.parseFloat(sharpe) >= 0 ? '#f0b90b' : '#e74c3c'}">${sharpe}</div>
   </div>
   <div class="card">
     <div class="card-label">Sortino Ratio</div>
-    <div class="card-value" style="color:${parseFloat(sortino)>=1?'#2ecc71':parseFloat(sortino)>=0?'#f0b90b':'#e74c3c'}">${sortino}</div>
+    <div class="card-value" style="color:${Number.parseFloat(sortino) >= 1 ? '#2ecc71' : Number.parseFloat(sortino) >= 0 ? '#f0b90b' : '#e74c3c'}">${sortino}</div>
   </div>
   <div class="card">
     <div class="card-label">Profit Factor</div>
-    <div class="card-value" style="color:${profitFactor==='∞'||parseFloat(profitFactor)>=2?'#2ecc71':parseFloat(profitFactor)>=1?'#f0b90b':'#e74c3c'}">${profitFactor}</div>
+    <div class="card-value" style="color:${profitFactor === '∞' || Number.parseFloat(profitFactor) >= 2 ? '#2ecc71' : Number.parseFloat(profitFactor) >= 1 ? '#f0b90b' : '#e74c3c'}">${profitFactor}</div>
   </div>
   <div class="card">
     <div class="card-label">Expectancy ($)</div>
-    <div class="card-value" style="color:${parseFloat(expectancy)>=0?'#2ecc71':'#e74c3c'}">$${expectancy}</div>
+    <div class="card-value" style="color:${Number.parseFloat(expectancy) >= 0 ? '#2ecc71' : '#e74c3c'}">$${expectancy}</div>
   </div>
   <div class="card">
     <div class="card-label">تصدير البيانات</div>
@@ -2211,44 +2219,61 @@ ${liveDealsHtml}
 export async function renderChecklist(env) {
   const state = await env.BOT_STATE.get('trading_state', 'json').catch(() => null) || {};
   const checks = [
-    { name: 'MEXC API Key',            ok: !!env.MEXC_API_KEY,          critical: true,  note: 'مطلوب للتداول الحقيقي + MEXC Futures Perps' },
-    { name: 'MEXC API Secret',          ok: !!env.MEXC_API_SECRET,       critical: true,  note: 'مطلوب للتداول الحقيقي + MEXC Futures Perps' },
-    { name: 'Binance API Key',          ok: !!env.BINANCE_API_KEY,       critical: false, note: 'مطلوب لتنفيذ Binance Spot' },
-    { name: 'Binance API Secret',       ok: !!env.BINANCE_API_SECRET,    critical: false, note: 'مطلوب لتنفيذ Binance Spot' },
-    { name: 'KuCoin API Key',           ok: !!env.KUCOIN_API_KEY,        critical: false, note: 'مطلوب لتنفيذ KuCoin' },
+    { name: 'MEXC API Key', ok: !!env.MEXC_API_KEY, critical: true, note: 'مطلوب للتداول الحقيقي + MEXC Futures Perps' },
+    { name: 'MEXC API Secret', ok: !!env.MEXC_API_SECRET, critical: true, note: 'مطلوب للتداول الحقيقي + MEXC Futures Perps' },
+    { name: 'Binance API Key', ok: !!env.BINANCE_API_KEY, critical: false, note: 'مطلوب لتنفيذ Binance Spot' },
+    { name: 'Binance API Secret', ok: !!env.BINANCE_API_SECRET, critical: false, note: 'مطلوب لتنفيذ Binance Spot' },
+    { name: 'KuCoin API Key', ok: !!env.KUCOIN_API_KEY, critical: false, note: 'مطلوب لتنفيذ KuCoin' },
     // { name: 'OKX API Key (data-only)',  ok: !!env.OKX_API_KEY,           critical: false, note: 'OKX = data-only (BaFin) — لا تنفيذ حي' },
-    { name: 'Bitget API Key',           ok: !!env.BITGET_API_KEY,        critical: false, note: 'مطلوب لتنفيذ Bitget' },
-    { name: 'Bitget Secret + Passphrase',ok: !!(env.BITGET_SECRET_KEY && env.BITGET_API_PASSPHRASE), critical: false, note: 'مطلوب لتنفيذ Bitget' },
-    { name: 'Bitmart API Key',          ok: !!env.BITMART_API_KEY,       critical: false, note: 'مطلوب لتنفيذ Bitmart' },
-    { name: 'HTX (Huobi) API Key',      ok: !!env.HTX_API_KEY,           critical: false, note: 'مطلوب لتنفيذ HTX' },
-    { name: 'MetaMask / Web3 Wallet',    ok: true,                        critical: false, note: 'جاهز على مستوى الواجهة — التنفيذ اللامركزي ما زال يحتاج مسار on-chain مستقل' },
-    { name: 'ADMIN_TOKEN',              ok: !!env.ADMIN_TOKEN,            critical: true,  note: 'لحماية نقاط التحكم' },
-    { name: 'Telegram Bot Token',       ok: !!env.TELEGRAM_BOT_TOKEN,    critical: false, note: 'للإشعارات' },
-    { name: 'Telegram Chat ID',         ok: !!env.TELEGRAM_CHAT_ID,      critical: false, note: 'معرف المستخدم' },
-    { name: 'Alchemy API Key',          ok: !!env.ALCHEMY_API_KEY,       critical: false, note: 'اختياري: يحسّن دقة مسح DEX (يوجد fallback عام بدون مفتاح)' },
-    { name: 'Perps — MEXC Futures',     ok: !!(env.MEXC_API_KEY && env.MEXC_API_SECRET), critical: true,  note: 'تنفيذ MEXC Futures للعقود الدائمة' },
-    { name: 'Perps — Binance USDM Feed',ok: true,                        critical: false, note: 'بيانات أسعار Binance Futures (مجاني، لا مفتاح مطلوب)' },
+    { name: 'Bitget API Key', ok: !!env.BITGET_API_KEY, critical: false, note: 'مطلوب لتنفيذ Bitget' },
+    { name: 'Bitget Secret + Passphrase', ok: !!(env.BITGET_SECRET_KEY && env.BITGET_API_PASSPHRASE), critical: false, note: 'مطلوب لتنفيذ Bitget' },
+    { name: 'Bitmart API Key', ok: !!env.BITMART_API_KEY, critical: false, note: 'مطلوب لتنفيذ Bitmart' },
+    { name: 'HTX (Huobi) API Key', ok: !!env.HTX_API_KEY, critical: false, note: 'مطلوب لتنفيذ HTX' },
+    { name: 'MetaMask / Web3 Wallet', ok: true, critical: false, note: 'جاهز على مستوى الواجهة — التنفيذ اللامركزي ما زال يحتاج مسار on-chain مستقل' },
+    { name: 'ADMIN_TOKEN', ok: !!env.ADMIN_TOKEN, critical: true, note: 'لحماية نقاط التحكم' },
+    { name: 'Telegram Bot Token', ok: !!env.TELEGRAM_BOT_TOKEN, critical: false, note: 'للإشعارات' },
+    { name: 'Telegram Chat ID', ok: !!env.TELEGRAM_CHAT_ID, critical: false, note: 'معرف المستخدم' },
+    { name: 'Alchemy API Key', ok: !!env.ALCHEMY_API_KEY, critical: false, note: 'اختياري: يحسّن دقة مسح DEX (يوجد fallback عام بدون مفتاح)' },
+    { name: 'Perps — MEXC Futures', ok: !!(env.MEXC_API_KEY && env.MEXC_API_SECRET), critical: true, note: 'تنفيذ MEXC Futures للعقود الدائمة' },
+    { name: 'Perps — Binance USDM Feed', ok: true, critical: false, note: 'بيانات أسعار Binance Futures (مجاني، لا مفتاح مطلوب)' },
     // { name: 'Perps — OKX Swap Feed',    ok: true,                        critical: false, note: 'بيانات أسعار OKX Perpetuals (مجاني، لا مفتاح مطلوب)' },
-    { name: 'وضع Live مفعّل',           ok: state.paper_trading === false, critical: true, note: 'التداول الحقيقي' },
-    { name: 'حد الخسارة اليومية',       ok: !!(state.max_daily_loss_usd), critical: true, note: `الحالي: $${state.max_daily_loss_usd ?? 25}` },
-    { name: 'حد الحجم اليومي',          ok: !!(state.daily_limit_usd),    critical: true, note: `الحالي: $${state.daily_limit_usd ?? 500}` },
-    { name: 'التداول مفعّل',            ok: state.trading_enabled !== false, critical: false, note: 'يجب التشغيل قبل المسح' },
-    { name: 'لا إيقاف تلقائي نشط',     ok: !state.auto_stopped,         critical: false, note: state.auto_stop_reason || '' }
+    { name: 'وضع Live مفعّل', ok: state.paper_trading === false, critical: true, note: 'التداول الحقيقي' },
+    { name: 'حد الخسارة اليومية', ok: !!(state.max_daily_loss_usd), critical: true, note: `الحالي: $${state.max_daily_loss_usd ?? 25}` },
+    { name: 'حد الحجم اليومي', ok: !!(state.daily_limit_usd), critical: true, note: `الحالي: $${state.daily_limit_usd ?? 500}` },
+    { name: 'التداول مفعّل', ok: state.trading_enabled !== false, critical: false, note: 'يجب التشغيل قبل المسح' },
+    { name: 'لا إيقاف تلقائي نشط', ok: !state.auto_stopped, critical: false, note: state.auto_stop_reason || '' }
   ];
   const criticalOk = checks.filter(c => c.critical).every(c => c.ok);
   const optionalOk = checks.filter(c => !c.critical).every(c => c.ok);
-  const color      = criticalOk ? (optionalOk ? '#2ecc71' : '#f0b90b') : '#e74c3c';
-  const label      = criticalOk
-    ? (optionalOk ? '✅ جاهز للتداول الحقيقي' : '⚠️ جاهز للتداول الحقيقي — بعض العناصر الاختيارية غير مكتملة')
-    : '🔴 غير جاهز — يُرجى إكمال المتطلبات الحرجة';
-  const rows = checks.map(c =>
-    `<tr>
-      <td>${c.ok ? '✅' : c.critical ? '🔴' : '⚠️'}</td>
+  let color, label;
+  if (criticalOk) {
+    if (optionalOk) {
+      color = '#2ecc71';
+      label = '✅ جاهز للتداول الحقيقي';
+    } else {
+      color = '#f0b90b';
+      label = '⚠️ جاهز للتداول الحقيقي — بعض العناصر الاختيارية غير مكتملة';
+    }
+  } else {
+    color = '#e74c3c';
+    label = '🔴 غير جاهز — يُرجى إكمال المتطلبات الحرجة';
+  }
+  const rows = checks.map(c => {
+    let statusIcon;
+    if (c.ok) {
+      statusIcon = '✅';
+    } else if (c.critical) {
+      statusIcon = '🔴';
+    } else {
+      statusIcon = '⚠️';
+    }
+    return `<tr>
+      <td>${statusIcon}</td>
       <td>${c.name}</td>
       <td>${c.note}</td>
       <td>${c.critical ? '<span style="color:#e74c3c;font-weight:bold">مطلوب</span>' : '<span style="color:#888">اختياري</span>'}</td>
-    </tr>`
-  ).join('');
+    </tr>`;
+  }).join('');
 
   const html = `<!DOCTYPE html>
 <html dir="rtl" lang="ar">

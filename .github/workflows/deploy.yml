@@ -72,6 +72,9 @@ jobs:
 
       - name: Upload secrets to Cloudflare Worker
         timeout-minutes: 5
+        # NOTE: Secrets below marked as optional (GATEIO_*, ZEROX_*, ALCHEMY_*, HFT_ENGINE_*, TEMPORAL_*, EXTERNAL_PROXY_*)
+        # will be gracefully skipped if not configured in GitHub repository settings.
+        # The Python filter `if os.environ.get(k)` ensures missing secrets are not uploaded.
         run: |
           python3 - <<'PYEOF'
           import json, os

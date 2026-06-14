@@ -688,7 +688,7 @@ app.use('*', async (c, next) => {
     if (c.env.ADMIN_TOKEN && !isAuthorized(c.env, c)) return c.redirect('/login', 302);
     return c.redirect('/control-panel', 302);
   }
-  try { await ensureSchema(c.env); } catch (_) { console.warn('[ensureSchema] best-effort schema init failed'); }
+  try { await ensureSchema(c.env); } catch (_) { /* schema init failed — continuing */ }
   return next();
 });
 
@@ -751,7 +751,7 @@ app.get('/health', async (c) => {
   const equity = state
     ? (state.initial_capital || 1000) + (state.total_pnl || 0)
     : null;
-  
+
   // D1 health check (non-blocking, best-effort)
   let dbHealthy = false;
   try {
@@ -759,18 +759,18 @@ app.get('/health', async (c) => {
       const { results } = await c.env.DB.prepare('SELECT 1 AS ok').all();
       dbHealthy = results?.[0]?.ok === 1;
     }
-  } catch (_) { console.warn('[health] D1 not available'); }
+  } catch (_) { /* D1 not available for health check */ }
 
   return c.json({
-    status:          'ok',
+    status: 'ok',
     trading_enabled: state?.trading_enabled ?? false,
-    paper_trading:   state?.paper_trading   ?? true,
-    auto_stopped:    state?.auto_stopped    ?? false,
-    equity_usd:      equity === null ? null : Number.parseFloat(equity.toFixed(2)),
-    daily_pnl_usd:   state ? Number.parseFloat((state.daily_pnl || 0).toFixed(2)) : null,
-    daily_trades:    state?.daily_trades    ?? 0,
-    db_healthy:      dbHealthy,
-    timestamp:       Date.now(),
+    paper_trading: state?.paper_trading ?? true,
+    auto_stopped: state?.auto_stopped ?? false,
+    equity_usd: equity === null ? null : Number.parseFloat(equity.toFixed(2)),
+    daily_pnl_usd: state ? Number.parseFloat((state.daily_pnl || 0).toFixed(2)) : null,
+    daily_trades: state?.daily_trades ?? 0,
+    db_healthy: dbHealthy,
+    timestamp: Date.now(),
   });
 });
 
@@ -840,9 +840,9 @@ async function makeHmac(secret, msg) {
 app.get('/debug-futures', async (c) => {
   if (!isAuthorized(c.env, c)) return authDenied(c.env, c);
   const results = {};
-  const apiKey    = c.env.MEXC_API_KEY    || '(missing)';
+  const apiKey = c.env.MEXC_API_KEY || '(missing)';
   const apiSecret = c.env.MEXC_API_SECRET || '(missing)';
-  results.keyConfigured   = apiKey !== '(missing)';
+  results.keyConfigured = apiKey !== '(missing)';
   results.secretConfigured = apiSecret !== '(missing)';
 
   // Test 1: contract.mexc.com with primary key.
@@ -992,7 +992,7 @@ app.post('/config', async (c) => {
   if (limited) return limited;
   if (!isAuthorized(c.env, c)) return authDenied(c.env, c);
   let body;
-  try { body = await c.req.json(); } catch (_) { console.warn('[config] invalid JSON body'); return c.text('Invalid JSON', 400); }
+  try { body = await c.req.json(); } catch { return c.text('Invalid JSON', 400); }
   const state = await getState(c.env);
   const forceManualRiskLock = parseEnvBool(c.env.MANUAL_RISK_LOCK_FORCE);
   const forceUnlockRequested = body.force_unlock_manual_risk_lock === true;
@@ -1013,7 +1013,7 @@ app.post('/config', async (c) => {
       }, 403);
     }
     forceUnlockManualRiskLock = true;
-    await c.env.BOT_STATE.put('manual_risk_lock_override', '1').catch(() => {});
+    await c.env.BOT_STATE.put('manual_risk_lock_override', '1').catch(() => { });
   }
 
   const isFiniteNum = (v) => typeof v === 'number' && Number.isFinite(v);
@@ -1060,18 +1060,18 @@ app.post('/config', async (c) => {
   } : null;
   const forceSpotOnlyLock = ['1', 'true', 'on', 'yes'].includes(String(c.env.SPOT_ONLY_LOCK_FORCE || '').toLowerCase());
   const num = (v) => (typeof v === 'number' && v > 0 ? v : undefined);
-  if (num(body.max_daily_loss_usd))           state.max_daily_loss_usd           = body.max_daily_loss_usd;
-  if (num(body.daily_limit_usd))              state.daily_limit_usd              = body.daily_limit_usd;
-  if (num(body.max_per_trade_loss_pct))       state.max_per_trade_loss_pct       = body.max_per_trade_loss_pct;
-  if (num(body.min_seconds_between_trades))   state.min_seconds_between_trades   = body.min_seconds_between_trades;
-  if (num(body.initial_capital))              state.initial_capital              = body.initial_capital;
-  if (num(body.max_spread_pct))               state.max_spread_pct               = body.max_spread_pct;
-  if (num(body.scalp_min_net_pct))            state.scalp_min_net_pct            = Math.max(0.005, Math.min(2.5, body.scalp_min_net_pct));
-  if (num(body.scalp_max_hold_seconds))       state.scalp_max_hold_seconds       = Math.max(2, Math.min(120, Math.floor(body.scalp_max_hold_seconds)));
-  if (num(body.scalp_parallel_legs))          state.scalp_parallel_legs          = Math.max(1, Math.min(3, Math.floor(body.scalp_parallel_legs)));
-  if (num(body.scalp_cooldown_ms))            state.scalp_cooldown_ms            = Math.max(200, Math.min(15000, Math.floor(body.scalp_cooldown_ms)));
-  if (num(body.win_rate))                     state.win_rate                     = body.win_rate;
-  if (num(body.risk_reward_ratio))            state.risk_reward_ratio            = body.risk_reward_ratio;
+  if (num(body.max_daily_loss_usd)) state.max_daily_loss_usd = body.max_daily_loss_usd;
+  if (num(body.daily_limit_usd)) state.daily_limit_usd = body.daily_limit_usd;
+  if (num(body.max_per_trade_loss_pct)) state.max_per_trade_loss_pct = body.max_per_trade_loss_pct;
+  if (num(body.min_seconds_between_trades)) state.min_seconds_between_trades = body.min_seconds_between_trades;
+  if (num(body.initial_capital)) state.initial_capital = body.initial_capital;
+  if (num(body.max_spread_pct)) state.max_spread_pct = body.max_spread_pct;
+  if (num(body.scalp_min_net_pct)) state.scalp_min_net_pct = Math.max(0.005, Math.min(2.5, body.scalp_min_net_pct));
+  if (num(body.scalp_max_hold_seconds)) state.scalp_max_hold_seconds = Math.max(2, Math.min(120, Math.floor(body.scalp_max_hold_seconds)));
+  if (num(body.scalp_parallel_legs)) state.scalp_parallel_legs = Math.max(1, Math.min(3, Math.floor(body.scalp_parallel_legs)));
+  if (num(body.scalp_cooldown_ms)) state.scalp_cooldown_ms = Math.max(200, Math.min(15000, Math.floor(body.scalp_cooldown_ms)));
+  if (num(body.win_rate)) state.win_rate = body.win_rate;
+  if (num(body.risk_reward_ratio)) state.risk_reward_ratio = body.risk_reward_ratio;
   if (Number.isFinite(body.max_dynamic_symbols)) {
     state.max_dynamic_symbols = Math.max(15, Math.min(2000, Math.floor(body.max_dynamic_symbols)));
   }
@@ -1105,8 +1105,8 @@ app.post('/config', async (c) => {
     )].slice(0, 2000);
     state.supported_symbols = normalizedSymbols;
   }
-  if (num(body.position_size_min_usd))        state.position_size_min_usd        = Math.max(1, Math.min(500, body.position_size_min_usd));
-  if (num(body.position_size_max_usd))        state.position_size_max_usd        = Math.max(1, Math.min(500, body.position_size_max_usd));
+  if (num(body.position_size_min_usd)) state.position_size_min_usd = Math.max(1, Math.min(500, body.position_size_min_usd));
+  if (num(body.position_size_max_usd)) state.position_size_max_usd = Math.max(1, Math.min(500, body.position_size_max_usd));
   if (state.position_size_min_usd > state.position_size_max_usd) {
     const tmp = state.position_size_min_usd;
     state.position_size_min_usd = state.position_size_max_usd;
@@ -1145,9 +1145,9 @@ app.post('/config', async (c) => {
     }
     state.manual_risk_lock_override = override;
     if (forceUnlockManualRiskLock && body.manual_risk_lock === false) {
-      await c.env.BOT_STATE.put('manual_risk_lock_override', '1').catch(() => {});
+      await c.env.BOT_STATE.put('manual_risk_lock_override', '1').catch(() => { });
     } else if (body.manual_risk_lock === true) {
-      await c.env.BOT_STATE.put('manual_risk_lock_override', '0').catch(() => {});
+      await c.env.BOT_STATE.put('manual_risk_lock_override', '0').catch(() => { });
     }
   }
   if (typeof body.minute_report_enabled === 'boolean') {
@@ -1292,7 +1292,7 @@ app.post('/strategy/spot-lock/:mode', async (c) => {
     const cbState = await c.env.BOT_STATE.get('nexus_circuit_breaker', 'json').catch(() => null);
     if (cbState && typeof cbState === 'object') {
       delete cbState.mexc_perp;
-      await c.env.BOT_STATE.put('nexus_circuit_breaker', JSON.stringify(cbState)).catch(() => {});
+      await c.env.BOT_STATE.put('nexus_circuit_breaker', JSON.stringify(cbState)).catch(() => { });
     }
   }
 
@@ -1764,10 +1764,10 @@ app.get('/api/pnl', async (c) => {
 // ── API: Performance report ───────────────────────────────────────────────────
 app.get('/api/report', async (c) => {
   if (!isAuthorized(c.env, c)) return authDenied(c.env, c, true);
-  const from   = c.req.query('from');
-  const to     = c.req.query('to');
+  const from = c.req.query('from');
+  const to = c.req.query('to');
   const fromMs = from ? new Date(from).getTime() : 0;
-  const toMs   = to   ? new Date(to).getTime()   : Date.now();
+  const toMs = to ? new Date(to).getTime() : Date.now();
   if (Number.isNaN(fromMs) || Number.isNaN(toMs)) return c.json({ error: 'Invalid date parameters' }, 400);
   const [state, metrics] = await Promise.all([
     getState(c.env),
@@ -1856,7 +1856,7 @@ app.get('/api/balances', async (c) => {
 
   if (!forceFresh && c.env.BOT_STATE) {
     const cached = await c.env.BOT_STATE.get(CACHE_KEY, 'json').catch(() => null);
-    if (cached && cached._ts && (Date.now() - cached._ts) < CACHE_TTL) {
+    if (cached?._ts && (Date.now() - cached._ts) < CACHE_TTL) {
       return c.json({ success: true, data: cached.data, cached: true, age_ms: Date.now() - cached._ts });
     }
   }
@@ -1867,7 +1867,7 @@ app.get('/api/balances', async (c) => {
   if (c.env.BOT_STATE) {
     const payload = JSON.stringify({ data, _ts: Date.now() });
     c.executionCtx.waitUntil(
-      c.env.BOT_STATE.put(CACHE_KEY, payload, { expirationTtl: 120 }).catch(() => {})
+      c.env.BOT_STATE.put(CACHE_KEY, payload, { expirationTtl: 120 }).catch(() => { })
     );
   }
 
@@ -2061,6 +2061,15 @@ app.get('/api/perps', async (c) => {
 
   const mexcReady = hasExchangeCredentials(c.env, 'mexc');
 
+  let executionNote;
+  if (perpsEnabled && mexcReady) {
+    executionNote = 'MEXC Futures active — perps orders placed via contract.mexc.com';
+  } else if (perpsEnabled) {
+    executionNote = 'MEXC credentials missing — perps will run as spot hedge on best available exchange';
+  } else {
+    executionNote = 'Perps strategy disabled — execution is spot-only';
+  }
+
   return c.json({
     success: true,
     perpsEnabled,
@@ -2068,11 +2077,7 @@ app.get('/api/perps', async (c) => {
     lastPerpsOpp: lastScan?.perps || null,
     lastFundingOpp: lastScan?.funding || null,
     exchangeStatus,
-    executionNote: !perpsEnabled
-      ? 'Perps strategy disabled — execution is spot-only'
-      : mexcReady
-      ? 'MEXC Futures active — perps orders placed via contract.mexc.com'
-      : 'MEXC credentials missing — perps will run as spot hedge on best available exchange'
+    executionNote,
   });
 });
 
@@ -2118,9 +2123,18 @@ app.get('/api/execution-health', async (c) => {
     }
   }
 
-  const executionMode = !perpsEnabled
-    ? (spotReady ? 'spot-only' : 'blocked')
-    : (futuresReady ? 'futures+spot' : (spotReady ? 'spot-fallback' : 'blocked'));
+  let executionMode;
+  if (perpsEnabled) {
+    if (futuresReady) {
+      executionMode = 'futures+spot';
+    } else if (spotReady) {
+      executionMode = 'spot-fallback';
+    } else {
+      executionMode = 'blocked';
+    }
+  } else {
+    executionMode = spotReady ? 'spot-only' : 'blocked';
+  }
   const paperMode = state?.paper_trading !== false;
   const blockedReasons = [];
   if (!mexcConfigured) blockedReasons.push('MEXC credentials missing');
@@ -2156,7 +2170,7 @@ app.get('/api/execution-health', async (c) => {
 app.get('/api/exchange/:exchange', async (c) => {
   if (!isAuthorized(c.env, c)) return authDenied(c.env, c, true);
   const exchange = c.req.param('exchange').toLowerCase();
-  const isActive  = ACTIVE_EXECUTION_EXCHANGES.includes(exchange);
+  const isActive = ACTIVE_EXECUTION_EXCHANGES.includes(exchange);
   const isDataOnly = DATA_ONLY_EXCHANGES.has(exchange);
   if (!isActive && !isDataOnly) {
     return c.json({ error: `Unknown exchange: ${exchange}` }, 404);
@@ -2189,7 +2203,7 @@ app.get('/api/exchange/:exchange', async (c) => {
       let usdt_equity = null;
       try {
         usdt_equity = await getBitgetAccountEquityUSDT(c.env);
-      } catch (_) {}
+      } catch (_) { /* best-effort equity lookup */ }
       return c.json({ exchange, configured: true, balance, ...(usdt_equity ? { usdt_equity } : {}) });
     }
     return c.json({ exchange, configured: true, balance });
@@ -2243,7 +2257,7 @@ app.post('/api/exchange/:exchange/order', async (c) => {
   }
 
   let body;
-  try { body = await c.req.json(); } catch (_) { return c.json({ error: 'Invalid JSON body' }, 400); }
+  try { body = await c.req.json(); } catch (_) { /* invalid JSON */ return c.json({ error: 'Invalid JSON body' }, 400); }
 
   const { symbol, side, quantity, sizeUsd } = body || {};
   if (symbol == null || side == null || quantity == null || sizeUsd == null) {
@@ -2252,8 +2266,8 @@ app.post('/api/exchange/:exchange/order', async (c) => {
   if (!['BUY', 'SELL'].includes(side?.toUpperCase())) {
     return c.json({ error: 'side must be BUY or SELL' }, 400);
   }
-  const parsedSizeUsd = parseFloat(sizeUsd);
-  if (isNaN(parsedSizeUsd) || parsedSizeUsd <= 0) {
+  const parsedSizeUsd = Number.parseFloat(sizeUsd);
+  if (Number.isNaN(parsedSizeUsd) || parsedSizeUsd <= 0) {
     return c.json({ error: 'sizeUsd must be a positive number' }, 400);
   }
 
@@ -2408,7 +2422,7 @@ app.post('/api/broker/:broker/order', async (c) => {
   }
 
   let body;
-  try { body = await c.req.json(); } catch (_) { return c.json({ error: 'Invalid JSON body' }, 400); }
+  try { body = await c.req.json(); } catch (_) { /* invalid JSON */ return c.json({ error: 'Invalid JSON body' }, 400); }
 
   const { symbol, side, quantity, sizeUsd } = body || {};
   if (!symbol || !side) {
@@ -2457,7 +2471,7 @@ app.get('/api/dex', async (c) => {
   if (alchemyConfigured) {
     try {
       currentOpportunity = await scanDEX(c.env);
-    } catch (_) {}
+    } catch (_) { }
   }
 
   return c.json({
@@ -2645,8 +2659,8 @@ app.get('/api/symbols/catalog', async (c) => {
 
   const includeMetaMask = (c.req.query('includeMetaMask') || 'true').toLowerCase() !== 'false';
   const quoteAssets = (c.req.query('quotes') || '').trim();
-  const maxMetaMask = Math.max(100, Math.min(20000, parseInt(c.req.query('maxMetaMask') || '5000', 10)));
-  const maxScan = Math.max(15, Math.min(500, parseInt(c.req.query('maxScan') || '150', 10)));
+  const maxMetaMask = Math.max(100, Math.min(20000, Number.parseInt(c.req.query('maxMetaMask') || '5000', 10)));
+  const maxScan = Math.max(15, Math.min(500, Number.parseInt(c.req.query('maxScan') || '150', 10)));
 
   const state = await getState(c.env);
   const scanQuoteAssets = quoteAssets || state.scan_quote_assets || ['USDT'];
@@ -2692,13 +2706,13 @@ app.post('/reset-daily', async (c) => {
   if (limited) return limited;
   if (!isAuthorized(c.env, c)) return authDenied(c.env, c);
   const state = await getState(c.env);
-  state.daily_pnl    = 0;
+  state.daily_pnl = 0;
   state.daily_trades = 0;
   state.daily_volume_usd = 0;
   state.last_daily_reset = Date.now();
   if (state.auto_stopped) {
-    state.auto_stopped      = false;
-    state.auto_stop_reason  = null;
+    state.auto_stopped = false;
+    state.auto_stop_reason = null;
   }
   await saveState(c.env, state);
   await logAdminEvent(c.env, 'reset-daily', c.req.raw);
@@ -2709,11 +2723,11 @@ app.post('/reset-daily', async (c) => {
 // ── API: CSV export — also archives to R2 ────────────────────────────────────
 app.get('/api/export', async (c) => {
   if (!isAuthorized(c.env, c)) return authDenied(c.env, c, true);
-  const from   = c.req.query('from');
-  const to     = c.req.query('to');
+  const from = c.req.query('from');
+  const to = c.req.query('to');
   const fromMs = from ? new Date(from).getTime() : 0;
-  const toMs   = to   ? new Date(to).getTime()   : Date.now();
-  if (isNaN(fromMs) || isNaN(toMs)) return c.text('Invalid date parameters', 400);
+  const toMs = to ? new Date(to).getTime() : Date.now();
+  if (Number.isNaN(fromMs) || Number.isNaN(toMs)) return c.text('Invalid date parameters', 400);
   const trades = await exportTrades(c.env, fromMs, toMs);
   const headers = ['id', 'strategy', 'size_usd', 'net_profit_percent', 'mode', 'created_at'];
   const rows = trades.map(t =>
@@ -2721,7 +2735,7 @@ app.get('/api/export', async (c) => {
       const v = t[h] ?? '';
       // Quote fields that contain commas or quotes
       const s = String(v);
-      return s.includes(',') || s.includes('"') ? `"${s.replace(/"/g, '""')}"` : s;
+      return s.includes(',') || s.includes('"') ? `"${s.replaceAll('"', '""')}"` : s;
     }).join(',')
   );
   const csv = [headers.join(','), ...rows].join('\r\n');
@@ -2830,10 +2844,10 @@ app.post('/api/integrations/executive/execute-all', async (c) => {
 app.get('/api/version', (c) => {
   const v = c.env.METADATA;
   return c.json({
-    id:        v?.id        ?? null,
-    tag:       v?.tag       ?? null,
+    id: v?.id ?? null,
+    tag: v?.tag ?? null,
     timestamp: v?.timestamp ?? null,
-    worker:    'ultimatearbitragehft',
+    worker: 'ultimatearbitragehft',
   });
 });
 
@@ -2898,11 +2912,13 @@ app.post('/telegram/webhook', async (c) => {
       const credStatus = configuredExchanges.length > 0
         ? `✅ ${configuredExchanges.length} منصة مُهيأة: ${configuredExchanges.join(', ')}`
         : `⚠️ لا توجد مفاتيح API — أضف الأسرار عبر: wrangler secret put MEXC_API_KEY`;
+      const autoStopLine = state.auto_stopped ? `🛑 إيقاف تلقائي: ${state.auto_stop_reason}\n` : '';
+      const modeLabel = state.paper_trading === false ? '🔴 Live' : '📄 Paper';
       await send(
         `⚙️ *حالة Nexus Hub*\n\n` +
-        `الوضع: ${state.paper_trading !== false ? '📄 Paper' : '🔴 Live'}\n` +
+        `الوضع: ${modeLabel}\n` +
         `التداول: ${state.trading_enabled ? '✅ مفعّل' : '❌ متوقف'}\n` +
-        `${state.auto_stopped ? `🛑 إيقاف تلقائي: ${state.auto_stop_reason}\n` : ''}` +
+        `${autoStopLine}` +
         `🔑 المنصات: ${credStatus}\n` +
         `💰 رأس المال: $${equity.toFixed(2)}\n` +
         `📈 إجمالي الأرباح: $${(state.total_pnl || 0).toFixed(2)}\n` +
@@ -2955,14 +2971,15 @@ app.post('/telegram/webhook', async (c) => {
         `💰 الإجمالي: $${(state.total_pnl || 0).toFixed(2)}`
       );
     } else if (cmd === '/mode') {
+      const paperLabel = state.paper_trading === false ? '🔴 Live Trading (حقيقي)' : '📄 Paper Trading (تجريبي)';
       await send(
         `🎛️ *وضع التداول الحالي:*\n` +
-        `${state.paper_trading !== false ? '📄 Paper Trading (تجريبي)' : '🔴 Live Trading (حقيقي)'}\n\n` +
+        `${paperLabel}\n\n` +
         `لتغيير الوضع استخدم لوحة التحكم على الإنترنت`
       );
     }
   } catch (err) {
-    await send(`⚠️ خطأ: ${err.message}`).catch(() => {});
+    await send(`⚠️ خطأ: ${err.message}`).catch(() => { });
   }
   return c.json({ ok: true });
 });
@@ -3004,7 +3021,7 @@ app.post('/api/backtest', async (c) => {
   try {
     const config = await c.req.json().catch(() => ({}));
     await logAdminEvent(c.env, 'backtest', c.req.raw);
-    const results = await runBacktest(c.env, config);
+    const results = runBacktest(c.env, config);
     return c.json(results);
   } catch (e) {
     console.error('[backtest] error:', e.message);
@@ -3033,7 +3050,7 @@ app.post('/api/strategies/self-evaluate', async (c) => {
     const days = Math.max(1, Math.min(90, Number(body.days || 7)));
     const toMs = Date.now();
     const fromMs = toMs - days * 24 * 60 * 60 * 1000;
-    const backtest = await runBacktest(c.env, {
+    const backtest = runBacktest(c.env, {
       from_ms: fromMs,
       to_ms: toMs,
       run_monte_carlo: false,
@@ -3088,15 +3105,15 @@ app.post('/api/memory/reset', async (c) => {
       strategyOutcomes: {},
       venueOutcomes: {},
       strategyWeights: {
-        cex: 1.0,
-        dex: 1.0,
-        perps: 1.0,
-        triangular: 1.0,
-        statistical: 1.0,
-        funding: 1.0,
-        scalp_forward: 1.0,
-        scalp_reverse: 1.0,
-        scalp_parallel: 1.0,
+        cex: 1,
+        dex: 1,
+        perps: 1,
+        triangular: 1,
+        statistical: 1,
+        funding: 1,
+        scalp_forward: 1,
+        scalp_reverse: 1,
+        scalp_parallel: 1,
       },
       autoTuning: { appliedAt: null, adjustments: [] },
       recommendations: [],
@@ -3213,7 +3230,7 @@ async function runScheduledCycle(env) {
         CORE_STRATEGY_GUARD_STATS_KEY,
         JSON.stringify(guardStats),
         { expirationTtl: 2 * 24 * 60 * 60 }
-      ).catch(() => {});
+      ).catch(() => { });
       await env.BOT_STATE.put(
         CORE_STRATEGY_GUARD_LAST_KEY,
         JSON.stringify({
@@ -3223,7 +3240,7 @@ async function runScheduledCycle(env) {
           strategy_flags: state.strategy_flags,
         }),
         { expirationTtl: 2 * 24 * 60 * 60 }
-      ).catch(() => {});
+      ).catch(() => { });
       await logBotEvent(env, 'core_strategy_guard_enforced', {
         at: now,
         countThisHour: guardStats.count,
@@ -3362,7 +3379,7 @@ async function runScheduledCycle(env) {
 // ─── Drawdown warning alerts ──────────────────────────────────────────────────
 // Sends a Telegram alert when equity drops to a warning or critical threshold.
 // Each threshold fires at most once per hour (tracked in KV) to avoid spam.
-const DRAWDOWN_WARN_KEY      = 'drawdown_warn_sent';
+const DRAWDOWN_WARN_KEY = 'drawdown_warn_sent';
 const DRAWDOWN_WARN_INTERVAL = 60 * 60 * 1000; // 1 hour
 const CORE_STRATEGY_GUARD_STATS_KEY = 'core_strategy_guard_stats';
 const CORE_STRATEGY_GUARD_LAST_KEY = 'core_strategy_guard_last';
@@ -3376,15 +3393,25 @@ async function sendDrawdownWarning(env, state, equity) {
 
     // Read the last-sent timestamps from KV
     const sentRecord = await env.BOT_STATE.get(DRAWDOWN_WARN_KEY, 'json').catch(() => null) || {};
-    const now        = Date.now();
+    const now = Date.now();
 
-    const level    = drawdownPct >= 15 ? 'critical' : drawdownPct >= 10 ? 'high' : 'warning';
+    let level, emoji, arabic;
+    if (drawdownPct >= 15) {
+      level = 'critical';
+      emoji = '🚨';
+      arabic = 'حرج';
+    } else if (drawdownPct >= 10) {
+      level = 'high';
+      emoji = '⚠️';
+      arabic = 'عالٍ';
+    } else {
+      level = 'warning';
+      emoji = '📉';
+      arabic = 'تحذير';
+    }
     const lastSent = sentRecord[level] || 0;
+    if (now - lastSent < DRAWDOWN_WARN_INTERVAL) return;
 
-    if (now - lastSent < DRAWDOWN_WARN_INTERVAL) return; // already alerted recently
-
-    const emoji  = level === 'critical' ? '🚨' : level === 'high' ? '⚠️' : '📉';
-    const arabic = level === 'critical' ? 'حرج' : level === 'high' ? 'عالٍ' : 'تحذير';
     await sendTelegramAlert(
       env,
       `${emoji} *تحذير تراجع رأس المال — مستوى ${arabic}*\n\n` +
