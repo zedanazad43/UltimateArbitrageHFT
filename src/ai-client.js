@@ -15,7 +15,7 @@
 //   [ai]
 //   binding = "AIWORKER"
 
-const AI_MODEL      = '@cf/meta/llama-3.1-8b-instruct';
+const AI_MODEL = '@cf/meta/llama-3.1-8b-instruct';
 const AI_TIMEOUT_MS = 8000; // abort if Workers AI does not respond within 8 s
 const MAX_CANDIDATES = 5;    // send at most this many opportunities to the model
 
@@ -29,6 +29,26 @@ const LOCAL_AI_TIMEOUT_MS = Number(process.env.LOCAL_AI_TIMEOUT_MS || 15000); //
 // ── Strategy reliability ranking (used in the AI prompt) ──────────────────────
 // Higher = more reliable / faster execution. Informational only.
 const STRATEGY_RANK = { cex: 1, perps: 2, statistical: 3, triangular: 4, funding: 5, dex: 6 };
+
+// ── LLM input sanitization ────────────────────────────────────────────────────
+// Strips control characters and prompt-injection markers from any text that
+// enters an LLM prompt via exchange data (symbols, strategy names, etc.).
+// This prevents attackers from injecting system-override instructions through
+// maliciously crafted token names, order book data, or exchange responses.
+function sanitizeForLLM(text) {
+  if (typeof text !== 'string') return String(text ?? '');
+  return text
+    .replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/g, '') // strip control chars (keep \t \n)
+    .replace(/<\/?system[^>]*>/gi, '')                          // strip <system> tags
+    .replace(/(?:ignore|forget|override|disregard)\s+(?:all\s+)?(?:previous|prior|above|your)\s+/gi, '[filtered] ')
+    .replace(/(?:instructions?|rules?|prompts?|guidelines?|training)/gi, '[filtered]')
+    .replace(/(?:you\s+are\s+(?:now|no\s+longer))/gi, '[filtered]')
+    .replace(/(?:act\s+as|pretend\s+(?:you\s+are|to\s+be))/gi, '[filtered]')
+    .replace(/from\s+now\s+on/gi, '[filtered]')
+    .replace(/\[INST\]|\[SYS\]|<<SYS>>|<\/SYS>|\[\/INST\]/g, '') // strip instruction-tuned markers
+    .replace(/DAN\s|developer\s*mode|jailbreak/gi, '[filtered]')
+    .trim();
+}
 
 // ── Public API ────────────────────────────────────────────────────────────────
 
@@ -44,7 +64,7 @@ async function filterWithLocalAI(opportunities) {
     .map((o, i) => {
       const liquid = ['BTCUSDT', 'ETHUSDT', 'BNBUSDT'].includes(o.symbol) ? 'high' : 'med';
       return (
-        `${i + 1}. ${o.strategy.toUpperCase()} ${o.symbol} ` +
+        `${i + 1}. ${sanitizeForLLM(o.strategy.toUpperCase())} ${sanitizeForLLM(o.symbol)} ` +
         `net=${o.netPct.toFixed(3)} safety=${(o.safetyFactor * 100).toFixed(0)}% liq=${liquid}`
       );
     })
@@ -81,7 +101,7 @@ async function filterWithLocalAI(opportunities) {
 
     const data = await response.json();
     const raw = (data?.choices?.[0]?.message?.content ?? data?.choices?.[0]?.text ?? '').trim();
-    const idx = parseInt(raw, 10);
+    const idx = Number.parseInt(raw, 10);
 
     if (Number.isFinite(idx) && idx >= 1 && idx <= candidates.length) {
       const selected = candidates[idx - 1];
@@ -135,7 +155,7 @@ export async function filterOpportunityWithAI(env, opportunities) {
       const rank = STRATEGY_RANK[o.strategy] ?? 9;
       const liquid = ['BTCUSDT', 'ETHUSDT', 'BNBUSDT'].includes(o.symbol) ? 'high' : 'medium';
       return (
-        `${i + 1}. ${o.strategy.toUpperCase()} ${o.symbol} | ` +
+        `${i + 1}. ${sanitizeForLLM(o.strategy.toUpperCase())} ${sanitizeForLLM(o.symbol)} | ` +
         `net=${o.netPct.toFixed(4)}% gross=${o.grossPct.toFixed(4)}% ` +
         `safety=${(o.safetyFactor * 100).toFixed(1)}% ` +
         `stratRank=${rank} liquidity=${liquid}`
@@ -159,7 +179,7 @@ export async function filterOpportunityWithAI(env, opportunities) {
     const aiPromise = env.AIWORKER.run(AI_MODEL, {
       messages: [
         { role: 'system', content: systemPrompt },
-        { role: 'user',   content: userPrompt },
+        { role: 'user', content: userPrompt },
       ],
       max_tokens: 4,
     });
@@ -172,7 +192,7 @@ export async function filterOpportunityWithAI(env, opportunities) {
     ]);
 
     const raw = (result?.response ?? result?.text ?? '').trim();
-    const idx = parseInt(raw, 10);
+    const idx = Number.parseInt(raw, 10);
 
     if (Number.isFinite(idx) && idx >= 1 && idx <= candidates.length) {
       const selected = candidates[idx - 1];

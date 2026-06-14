@@ -8,7 +8,7 @@ import PerformanceOptimizer from './src/performance-optimizer.js';
 import ReliabilityManager from './src/reliability-manager.js';
 import AnalyticsEngine from './src/analytics-engine.js';
 import { renderDashboard, renderChecklist } from './src/dashboard.js';
-import { runScan, getExecutionLockState } from './src/orchestrator.js';
+import { runScan, getExecutionLockState, resetCircuitBreaker } from './src/orchestrator.js';
 import { ensureSchema, logAdminEvent, logBotEvent, getRecentTrades, getStrategyPnL, getPerformanceMetrics, exportTrades } from './src/db.js';
 import { hasExchangeCredentials, getExchangeBalance, placeExchangeMarketOrder, getMissingCredentialKeys, getConfiguredExchanges, ACTIVE_EXECUTION_EXCHANGES, DATA_ONLY_EXCHANGES, getMEXCFuturesBalance, getMEXCBalance, getEnabledExecutionExchanges, isExecutionExchangeEnabled, getBitgetAccountEquityUSDT } from './src/exchange.js';
 import { scanDEX } from './src/strategies/dex.js';
@@ -18,7 +18,6 @@ import { evaluateStrategyBreakdown } from './src/self-evaluation.js';
 import { getEcosystemCatalog, recommendEcosystem, getApiKeySecurityChecklist } from './src/ecosystem.js';
 import { executeAllExecutableIntegrations, executeExecutableIntegration, listExecutableIntegrationIds, probeExecutableIntegrations } from './src/executive-integrations.js';
 import { getAutoExecutor } from './src/strategies/auto-executor.js';
-import { resetCircuitBreaker } from './src/orchestrator.js';
 import { renderControlPanel } from './src/control-panel.js';
 import { loadBotMemory, saveBotMemory, recordEvaluation, summarizeMemory } from './src/bot-memory.js';
 import { normalizeRebalancePolicy, computeRebalancePlan, buildRebalanceWeights, buildVenueRoutingWeights } from './src/rebalancer.js';
@@ -89,9 +88,9 @@ const DEFAULT_STATE = {
   daily_limit_usd: 0,           // 0 = no daily limit (use max_daily_loss_usd for risk)
   rebalance_policy: {
     enabled: false,
-    targetBufferPct: 0.10,
+    targetBufferPct: .1,
     minTransferUsd: 25,
-    maxShiftPctPerCycle: 0.25,
+    maxShiftPctPerCycle: .25,
   },
   strategy_flags: {
     cex: true,
@@ -109,14 +108,14 @@ const DEFAULT_STATE = {
   initial_capital: 1000,
   max_daily_loss_usd: 25,
   min_seconds_between_trades: 3,
-  max_per_trade_loss_pct: 0.02,
-  max_spread_pct: 5.0,
-  scalp_min_net_pct: 0.10,
+  max_per_trade_loss_pct: .02,
+  max_spread_pct: 5,
+  scalp_min_net_pct: .1,
   scalp_max_hold_seconds: 12,
   scalp_parallel_legs: 2,
   scalp_cooldown_ms: 1500,
-  win_rate: 0.55,
-  risk_reward_ratio: 2.0,
+  win_rate: .55,
+  risk_reward_ratio: 2,
   position_size_usd: 5,       // default small position size (5 USDT)
   position_size_min_usd: 1,   // hard floor
   position_size_max_usd: 500, // hard ceiling
@@ -230,7 +229,7 @@ function hasLastScanOpportunity(lastScan) {
 
 function buildMinuteScanMessage(state, lastScan) {
   const profile = String(state.auto_profile || 'balanced');
-  const mode = state.paper_trading !== false ? 'PAPER' : 'LIVE';
+  const mode = state.paper_trading === false ? 'LIVE' : 'PAPER';
   const top = lastScan?.cex || lastScan?.perps || lastScan?.dex || null;
 
   if (!top) {
@@ -272,11 +271,11 @@ async function getState(env) {
     manual_risk_lock_override: state?.manual_risk_lock_override === true || overrideEnabled,
     rebalance_policy: {
       ...DEFAULT_STATE.rebalance_policy,
-      ...(state?.rebalance_policy || {}),
+      ...(state?.rebalance_policy),
     },
     strategy_flags: {
       ...DEFAULT_STATE.strategy_flags,
-      ...(state?.strategy_flags || {}),
+      ...(state?.strategy_flags),
     },
   };
 
@@ -383,6 +382,7 @@ async function getExecutionBalancesSnapshot(env, assets = ['USDT']) {
           try {
             accountEquityUSDT = await getBitgetAccountEquityUSDT(env);
           } catch (_) {
+            // Bitget equity lookup is best-effort; fall back to null
             accountEquityUSDT = null;
           }
         }
@@ -433,6 +433,20 @@ function getStateSummary(state) {
   };
 }
 
+async function probeExchangeBalance(env, exchange) {
+  const configured = hasExchangeCredentials(env, exchange);
+  if (!configured) {
+    return { configured: false, missing: getMissingCredentialKeys(env, exchange), authValidated: false, authError: null };
+  }
+
+  try {
+    await getExchangeBalance(env, exchange, 'USDT');
+    return { configured: true, missing: [], authValidated: true, authError: null };
+  } catch (error) {
+    return { configured: true, missing: [], authValidated: false, authError: error.message };
+  }
+}
+
 async function probeExecutionExchanges(env, exchanges = null) {
   const scopedExchanges = Array.isArray(exchanges) && exchanges.length
     ? exchanges
@@ -445,25 +459,17 @@ async function probeExecutionExchanges(env, exchanges = null) {
   let readinessAuthValidatedCount = 0;
 
   for (const exchange of scopedExchanges) {
-    const configured = hasExchangeCredentials(env, exchange);
-    const missing = configured ? [] : getMissingCredentialKeys(env, exchange);
-    let authValidated = false;
-    let authError = null;
+    const { configured, missing, authValidated, authError } = await probeExchangeBalance(env, exchange);
 
     if (configured) {
       configuredCount++;
-      try {
-        await getExchangeBalance(env, exchange, 'USDT');
-        authValidated = true;
+      if (authValidated) {
         authValidatedCount++;
         readinessConfiguredCount++;
         readinessAuthValidatedCount++;
-      } catch (error) {
-        authError = error.message;
-        if (!isKnownExternalBalanceWarning(authError)) {
-          authFailureCount++;
-          readinessConfiguredCount++;
-        }
+      } else if (!isKnownExternalBalanceWarning(authError)) {
+        authFailureCount++;
+        readinessConfiguredCount++;
       }
     }
 
@@ -495,8 +501,8 @@ async function probeExecutionExchanges(env, exchanges = null) {
 // The name is escaped so it's safe to embed in a RegExp literal.
 function getCookieValue(c, name) {
   const cookieHeader = c.req.header('Cookie') || '';
-  const safeName = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  const re = new RegExp(`(?:^|;\\s*)${safeName}=([^;]*)`);
+  const safeName = name.replace(/[.*+?^${}()|[\]\\]/g, String.raw`\$&`);
+  const re = new RegExp(String.raw`(?:^|;\s*)${safeName}=([^;]*)`);
   const m = cookieHeader.match(re);
   return m ? decodeURIComponent(m[1]) : null;
 }
@@ -508,8 +514,8 @@ function constantTimeEquals(a, b) {
   const len = Math.max(aLen, bLen);
   let diff = aLen ^ bLen;
   for (let i = 0; i < len; i++) {
-    const ac = i < aLen ? a.charCodeAt(i) : 0;
-    const bc = i < bLen ? b.charCodeAt(i) : 0;
+    const ac = i < aLen ? a.codePointAt(i) : 0;
+    const bc = i < bLen ? b.codePointAt(i) : 0;
     diff |= ac ^ bc;
   }
   return diff === 0;
@@ -526,9 +532,12 @@ function constantTimeEquals(a, b) {
 function isAuthorized(env, c) {
   const token = env.ADMIN_TOKEN;
   const workflowToken = env.WORKFLOW_ADMIN_TOKEN;
-  // Open setup mode: if ADMIN_TOKEN is not configured yet, allow access so
-  // the dashboard can be fully wired during initial bootstrap.
-  if (!token && !workflowToken) return true;
+  // Setup mode: if neither token is configured, allow access ONLY to /login
+  // and /health so the admin can bootstrap. All other routes are denied.
+  if (!token && !workflowToken) {
+    const path = new URL(c.req.url).pathname;
+    return path === '/login' || path === '/health';
+  }
 
   const headerToken = c.req.header('x-admin-token') || c.req.header('x-workflow-token') || '';
   if ((token && constantTimeEquals(headerToken, token)) || (workflowToken && constantTimeEquals(headerToken, workflowToken))) {
@@ -559,13 +568,13 @@ function authDenied(env, c, asJson = false) {
 
 // ─── Login page renderer ──────────────────────────────────────────────────────
 function renderLoginPage(showError = false, adminConfigured = true) {
-  const setupBanner = !adminConfigured
-    ? `<div style="background:#e67e22;color:#fff;padding:10px 18px;border-radius:8px;margin-bottom:18px;font-weight:bold;line-height:1.7">
+  const setupBanner = adminConfigured
+    ? ''
+    : `<div style="background:#e67e22;color:#fff;padding:10px 18px;border-radius:8px;margin-bottom:18px;font-weight:bold;line-height:1.7">
          ⚠️ ADMIN_TOKEN غير مُهيَّأ بعد.<br>
          شغّل: <code style="background:rgba(0,0,0,.25);padding:2px 6px;border-radius:4px">wrangler secret put ADMIN_TOKEN</code>
          ثم أعد النشر.
-       </div>`
-    : '';
+       </div>`;
   const errorBanner = showError && adminConfigured
     ? `<div style="background:#e74c3c;color:#fff;padding:10px 18px;border-radius:8px;margin-bottom:18px;font-weight:bold">❌ رمز الإدارة غير صحيح — حاول مجدداً</div>`
     : '';
@@ -658,13 +667,13 @@ export class MarketStreamer {
 
 // ─── Hono App ─────────────────────────────────────────────────────────────────
 const app = new Hono();
-app.use('*', cors());
+app.use('*', cors({ origin: ['https://ultimatearbitragehft.zedanazad43.workers.dev', 'https://nexus-arbitrage.pages.dev'], allowMethods: ['GET', 'POST'], allowHeaders: ['Content-Type', 'x-admin-token', 'x-workflow-token', 'x-risk-unlock-token'], maxAge: 86400 }));
 
 // ── Global error handler ──────────────────────────────────────────────────────
 app.onError((err, c) => {
   console.error('[Worker] unhandled error:', err?.message, err?.stack);
   const safe = (err?.message || 'Unknown error')
-    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    .replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;');
   return c.html(
     `<!DOCTYPE html><html><body style="font-family:sans-serif;padding:40px">` +
     `<h1>500 — Internal Server Error</h1><pre>${safe}</pre>` +
@@ -679,7 +688,7 @@ app.use('*', async (c, next) => {
     if (c.env.ADMIN_TOKEN && !isAuthorized(c.env, c)) return c.redirect('/login', 302);
     return c.redirect('/control-panel', 302);
   }
-  try { await ensureSchema(c.env); } catch (_) { /* already logged in ensureSchema */ }
+  try { await ensureSchema(c.env); } catch (_) { console.warn('[ensureSchema] best-effort schema init failed'); }
   return next();
 });
 
@@ -716,7 +725,7 @@ app.post('/login', async (c) => {
       status: 302,
       headers: {
         'Location': '/',
-        'Set-Cookie': `nexus_session=${encodeURIComponent(c.env.ADMIN_TOKEN)}; HttpOnly; SameSite=Lax; Max-Age=${maxAge}; Path=/${isHttps ? '; Secure' : ''}`,
+        'Set-Cookie': `nexus_session=${encodeURIComponent(crypto.randomUUID())}; HttpOnly; SameSite=Strict; Max-Age=${maxAge}; Path=/${isHttps ? '; Secure' : ''}`,
       },
     });
   }
@@ -750,15 +759,15 @@ app.get('/health', async (c) => {
       const { results } = await c.env.DB.prepare('SELECT 1 AS ok').all();
       dbHealthy = results?.[0]?.ok === 1;
     }
-  } catch (_) { /* D1 not available */ }
+  } catch (_) { console.warn('[health] D1 not available'); }
 
   return c.json({
     status:          'ok',
     trading_enabled: state?.trading_enabled ?? false,
     paper_trading:   state?.paper_trading   ?? true,
     auto_stopped:    state?.auto_stopped    ?? false,
-    equity_usd:      equity !== null ? parseFloat(equity.toFixed(2)) : null,
-    daily_pnl_usd:   state ? parseFloat((state.daily_pnl || 0).toFixed(2)) : null,
+    equity_usd:      equity === null ? null : Number.parseFloat(equity.toFixed(2)),
+    daily_pnl_usd:   state ? Number.parseFloat((state.daily_pnl || 0).toFixed(2)) : null,
     daily_trades:    state?.daily_trades    ?? 0,
     db_healthy:      dbHealthy,
     timestamp:       Date.now(),
@@ -820,20 +829,21 @@ app.get('/stop', async (c) => {
 });
 
 // ── Admin: Debug MEXC Futures ─────────────────────────────────────────────────
+
+async function makeHmac(secret, msg) {
+  const enc = new TextEncoder();
+  const k = await crypto.subtle.importKey('raw', enc.encode(secret), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
+  const buf = await crypto.subtle.sign('HMAC', k, enc.encode(msg));
+  return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, '0')).join('');
+}
+
 app.get('/debug-futures', async (c) => {
   if (!isAuthorized(c.env, c)) return authDenied(c.env, c);
   const results = {};
   const apiKey    = c.env.MEXC_API_KEY    || '(missing)';
   const apiSecret = c.env.MEXC_API_SECRET || '(missing)';
-  results.keyPrefix    = apiKey.slice(0, 8) + '...';
-  results.secretLength = apiSecret.length;
-
-  async function makeHmac(secret, msg) {
-    const enc = new TextEncoder();
-    const k = await crypto.subtle.importKey('raw', enc.encode(secret), {name:'HMAC',hash:'SHA-256'}, false, ['sign']);
-    const buf = await crypto.subtle.sign('HMAC', k, enc.encode(msg));
-    return Array.from(new Uint8Array(buf)).map(b=>b.toString(16).padStart(2,'0')).join('');
-  }
+  results.keyConfigured   = apiKey !== '(missing)';
+  results.secretConfigured = apiSecret !== '(missing)';
 
   // Test 1: contract.mexc.com with primary key.
   try {
@@ -982,7 +992,7 @@ app.post('/config', async (c) => {
   if (limited) return limited;
   if (!isAuthorized(c.env, c)) return authDenied(c.env, c);
   let body;
-  try { body = await c.req.json(); } catch (_) { return c.text('Invalid JSON', 400); }
+  try { body = await c.req.json(); } catch (_) { console.warn('[config] invalid JSON body'); return c.text('Invalid JSON', 400); }
   const state = await getState(c.env);
   const forceManualRiskLock = parseEnvBool(c.env.MANUAL_RISK_LOCK_FORCE);
   const forceUnlockRequested = body.force_unlock_manual_risk_lock === true;
@@ -1125,11 +1135,15 @@ app.post('/config', async (c) => {
     } else {
       state.manual_risk_lock = body.manual_risk_lock;
     }
-    state.manual_risk_lock_override = body.manual_risk_lock === false && forceUnlockManualRiskLock
-      ? true
-      : body.manual_risk_lock === true
-        ? false
-        : (state.manual_risk_lock_override === true);
+    let override;
+    if (body.manual_risk_lock === false && forceUnlockManualRiskLock) {
+      override = true;
+    } else if (body.manual_risk_lock === true) {
+      override = false;
+    } else {
+      override = state.manual_risk_lock_override === true;
+    }
+    state.manual_risk_lock_override = override;
     if (forceUnlockManualRiskLock && body.manual_risk_lock === false) {
       await c.env.BOT_STATE.put('manual_risk_lock_override', '1').catch(() => {});
     } else if (body.manual_risk_lock === true) {
@@ -1151,7 +1165,11 @@ app.post('/config', async (c) => {
   }
   if (Number.isFinite(body.burst_overdrive_minutes)) {
     const mins = clampInt(body.burst_overdrive_minutes, 0, 120);
-    state.burst_overdrive_until_ts = state.manual_risk_lock ? 0 : (mins > 0 ? (Date.now() + mins * 60_000) : 0);
+    if (state.manual_risk_lock) {
+      state.burst_overdrive_until_ts = 0;
+    } else {
+      state.burst_overdrive_until_ts = mins > 0 ? (Date.now() + mins * 60_000) : 0;
+    }
     if (!state.manual_risk_lock && mins > 0) {
       applyProfileToState(state, 'overdrive');
       state.auto_profile_last_change_ts = Date.now();
@@ -1201,7 +1219,7 @@ app.post('/config', async (c) => {
   if (state.spot_only_lock === true || forceSpotOnlyLock) {
     state.spot_only_lock = true;
     state.strategy_flags = {
-      ...(state.strategy_flags || {}),
+      ...state.strategy_flags,
       perps: false,
       funding: false,
     };
@@ -1265,7 +1283,7 @@ app.post('/strategy/spot-lock/:mode', async (c) => {
   state.spot_only_lock = mode === 'enable';
   if (state.spot_only_lock) {
     state.strategy_flags = {
-      ...(state.strategy_flags || {}),
+      ...state.strategy_flags,
       perps: false,
       funding: false,
     };
@@ -1358,7 +1376,7 @@ app.get('/api/status', async (c) => {
   if (metrics && Number.isFinite(Number(metrics.total_trades))) {
     summary.totalTrades = Number(metrics.total_trades);
   }
-  const cbOut = { ...(circuitBreaker || {}) };
+  const cbOut = { ...circuitBreaker };
   const perpsDisabled = state?.strategy_flags?.perps === false || state?.spot_only_lock === true || forceSpotOnlyLock;
   if (perpsDisabled) {
     delete cbOut.mexc_perp;
@@ -1435,7 +1453,7 @@ app.get('/api/scan-rejections', async (c) => {
     }));
 
     const metadata = {
-      ...(snapshot.metadata || {}),
+      ...snapshot.metadata,
       snapshotSchemaVersion: Number(snapshot?.metadata?.snapshotSchemaVersion || 2),
       liveMinBalanceUsd: Number(snapshot?.metadata?.liveMinBalanceUsd ?? liveMinBalanceUsd),
       liveEligibleExecutionExchanges: Array.isArray(snapshot?.metadata?.liveEligibleExecutionExchanges)
@@ -1516,9 +1534,14 @@ app.get('/api/safety-state', async (c) => {
     }
   }
 
-  const executionMode = !perpsEnabled
-    ? (spotReady ? 'spot-only' : 'blocked')
-    : (futuresReady ? 'futures+spot' : (spotReady ? 'spot-fallback' : 'blocked'));
+  let executionMode;
+  if (!perpsEnabled) {
+    executionMode = spotReady ? 'spot-only' : 'blocked';
+  } else if (futuresReady) {
+    executionMode = 'futures+spot';
+  } else {
+    executionMode = spotReady ? 'spot-fallback' : 'blocked';
+  }
 
   const readyForLive = (
     adminTokenSet &&
@@ -1569,7 +1592,7 @@ app.get('/api/proxy-stats', async (c) => {
     const externalStats = getExternalProxyManager(c.env).getStats();
     externalProvider = externalStats.provider ?? 'none';
     externalHealthy = !!externalStats.healthy;
-  } catch (_) {}
+  } catch (_) { /* external proxy unavailable — best-effort diagnostic */ }
   return c.json({
     success: true,
     proxyRouting: stats.proxyRouting,
@@ -1665,7 +1688,7 @@ app.get('/api/readiness', async (c) => {
       failures: bmStats.circuitBreakerFailures ?? 0,
       rateLimitUsed: bmStats.rateLimitRequests ?? 0,
     };
-  } catch (_) {}
+  } catch (_) { /* Bitmart bridge unavailable — best-effort diagnostic */ }
 
   // ---- External proxy -----------------------------------------------------
   let proxyStatus = { provider: 'none', enabled: false, healthy: false };
@@ -1678,7 +1701,7 @@ app.get('/api/readiness', async (c) => {
       enabled: ps.enabled ?? false,
       healthy: ps.healthy ?? false,
     };
-  } catch (_) {}
+  } catch (_) { /* external proxy unavailable — best-effort diagnostic */ }
 
   // ---- System flags -------------------------------------------------------
   const adminTokenSet = !!(c.env.ADMIN_TOKEN);
@@ -1713,13 +1736,12 @@ app.get('/api/readiness', async (c) => {
       externalProxy: proxyStatus,
     },
     exchanges: exchangeStatus,
-    note: readyForLive
-      ? 'All systems go — live trading is active'
-      : executionProbe.configuredCount === 0
-        ? 'No executable exchange credentials are configured'
-        : executionProbe.authFailureCount > 0
-          ? 'One or more configured exchanges failed authenticated balance checks'
-          : 'One or more pre-requisites are not met; review checks above',
+    note: (() => {
+      if (readyForLive) return 'All systems go — live trading is active';
+      if (executionProbe.configuredCount === 0) return 'No executable exchange credentials are configured';
+      if (executionProbe.authFailureCount > 0) return 'One or more configured exchanges failed authenticated balance checks';
+      return 'One or more pre-requisites are not met; review checks above';
+    })(),
     timestamp: new Date().toISOString(),
   });
 });
@@ -1727,7 +1749,7 @@ app.get('/api/readiness', async (c) => {
 // ── API: Recent trades ────────────────────────────────────────────────────────
 app.get('/api/trades', async (c) => {
   if (!isAuthorized(c.env, c)) return authDenied(c.env, c, true);
-  const limit = parseInt(c.req.query('limit') || '50', 10);
+  const limit = Number.parseInt(c.req.query('limit') || '50', 10);
   const trades = await getRecentTrades(c.env, Math.min(limit, 100));
   return c.json({ success: true, data: trades });
 });
@@ -1746,7 +1768,7 @@ app.get('/api/report', async (c) => {
   const to     = c.req.query('to');
   const fromMs = from ? new Date(from).getTime() : 0;
   const toMs   = to   ? new Date(to).getTime()   : Date.now();
-  if (isNaN(fromMs) || isNaN(toMs)) return c.json({ error: 'Invalid date parameters' }, 400);
+  if (Number.isNaN(fromMs) || Number.isNaN(toMs)) return c.json({ error: 'Invalid date parameters' }, 400);
   const [state, metrics] = await Promise.all([
     getState(c.env),
     getPerformanceMetrics(c.env, fromMs, toMs),
@@ -1770,7 +1792,7 @@ app.get('/api/logs', async (c) => {
   if (!isAuthorized(c.env, c)) return authDenied(c.env, c, true);
   if (!c.env.DB) return c.json({ success: true, data: { admin: [], bot: [] } });
 
-  const limit = Math.min(parseInt(c.req.query('limit') || '50', 10), 200);
+  const limit = Math.min(Number.parseInt(c.req.query('limit') || '50', 10), 200);
   try {
     const [adminRows, botRows] = await Promise.all([
       c.env.DB.prepare(
@@ -1798,7 +1820,7 @@ app.get('/api/logs/archives', async (c) => {
   if (!isAuthorized(c.env, c)) return authDenied(c.env, c, true);
   if (!c.env.TRADE_LOGS) return c.json({ success: true, objects: [], truncated: false, note: 'TRADE_LOGS binding not configured' });
 
-  const limit = Math.min(parseInt(c.req.query('limit') || '50', 10), 200);
+  const limit = Math.min(Number.parseInt(c.req.query('limit') || '50', 10), 200);
   const prefix = c.req.query('prefix') || 'exports/';
   const cursor = c.req.query('cursor') || undefined;
 
@@ -1983,7 +2005,7 @@ app.post('/api/rebalance/policy', async (c) => {
   const state = await getState(c.env);
 
   const nextPolicy = normalizeRebalancePolicy({
-    ...(state.rebalance_policy || {}),
+    ...state.rebalance_policy,
     ...body,
   });
 
@@ -2019,9 +2041,17 @@ app.get('/api/perps', async (c) => {
     // mexc_perp is the only executable perp feed; others are data-only feeds
     const isExecutable = ex === 'mexc_perp';
     const paused = !perpsEnabled;
+    let status;
+    if (paused) {
+      status = 'disabled';
+    } else if (open) {
+      status = 'open';
+    } else {
+      status = 'ok';
+    }
     return {
       exchange: ex,
-      status: paused ? 'disabled' : (open ? 'open' : 'ok'),
+      status,
       failures: paused ? 0 : (info?.failures || 0),
       paused,
       dataOnly: !isExecutable,
@@ -3100,7 +3130,7 @@ async function runScheduledCycle(env) {
     if (hasPerps || hasFunding || (shouldForceDexEnabled && hasDexDisabled)) {
       state.spot_only_lock = true;
       state.strategy_flags = {
-        ...(state.strategy_flags || {}),
+        ...state.strategy_flags,
         dex: shouldForceDexEnabled ? true : (state?.strategy_flags?.dex !== false),
         perps: false,
         funding: false,
