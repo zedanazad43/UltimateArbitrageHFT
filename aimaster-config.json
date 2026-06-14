@@ -1,0 +1,62 @@
+{
+  "agent_name": "AIMaster",
+  "version": "1.0.0",
+  "default_provider": "auto",
+  "fallback_chain": ["codegeex_local", "ollama", "deepseek", "codegeex_api", "github_copilot"],
+  "providers": {
+    "ollama": {
+      "enabled": true,
+      "base_url": "http://127.0.0.1:11434",
+      "default_model": "codegeex4",
+      "timeout_seconds": 300,
+      "num_ctx": 2048,
+      "temperature": 0.7,
+      "max_tokens": 512
+    },
+    "deepseek": {
+      "enabled": true,
+      "api_key_env": "DEEPSEEK_API_KEY",
+      "base_url": "https://api.deepseek.com/v1",
+      "default_model": "deepseek-chat",
+      "timeout_seconds": 60,
+      "temperature": 0.7,
+      "max_tokens": 1024
+    },
+    "codegeex_api": {
+      "enabled": true,
+      "api_key_env": "CODEGEEX_API_KEY",
+      "base_url": "https://open.bigmodel.cn/api/paas/v4",
+      "default_model": "codegeex-4",
+      "timeout_seconds": 60,
+      "temperature": 0.7,
+      "max_tokens": 1024
+    },
+    "codegeex_local": {
+      "enabled": true,
+      "base_url": "http://127.0.0.1:8000",
+      "default_model": "codegeex4",
+      "timeout_seconds": 180,
+      "temperature": 0.7,
+      "max_tokens": 512
+    },
+    "github_copilot": {
+      "enabled": true,
+      "api_key_env": "GITHUB_TOKEN",
+      "base_url": "https://api.github.com",
+      "default_model": "copilot",
+      "timeout_seconds": 30
+    }
+  },
+  "routing": {
+    "strategy": "priority",
+    "health_check_interval_seconds": 60,
+    "max_retries": 2,
+    "retry_delay_seconds": 1
+  },
+  "logging": {
+    "level": "INFO",
+    "file": "logs/aimaster.log",
+    "max_size_mb": 10,
+    "backup_count": 3
+  }
+}

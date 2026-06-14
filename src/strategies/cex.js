@@ -4,7 +4,7 @@ const MIN_SAFETY_FACTOR = 0.20; // net/gross must be >= 20% (aggressive mode)
 
 // Data-only exchanges that should never appear as execution venues.
 // These exchanges are restricted by regulation (BaFin Germany) or lack API credentials.
-const DATA_ONLY_EXCHANGES = new Set(['bybit', 'gateio', 'kraken', 'coinbase']);
+const DATA_ONLY_EXCHANGES = new Set(['kraken', 'coinbase']);
 
 // Estimated market-impact slippage (in % of trade value) applied per leg.
 // Derived from empirical analysis of crypto order-book depth at ~$5k–$50k sizes.

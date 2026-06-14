@@ -1501,9 +1501,9 @@ const EXCHANGE_CRED_KEYS = {
  * DATA_ONLY guard in executeTrade() does not block isPerp opportunities before
  * they reach the perp routing branch.
  */
-export const DATA_ONLY_EXCHANGES = new Set(['bybit', 'gateio', 'kraken', 'coinbase']);
+export const DATA_ONLY_EXCHANGES = new Set(['kraken', 'coinbase']);
 export const ACTIVE_EXECUTION_EXCHANGES = [
-  'mexc', 'binance', 'kucoin', 'bitget', 'bitmart', 'htx'
+  'mexc', 'binance', 'kucoin', 'bitget', 'bitmart', 'htx', 'bybit', 'gateio'
 ];
 
 function parseExchangeAllowlist(rawList) {

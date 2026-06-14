@@ -1,7 +1,7 @@
 // nexus/src/strategies/scalping-parallel.js
 // Parallel scalping: bundles the top two independent CEX spread legs for one symbol.
 
-const DATA_ONLY_EXCHANGES = new Set(['bybit', 'gateio', 'kraken', 'coinbase']);
+const DATA_ONLY_EXCHANGES = new Set(['kraken', 'coinbase']);
 const DEFAULT_MIN_NET_PCT = 0.01;
 const DEFAULT_MIN_SAFETY = 0.12;
 

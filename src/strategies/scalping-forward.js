@@ -1,7 +1,7 @@
 // nexus/src/strategies/scalping-forward.js
 // Front scalping: favors fast spread-expansion opportunities with high safety.
 
-const DATA_ONLY_EXCHANGES = new Set(['bybit', 'gateio', 'kraken', 'coinbase']);
+const DATA_ONLY_EXCHANGES = new Set(['kraken', 'coinbase']);
 const LIQUIDITY_BONUS = new Set(['binance', 'mexc', 'bitget']);
 
 const DEFAULT_MIN_NET_PCT = 0.01;

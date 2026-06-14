@@ -6,18 +6,12 @@ gstack workflows are active in this project. In Amazon Q chat, type `@gstack` to
 
 Describe what you want — gstack executes the right workflow automatically:
 
-- "there's a bug" → INVESTIGATE
-- "review my code" → REVIEW
-- "ship this" → SHIP
+- "there's a bug" → INVESTIGATE (bug investigation workflow)
+- "review my code" → REVIEW (code review process)
+- "ship this" → SHIP (prepare for deployment)
 - "QA <http://localhost:3000>" → QA + BROWSE
-- "security audit" → CSO
-- "weekly retro" → RETRO
-- "I want to build X" → OFFICE-HOURS
+- "security audit" → CSO (security review)
+- "weekly retro" → RETRO (retrospective)
+- "I want to build X" → OFFICE-HOURS (builder session)
 
 ## Browse tool
-
-```
-node "C:\\Users\\azadz\\.gstack\\browse.cjs" goto https://example.com
-node "C:\\Users\\azadz\\.gstack\\browse.cjs" snapshot -i
-node "C:\\Users\\azadz\\.gstack\\browse.cjs" screenshot
-

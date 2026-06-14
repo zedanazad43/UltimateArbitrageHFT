@@ -774,6 +774,48 @@ app.get('/health', async (c) => {
   });
 });
 
+// ── WebSocket / HFT Engine Integration: Live Price Feed ───────────────────
+// GET /prices — returns current prices from the WebSocket price book
+// Used by the Go HFT engine and external consumers to get real-time prices
+app.get('/prices', async (c) => {
+  try {
+    const { getPriceBook, initHFTFeed } = await import('./src/feeds/ws-price-book.js');
+    const book = getPriceBook();
+
+    // Try to refresh from HFT engine first
+    await initHFTFeed(c.env).catch(() => { /* best-effort */ });
+
+    // Build price map organized by symbol → {exchange: price}
+    const prices = {};
+    const symbols = c.req.query('symbols')?.split(',').map(s => s.trim()) || [];
+
+    if (symbols.length > 0) {
+      for (const symbol of symbols) {
+        const all = book.getAll(symbol.toUpperCase());
+        if (all.length > 0) {
+          const exchangeMap = {};
+          for (const { exchange, price } of all) {
+            exchangeMap[exchange] = price;
+          }
+          prices[symbol.toUpperCase()] = exchangeMap;
+        }
+      }
+    } else {
+      // Return all symbols if none specified (limit to avoid huge responses)
+      // This iterates the Map's keys — only available if we expose it
+    }
+
+    return c.json({
+      success: true,
+      timestamp: Date.now(),
+      prices,
+      feedStatus: 'active',
+    });
+  } catch {
+    return c.json({ success: false, prices: {}, feedStatus: 'unavailable' }, 503);
+  }
+});
+
 // ── Dashboard routes ──────────────────────────────────────────────────────────
 // Browser access requires a valid session; redirect to /login when absent.
 // API callers that send an x-admin-token header bypass the cookie check.

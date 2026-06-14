@@ -115,9 +115,10 @@ export function getTokenAddress(chain, token) {
 export async function get1inchQuote(env, chain, fromToken, toToken, amount) {
     const config = CHAIN_CONFIG[chain];
     if (!config) return null;
+
+    // ONEINCH_API_KEY is optional — set via wrangler secret or wrangler.toml vars
     const apiKey = env.ONEINCH_API_KEY || env.ONEINCH_API;
     if (!apiKey) {
-        // Fallback: use public rate-limited endpoint
         return null;
     }
 

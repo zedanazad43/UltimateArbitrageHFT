@@ -1,7 +1,7 @@
 // nexus/src/strategies/scalping-reverse.js
 // Reverse scalping: favors mean-reversion-ready spreads with stricter safety.
 
-const DATA_ONLY_EXCHANGES = new Set(['bybit', 'gateio', 'kraken', 'coinbase']);
+const DATA_ONLY_EXCHANGES = new Set(['kraken', 'coinbase']);
 
 const DEFAULT_MIN_NET_PCT = 0.01;
 const DEFAULT_MIN_SAFETY = 0.12;
