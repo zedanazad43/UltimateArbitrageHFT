@@ -7,7 +7,7 @@ import assert from 'node:assert/strict';
 
 // ── Import the modules under test ─────────────────────────────────────────────
 // These are pure functions with no Cloudflare-specific dependencies.
-import { scanCEX }   from '../src/strategies/cex.js';
+import { scanCEX } from '../src/strategies/cex.js';
 import { scanPerps } from '../src/strategies/perps.js';
 import {
   isLiveExecutableOpportunity,
@@ -33,7 +33,7 @@ describe('scanCEX', () => {
 
   test('returns null when prices are equal', () => {
     const sources = [
-      { price: 50000, exchange: 'mexc',    fee: 0.001 },
+      { price: 50000, exchange: 'mexc', fee: 0.001 },
       { price: 50000, exchange: 'binance', fee: 0.001 }
     ];
     assert.equal(scanCEX('BTCUSDT', sources, 5.0), null);
@@ -42,7 +42,7 @@ describe('scanCEX', () => {
   test('returns null when net profit is zero or negative (fees eat the spread)', () => {
     // spread = 0.1%, total fees = 0.2% → net negative
     const sources = [
-      { price: 50000, exchange: 'mexc',    fee: 0.001 },
+      { price: 50000, exchange: 'mexc', fee: 0.001 },
       { price: 50050, exchange: 'binance', fee: 0.001 }
     ];
     assert.equal(scanCEX('BTCUSDT', sources, 5.0), null);
@@ -51,14 +51,14 @@ describe('scanCEX', () => {
   test('returns opportunity when net profit is positive', () => {
     // spread ≈ 1%, fees = 0.1% each → net ≈ 0.8%
     const sources = [
-      { price: 50000, exchange: 'mexc',    fee: 0.0005 },
+      { price: 50000, exchange: 'mexc', fee: 0.0005 },
       { price: 50600, exchange: 'binance', fee: 0.0005 }
     ];
     const opp = scanCEX('BTCUSDT', sources, 5.0);
     assert.notEqual(opp, null);
-    assert.equal(opp.strategy,     'cex');
-    assert.equal(opp.symbol,       'BTCUSDT');
-    assert.equal(opp.buyExchange,  'mexc');
+    assert.equal(opp.strategy, 'cex');
+    assert.equal(opp.symbol, 'BTCUSDT');
+    assert.equal(opp.buyExchange, 'mexc');
     assert.equal(opp.sellExchange, 'binance');
     assert.ok(opp.netPct > 0, 'netPct should be positive');
     assert.equal(opp.isPerp, false);
@@ -66,9 +66,9 @@ describe('scanCEX', () => {
 
   test('picks the pair with the highest net profit from multiple sources', () => {
     const sources = [
-      { price: 50000, exchange: 'mexc',    fee: 0.0005 },
+      { price: 50000, exchange: 'mexc', fee: 0.0005 },
       { price: 50600, exchange: 'binance', fee: 0.0005 },
-      { price: 51000, exchange: 'kucoin',  fee: 0.001  }
+      { price: 51000, exchange: 'kucoin', fee: 0.001 }
     ];
     const opp = scanCEX('BTCUSDT', sources, 5.0);
     assert.notEqual(opp, null);
@@ -79,7 +79,7 @@ describe('scanCEX', () => {
   test('returns null when spread exceeds maxSpreadPct guard', () => {
     // 10% spread but guard is 5%
     const sources = [
-      { price: 50000, exchange: 'mexc',    fee: 0.0005 },
+      { price: 50000, exchange: 'mexc', fee: 0.0005 },
       { price: 55001, exchange: 'binance', fee: 0.0005 }
     ];
     assert.equal(scanCEX('BTCUSDT', sources, 5.0), null);
@@ -88,7 +88,7 @@ describe('scanCEX', () => {
   test('returns null when safetyFactor is below 40%', () => {
     // spread = 0.3%, total fees = 0.2% → net = 0.1%, safety = 0.1/0.3 ≈ 33% < 40%
     const sources = [
-      { price: 10000, exchange: 'mexc',    fee: 0.001 },
+      { price: 10000, exchange: 'mexc', fee: 0.001 },
       { price: 10030, exchange: 'binance', fee: 0.001 }
     ];
     assert.equal(scanCEX('SOLUSDT', sources, 5.0), null);
@@ -96,7 +96,7 @@ describe('scanCEX', () => {
 
   test('direction string is formatted as BUY_EXCHANGE→SELL_EXCHANGE in uppercase', () => {
     const sources = [
-      { price: 100, exchange: 'mexc',    fee: 0.0005 },
+      { price: 100, exchange: 'mexc', fee: 0.0005 },
       { price: 102, exchange: 'binance', fee: 0.0005 }
     ];
     const opp = scanCEX('XRPUSDT', sources, 5.0);
@@ -116,7 +116,7 @@ describe('scanCEX', () => {
   test('skips data-only exchanges as execution venues', () => {
     const sources = [
       { price: 100, exchange: 'mexc', fee: 0.0005 },
-      { price: 110, exchange: 'bybit', fee: 0.0005 },
+      { price: 110, exchange: 'kraken', fee: 0.0005 },
       { price: 105, exchange: 'binance', fee: 0.0005 }
     ];
     const opp = scanCEX('XRPUSDT', sources, 20);
@@ -143,29 +143,29 @@ describe('scanPerps', () => {
 
   test('returns opportunity when perp price > spot price and net profit positive', () => {
     const spots = [{ price: 50000, exchange: 'mexc', fee: 0.0005 }];
-    const perp  = { price: 50700, exchange: 'mexc_perp', fee: 0.0002 };
+    const perp = { price: 50700, exchange: 'mexc_perp', fee: 0.0002 };
     const opp = scanPerps('BTCUSDT', spots, perp, 5.0);
     assert.notEqual(opp, null);
-    assert.equal(opp.strategy,    'perps');
-    assert.equal(opp.symbol,      'BTCUSDT');
-    assert.equal(opp.isPerp,      true);
+    assert.equal(opp.strategy, 'perps');
+    assert.equal(opp.symbol, 'BTCUSDT');
+    assert.equal(opp.isPerp, true);
     assert.ok(opp.netPct > 0);
-    assert.equal(opp.buyExchange,  'mexc');
+    assert.equal(opp.buyExchange, 'mexc');
     assert.equal(opp.sellExchange, 'mexc_perp');
   });
 
   test('returns opportunity in the opposite direction when spot > perp', () => {
     const spots = [{ price: 51000, exchange: 'mexc', fee: 0.0005 }];
-    const perp  = { price: 50000, exchange: 'mexc_perp', fee: 0.0002 };
+    const perp = { price: 50000, exchange: 'mexc_perp', fee: 0.0002 };
     const opp = scanPerps('BTCUSDT', spots, perp, 5.0);
     assert.notEqual(opp, null);
-    assert.equal(opp.buyExchange,  'mexc_perp');
+    assert.equal(opp.buyExchange, 'mexc_perp');
     assert.equal(opp.sellExchange, 'mexc');
   });
 
   test('returns null when combined spread exceeds maxSpreadPct', () => {
     const spots = [{ price: 50000, exchange: 'mexc', fee: 0.0005 }];
-    const perp  = { price: 53001, exchange: 'mexc_perp', fee: 0.0002 }; // >5%
+    const perp = { price: 53001, exchange: 'mexc_perp', fee: 0.0002 }; // >5%
     assert.equal(scanPerps('BTCUSDT', spots, perp, 5.0), null);
   });
 
@@ -178,7 +178,7 @@ describe('scanPerps', () => {
 
   test('skips data-only exchanges as execution venues', () => {
     const spots = [
-      { price: 100, exchange: 'bybit', fee: 0.0005 },
+      { price: 100, exchange: 'kraken', fee: 0.0005 },
       { price: 101, exchange: 'mexc', fee: 0.0005 }
     ];
     const perp = { price: 110, exchange: 'mexc_perp', fee: 0.0002 };
@@ -387,7 +387,7 @@ describe('calculateAdaptiveLeverage', () => {
   });
 
   test('increases with equity growth', () => {
-    const levSmall = calculateAdaptiveLeverage(1000,  0.1, 1000);
+    const levSmall = calculateAdaptiveLeverage(1000, 0.1, 1000);
     const levLarge = calculateAdaptiveLeverage(10000, 0.1, 1000);
     assert.ok(levLarge >= levSmall, 'leverage should not decrease as equity grows');
   });
@@ -398,7 +398,7 @@ describe('calculateAdaptiveLeverage', () => {
   });
 
   test('scales with profit margin', () => {
-    const levLow  = calculateAdaptiveLeverage(1000, 0.01, 1000);
+    const levLow = calculateAdaptiveLeverage(1000, 0.01, 1000);
     const levHigh = calculateAdaptiveLeverage(1000, 0.20, 1000);
     assert.ok(levHigh >= levLow, 'higher margin should produce higher or equal leverage');
   });
