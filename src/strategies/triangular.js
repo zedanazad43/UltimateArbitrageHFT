@@ -10,7 +10,7 @@
 const MIN_NET_PCT = 0.005; // 0.005% — tighter live capture for MEXC-focused execution
 
 // Maximum allowed cross-rate deviation (used to reject extreme outliers only).
-const MAX_LEG_SPREAD_PCT = 20.0;
+const MAX_LEG_SPREAD_PCT = 20;
 
 /**
  * Triangular path definition.
@@ -27,25 +27,25 @@ const MAX_LEG_SPREAD_PCT = 20.0;
  */
 const TRIANGLES = [
   // ── BTC-base triangles ────────────────────────────────────────────────────
-  { a: 'BTCUSDT', b: 'ETHBTC',  c: 'ETHUSDT',  route: 'USDT→BTC→ETH→USDT' },
-  { a: 'BTCUSDT', b: 'BNBBTC',  c: 'BNBUSDT',  route: 'USDT→BTC→BNB→USDT' },
-  { a: 'BTCUSDT', b: 'SOLBTC',  c: 'SOLUSDT',  route: 'USDT→BTC→SOL→USDT' },
-  { a: 'BTCUSDT', b: 'XRPBTC',  c: 'XRPUSDT',  route: 'USDT→BTC→XRP→USDT' },
-  { a: 'BTCUSDT', b: 'ADABTC',  c: 'ADAUSDT',  route: 'USDT→BTC→ADA→USDT' },
-  { a: 'BTCUSDT', b: 'DOTBTC',  c: 'DOTUSDT',  route: 'USDT→BTC→DOT→USDT' },
+  { a: 'BTCUSDT', b: 'ETHBTC', c: 'ETHUSDT', route: 'USDT→BTC→ETH→USDT' },
+  { a: 'BTCUSDT', b: 'BNBBTC', c: 'BNBUSDT', route: 'USDT→BTC→BNB→USDT' },
+  { a: 'BTCUSDT', b: 'SOLBTC', c: 'SOLUSDT', route: 'USDT→BTC→SOL→USDT' },
+  { a: 'BTCUSDT', b: 'XRPBTC', c: 'XRPUSDT', route: 'USDT→BTC→XRP→USDT' },
+  { a: 'BTCUSDT', b: 'ADABTC', c: 'ADAUSDT', route: 'USDT→BTC→ADA→USDT' },
+  { a: 'BTCUSDT', b: 'DOTBTC', c: 'DOTUSDT', route: 'USDT→BTC→DOT→USDT' },
   { a: 'BTCUSDT', b: 'LINKBTC', c: 'LINKUSDT', route: 'USDT→BTC→LINK→USDT' },
-  { a: 'BTCUSDT', b: 'LTCBTC',  c: 'LTCUSDT',  route: 'USDT→BTC→LTC→USDT' },
+  { a: 'BTCUSDT', b: 'LTCBTC', c: 'LTCUSDT', route: 'USDT→BTC→LTC→USDT' },
   { a: 'BTCUSDT', b: 'AVAXBTC', c: 'AVAXUSDT', route: 'USDT→BTC→AVAX→USDT' },
   // ── ETH-base triangles ────────────────────────────────────────────────────
-  { a: 'ETHUSDT', b: 'BNBETH',  c: 'BNBUSDT',  route: 'USDT→ETH→BNB→USDT' },
+  { a: 'ETHUSDT', b: 'BNBETH', c: 'BNBUSDT', route: 'USDT→ETH→BNB→USDT' },
   { a: 'ETHUSDT', b: 'LINKETH', c: 'LINKUSDT', route: 'USDT→ETH→LINK→USDT' },
-  { a: 'ETHUSDT', b: 'DOTETH',  c: 'DOTUSDT',  route: 'USDT→ETH→DOT→USDT' },
-  { a: 'ETHUSDT', b: 'UNIETH',  c: 'UNIUSDT',  route: 'USDT→ETH→UNI→USDT' },
+  { a: 'ETHUSDT', b: 'DOTETH', c: 'DOTUSDT', route: 'USDT→ETH→DOT→USDT' },
+  { a: 'ETHUSDT', b: 'UNIETH', c: 'UNIUSDT', route: 'USDT→ETH→UNI→USDT' },
   // ── BNB-base triangles ────────────────────────────────────────────────────
-  { a: 'BNBUSDT', b: 'BNBBTC',  c: 'BTCUSDT',  route: 'USDT→BNB→BTC→USDT' },
-  { a: 'BNBUSDT', b: 'SOLBNB',  c: 'SOLUSDT',  route: 'USDT→BNB→SOL→USDT' },
-  { a: 'BNBUSDT', b: 'XRPBNB',  c: 'XRPUSDT',  route: 'USDT→BNB→XRP→USDT' },
-  { a: 'BNBUSDT', b: 'ADABNB',  c: 'ADAUSDT',  route: 'USDT→BNB→ADA→USDT' },
+  { a: 'BNBUSDT', b: 'BNBBTC', c: 'BTCUSDT', route: 'USDT→BNB→BTC→USDT' },
+  { a: 'BNBUSDT', b: 'SOLBNB', c: 'SOLUSDT', route: 'USDT→BNB→SOL→USDT' },
+  { a: 'BNBUSDT', b: 'XRPBNB', c: 'XRPUSDT', route: 'USDT→BNB→XRP→USDT' },
+  { a: 'BNBUSDT', b: 'ADABNB', c: 'ADAUSDT', route: 'USDT→BNB→ADA→USDT' },
 ];
 
 /**
@@ -88,9 +88,9 @@ function evalTriangle(tri, pA, pB, pC, exchange, fee) {
   const q3_2 = q2_2 * pA * (1 - fee);
   const netPct2 = (q3_2 - 1) * 100;
 
-  const bestDir   = netPct1 >= netPct2 ? 1 : 2;
-  const netPct    = bestDir === 1 ? netPct1 : netPct2;
-  const grossPct  = Math.abs(netPct) + (fee * 3 * 100); // approx gross
+  const bestDir = netPct1 >= netPct2 ? 1 : 2;
+  const netPct = bestDir === 1 ? netPct1 : netPct2;
+  const grossPct = Math.abs(netPct) + (fee * 3 * 100); // approx gross
   const direction = bestDir === 1 ? tri.route : tri.route.split('→').reverse().join('→');
   const executionPlan = bestDir === 1
     ? [
@@ -108,27 +108,27 @@ function evalTriangle(tri, pA, pB, pC, exchange, fee) {
 
   // Implied vs quoted cross rate deviation check
   const impliedCross = pA > 0 ? pC / pA : 0;
-  const quotedCross  = pB;
-  const deviation    = quotedCross > 0
+  const quotedCross = pB;
+  const deviation = quotedCross > 0
     ? Math.abs((impliedCross - quotedCross) / quotedCross) * 100
     : 0;
   if (deviation > MAX_LEG_SPREAD_PCT) return null;
 
   return {
-    strategy:    'triangular',
-    symbol:      `${tri.a}/${tri.b}/${tri.c}`,
-    buyExchange:  exchange,
+    strategy: 'triangular',
+    symbol: `${tri.a}/${tri.b}/${tri.c}`,
+    buyExchange: exchange,
     sellExchange: exchange,
-    buyPrice:     pA,
-    sellPrice:    pC,
+    buyPrice: pA,
+    sellPrice: pC,
     grossPct,
     netPct,
     safetyFactor: grossPct > 0 ? netPct / grossPct : 0,
     direction,
-    isPerp:       false,
+    isPerp: false,
     legs: [tri.a, tri.b, tri.c],
     executionPlan,
-    crossPrice:     pB,
+    crossPrice: pB,
     crossDeviation: deviation
   };
 }
@@ -162,3 +162,97 @@ export function scanTriangular(exchange, fee, prices) {
 
 /** Exported triangle definitions so callers can know which cross-pair symbols to fetch. */
 export { TRIANGLES };
+
+// ── Dynamic triangular route generation ──────────────────────────────────────
+
+/**
+ * Dynamically generates triangular arbitrage routes from a price book.
+ * Instead of relying on the 19 hardcoded routes, this scans all available
+ * symbols and generates every possible USDT→X→Y→USDT path where all three
+ * pairs exist in the price book.
+ *
+ * @param {object} prices - map of symbol → price, e.g. { BTCUSDT: 65000, ETHBTC: 0.052, ... }
+ * @returns {Array} dynamic triangle definitions [{a, b, c, route}]
+ */
+export function generateDynamicTriangles(prices) {
+  if (!prices || typeof prices !== 'object') return TRIANGLES;
+
+  const symbols = Object.keys(prices).filter(k => {
+    const p = prices[k];
+    return p > 0 && Number.isFinite(p);
+  });
+
+  // Extract base/quote pairs ending in USDT
+  const usdtPairs = {};
+  const crossPairs = {};
+
+  for (const sym of symbols) {
+    if (sym.endsWith('USDT') && sym.length > 5) {
+      const base = sym.slice(0, -4); // e.g. BTC from BTCUSDT
+      usdtPairs[base] = prices[sym];
+    } else if (sym.length >= 5) {
+      // Try to extract base and quote from non-USDT pairs
+      const QUOTES = ['BTC', 'ETH', 'BNB', 'USDT'];
+      for (const q of QUOTES.sort((a, b) => b.length - a.length)) {
+        if (sym.endsWith(q) && sym.length > q.length) {
+          const b = sym.slice(0, -q.length);
+          if (b.length >= 2) {
+            crossPairs[sym] = { base: b, quote: q, price: prices[sym] };
+            break;
+          }
+        }
+      }
+    }
+  }
+
+  // Generate all possible triangles: A→B→C→A
+  const dynamicTriangles = [];
+  const bases = Object.keys(usdtPairs);
+
+  for (const a of bases) {
+    for (const c of bases) {
+      if (a === c) continue;
+      // Look for cross pair: C/A (e.g. ETHBTC means 1 ETH = X BTC)
+      const crossKey = `${c}${a}`;
+      if (crossPairs[crossKey]) {
+        const route = `USDT→${a}→${c}→USDT`;
+        dynamicTriangles.push({
+          a: `${a}USDT`,
+          b: crossKey,
+          c: `${c}USDT`,
+          route,
+        });
+      }
+    }
+  }
+
+  // If dynamic generation produced results, use those; otherwise fall back to hardcoded
+  return dynamicTriangles.length > 0 ? dynamicTriangles : TRIANGLES;
+}
+
+/**
+ * Scans dynamic triangular routes for a given exchange.
+ * @param {string} exchange - exchange identifier
+ * @param {number} fee - taker fee per leg
+ * @param {object} prices - map of symbol → price
+ * @returns {object|null} best triangular opportunity or null
+ */
+export function scanTriangularDynamic(exchange, fee, prices) {
+  if (!prices || typeof prices !== 'object') return null;
+
+  const triangles = generateDynamicTriangles(prices);
+  let best = null;
+
+  for (const tri of triangles) {
+    const pA = prices[tri.a];
+    const pB = prices[tri.b];
+    const pC = prices[tri.c];
+
+    const opp = evalTriangle(tri, pA, pB, pC, exchange, fee);
+    if (opp && (!best || opp.netPct > best.netPct)) {
+      best = opp;
+    }
+  }
+
+  return best;
+}

@@ -1,19 +1,22 @@
 // nexus/src/orchestrator.js — Unified Decision Engine
 //
-// Runs ALL strategies (CEX, DEX, Perps, Funding, Triangular, Statistical)
-// in parallel across all supported symbols, selects the single best
-// opportunity, applies unified risk checks, and executes one trade per cycle.
+// Runs ALL strategies (CEX, DEX, Perps, Funding, Triangular, Statistical,
+// CEX-DEX Bridge, Scalping) in parallel across all supported symbols,
+// selects the single best opportunity, applies unified risk checks,
+// and executes one trade per cycle.
 
 import { getAllSpotPrices, getMEXCPerpPrice, get0xPrice, resolveDynamicScanSymbols } from './prices.js';
 import { scanCEX } from './strategies/cex.js';
 import { scanDEX } from './strategies/dex.js';
 import { scanPerps } from './strategies/perps.js';
 import { scanFundingRate } from './strategies/funding.js';
-import { scanTriangular, TRIANGLES } from './strategies/triangular.js';
+import { scanTriangular, TRIANGLES, scanTriangularDynamic } from './strategies/triangular.js';
 import { scanStatistical, CORRELATED_PAIRS } from './strategies/statistical.js';
 import { scanScalpingForward } from './strategies/scalping-forward.js';
 import { scanScalpingReverse } from './strategies/scalping-reverse.js';
 import { scanScalpingParallel } from './strategies/scalping-parallel.js';
+import { scanCexDexBridge, buildCexPriceMap } from './strategies/cex-dex-bridge.js';
+import { getLivePrices, getPriceBook, initHFTFeed } from './feeds/ws-price-book.js';
 import { scanFromHFT, isHFTEngineConfigured } from './hft-client.js';
 import { logTrade, openPaperPosition, getOpenPaperPositions, closePaperPosition, logBotEvent } from './db.js';
 import { calculateAdaptiveLeverage, calculatePositionSize, MAX_POSITION_EQUITY_FRACTION, checkDrawdownGuard, checkExposureLimit } from './risk.js';
@@ -38,6 +41,7 @@ const STRATEGY_SPEED_WEIGHTS = {
   perps: 1.0,
   funding: 0.88,
   dex: 0.85,
+  cex_dex_bridge: 0.90,
 };
 
 function splitSymbol(symbol) {
@@ -650,6 +654,7 @@ export async function runScan(env, state, sendAlert, scanContext = {}) {
       scalp_forward: state?.strategy_flags?.scalp_forward !== false,
       scalp_reverse: state?.strategy_flags?.scalp_reverse !== false,
       scalp_parallel: state?.strategy_flags?.scalp_parallel !== false,
+      cex_dex_bridge: state?.strategy_flags?.cex_dex_bridge !== false,
     };
     const rebalancePolicy = normalizeRebalancePolicy(state?.rebalance_policy || {});
     const routingBalances = rebalancePolicy.enabled
@@ -729,610 +734,644 @@ export async function runScan(env, state, sendAlert, scanContext = {}) {
       live_execution: {},
       system: {},
     };
-    const lastScan = {
-      timestamp: Date.now(),
-      cex: null,
-      dex: null,
-      perps: null,
-      funding: null,
-      triangular: null,
-      statistical: null,
-      scalp_forward: null,
-      scalp_reverse: null,
-      scalp_parallel: null,
-    };
+  const lastScan = {
+    timestamp: Date.now(),
+    cex: null,
+    dex: null,
+    perps: null,
+    funding: null,
+    triangular: null,
+    statistical: null,
+    scalp_forward: null,
+    scalp_reverse: null,
+    scalp_parallel: null,
+    cex_dex_bridge: null,
+  };
 
-    // Load circuit-breaker state from KV once per cycle
-    const cb = await getCircuitBreaker(env);
-    const openCircuits = new Set();
-    for (const [exchange] of Object.entries(cb)) {
-      if (isCircuitOpen(cb, exchange)) openCircuits.add(exchange);
-    }
-    if (!perpsExecutionEnabled && cb.mexc_perp) {
-      delete cb.mexc_perp;
-      await saveCircuitBreaker(env, cb);
-    }
-    if (!perpsExecutionEnabled) {
-      openCircuits.delete('mexc_perp');
-    }
-    if (openCircuits.size > 0) {
-      console.log(`[CB] Skipping open circuits: ${[...openCircuits].join(', ')}`);
-    }
+  // Load circuit-breaker state from KV once per cycle
+  const cb = await getCircuitBreaker(env);
+  const openCircuits = new Set();
+  for (const [exchange] of Object.entries(cb)) {
+    if (isCircuitOpen(cb, exchange)) openCircuits.add(exchange);
+  }
+  if (!perpsExecutionEnabled && cb.mexc_perp) {
+    delete cb.mexc_perp;
+    await saveCircuitBreaker(env, cb);
+  }
+  if (!perpsExecutionEnabled) {
+    openCircuits.delete('mexc_perp');
+  }
+  if (openCircuits.size > 0) {
+    console.log(`[CB] Skipping open circuits: ${[...openCircuits].join(', ')}`);
+  }
 
-    const midPrices = {};
+  const midPrices = {};
 
-    // ── Scan from Go HFT engine first (low-latency, WebSocket-fed) ───────────
-    let hftOpp;
-    if (isHFTEngineConfigured(env) && strategyFlags.cex) {
-      try {
-        hftOpp = await scanFromHFT(env);
-        if (hftOpp) {
-          allOpportunities.push(hftOpp);
-          if (paperMode || isLiveExecutableOpportunityWithEnv(hftOpp, env)) {
-            lastScan.cex = hftOpp;
-          }
-          console.log(`[HFT] Go engine returned: ${hftOpp.symbol} ${hftOpp.netPct.toFixed(4)}%`);
+  // ── Scan from Go HFT engine first (low-latency, WebSocket-fed) ───────────
+  let hftOpp;
+  if (isHFTEngineConfigured(env) && strategyFlags.cex) {
+    try {
+      hftOpp = await scanFromHFT(env);
+      if (hftOpp) {
+        allOpportunities.push(hftOpp);
+        if (paperMode || isLiveExecutableOpportunityWithEnv(hftOpp, env)) {
+          lastScan.cex = hftOpp;
         }
-      } catch (e) {
-        console.error('[HFT] scan error (falling back to JS):', e.message);
+        console.log(`[HFT] Go engine returned: ${hftOpp.symbol} ${hftOpp.netPct.toFixed(4)}%`);
       }
+    } catch (e) {
+      console.error('[HFT] scan error (falling back to JS):', e.message);
     }
+  }
 
-    // ── Concurrency limiter (max 5 symbols in parallel to avoid CF fetch deadlocks) ──
-    async function* batchedSymbols(syms, concurrency) {
-      for (let i = 0; i < syms.length; i += concurrency) {
-        yield syms.slice(i, i + concurrency);
-      }
+  // ── Concurrency limiter (max 5 symbols in parallel to avoid CF fetch deadlocks) ──
+  async function* batchedSymbols(syms, concurrency) {
+    for (let i = 0; i < syms.length; i += concurrency) {
+      yield syms.slice(i, i + concurrency);
     }
+  }
 
-    async function scanSymbolsConcurrently(syms, handler, maxConcurrency = 4) {
-      for await (const batch of batchedSymbols(syms, maxConcurrency)) {
-        await Promise.all(batch.map(handler));
-      }
+  async function scanSymbolsConcurrently(syms, handler, maxConcurrency = 4) {
+    for await (const batch of batchedSymbols(syms, maxConcurrency)) {
+      await Promise.all(batch.map(handler));
     }
+  }
 
-    // ── Scan all symbols with ALL JS strategies ──────────────────────────────
-    const [, dexOpp] = await Promise.all([
-      scanSymbolsConcurrently(
-        symbols,
-        async symbol => {
-          try {
-            const [spotSources, perpSource, zeroXSource] = await Promise.all([
-              getAllSpotPrices(env, symbol, openCircuits),
-              (perpsExecutionEnabled && !openCircuits.has('mexc_perp')) ? getMEXCPerpPrice(symbol) : Promise.resolve(null),
-              get0xPrice(env, symbol)
-            ]);
+  // ── Scan all symbols with ALL JS strategies ──────────────────────────────
+  const [, dexOpp] = await Promise.all([
+    scanSymbolsConcurrently(
+      symbols,
+      async symbol => {
+        try {
+          const [spotSources, perpSource, zeroXSource] = await Promise.all([
+            getAllSpotPrices(env, symbol, openCircuits),
+            (perpsExecutionEnabled && !openCircuits.has('mexc_perp')) ? getMEXCPerpPrice(symbol) : Promise.resolve(null),
+            get0xPrice(env, symbol)
+          ]);
 
-            // Update circuit breaker based on fetch results
-            const hasMexcSrc = spotSources.some(s => s.exchange === 'mexc');
-            if (hasMexcSrc) {
-              recordCBSuccess(cb, 'mexc');
-            } else if (!openCircuits.has('mexc')) {
-              recordCBFailure(cb, 'mexc');
-              // Propagate new open circuit to remaining batches immediately
-              if (isCircuitOpen(cb, 'mexc')) openCircuits.add('mexc');
-            }
-            if (spotSources.length > 0) {
-              for (const src of spotSources) {
-                if (src.exchange !== 'mexc') recordCBSuccess(cb, src.exchange);
-              }
-            }
-            if (perpsExecutionEnabled && perpSource) {
-              recordCBSuccess(cb, 'mexc_perp');
-            } else if (perpsExecutionEnabled && !openCircuits.has('mexc_perp')) {
-              recordCBFailure(cb, 'mexc_perp');
-              if (isCircuitOpen(cb, 'mexc_perp')) openCircuits.add('mexc_perp');
-            }
-
-            const mexcSrc = spotSources.find(s => s.exchange === 'mexc');
-            if (mexcSrc) midPrices[symbol] = mexcSrc.price;
-
-            const effectiveSpotSources = mexcOnlyMode
-              ? spotSources.filter((src) => src.exchange === 'mexc')
-              : spotSources;
-
-            const cexSources = (!mexcOnlyMode && zeroXSource)
-              ? [...effectiveSpotSources, zeroXSource]
-              : effectiveSpotSources;
-
-            for (const src of effectiveSpotSources) {
-              const ex = String(src?.exchange || '').toLowerCase();
-              if (!ex) continue;
-              if (!exchangePriceBooks.has(ex)) exchangePriceBooks.set(ex, {});
-              exchangePriceBooks.get(ex)[symbol] = Number(src.price || 0);
-            }
-
-            // ── Strategy 1: CEX Spatial ────────────────────────────────────────
-            const cexOpp = (strategyFlags.cex && !mexcOnlyMode)
-              ? scanCEX(symbol, cexSources, maxSpreadPct, {
-                ...cexScanOptions,
-                rejections: rejectionBuckets.cex,
-              })
-              : null;
-
-            // ── Strategy 2: Perpetuals vs Spot ─────────────────────────────────
-            const perpsOpp = strategyFlags.perps
-              ? scanPerps(symbol, effectiveSpotSources, perpSource, maxSpreadPct, {
-                ...perpsScanOptions,
-                rejections: rejectionBuckets.perps,
-              })
-              : null;
-
-            // ── Strategy 3: Funding Rate Harvest ──────────────────────────────
-            // Requires perp data with fundingRate field
-            const fundingOpp = (strategyFlags.funding && perpSource && perpSource.fundingRate !== undefined)
-              ? scanFundingRate(symbol, effectiveSpotSources, perpSource, maxSpreadPct)
-              : null;
-
-            const scalpingOptions = {
-              minNetPct: Number(state?.scalp_min_net_pct || 0.10),
-            };
-
-            const scalpForwardOpp = strategyFlags.scalp_forward
-              ? scanScalpingForward(symbol, effectiveSpotSources, {
-                ...scalpingOptions,
-                minSafety: 0.18,
-                maxGrossPct: maxSpreadPct,
-                rejections: rejectionBuckets.scalp_forward,
-              })
-              : null;
-
-            const scalpReverseOpp = strategyFlags.scalp_reverse
-              ? scanScalpingReverse(symbol, effectiveSpotSources, {
-                ...scalpingOptions,
-                minSafety: 0.18,
-                rejections: rejectionBuckets.scalp_reverse,
-              })
-              : null;
-
-            const scalpParallelOpp = strategyFlags.scalp_parallel
-              ? scanScalpingParallel(symbol, effectiveSpotSources, {
-                ...scalpingOptions,
-                minSafety: 0.18,
-                rejections: rejectionBuckets.scalp_parallel,
-              })
-              : null;
-
-            if (cexOpp) {
-              allOpportunities.push(cexOpp);
-              if ((paperMode || isLiveExecutableOpportunityWithEnv(cexOpp, env)) &&
-                (!lastScan.cex || cexOpp.netPct > lastScan.cex.netPct)) {
-                lastScan.cex = cexOpp;
-              }
-            }
-            if (perpsOpp) {
-              allOpportunities.push(perpsOpp);
-              if ((paperMode || isLiveExecutableOpportunityWithEnv(perpsOpp, env)) &&
-                (!lastScan.perps || perpsOpp.netPct > lastScan.perps.netPct)) {
-                lastScan.perps = perpsOpp;
-              }
-            }
-            if (fundingOpp) {
-              allOpportunities.push(fundingOpp);
-              if ((paperMode || isLiveExecutableOpportunityWithEnv(fundingOpp, env)) &&
-                (!lastScan.funding || fundingOpp.netPct > lastScan.funding.netPct)) {
-                lastScan.funding = fundingOpp;
-              }
-            }
-            if (scalpForwardOpp) {
-              allOpportunities.push(scalpForwardOpp);
-              if ((paperMode || isLiveExecutableOpportunityWithEnv(scalpForwardOpp, env)) &&
-                (!lastScan.scalp_forward || scalpForwardOpp.netPct > lastScan.scalp_forward.netPct)) {
-                lastScan.scalp_forward = scalpForwardOpp;
-              }
-            }
-            if (scalpReverseOpp) {
-              allOpportunities.push(scalpReverseOpp);
-              if ((paperMode || isLiveExecutableOpportunityWithEnv(scalpReverseOpp, env)) &&
-                (!lastScan.scalp_reverse || scalpReverseOpp.netPct > lastScan.scalp_reverse.netPct)) {
-                lastScan.scalp_reverse = scalpReverseOpp;
-              }
-            }
-            if (scalpParallelOpp) {
-              allOpportunities.push(scalpParallelOpp);
-              if ((paperMode || isLiveExecutableOpportunityWithEnv(scalpParallelOpp, env)) &&
-                (!lastScan.scalp_parallel || scalpParallelOpp.netPct > lastScan.scalp_parallel.netPct)) {
-                lastScan.scalp_parallel = scalpParallelOpp;
-              }
-            }
-          } catch (e) {
-            console.error(`[${symbol}] scan error:`, e.message);
+          // Update circuit breaker based on fetch results
+          const hasMexcSrc = spotSources.some(s => s.exchange === 'mexc');
+          if (hasMexcSrc) {
+            recordCBSuccess(cb, 'mexc');
+          } else if (!openCircuits.has('mexc')) {
+            recordCBFailure(cb, 'mexc');
+            // Propagate new open circuit to remaining batches immediately
+            if (isCircuitOpen(cb, 'mexc')) openCircuits.add('mexc');
           }
-        },
-        4
-      ),
-      strategyFlags.dex ? scanDEX(env) : Promise.resolve(null)
-    ]);
+          if (spotSources.length > 0) {
+            for (const src of spotSources) {
+              if (src.exchange !== 'mexc') recordCBSuccess(cb, src.exchange);
+            }
+          }
+          if (perpsExecutionEnabled && perpSource) {
+            recordCBSuccess(cb, 'mexc_perp');
+          } else if (perpsExecutionEnabled && !openCircuits.has('mexc_perp')) {
+            recordCBFailure(cb, 'mexc_perp');
+            if (isCircuitOpen(cb, 'mexc_perp')) openCircuits.add('mexc_perp');
+          }
 
-    // ── Strategy 5: Statistical Arbitrage (KV-dependent, runs once per cycle) ─
-    if (strategyFlags.statistical) {
-      try {
-        for (const pair of CORRELATED_PAIRS) {
-          const sourcesA = await getAllSpotPrices(env, pair.symbolA, openCircuits).catch(() => []);
-          const sourcesB = await getAllSpotPrices(env, pair.symbolB, openCircuits).catch(() => []);
-          const priceA = sourcesA.length > 0 ? sourcesA.reduce((a, b) => (a.price < b.price ? a : b)).price : 0;
-          const priceB = sourcesB.length > 0 ? sourcesB.reduce((a, b) => (a.price < b.price ? a : b)).price : 0;
-          if (priceA > 0 && priceB > 0) {
-            const statOpp = await scanStatistical(env, pair, priceA, priceB, sourcesA, sourcesB);
-            if (statOpp) {
-              allOpportunities.push(statOpp);
-              if ((paperMode || isLiveExecutableOpportunityWithEnv(statOpp, env)) &&
-                (!lastScan.statistical || statOpp.netPct > lastScan.statistical.netPct)) {
-                lastScan.statistical = statOpp;
-              }
-            } else {
-              incrementRejection(rejectionBuckets.statistical, 'no_signal_for_pair');
+          const mexcSrc = spotSources.find(s => s.exchange === 'mexc');
+          if (mexcSrc) midPrices[symbol] = mexcSrc.price;
+
+          const effectiveSpotSources = mexcOnlyMode
+            ? spotSources.filter((src) => src.exchange === 'mexc')
+            : spotSources;
+
+          const cexSources = (!mexcOnlyMode && zeroXSource)
+            ? [...effectiveSpotSources, zeroXSource]
+            : effectiveSpotSources;
+
+          for (const src of effectiveSpotSources) {
+            const ex = String(src?.exchange || '').toLowerCase();
+            if (!ex) continue;
+            if (!exchangePriceBooks.has(ex)) exchangePriceBooks.set(ex, {});
+            exchangePriceBooks.get(ex)[symbol] = Number(src.price || 0);
+          }
+
+          // ── Strategy 1: CEX Spatial ────────────────────────────────────────
+          const cexOpp = (strategyFlags.cex && !mexcOnlyMode)
+            ? scanCEX(symbol, cexSources, maxSpreadPct, {
+              ...cexScanOptions,
+              rejections: rejectionBuckets.cex,
+            })
+            : null;
+
+          // ── Strategy 2: Perpetuals vs Spot ─────────────────────────────────
+          const perpsOpp = strategyFlags.perps
+            ? scanPerps(symbol, effectiveSpotSources, perpSource, maxSpreadPct, {
+              ...perpsScanOptions,
+              rejections: rejectionBuckets.perps,
+            })
+            : null;
+
+          // ── Strategy 3: Funding Rate Harvest ──────────────────────────────
+          // Requires perp data with fundingRate field
+          const fundingOpp = (strategyFlags.funding && perpSource && perpSource.fundingRate !== undefined)
+            ? scanFundingRate(symbol, effectiveSpotSources, perpSource, maxSpreadPct)
+            : null;
+
+          const scalpingOptions = {
+            minNetPct: Number(state?.scalp_min_net_pct || 0.10),
+          };
+
+          const scalpForwardOpp = strategyFlags.scalp_forward
+            ? scanScalpingForward(symbol, effectiveSpotSources, {
+              ...scalpingOptions,
+              minSafety: 0.18,
+              maxGrossPct: maxSpreadPct,
+              rejections: rejectionBuckets.scalp_forward,
+            })
+            : null;
+
+          const scalpReverseOpp = strategyFlags.scalp_reverse
+            ? scanScalpingReverse(symbol, effectiveSpotSources, {
+              ...scalpingOptions,
+              minSafety: 0.18,
+              rejections: rejectionBuckets.scalp_reverse,
+            })
+            : null;
+
+          const scalpParallelOpp = strategyFlags.scalp_parallel
+            ? scanScalpingParallel(symbol, effectiveSpotSources, {
+              ...scalpingOptions,
+              minSafety: 0.18,
+              rejections: rejectionBuckets.scalp_parallel,
+            })
+            : null;
+
+          if (cexOpp) {
+            allOpportunities.push(cexOpp);
+            if ((paperMode || isLiveExecutableOpportunityWithEnv(cexOpp, env)) &&
+              (!lastScan.cex || cexOpp.netPct > lastScan.cex.netPct)) {
+              lastScan.cex = cexOpp;
+            }
+          }
+          if (perpsOpp) {
+            allOpportunities.push(perpsOpp);
+            if ((paperMode || isLiveExecutableOpportunityWithEnv(perpsOpp, env)) &&
+              (!lastScan.perps || perpsOpp.netPct > lastScan.perps.netPct)) {
+              lastScan.perps = perpsOpp;
+            }
+          }
+          if (fundingOpp) {
+            allOpportunities.push(fundingOpp);
+            if ((paperMode || isLiveExecutableOpportunityWithEnv(fundingOpp, env)) &&
+              (!lastScan.funding || fundingOpp.netPct > lastScan.funding.netPct)) {
+              lastScan.funding = fundingOpp;
+            }
+          }
+          if (scalpForwardOpp) {
+            allOpportunities.push(scalpForwardOpp);
+            if ((paperMode || isLiveExecutableOpportunityWithEnv(scalpForwardOpp, env)) &&
+              (!lastScan.scalp_forward || scalpForwardOpp.netPct > lastScan.scalp_forward.netPct)) {
+              lastScan.scalp_forward = scalpForwardOpp;
+            }
+          }
+          if (scalpReverseOpp) {
+            allOpportunities.push(scalpReverseOpp);
+            if ((paperMode || isLiveExecutableOpportunityWithEnv(scalpReverseOpp, env)) &&
+              (!lastScan.scalp_reverse || scalpReverseOpp.netPct > lastScan.scalp_reverse.netPct)) {
+              lastScan.scalp_reverse = scalpReverseOpp;
+            }
+          }
+          if (scalpParallelOpp) {
+            allOpportunities.push(scalpParallelOpp);
+            if ((paperMode || isLiveExecutableOpportunityWithEnv(scalpParallelOpp, env)) &&
+              (!lastScan.scalp_parallel || scalpParallelOpp.netPct > lastScan.scalp_parallel.netPct)) {
+              lastScan.scalp_parallel = scalpParallelOpp;
+            }
+          }
+        } catch (e) {
+          console.error(`[${symbol}] scan error:`, e.message);
+        }
+      },
+      4
+    ),
+    strategyFlags.dex ? scanDEX(env) : Promise.resolve(null)
+  ]);
+
+  // ── Strategy 5: Statistical Arbitrage (KV-dependent, runs once per cycle) ─
+  if (strategyFlags.statistical) {
+    try {
+      for (const pair of CORRELATED_PAIRS) {
+        const sourcesA = await getAllSpotPrices(env, pair.symbolA, openCircuits).catch(() => []);
+        const sourcesB = await getAllSpotPrices(env, pair.symbolB, openCircuits).catch(() => []);
+        const priceA = sourcesA.length > 0 ? sourcesA.reduce((a, b) => (a.price < b.price ? a : b)).price : 0;
+        const priceB = sourcesB.length > 0 ? sourcesB.reduce((a, b) => (a.price < b.price ? a : b)).price : 0;
+        if (priceA > 0 && priceB > 0) {
+          const statOpp = await scanStatistical(env, pair, priceA, priceB, sourcesA, sourcesB);
+          if (statOpp) {
+            allOpportunities.push(statOpp);
+            if ((paperMode || isLiveExecutableOpportunityWithEnv(statOpp, env)) &&
+              (!lastScan.statistical || statOpp.netPct > lastScan.statistical.netPct)) {
+              lastScan.statistical = statOpp;
             }
           } else {
-            incrementRejection(rejectionBuckets.statistical, 'missing_pair_prices');
+            incrementRejection(rejectionBuckets.statistical, 'no_signal_for_pair');
           }
+        } else {
+          incrementRejection(rejectionBuckets.statistical, 'missing_pair_prices');
         }
-      } catch (e) {
-        console.error('[Statistical] scan error:', e.message);
+      }
+    } catch (e) {
+      console.error('[Statistical] scan error:', e.message);
+    }
+  }
+
+  // ── Strategy 4: Triangular Arbitrage (exchange-wide, runs once per cycle) ─
+  if (strategyFlags.triangular) {
+    let foundTriangular = false;
+    for (const [exchange, prices] of exchangePriceBooks.entries()) {
+      const fee = 0.001;
+
+      // Try dynamic triangles first, fall back to hardcoded if price book is sparse
+      const triOpp = scanTriangularDynamic(exchange, fee, prices)
+        || scanTriangular(exchange, fee, prices);
+
+      if (!triOpp) continue;
+      foundTriangular = true;
+      allOpportunities.push(triOpp);
+      if ((paperMode || isLiveExecutableOpportunityWithEnv(triOpp, env)) &&
+        (!lastScan.triangular || triOpp.netPct > lastScan.triangular.netPct)) {
+        lastScan.triangular = triOpp;
       }
     }
+    if (!foundTriangular) {
+      incrementRejection(rejectionBuckets.triangular, 'no_valid_triangle_from_price_book');
+    }
+  }
 
-    // ── Strategy 4: Triangular Arbitrage (exchange-wide, runs once per cycle) ─
-    if (strategyFlags.triangular) {
-      let foundTriangular = false;
+  // ── Strategy 10: CEX↔DEX Bridge Arbitrage ──────────────────────────────
+  if (strategyFlags.cex_dex_bridge) {
+    try {
+      // Build CEX price map from exchange price books
+      const spotSourcesBySymbol = {};
       for (const [exchange, prices] of exchangePriceBooks.entries()) {
-        const fee = 0.001;
-        const triOpp = scanTriangular(exchange, fee, prices);
-        if (!triOpp) continue;
-        foundTriangular = true;
-        allOpportunities.push(triOpp);
-        if ((paperMode || isLiveExecutableOpportunityWithEnv(triOpp, env)) &&
-          (!lastScan.triangular || triOpp.netPct > lastScan.triangular.netPct)) {
-          lastScan.triangular = triOpp;
+        for (const [symbol, price] of Object.entries(prices)) {
+          if (!spotSourcesBySymbol[symbol]) spotSourcesBySymbol[symbol] = [];
+          spotSourcesBySymbol[symbol].push({ exchange, price, fee: 0.001 });
         }
       }
-      if (!foundTriangular) {
-        incrementRejection(rejectionBuckets.triangular, 'no_valid_triangle_from_price_book');
+
+      const cexPriceMap = buildCexPriceMap(spotSourcesBySymbol);
+      const bridgeOpp = await scanCexDexBridge(cexPriceMap, env);
+
+      if (bridgeOpp) {
+        allOpportunities.push(bridgeOpp);
+        if ((paperMode || isLiveExecutableOpportunityWithEnv(bridgeOpp, env)) &&
+          (!lastScan.cex_dex_bridge || bridgeOpp.netPct > (lastScan.cex_dex_bridge?.netPct || 0))) {
+          lastScan.cex_dex_bridge = bridgeOpp;
+        }
+      } else {
+        incrementRejection(rejectionBuckets.system, 'no_cex_dex_bridge_opportunity');
       }
+    } catch (e) {
+      console.error('[CEX-DEX Bridge] scan error:', e.message);
     }
+  }
 
-    // Persist updated circuit-breaker state
-    saveCircuitBreaker(env, cb);
+  // Persist updated circuit-breaker state
+  saveCircuitBreaker(env, cb);
 
-    if (dexOpp && strategyFlags.dex) {
-      allOpportunities.push(dexOpp);
-      if (paperMode || isLiveExecutableOpportunityWithEnv(dexOpp, env)) {
-        lastScan.dex = dexOpp;
-      }
+  if (dexOpp && strategyFlags.dex) {
+    allOpportunities.push(dexOpp);
+    if (paperMode || isLiveExecutableOpportunityWithEnv(dexOpp, env)) {
+      lastScan.dex = dexOpp;
     }
+  }
 
-    // Settle open paper positions
-    await settleOpenPaperPositions(env, midPrices, state);
+  // Settle open paper positions
+  await settleOpenPaperPositions(env, midPrices, state);
 
-    // Persist scan summary to KV (5-min TTL)
-    try {
-      await env.BOT_STATE.put(
-        'nexus_last_scan',
-        JSON.stringify(lastScan),
-        { expirationTtl: 300 }
-      );
-      await env.BOT_STATE.put(
-        'nexus_capital_routing_last',
-        JSON.stringify({
-          ts: Date.now(),
-          policy: rebalancePolicy,
-          weights: exchangeRoutingWeights,
-          balances: routingBalances,
-        }),
-        { expirationTtl: 3600 }
-      );
-    } catch (_) { }
+  // Persist scan summary to KV (5-min TTL)
+  try {
+    await env.BOT_STATE.put(
+      'nexus_last_scan',
+      JSON.stringify(lastScan),
+      { expirationTtl: 300 }
+    );
+    await env.BOT_STATE.put(
+      'nexus_capital_routing_last',
+      JSON.stringify({
+        ts: Date.now(),
+        policy: rebalancePolicy,
+        weights: exchangeRoutingWeights,
+        balances: routingBalances,
+      }),
+      { expirationTtl: 3600 }
+    );
+  } catch (_) { }
 
-    const executableOpportunities = paperMode
-      ? allOpportunities
-      : allOpportunities.filter((opp) => isLiveExecutableOpportunityWithEnv(opp, env));
+  const executableOpportunities = paperMode
+    ? allOpportunities
+    : allOpportunities.filter((opp) => isLiveExecutableOpportunityWithEnv(opp, env));
 
-    if (!paperMode && allOpportunities.length > 0) {
-      for (const opp of allOpportunities) {
-        if (isLiveExecutableOpportunityWithEnv(opp, env)) continue;
-        incrementRejection(rejectionBuckets.live_execution, classifyLiveRejectReason(opp, env));
-      }
+  if (!paperMode && allOpportunities.length > 0) {
+    for (const opp of allOpportunities) {
+      if (isLiveExecutableOpportunityWithEnv(opp, env)) continue;
+      incrementRejection(rejectionBuckets.live_execution, classifyLiveRejectReason(opp, env));
     }
+  }
 
-    if (allOpportunities.length === 0) {
-      incrementRejection(rejectionBuckets.system, 'no_opportunities_after_scan');
-    }
-    if (allOpportunities.length > 0 && executableOpportunities.length === 0) {
-      incrementRejection(rejectionBuckets.system, 'no_live_executable_opportunities');
-    }
+  if (allOpportunities.length === 0) {
+    incrementRejection(rejectionBuckets.system, 'no_opportunities_after_scan');
+  }
+  if (allOpportunities.length > 0 && executableOpportunities.length === 0) {
+    incrementRejection(rejectionBuckets.system, 'no_live_executable_opportunities');
+  }
 
-    const rejectionSnapshot = buildRejectionSnapshot(rejectionBuckets, {
-      symbolCount: Number(symbols.length || 0),
-      strategyMode,
-      paperMode,
-      maxSpreadPct,
-      opportunitiesFound: allOpportunities.length,
-      executableFound: executableOpportunities.length,
-      liveMinBalanceUsd,
-      liveEligibleExecutionExchanges: paperMode ? [] : [...liveEligibleExchanges],
-      liveExecutionExchangeBalances: paperMode ? {} : liveExchangeBalanceSnapshot,
-      lockAcquired: true,
-      scanSource: normalizedScanContext.source,
-      scanTrigger: normalizedScanContext.trigger,
-      scanId: normalizedScanContext.scanId,
-    });
-    try {
-      await env.BOT_STATE.put(
-        SCAN_REJECTIONS_KEY,
-        JSON.stringify(rejectionSnapshot),
-        { expirationTtl: 3600 }
-      );
-    } catch (_) { }
+  const rejectionSnapshot = buildRejectionSnapshot(rejectionBuckets, {
+    symbolCount: Number(symbols.length || 0),
+    strategyMode,
+    paperMode,
+    maxSpreadPct,
+    opportunitiesFound: allOpportunities.length,
+    executableFound: executableOpportunities.length,
+    liveMinBalanceUsd,
+    liveEligibleExecutionExchanges: paperMode ? [] : [...liveEligibleExchanges],
+    liveExecutionExchangeBalances: paperMode ? {} : liveExchangeBalanceSnapshot,
+    lockAcquired: true,
+    scanSource: normalizedScanContext.source,
+    scanTrigger: normalizedScanContext.trigger,
+    scanId: normalizedScanContext.scanId,
+  });
+  try {
+    await env.BOT_STATE.put(
+      SCAN_REJECTIONS_KEY,
+      JSON.stringify(rejectionSnapshot),
+      { expirationTtl: 3600 }
+    );
+  } catch (_) { }
 
-    if (allOpportunities.length === 0) {
-      console.log(`🔍 Nexus: no opportunities across ${symbols.length} symbols (all strategies)`);
-      incrementMetric('scan.no_opportunities');
-      return null;
-    }
+  if (allOpportunities.length === 0) {
+    console.log(`🔍 Nexus: no opportunities across ${symbols.length} symbols (all strategies)`);
+    incrementMetric('scan.no_opportunities');
+    return null;
+  }
 
-    if (executableOpportunities.length === 0) {
-      console.log(`🔍 Nexus: no executable opportunities in ${paperMode ? 'paper' : 'live'} mode`);
-      incrementMetric('scan.no_executable_opportunities', 1, { mode: paperMode ? 'paper' : 'live' });
-      return null;
-    }
+  if (executableOpportunities.length === 0) {
+    console.log(`🔍 Nexus: no executable opportunities in ${paperMode ? 'paper' : 'live'} mode`);
+    incrementMetric('scan.no_executable_opportunities', 1, { mode: paperMode ? 'paper' : 'live' });
+    return null;
+  }
 
-    // ── Differential ranking and multi-strategy execution plan ───────────────
-    const scoredOpportunities = await Promise.all(
-      executableOpportunities.map(async (opp) => {
-        const liveCapUsd = paperMode ? Number.POSITIVE_INFINITY : await getLiveExecutionCapUsd(env, opp);
-        return {
-          ...opp,
+  // ── Differential ranking and multi-strategy execution plan ───────────────
+  const scoredOpportunities = await Promise.all(
+    executableOpportunities.map(async (opp) => {
+      const liveCapUsd = paperMode ? Number.POSITIVE_INFINITY : await getLiveExecutionCapUsd(env, opp);
+      return {
+        ...opp,
+        liveCapUsd,
+        score: scoreOpportunity(
+          opp,
+          strategyWeights,
+          strategyOutcomes,
+          exchangeRoutingWeights,
+          liveExchangeBalanceSnapshot,
+          liveMinBalanceUsd,
+          venueReadyPriorityMultiplier,
           liveCapUsd,
-          score: scoreOpportunity(
-            opp,
-            strategyWeights,
-            strategyOutcomes,
-            exchangeRoutingWeights,
-            liveExchangeBalanceSnapshot,
-            liveMinBalanceUsd,
-            venueReadyPriorityMultiplier,
-            liveCapUsd,
-          ),
-        };
-      })
-    );
+        ),
+      };
+    })
+  );
 
-    const rankedOpportunities = scoredOpportunities
-      .filter((opp) => paperMode || Number(opp.liveCapUsd || 0) >= Math.max(1, liveMinBalanceUsd))
-      .sort((a, b) => {
-        if (b.score !== a.score) return b.score - a.score;
-        if (Number(b.liveCapUsd || 0) !== Number(a.liveCapUsd || 0)) {
-          return Number(b.liveCapUsd || 0) - Number(a.liveCapUsd || 0);
-        }
-        return Number(b.netPct || 0) - Number(a.netPct || 0);
-      });
+  const rankedOpportunities = scoredOpportunities
+    .filter((opp) => paperMode || Number(opp.liveCapUsd || 0) >= Math.max(1, liveMinBalanceUsd))
+    .sort((a, b) => {
+      if (b.score !== a.score) return b.score - a.score;
+      if (Number(b.liveCapUsd || 0) !== Number(a.liveCapUsd || 0)) {
+        return Number(b.liveCapUsd || 0) - Number(a.liveCapUsd || 0);
+      }
+      return Number(b.netPct || 0) - Number(a.netPct || 0);
+    });
 
-    if (!paperMode && scoredOpportunities.length > 0 && rankedOpportunities.length === 0) {
-      incrementRejection(rejectionBuckets.live_execution, 'insufficient_live_execution_cap');
-    }
+  if (!paperMode && scoredOpportunities.length > 0 && rankedOpportunities.length === 0) {
+    incrementRejection(rejectionBuckets.live_execution, 'insufficient_live_execution_cap');
+  }
 
-    const maxTradesPerScan = state.multi_strategy_live !== false
-      ? clamp(Math.ceil(Number(state.max_live_trades_per_scan || 1) * exposureBoost), 1, 10)
+  const maxTradesPerScan = state.multi_strategy_live !== false
+    ? clamp(Math.ceil(Number(state.max_live_trades_per_scan || 1) * exposureBoost), 1, 10)
+    : 1;
+  const selected = [];
+  const usedSymbols = new Set();
+
+  for (const opp of rankedOpportunities) {
+    const key = String(opp.symbol || '').toUpperCase();
+    if (usedSymbols.has(key) && opp.strategy !== 'scalp_parallel') continue;
+    selected.push(opp);
+    usedSymbols.add(key);
+    if (selected.length >= maxTradesPerScan) break;
+  }
+  if (selected.length === 0 && rankedOpportunities.length > 0) {
+    selected.push(rankedOpportunities[0]);
+  }
+
+  const top = selected[0];
+  console.log(
+    `🎯 Top now [${String(top.strategy || '').toUpperCase()}] ${top.symbol} ${top.direction}` +
+    ` net ${Number(top.netPct || 0).toFixed(4)}% score ${Number(top.score || 0).toFixed(5)}`
+  );
+
+  const dailyLimitUsd = Number.isFinite(state.daily_limit_usd) && state.daily_limit_usd > 0
+    ? state.daily_limit_usd
+    : 0;
+
+  const drawdownCheck = checkDrawdownGuard(state, equity);
+  if (drawdownCheck.halt) {
+    state.auto_stopped = true;
+    state.auto_stop_reason = drawdownCheck.reason;
+    await saveState(env, state);
+    await logBotEvent(env, 'auto_stop', { reason: drawdownCheck.reason });
+    await sendAlert(env, `🛑 *إيقاف تلقائي*\n${drawdownCheck.reason}`);
+    console.log(`🛑 Nexus: drawdown guard blocked trade — ${drawdownCheck.reason}`);
+    return null;
+  }
+
+  const mode = paperMode ? 'paper' : 'live';
+  const executed = [];
+
+  for (const opp of selected) {
+    const liveEquity = initialCapital + (state.total_pnl || 0);
+    const leverage = opp.isPerp || opp.strategy === 'funding'
+      ? calculateAdaptiveLeverage(liveEquity, opp.netPct, initialCapital)
       : 1;
-    const selected = [];
-    const usedSymbols = new Set();
-
-    for (const opp of rankedOpportunities) {
-      const key = String(opp.symbol || '').toUpperCase();
-      if (usedSymbols.has(key) && opp.strategy !== 'scalp_parallel') continue;
-      selected.push(opp);
-      usedSymbols.add(key);
-      if (selected.length >= maxTradesPerScan) break;
-    }
-    if (selected.length === 0 && rankedOpportunities.length > 0) {
-      selected.push(rankedOpportunities[0]);
-    }
-
-    const top = selected[0];
-    console.log(
-      `🎯 Top now [${String(top.strategy || '').toUpperCase()}] ${top.symbol} ${top.direction}` +
-      ` net ${Number(top.netPct || 0).toFixed(4)}% score ${Number(top.score || 0).toFixed(5)}`
+    const baseSize = calculatePositionSize(
+      liveEquity,
+      state.win_rate || 0.55,
+      state.risk_reward_ratio || 2.0
     );
+    const requestedSizeUsd = Math.min(baseSize * leverage * exposureBoost, liveEquity * MAX_POSITION_EQUITY_FRACTION);
+    const capitalRoutingBoost = clamp(
+      getOpportunityExchangeWeight(opp, exchangeRoutingWeights) * getStrategySpeedWeight(opp.strategy) * exposureBoost,
+      0.7,
+      2.4
+    );
+    const routedRequestedSizeUsd = requestedSizeUsd * capitalRoutingBoost;
+    const liveBalanceCapUsd = paperMode ? Number.POSITIVE_INFINITY : Number(opp.liveCapUsd || 0);
+    const sizeUsd = Math.min(routedRequestedSizeUsd, liveBalanceCapUsd);
 
-    const dailyLimitUsd = Number.isFinite(state.daily_limit_usd) && state.daily_limit_usd > 0
-      ? state.daily_limit_usd
-      : 0;
-
-    const drawdownCheck = checkDrawdownGuard(state, equity);
-    if (drawdownCheck.halt) {
+    if (dailyLimitUsd > 0 && Number(state.daily_volume_usd || 0) + sizeUsd > dailyLimitUsd) {
       state.auto_stopped = true;
-      state.auto_stop_reason = drawdownCheck.reason;
+      state.auto_stop_reason = `تجاوز حد الحجم اليومي $${dailyLimitUsd}`;
       await saveState(env, state);
-      await logBotEvent(env, 'auto_stop', { reason: drawdownCheck.reason });
-      await sendAlert(env, `🛑 *إيقاف تلقائي*\n${drawdownCheck.reason}`);
-      console.log(`🛑 Nexus: drawdown guard blocked trade — ${drawdownCheck.reason}`);
-      return null;
+      await logBotEvent(env, 'auto_stop', { reason: state.auto_stop_reason });
+      await sendAlert(env, `🛑 *إيقاف تلقائي*\n${state.auto_stop_reason}`);
+      break;
     }
 
-    const mode = paperMode ? 'paper' : 'live';
-    const executed = [];
-
-    for (const opp of selected) {
-      const liveEquity = initialCapital + (state.total_pnl || 0);
-      const leverage = opp.isPerp || opp.strategy === 'funding'
-        ? calculateAdaptiveLeverage(liveEquity, opp.netPct, initialCapital)
-        : 1;
-      const baseSize = calculatePositionSize(
-        liveEquity,
-        state.win_rate || 0.55,
-        state.risk_reward_ratio || 2.0
+    if (!Number.isFinite(sizeUsd) || sizeUsd <= 0) {
+      console.warn(
+        `[fallback-paper] Live balance check blocked for ${opp.symbol} ` +
+        `(${opp.strategy} ${opp.direction} net=${Number(opp.netPct || 0).toFixed(4)}%)`
       );
-      const requestedSizeUsd = Math.min(baseSize * leverage * exposureBoost, liveEquity * MAX_POSITION_EQUITY_FRACTION);
-      const capitalRoutingBoost = clamp(
-        getOpportunityExchangeWeight(opp, exchangeRoutingWeights) * getStrategySpeedWeight(opp.strategy) * exposureBoost,
-        0.7,
-        2.4
+      await sendAlert(
+        env,
+        `📊 [OPP] [${String(opp.strategy || '').toUpperCase()}] ${opp.symbol}\n` +
+        `${opp.direction}\n` +
+        `صافي: ${Number(opp.netPct || 0).toFixed(4)}%  أمان: ${(Number(opp.safetyFactor || 0) * 100).toFixed(1)}%\n` +
+        `⚠️ تعذّر التحقق من الرصيد — الفرصة مرصودة فقط`
       );
-      const routedRequestedSizeUsd = requestedSizeUsd * capitalRoutingBoost;
-      const liveBalanceCapUsd = paperMode ? Number.POSITIVE_INFINITY : Number(opp.liveCapUsd || 0);
-      const sizeUsd = Math.min(routedRequestedSizeUsd, liveBalanceCapUsd);
+      continue;
+    }
 
-      if (dailyLimitUsd > 0 && Number(state.daily_volume_usd || 0) + sizeUsd > dailyLimitUsd) {
-        state.auto_stopped = true;
-        state.auto_stop_reason = `تجاوز حد الحجم اليومي $${dailyLimitUsd}`;
-        await saveState(env, state);
-        await logBotEvent(env, 'auto_stop', { reason: state.auto_stop_reason });
-        await sendAlert(env, `🛑 *إيقاف تلقائي*\n${state.auto_stop_reason}`);
-        break;
-      }
+    const currentExposure = state.total_trades
+      ? Math.min(sizeUsd * 3, liveEquity * MAX_POSITION_EQUITY_FRACTION * 3)
+      : 0;
+    const exposureCheck = checkExposureLimit(liveEquity, currentExposure, sizeUsd);
+    if (!exposureCheck.allowed) {
+      console.log(`🔍 Nexus: exposure limit blocked trade — ${exposureCheck.reason}`);
+      continue;
+    }
 
-      if (!Number.isFinite(sizeUsd) || sizeUsd <= 0) {
-        console.warn(
-          `[fallback-paper] Live balance check blocked for ${opp.symbol} ` +
-          `(${opp.strategy} ${opp.direction} net=${Number(opp.netPct || 0).toFixed(4)}%)`
-        );
-        await sendAlert(
-          env,
-          `📊 [OPP] [${String(opp.strategy || '').toUpperCase()}] ${opp.symbol}\n` +
-          `${opp.direction}\n` +
-          `صافي: ${Number(opp.netPct || 0).toFixed(4)}%  أمان: ${(Number(opp.safetyFactor || 0) * 100).toFixed(1)}%\n` +
-          `⚠️ تعذّر التحقق من الرصيد — الفرصة مرصودة فقط`
-        );
-        continue;
-      }
+    const strategyLabel = `${opp.strategy}:${opp.direction}`;
+    const levStr = leverage > 1 ? ` | ${leverage}x` : '';
 
-      const currentExposure = state.total_trades
-        ? Math.min(sizeUsd * 3, liveEquity * MAX_POSITION_EQUITY_FRACTION * 3)
-        : 0;
-      const exposureCheck = checkExposureLimit(liveEquity, currentExposure, sizeUsd);
-      if (!exposureCheck.allowed) {
-        console.log(`🔍 Nexus: exposure limit blocked trade — ${exposureCheck.reason}`);
-        continue;
-      }
+    const venueList = getOpportunityVenues(opp);
 
-      const strategyLabel = `${opp.strategy}:${opp.direction}`;
-      const levStr = leverage > 1 ? ` | ${leverage}x` : '';
+    if (paperMode) {
+      await openPaperPosition(env, opp, sizeUsd);
+      state.daily_volume_usd = (state.daily_volume_usd || 0) + sizeUsd;
+      state.last_trade_timestamp = Date.now();
 
-      const venueList = getOpportunityVenues(opp);
-
-      if (paperMode) {
-        await openPaperPosition(env, opp, sizeUsd);
-        state.daily_volume_usd = (state.daily_volume_usd || 0) + sizeUsd;
-        state.last_trade_timestamp = Date.now();
-
-        const estimatedPnl = sizeUsd * Number(opp.netPct || 0) / 100;
-        await recordStrategyOutcome(env, String(opp.strategy || '').toLowerCase(), {
+      const estimatedPnl = sizeUsd * Number(opp.netPct || 0) / 100;
+      await recordStrategyOutcome(env, String(opp.strategy || '').toLowerCase(), {
+        success: true,
+        pnlUsd: estimatedPnl,
+        symbol: opp.symbol,
+        exchange: opp.buyExchange,
+      });
+      await Promise.allSettled(
+        venueList.map((venue) => recordVenueOutcome(env, venue, {
           success: true,
-          pnlUsd: estimatedPnl,
+          pnlUsd: venueList.length > 0 ? estimatedPnl / venueList.length : estimatedPnl,
+          latencyMs: 0,
           symbol: opp.symbol,
-          exchange: opp.buyExchange,
-        });
-        await Promise.allSettled(
-          venueList.map((venue) => recordVenueOutcome(env, venue, {
-            success: true,
-            pnlUsd: venueList.length > 0 ? estimatedPnl / venueList.length : estimatedPnl,
-            latencyMs: 0,
-            symbol: opp.symbol,
-            strategy: opp.strategy,
-          }))
-        );
-
-        await sendAlert(
-          env,
-          `📄 [PAPER] [${String(opp.strategy || '').toUpperCase()}] ${opp.symbol}\n` +
-          `${opp.direction}\n` +
-          `$${sizeUsd.toFixed(2)}${levStr}\n` +
-          `net ${Number(opp.netPct || 0).toFixed(4)}%  safety ${(Number(opp.safetyFactor || 0) * 100).toFixed(1)}%`
-        );
-        incrementMetric('trade.executed', 1, { mode: 'paper', strategy: opp.strategy });
-        executed.push({ opportunity: opp, sizeUsd, leverage, mode });
-        continue;
-      }
-
-      try {
-        const execStartedAt = Date.now();
-        await executeTrade(env, opp, sizeUsd, leverage);
-        const executionLatencyMs = Date.now() - execStartedAt;
-
-        const tradePnl = sizeUsd * Number(opp.netPct || 0) / 100;
-        state.daily_pnl = (state.daily_pnl || 0) + tradePnl;
-        state.total_pnl = (state.total_pnl || 0) + tradePnl;
-        state.daily_trades = (state.daily_trades || 0) + 1;
-        state.daily_volume_usd = (state.daily_volume_usd || 0) + sizeUsd;
-        state.total_trades = (state.total_trades || 0) + 1;
-        state.last_trade_timestamp = Date.now();
-
-        await recordStrategyOutcome(env, String(opp.strategy || '').toLowerCase(), {
-          success: true,
-          pnlUsd: tradePnl,
-          symbol: opp.symbol,
-          exchange: opp.buyExchange,
-        });
-        await Promise.allSettled(
-          venueList.map((venue) => recordVenueOutcome(env, venue, {
-            success: true,
-            pnlUsd: venueList.length > 0 ? tradePnl / venueList.length : tradePnl,
-            latencyMs: executionLatencyMs,
-            symbol: opp.symbol,
-            strategy: opp.strategy,
-          }))
-        );
-
-        await logTrade(env, { strategy: strategyLabel, sizeUsd, netPct: opp.netPct, mode });
-
-        await sendAlert(
-          env,
-          `✅ [LIVE] [${String(opp.strategy || '').toUpperCase()}] ${opp.symbol}\n` +
-          `${opp.direction}\n` +
-          `$${sizeUsd.toFixed(2)}${levStr}\n` +
-          `net ${Number(opp.netPct || 0).toFixed(4)}%`
-        );
-        incrementMetric('trade.executed', 1, { mode: 'live', strategy: opp.strategy });
-        executed.push({ opportunity: opp, sizeUsd, leverage, mode });
-      } catch (execErr) {
-        console.error('Trade execution error:', execErr.message);
-        logEvent('error', 'trade.execution_failed', {
           strategy: opp.strategy,
+        }))
+      );
+
+      await sendAlert(
+        env,
+        `📄 [PAPER] [${String(opp.strategy || '').toUpperCase()}] ${opp.symbol}\n` +
+        `${opp.direction}\n` +
+        `$${sizeUsd.toFixed(2)}${levStr}\n` +
+        `net ${Number(opp.netPct || 0).toFixed(4)}%  safety ${(Number(opp.safetyFactor || 0) * 100).toFixed(1)}%`
+      );
+      incrementMetric('trade.executed', 1, { mode: 'paper', strategy: opp.strategy });
+      executed.push({ opportunity: opp, sizeUsd, leverage, mode });
+      continue;
+    }
+
+    try {
+      const execStartedAt = Date.now();
+      await executeTrade(env, opp, sizeUsd, leverage);
+      const executionLatencyMs = Date.now() - execStartedAt;
+
+      const tradePnl = sizeUsd * Number(opp.netPct || 0) / 100;
+      state.daily_pnl = (state.daily_pnl || 0) + tradePnl;
+      state.total_pnl = (state.total_pnl || 0) + tradePnl;
+      state.daily_trades = (state.daily_trades || 0) + 1;
+      state.daily_volume_usd = (state.daily_volume_usd || 0) + sizeUsd;
+      state.total_trades = (state.total_trades || 0) + 1;
+      state.last_trade_timestamp = Date.now();
+
+      await recordStrategyOutcome(env, String(opp.strategy || '').toLowerCase(), {
+        success: true,
+        pnlUsd: tradePnl,
+        symbol: opp.symbol,
+        exchange: opp.buyExchange,
+      });
+      await Promise.allSettled(
+        venueList.map((venue) => recordVenueOutcome(env, venue, {
+          success: true,
+          pnlUsd: venueList.length > 0 ? tradePnl / venueList.length : tradePnl,
+          latencyMs: executionLatencyMs,
           symbol: opp.symbol,
-          reason: execErr.message,
-        });
-        incrementMetric('trade.execution_failed', 1, { strategy: opp.strategy });
-        await recordStrategyOutcome(env, String(opp.strategy || '').toLowerCase(), {
+          strategy: opp.strategy,
+        }))
+      );
+
+      await logTrade(env, { strategy: strategyLabel, sizeUsd, netPct: opp.netPct, mode });
+
+      await sendAlert(
+        env,
+        `✅ [LIVE] [${String(opp.strategy || '').toUpperCase()}] ${opp.symbol}\n` +
+        `${opp.direction}\n` +
+        `$${sizeUsd.toFixed(2)}${levStr}\n` +
+        `net ${Number(opp.netPct || 0).toFixed(4)}%`
+      );
+      incrementMetric('trade.executed', 1, { mode: 'live', strategy: opp.strategy });
+      executed.push({ opportunity: opp, sizeUsd, leverage, mode });
+    } catch (execErr) {
+      console.error('Trade execution error:', execErr.message);
+      logEvent('error', 'trade.execution_failed', {
+        strategy: opp.strategy,
+        symbol: opp.symbol,
+        reason: execErr.message,
+      });
+      incrementMetric('trade.execution_failed', 1, { strategy: opp.strategy });
+      await recordStrategyOutcome(env, String(opp.strategy || '').toLowerCase(), {
+        success: false,
+        pnlUsd: 0,
+        symbol: opp.symbol,
+        exchange: opp.buyExchange,
+      });
+      await Promise.allSettled(
+        venueList.map((venue) => recordVenueOutcome(env, venue, {
           success: false,
           pnlUsd: 0,
+          latencyMs: 0,
           symbol: opp.symbol,
-          exchange: opp.buyExchange,
-        });
-        await Promise.allSettled(
-          venueList.map((venue) => recordVenueOutcome(env, venue, {
-            success: false,
-            pnlUsd: 0,
-            latencyMs: 0,
-            symbol: opp.symbol,
-            strategy: opp.strategy,
-          }))
-        );
-        await sendAlert(
-          env,
-          `❌ [${String(opp.strategy || '').toUpperCase()}] فشل التنفيذ ${opp.symbol}: ${execErr.message}`
-        );
-      }
+          strategy: opp.strategy,
+        }))
+      );
+      await sendAlert(
+        env,
+        `❌ [${String(opp.strategy || '').toUpperCase()}] فشل التنفيذ ${opp.symbol}: ${execErr.message}`
+      );
     }
-
-    if (!executed.length) return null;
-
-    observeLatency('scan.duration_ms', scanStartedAt, {
-      strategy: executed[0].opportunity.strategy,
-      mode: paperMode ? 'paper' : 'live',
-    });
-
-    return {
-      executed,
-      rankedTop: rankedOpportunities.slice(0, 5).map((x) => ({
-        strategy: x.strategy,
-        symbol: x.symbol,
-        netPct: x.netPct,
-        score: x.score,
-      })),
-    };
-  } finally {
-    await releaseExecutionLock(env, lock.token);
   }
+
+  if (!executed.length) return null;
+
+  observeLatency('scan.duration_ms', scanStartedAt, {
+    strategy: executed[0].opportunity.strategy,
+    mode: paperMode ? 'paper' : 'live',
+  });
+
+  return {
+    executed,
+    rankedTop: rankedOpportunities.slice(0, 5).map((x) => ({
+      strategy: x.strategy,
+      symbol: x.symbol,
+      netPct: x.netPct,
+      score: x.score,
+    })),
+  };
+} finally {
+  await releaseExecutionLock(env, lock.token);
+}
 }
 
 export async function executeCexArbWithHedge(
