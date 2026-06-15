@@ -54,7 +54,7 @@ function generateUUID() {
   bytes[6] = (bytes[6] & 0x0f) | 0x40; // version 4
   bytes[8] = (bytes[8] & 0x3f) | 0x80; // variant 10xx
   const hex = Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('');
-  return `${hex.slice(0,8)}-${hex.slice(8,12)}-${hex.slice(12,16)}-${hex.slice(16,20)}-${hex.slice(20)}`;
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
 }
 
 async function runConfiguredLlm(env, aiParams) {
@@ -265,8 +265,8 @@ export function registerAiRoutes(app, deps) {
 
     if (!c.env.AIWORKER && !resolveAiGatewayChatUrl(c.env)) {
       const fallback = opp.netPct > MIN_VIABLE_SPREAD_PCT
-        ? `âœ… Potential opportunity: net spread of ${opp.netPct}% is above threshold. Verify liquidity and fee structure before executing. Monitor for slippage â€” position size should remain small (â‰¤$5 for initial trades).`
-        : `âš ï¸ Low spread: net spread of ${opp.netPct}% may not cover execution costs after slippage. Consider waiting for a higher-quality opportunity.`;
+        ? `✅ Potential opportunity: net spread of ${opp.netPct}% is above threshold. Verify liquidity and fee structure before executing. Monitor for slippage — position size should remain small (≤$5 for initial trades).`
+        : `⚠️ Low spread: net spread of ${opp.netPct}% may not cover execution costs after slippage. Consider waiting for a higher-quality opportunity.`;
       return c.json({ analysis: fallback, provider: 'fallback' });
     }
 

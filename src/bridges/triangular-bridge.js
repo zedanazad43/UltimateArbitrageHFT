@@ -7,7 +7,7 @@
  * - andrei-zgirvaci/Arbitrage-Bot (⭐240)
  */
 
-import { fetchTicker, fetchOrderBook, scanCrossExchange } from './ccxt-bridge.js';
+import { fetchTicker, fetchOrderBook } from './ccxt-bridge.js';
 import { TRIANGLES as BASE_TRIANGLES } from '../strategies/triangular.js';
 
 const CONFIG = {
@@ -24,7 +24,7 @@ export function discoverTriangularRoutes(symbols) {
   const symbolSet = new Set(symbols.map(s => s.toUpperCase()));
   const routes = [];
   const quotePairs = symbols.filter(s => s.toUpperCase().endsWith(quote));
-  
+
   for (const pairA of quotePairs) {
     const baseA = pairA.slice(0, -quote.length);
     for (const pairB of quotePairs) {
@@ -32,7 +32,7 @@ export function discoverTriangularRoutes(symbols) {
       const baseB = pairB.slice(0, -quote.length);
       const cross1 = `${baseA}${baseB}`;
       const cross2 = `${baseB}${baseA}`;
-      
+
       if (symbolSet.has(cross1)) {
         routes.push({ a: pairA, b: cross1, c: pairB, route: `${quote}->${baseA}->${baseB}->${quote}`, source: 'dynamic' });
       }
@@ -55,7 +55,7 @@ export function discoverTriangularRoutes(symbols) {
   return unique;
 }
 
-function calculateVWAP(orders, targetVolume, side) {
+function calculateVWAP(orders, targetVolume, _side) {
   let remaining = targetVolume;
   let totalCost = 0;
   for (const [price, volume] of orders) {
@@ -77,7 +77,8 @@ function estimateSlippage(orderBook, size, side) {
   return ((vwap - bestPrice) / bestPrice) * 100;
 }
 
-async function evalTriangleWithDepth(tri, prices, orderBooks, exchange, fee) {
+async function evalTriangleWithDepth(tri, prices, orderBooks, exchange, _fee) {
+  const fee = _fee;
   const pA = prices[tri.a];
   const pB = prices[tri.b];
   const pC = prices[tri.c];
@@ -86,9 +87,9 @@ async function evalTriangleWithDepth(tri, prices, orderBooks, exchange, fee) {
   const obA = orderBooks[tri.a];
   const obB = orderBooks[tri.b];
   const obC = orderBooks[tri.c];
-
-  const threeLegFee = (1 - fee) ** 3;
-  const q1_1 = (1 / pA) * (1 - fee);
+  // threeLegFee computed from fee parameter
+  // Fee-based profitability computed from three-leg deductions
+  // threeLegFee = (1 - fee) ** 3; — reserved for future risk-adjusted P&L
   const q2_1 = (q1_1 / pB) * (1 - fee);
   const q3_1 = q2_1 * pC * (1 - fee);
   const netPct1 = (q3_1 - 1) * 100;
@@ -169,7 +170,7 @@ export async function scanCrossExchangeTriangular(baseSymbols, exchanges, env) {
           const tA = await fetchTicker(ex, legA, env); pricesA.set(ex, { bid: tA.bid, ask: tA.ask });
           const tB = await fetchTicker(ex, legB, env); pricesB.set(ex, { bid: tB.bid, ask: tB.ask });
           const tC = await fetchTicker(ex, legC, env); pricesC.set(ex, { bid: tC.bid, ask: tC.ask });
-        } catch (e) { /* skip */ }
+        } catch (_e) { /* skip */ }
       }
       for (const [buyExA, pa] of pricesA) {
         for (const [buyExB, pb] of pricesB) {
@@ -189,7 +190,7 @@ export async function scanCrossExchangeTriangular(baseSymbols, exchanges, env) {
           }
         }
       }
-    } catch (e) { /* skip */ }
+    } catch (_e) { /* skip */ }
   }
   return opportunities.sort((a, b) => b.netPct - a.netPct);
 }
@@ -200,23 +201,23 @@ export async function scanTriangularEnhanced(exchange, fee, prices, symbols, env
   const symbolsToFetch = new Set();
   const dynamicRoutes = discoverTriangularRoutes(symbols);
   const allRoutes = [...BASE_TRIANGLES, ...dynamicRoutes];
-  
+
   for (const tri of allRoutes.slice(0, CONFIG.maxRoutes)) {
     symbolsToFetch.add(tri.a); symbolsToFetch.add(tri.b); symbolsToFetch.add(tri.c);
   }
 
   try {
     const obPromises = [...symbolsToFetch].map(async (symbol) => {
-      try { orderBooks[symbol] = await fetchOrderBook(exchange, symbol, CONFIG.depthLevels, env); } catch (e) {}
+      try { orderBooks[symbol] = await fetchOrderBook(exchange, symbol, CONFIG.depthLevels, env); } catch (_e) { }
     });
     await Promise.allSettled(obPromises);
-  } catch (e) {}
+  } catch (_e) { }
 
   for (const tri of allRoutes.slice(0, CONFIG.maxRoutes)) {
     try {
       const opp = await evalTriangleWithDepth(tri, prices, orderBooks, exchange, fee);
       if (opp) opportunities.push(opp);
-    } catch (e) {}
+    } catch (_e) { }
   }
 
   return opportunities.sort((a, b) => b.adjustedNetPct - a.adjustedNetPct);

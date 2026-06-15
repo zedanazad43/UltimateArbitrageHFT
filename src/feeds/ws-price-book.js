@@ -159,7 +159,9 @@ export async function initHFTFeed(env) {
 // ── Direct WebSocket connection to Binance ───────────────────────────────────
 
 const BINANCE_WS_BASE = 'wss://stream.binance.com:9443/ws';
-const MEXC_WS_BASE = 'wss://wbs.mexc.com/ws';
+
+// MEXC WS base URL available for future market-data expansions
+// const MEXC_WS_BASE = 'wss://wbs.mexc.com/ws';
 
 /**
  * Generates WebSocket connection URLs for Binance mini-ticker streams.

@@ -23,9 +23,6 @@ function getOneWaySlippagePct(exchange) {
 function addRejection(options, reason, count = 1) {
   try {
     if (!options || !options.rejections || !reason || count <= 0) return;
-    const symbol = options?.symbol ?? 'unknown';
-    const exchange = options?.buyExchange || options?.sellExchange || 'unknown';
-    const netPct = options?.netPct ?? 0;
     options.rejections[reason] = Number(options.rejections[reason] || 0) + Number(count || 0);
   } catch (_) {
     // never throw

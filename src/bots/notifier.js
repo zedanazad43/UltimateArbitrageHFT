@@ -16,7 +16,9 @@ export async function notify(env, _ctx, message) {
         return { ok: true };
     }
 
+    // eslint-disable-next-line no-undef -- process global in Node.js
     const token = env.TELEGRAM_BOT_TOKEN || process?.env?.TELEGRAM_BOT_TOKEN;
+    // eslint-disable-next-line no-undef
     const chatId = env.TELEGRAM_CHAT_ID || process?.env?.TELEGRAM_CHAT_ID;
 
     if (!token || !chatId) {

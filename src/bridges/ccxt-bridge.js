@@ -18,16 +18,16 @@ import { getExternalProxyManager } from '../infra/external-proxy.js';
 // ── Exchange Normalization Map (ccxt-inspired) ────────────────────────────────
 
 const EXCHANGE_NORMALIZE = {
-  mexc:       { id: 'mexc',       ccxtId: 'mexc',       restBase: 'https://api.mexc.com',           wsBase: 'wss://wbs.mexc.com/ws' },
-  binance:    { id: 'binance',    ccxtId: 'binance',    restBase: 'https://api.binance.com',        wsBase: 'wss://stream.binance.com:9443/ws' },
-  binanceus:  { id: 'binanceus',  ccxtId: 'binanceus',  restBase: 'https://api.binance.us',         wsBase: 'wss://stream.binance.us:9443/ws' },
-  kucoin:     { id: 'kucoin',     ccxtId: 'kucoin',     restBase: 'https://api.kucoin.com',         wsBase: 'wss://ws-api.kucoin.com/endpoint' },
-  bitget:     { id: 'bitget',     ccxtId: 'bitget',     restBase: 'https://api.bitget.com',         wsBase: 'wss://ws.bitget.com/v2/ws/public' },
-  bitmart:    { id: 'bitmart',    ccxtId: 'bitmart',    restBase: 'https://api-cloud.bitmart.com',  wsBase: 'wss://ws-manager-compress.bitmart.com/api?protocol=1.1' },
-  bybit:      { id: 'bybit',      ccxtId: 'bybit',      restBase: 'https://api.bybit.com',          wsBase: 'wss://stream.bybit.com/v5/public/spot' },
-  okx:        { id: 'okx',        ccxtId: 'okx',        restBase: 'https://www.okx.com',            wsBase: 'wss://ws.okx.com:8443/ws/v5/public' },
-  gate:       { id: 'gate',       ccxtId: 'gate',       restBase: 'https://api.gateio.ws/api/v4',   wsBase: 'wss://ws.gate.io/v4' },
-  kraken:     { id: 'kraken',     ccxtId: 'kraken',     restBase: 'https://api.kraken.com',         wsBase: 'wss://ws.kraken.com' },
+  mexc: { id: 'mexc', ccxtId: 'mexc', restBase: 'https://api.mexc.com', wsBase: 'wss://wbs.mexc.com/ws' },
+  binance: { id: 'binance', ccxtId: 'binance', restBase: 'https://api.binance.com', wsBase: 'wss://stream.binance.com:9443/ws' },
+  binanceus: { id: 'binanceus', ccxtId: 'binanceus', restBase: 'https://api.binance.us', wsBase: 'wss://stream.binance.us:9443/ws' },
+  kucoin: { id: 'kucoin', ccxtId: 'kucoin', restBase: 'https://api.kucoin.com', wsBase: 'wss://ws-api.kucoin.com/endpoint' },
+  bitget: { id: 'bitget', ccxtId: 'bitget', restBase: 'https://api.bitget.com', wsBase: 'wss://ws.bitget.com/v2/ws/public' },
+  bitmart: { id: 'bitmart', ccxtId: 'bitmart', restBase: 'https://api-cloud.bitmart.com', wsBase: 'wss://ws-manager-compress.bitmart.com/api?protocol=1.1' },
+  bybit: { id: 'bybit', ccxtId: 'bybit', restBase: 'https://api.bybit.com', wsBase: 'wss://stream.bybit.com/v5/public/spot' },
+  okx: { id: 'okx', ccxtId: 'okx', restBase: 'https://www.okx.com', wsBase: 'wss://ws.okx.com:8443/ws/v5/public' },
+  gate: { id: 'gate', ccxtId: 'gate', restBase: 'https://api.gateio.ws/api/v4', wsBase: 'wss://ws.gate.io/v4' },
+  kraken: { id: 'kraken', ccxtId: 'kraken', restBase: 'https://api.kraken.com', wsBase: 'wss://ws.kraken.com' },
 };
 
 // ── Symbol Normalization (ccxt unified symbol → exchange-specific) ────────────
@@ -35,15 +35,15 @@ const EXCHANGE_NORMALIZE = {
 const SYMBOL_NORMALIZE = {
   // Exchange-specific symbol formats
   binance: (s) => s.replace('/', ''),                              // BTC/USDT → BTCUSDT
-  binanceus:(s) => s.replace('/', ''),
-  mexc:    (s) => s.replace('/', ''),                              // BTC/USDT → BTCUSDT
-  bitget:  (s) => s.replace('/', '').toUpperCase(),                 // btc/usdt → BTCUSDT
+  binanceus: (s) => s.replace('/', ''),
+  mexc: (s) => s.replace('/', ''),                              // BTC/USDT → BTCUSDT
+  bitget: (s) => s.replace('/', '').toUpperCase(),                 // btc/usdt → BTCUSDT
   bitmart: (s) => s.replace('/', '_'),                              // BTC/USDT → BTC_USDT
-  kucoin:  (s) => s.replace('/', '-'),                              // BTC/USDT → BTC-USDT
-  bybit:   (s) => s.replace('/', ''),
-  okx:     (s) => s.replace('/', '-').toUpperCase(),                // BTC/USDT → BTC-USDT
-  gate:    (s) => s.replace('/', '_'),
-  kraken:  (s) => {
+  kucoin: (s) => s.replace('/', '-'),                              // BTC/USDT → BTC-USDT
+  bybit: (s) => s.replace('/', ''),
+  okx: (s) => s.replace('/', '-').toUpperCase(),                // BTC/USDT → BTC-USDT
+  gate: (s) => s.replace('/', '_'),
+  kraken: (s) => {
     const [base, quote] = s.split('/');
     const krakenMap = { BTC: 'XBT', USDT: 'USDT', ETH: 'ETH', USD: 'ZUSD' };
     return `${krakenMap[base] || base}${krakenMap[quote] || quote}`;
@@ -105,8 +105,8 @@ export async function fetchTicker(exchange, symbol, _env) {
   const norm = EXCHANGE_NORMALIZE[exchange];
   if (!norm) throw new Error(`ccxt-bridge: unknown exchange "${exchange}"`);
 
-  const exSymbol = SYMBOL_NORMALIZE[exchange] 
-    ? SYMBOL_NORMALIZE[exchange](symbol) 
+  const exSymbol = SYMBOL_NORMALIZE[exchange]
+    ? SYMBOL_NORMALIZE[exchange](symbol)
     : symbol.replace('/', '');
 
   // Check cache
@@ -204,7 +204,7 @@ export async function fetchTicker(exchange, symbol, _env) {
     const result = { ...ticker, exchange, timestamp: Date.now() };
     setCachedTicker(exchange, exSymbol, result);
     return result;
-  } catch (_err) {
+  } catch (err) {
     console.error(`ccxt-bridge fetchTicker ${exchange}/${exSymbol}: ${err.message}`);
     throw err;
   }
@@ -250,7 +250,7 @@ export async function fetchOrderBook(exchange, symbol, limit = 20, _env) {
     if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
 
     const data = await resp.json();
-    
+
     let bids, asks;
     if (exchange === 'kucoin') {
       bids = (data.data?.bids || []).map(([p, q]) => [parseFloat(p), parseFloat(q)]);
@@ -277,7 +277,7 @@ export async function fetchOrderBook(exchange, symbol, limit = 20, _env) {
  */
 export async function scanCrossExchange(symbol, exchanges, env) {
   const results = [];
-  
+
   for (const exId of exchanges) {
     try {
       const ticker = await fetchTicker(exId, symbol, env);
@@ -290,7 +290,7 @@ export async function scanCrossExchange(symbol, exchanges, env) {
         askVolume: ticker.askVolume,
         timestamp: ticker.timestamp,
       });
-    } catch (err) {
+    } catch (_err) {
       // Exchange unavailable — skip
     }
   }

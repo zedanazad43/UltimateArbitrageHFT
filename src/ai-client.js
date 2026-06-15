@@ -38,7 +38,8 @@ const STRATEGY_RANK = { cex: 1, perps: 2, statistical: 3, triangular: 4, funding
 function sanitizeForLLM(text) {
   if (typeof text !== 'string') return String(text ?? '');
   return text
-    .replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/g, '') // strip control chars (keep \t \n)
+    // eslint-disable-next-line no-control-regex -- intentionally matches control characters for sanitization
+    .replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, '') // strip control chars (keep \t \n)
     .replace(/<\/?system[^>]*>/gi, '')                          // strip <system> tags
     .replace(/(?:ignore|forget|override|disregard)\s+(?:all\s+)?(?:previous|prior|above|your)\s+/gi, '[filtered] ')
     .replace(/(?:instructions?|rules?|prompts?|guidelines?|training)/gi, '[filtered]')

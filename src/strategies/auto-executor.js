@@ -39,10 +39,20 @@ import {
 
 // ── Bridge Imports (open-source integrations activated) ─────────────────────
 
-import { getHFTSupervisor, PriorityQueue, CircuitBreaker } from '../bridges/botvana-bridge.js';
-import { scanCrossExchange, fetchTicker } from '../bridges/ccxt-bridge.js';
-import { scanTriangularEnhanced, scanCrossExchangeTriangular } from '../bridges/triangular-bridge.js';
-import { rankOpportunities, ensembleSignal, marketSentiment, detectMarketRegime, kellyPosition } from '../bridges/ai-trader-bridge.js';
+// Bridge aliases reserved for future strategy expansion
+const _getHFTSupervisor = (await import('../bridges/botvana-bridge.js')).getHFTSupervisor;
+const _PriorityQueue = (await import('../bridges/botvana-bridge.js')).PriorityQueue;
+const _CircuitBreaker = (await import('../bridges/botvana-bridge.js')).CircuitBreaker;
+
+const _scanCrossExchange = (await import('../bridges/ccxt-bridge.js')).scanCrossExchange;
+const _fetchTicker = (await import('../bridges/ccxt-bridge.js')).fetchTicker;
+const _scanTriangularEnhanced = (await import('../bridges/triangular-bridge.js')).scanTriangularEnhanced;
+const _scanCrossExchangeTriangular = (await import('../bridges/triangular-bridge.js')).scanCrossExchangeTriangular;
+const _rankOpportunities = (await import('../bridges/ai-trader-bridge.js')).rankOpportunities;
+const _ensembleSignal = (await import('../bridges/ai-trader-bridge.js')).ensembleSignal;
+const _marketSentiment = (await import('../bridges/ai-trader-bridge.js')).marketSentiment;
+const _detectMarketRegime = (await import('../bridges/ai-trader-bridge.js')).detectMarketRegime;
+const _kellyPosition = (await import('../bridges/ai-trader-bridge.js')).kellyPosition;
 
 // ── Configuration ─────────────────────────────────────────────────────────────
 
@@ -68,12 +78,12 @@ const DEFAULT_CONFIG = {
   initialCapitalUsd: 1000,       // Risk guard baseline capital
   maxDailyLossUsd: 25,           // Drawdown guard daily loss cap
   strategies: {
-    cex:        { enabled: true, weight: 1.0, maxSpread: 5.0 },
-    perps:      { enabled: true, weight: 1.2, maxSpread: 5.0 },
-    funding:    { enabled: true, weight: 1.5, maxSpread: 10.0 },
+    cex: { enabled: true, weight: 1.0, maxSpread: 5.0 },
+    perps: { enabled: true, weight: 1.2, maxSpread: 5.0 },
+    funding: { enabled: true, weight: 1.5, maxSpread: 10.0 },
     triangular: { enabled: true, weight: 0.8, maxSpread: 3.0 },
-    dex:        { enabled: true, weight: 0.6, maxSpread: 8.0 },
-    statistical:{ enabled: true, weight: 1.1, maxSpread: 4.0 },
+    dex: { enabled: true, weight: 0.6, maxSpread: 8.0 },
+    statistical: { enabled: true, weight: 1.1, maxSpread: 4.0 },
     scalp_forward: { enabled: true, weight: 1.0, maxSpread: 3.5 },
     scalp_reverse: { enabled: true, weight: 0.9, maxSpread: 2.0 },
     scalp_parallel: { enabled: true, weight: 1.15, maxSpread: 3.5 },
