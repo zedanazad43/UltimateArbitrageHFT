@@ -10,15 +10,15 @@ const DATA_ONLY_EXCHANGES = new Set(['kraken', 'coinbase']);
 // Perpetuals typically have tighter spreads than spot, but still incur slippage.
 const DEFAULT_SLIPPAGE_PCT = 0.04; // 4 bps per leg for perps
 const SLIPPAGE_OVERRIDES = {
-  mexc:      0.03,  // MEXC has tight spreads on majors
-  binance:   0.02,  // deepest order books
+  mexc: 0.03,  // MEXC has tight spreads on majors
+  binance: 0.02,  // deepest order books
   mexc_perp: 0.03,  // MEXC perps — moderate liquidity
-  bybit:     0.04,
-  kucoin:    0.05,
-  bitget:    0.06,
-  gateio:    0.07,
-  bitmart:   0.08,
-  htx:       0.06,
+  bybit: 0.04,
+  kucoin: 0.05,
+  bitget: 0.06,
+  gateio: 0.07,
+  bitmart: 0.08,
+  htx: 0.06,
 };
 
 /**
@@ -72,10 +72,10 @@ export function scanPerps(symbol, spotSources, perpSource, maxSpreadPct, options
 
   // Spread guard across all sources (spot + perp)
   const allSources = [...spotSources, perpSource];
-  const prices     = allSources.map(s => s.price);
-  const priceMin   = Math.min(...prices);
-  const priceMax   = Math.max(...prices);
-  const spread     = ((priceMax - priceMin) / priceMin) * 100;
+  const prices = allSources.map(s => s.price);
+  const priceMin = Math.min(...prices);
+  const priceMax = Math.max(...prices);
+  const spread = ((priceMax - priceMin) / priceMin) * 100;
   if (spread > maxSpreadPct) {
     addRejection(options, 'spread_guard_exceeded');
     return null;
@@ -100,11 +100,11 @@ export function scanPerps(symbol, spotSources, perpSource, maxSpreadPct, options
         continue;
       }
 
-      const grossPct    = ((sell.price - buy.price) / buy.price) * 100;
+      const grossPct = ((sell.price - buy.price) / buy.price) * 100;
       const totalFeePct = (buy.fee + sell.fee) * 100;
       // Deduct estimated market-impact slippage on both legs
       const totalSlippagePct = (slippagePct(buy.exchange) + slippagePct(sell.exchange)) * slippageMultiplier;
-      const netPct      = grossPct - totalFeePct - totalSlippagePct;
+      const netPct = grossPct - totalFeePct - totalSlippagePct;
       if (netPct <= 0) {
         rejectedNonPositiveNet++;
         continue;
@@ -118,18 +118,18 @@ export function scanPerps(symbol, spotSources, perpSource, maxSpreadPct, options
 
       if (!best || netPct > best.netPct) {
         best = {
-          strategy:     'perps',
+          strategy: 'perps',
           symbol,
-          buyExchange:  buy.exchange,
+          buyExchange: buy.exchange,
           sellExchange: sell.exchange,
-          buyPrice:     buy.price,
-          sellPrice:    sell.price,
+          buyPrice: buy.price,
+          sellPrice: sell.price,
           grossPct,
           netPct,
           safetyFactor,
-          direction:    `${buy.exchange.toUpperCase()}→${sell.exchange.toUpperCase()}`,
-          isPerp:       true,
-          slippagePct:  totalSlippagePct
+          direction: `${buy.exchange.toUpperCase()}→${sell.exchange.toUpperCase()}`,
+          isPerp: true,
+          slippagePct: totalSlippagePct
         };
       }
     }

@@ -12,15 +12,15 @@ const DATA_ONLY_EXCHANGES = new Set(['kraken', 'coinbase']);
 // Exchange-specific overrides handle known thin-book exchanges.
 const DEFAULT_SLIPPAGE_PCT = 0.05; // 5 bps per leg
 const SLIPPAGE_OVERRIDES = {
-  mexc:    0.03,  // MEXC has tight spreads on majors
+  mexc: 0.03,  // MEXC has tight spreads on majors
   binance: 0.02,  // deepest order books
-  bybit:   0.04,
-  okx:     0.03,
-  kucoin:  0.05,
-  bitget:  0.06,
-  gateio:  0.07,
+  bybit: 0.04,
+  okx: 0.03,
+  kucoin: 0.05,
+  bitget: 0.06,
+  gateio: 0.07,
   bitmart: 0.08,
-  htx:     0.06,
+  htx: 0.06,
 };
 
 /**
@@ -84,7 +84,7 @@ export function scanCEX(symbol, sources, maxSpreadPct, options = {}) {
   for (let i = 0; i < executionSources.length; i++) {
     for (let j = 0; j < executionSources.length; j++) {
       if (i === j) continue;
-      const buy  = executionSources[i];
+      const buy = executionSources[i];
       const sell = executionSources[j];
       if (sell.price <= buy.price) {
         rejectedNonPositiveSpread++;
@@ -97,11 +97,11 @@ export function scanCEX(symbol, sources, maxSpreadPct, options = {}) {
         continue;
       }
 
-      const grossPct    = ((sell.price - buy.price) / buy.price) * 100;
+      const grossPct = ((sell.price - buy.price) / buy.price) * 100;
       const totalFeePct = (buy.fee + sell.fee) * 100;
       // Deduct estimated market-impact slippage on both legs
       const totalSlippagePct = (slippagePct(buy.exchange) + slippagePct(sell.exchange)) * slippageMultiplier;
-      const netPct      = grossPct - totalFeePct - totalSlippagePct;
+      const netPct = grossPct - totalFeePct - totalSlippagePct;
       if (netPct <= 0) {
         rejectedNonPositiveNet++;
         continue;
@@ -115,18 +115,18 @@ export function scanCEX(symbol, sources, maxSpreadPct, options = {}) {
 
       if (!best || netPct > best.netPct) {
         best = {
-          strategy:     'cex',
+          strategy: 'cex',
           symbol,
-          buyExchange:  buy.exchange,
+          buyExchange: buy.exchange,
           sellExchange: sell.exchange,
-          buyPrice:     buy.price,
-          sellPrice:    sell.price,
+          buyPrice: buy.price,
+          sellPrice: sell.price,
           grossPct,
           netPct,
           safetyFactor,
-          direction:    `${buy.exchange.toUpperCase()}→${sell.exchange.toUpperCase()}`,
-          isPerp:       false,
-          slippagePct:  totalSlippagePct
+          direction: `${buy.exchange.toUpperCase()}→${sell.exchange.toUpperCase()}`,
+          isPerp: false,
+          slippagePct: totalSlippagePct
         };
       }
     }

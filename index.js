@@ -381,8 +381,9 @@ async function getExecutionBalancesSnapshot(env, assets = ['USDT']) {
         if (ex === 'bitget') {
           try {
             accountEquityUSDT = await getBitgetAccountEquityUSDT(env);
-          } catch (_) {
+          } catch (err) {
             // Bitget equity lookup is best-effort; fall back to null
+            console.error('[balances] bitget equity lookup failed:', err?.message);
             accountEquityUSDT = null;
           }
         }
@@ -688,7 +689,7 @@ app.use('*', async (c, next) => {
     if (c.env.ADMIN_TOKEN && !isAuthorized(c.env, c)) return c.redirect('/login', 302);
     return c.redirect('/control-panel', 302);
   }
-  try { await ensureSchema(c.env); } catch (_) { /* schema init failed — continuing */ }
+  try { await ensureSchema(c.env); } catch (err) { console.error('[schema] ensureSchema failed:', err?.message); }
   return next();
 });
 
@@ -759,7 +760,7 @@ app.get('/health', async (c) => {
       const { results } = await c.env.DB.prepare('SELECT 1 AS ok').all();
       dbHealthy = results?.[0]?.ok === 1;
     }
-  } catch (_) { /* D1 not available for health check */ }
+  } catch (err) { console.error('[health] D1 check failed:', err?.message); }
 
   return c.json({
     status: 'ok',
@@ -1029,91 +1030,28 @@ app.post('/mode/live', async (c) => {
 });
 
 // ── Admin: Save config ────────────────────────────────────────────────────────
-app.post('/config', async (c) => {
-  const limited = await checkRateLimit(c.env, c);
-  if (limited) return limited;
-  if (!isAuthorized(c.env, c)) return authDenied(c.env, c);
-  let body;
-  try { body = await c.req.json(); } catch { return c.text('Invalid JSON', 400); }
-  const state = await getState(c.env);
-  const forceManualRiskLock = parseEnvBool(c.env.MANUAL_RISK_LOCK_FORCE);
-  const forceUnlockRequested = body.force_unlock_manual_risk_lock === true;
-  const unlockHeader = String(c.req.header('x-risk-unlock-token') || '').trim();
-  const unlockTokenConfigured = String(c.env.RISK_UNLOCK_TOKEN || '').trim();
-  let forceUnlockManualRiskLock = false;
-  if (forceUnlockRequested) {
-    if (!unlockTokenConfigured) {
-      return c.json({
-        success: false,
-        error: 'RISK_UNLOCK_TOKEN is not configured; force unlock is disabled',
-      }, 403);
-    }
-    if (!constantTimeEquals(unlockHeader, unlockTokenConfigured)) {
-      return c.json({
-        success: false,
-        error: 'Invalid x-risk-unlock-token',
-      }, 403);
-    }
-    forceUnlockManualRiskLock = true;
-    await c.env.BOT_STATE.put('manual_risk_lock_override', '1').catch(() => { });
-  }
 
-  const isFiniteNum = (v) => typeof v === 'number' && Number.isFinite(v);
-  const touchingProtectedRiskConfig =
-    typeof body.manual_risk_lock === 'boolean' ||
-    typeof body.auto_profiler_enabled === 'boolean' ||
-    typeof body.auto_profile === 'string' ||
-    isFiniteNum(body.position_size_usd) ||
-    isFiniteNum(body.max_live_trades_per_scan) ||
-    isFiniteNum(body.max_daily_loss_usd) ||
-    isFiniteNum(body.max_per_trade_loss_pct) ||
-    isFiniteNum(body.min_seconds_between_trades) ||
-    isFiniteNum(body.burst_overdrive_minutes) ||
-    typeof body.burst_revert_profile === 'string';
+const num = (v) => (typeof v === 'number' && v > 0 ? v : undefined);
 
-  if (forceManualRiskLock && touchingProtectedRiskConfig) {
-    await logAdminEvent(c.env, 'config_forced_lock_rejected', c.req.raw);
-    return c.json({
-      success: false,
-      error: 'MANUAL_RISK_LOCK_FORCE is enabled; protected risk settings are immutable',
-      forcedByEnvironment: true,
-    }, 423);
-  }
-
-  if (state.manual_risk_lock === true && touchingProtectedRiskConfig && !forceUnlockManualRiskLock) {
-    await logAdminEvent(c.env, 'config_locked_rejected', c.req.raw);
-    return c.json({
-      success: false,
-      error: 'manual_risk_lock is active; protected risk settings are locked',
-      requiresForceUnlock: true,
-    }, 423);
-  }
-
-  const lockProtected = state.manual_risk_lock === true && !forceUnlockManualRiskLock;
-  const lockedRiskValues = lockProtected ? {
-    position_size_usd: state.position_size_usd,
-    max_live_trades_per_scan: state.max_live_trades_per_scan,
-    max_daily_loss_usd: state.max_daily_loss_usd,
-    max_per_trade_loss_pct: state.max_per_trade_loss_pct,
-    min_seconds_between_trades: state.min_seconds_between_trades,
-    auto_profiler_enabled: state.auto_profiler_enabled,
-    auto_profile: state.auto_profile,
-    burst_overdrive_until_ts: state.burst_overdrive_until_ts,
-  } : null;
-  const forceSpotOnlyLock = ['1', 'true', 'on', 'yes'].includes(String(c.env.SPOT_ONLY_LOCK_FORCE || '').toLowerCase());
-  const num = (v) => (typeof v === 'number' && v > 0 ? v : undefined);
+function applyNumericRiskParams(state, body) {
   if (num(body.max_daily_loss_usd)) state.max_daily_loss_usd = body.max_daily_loss_usd;
   if (num(body.daily_limit_usd)) state.daily_limit_usd = body.daily_limit_usd;
   if (num(body.max_per_trade_loss_pct)) state.max_per_trade_loss_pct = body.max_per_trade_loss_pct;
   if (num(body.min_seconds_between_trades)) state.min_seconds_between_trades = body.min_seconds_between_trades;
   if (num(body.initial_capital)) state.initial_capital = body.initial_capital;
   if (num(body.max_spread_pct)) state.max_spread_pct = body.max_spread_pct;
+  if (num(body.win_rate)) state.win_rate = body.win_rate;
+  if (num(body.risk_reward_ratio)) state.risk_reward_ratio = body.risk_reward_ratio;
+}
+
+function applyNumericScalpParams(state, body) {
   if (num(body.scalp_min_net_pct)) state.scalp_min_net_pct = Math.max(0.005, Math.min(2.5, body.scalp_min_net_pct));
   if (num(body.scalp_max_hold_seconds)) state.scalp_max_hold_seconds = Math.max(2, Math.min(120, Math.floor(body.scalp_max_hold_seconds)));
   if (num(body.scalp_parallel_legs)) state.scalp_parallel_legs = Math.max(1, Math.min(3, Math.floor(body.scalp_parallel_legs)));
   if (num(body.scalp_cooldown_ms)) state.scalp_cooldown_ms = Math.max(200, Math.min(15000, Math.floor(body.scalp_cooldown_ms)));
-  if (num(body.win_rate)) state.win_rate = body.win_rate;
-  if (num(body.risk_reward_ratio)) state.risk_reward_ratio = body.risk_reward_ratio;
+}
+
+function applySymbolConfig(state, body) {
   if (Number.isFinite(body.max_dynamic_symbols)) {
     state.max_dynamic_symbols = Math.max(15, Math.min(2000, Math.floor(body.max_dynamic_symbols)));
   }
@@ -1122,82 +1060,79 @@ app.post('/config', async (c) => {
   }
   if (typeof body.scan_symbol_mode === 'string') {
     const normalizedMode = body.scan_symbol_mode.toLowerCase();
-    const allowedModes = new Set(['cex_union', 'cex_intersection', 'wallet_readable']);
-    if (allowedModes.has(normalizedMode)) state.scan_symbol_mode = normalizedMode;
+    if (new Set(['cex_union', 'cex_intersection', 'wallet_readable']).has(normalizedMode)) state.scan_symbol_mode = normalizedMode;
   }
   if (Array.isArray(body.scan_quote_assets) || typeof body.scan_quote_assets === 'string') {
-    const rawQuotes = Array.isArray(body.scan_quote_assets)
-      ? body.scan_quote_assets
-      : String(body.scan_quote_assets || '').split(',');
-    const quotes = [...new Set(rawQuotes
-      .map((v) => String(v || '').toUpperCase().replace(/[^A-Z0-9]/g, ''))
-      .filter((q) => q.length >= 3 && q.length <= 10)
-    )];
+    const rawQuotes = Array.isArray(body.scan_quote_assets) ? body.scan_quote_assets : String(body.scan_quote_assets || '').split(',');
+    const quotes = [...new Set(rawQuotes.map((v) => String(v || '').toUpperCase().replace(/[^A-Z0-9]/g, '')).filter((q) => q.length >= 3 && q.length <= 10))];
     if (quotes.length > 0) state.scan_quote_assets = quotes;
   }
-  if (typeof body.use_dynamic_symbols === 'boolean') {
-    if (body.use_dynamic_symbols) {
-      state.supported_symbols = [];
-    }
+  if (typeof body.use_dynamic_symbols === 'boolean' && body.use_dynamic_symbols) {
+    state.supported_symbols = [];
   }
   if (Array.isArray(body.supported_symbols)) {
-    const normalizedSymbols = [...new Set(body.supported_symbols
+    state.supported_symbols = [...new Set(body.supported_symbols
       .map((v) => String(v || '').toUpperCase().replace(/[^A-Z0-9]/g, ''))
       .filter((s) => isLikelyTradeableSymbol(s, state.scan_quote_assets || []))
     )].slice(0, 2000);
-    state.supported_symbols = normalizedSymbols;
   }
+}
+
+function applyPositionSizeConfig(state, body) {
   if (num(body.position_size_min_usd)) state.position_size_min_usd = Math.max(1, Math.min(500, body.position_size_min_usd));
   if (num(body.position_size_max_usd)) state.position_size_max_usd = Math.max(1, Math.min(500, body.position_size_max_usd));
   if (state.position_size_min_usd > state.position_size_max_usd) {
-    const tmp = state.position_size_min_usd;
-    state.position_size_min_usd = state.position_size_max_usd;
-    state.position_size_max_usd = tmp;
+    [state.position_size_min_usd, state.position_size_max_usd] = [state.position_size_max_usd, state.position_size_min_usd];
   }
-  // Position size — clamped to safe bounds (1–500 USDT)
   if (typeof body.position_size_usd === 'number' && body.position_size_usd > 0) {
-    state.position_size_usd = Math.max(
-      state.position_size_min_usd ?? 1,
-      Math.min(state.position_size_max_usd ?? 500, body.position_size_usd)
-    );
-  }
-  if (typeof body.multi_strategy_live === 'boolean') {
-    state.multi_strategy_live = body.multi_strategy_live;
+    state.position_size_usd = Math.max(state.position_size_min_usd ?? 1, Math.min(state.position_size_max_usd ?? 500, body.position_size_usd));
   }
   if (Number.isFinite(body.max_live_trades_per_scan)) {
-    const clamped = Math.max(1, Math.min(10, Math.floor(body.max_live_trades_per_scan)));
-    state.max_live_trades_per_scan = clamped;
+    state.max_live_trades_per_scan = Math.max(1, Math.min(10, Math.floor(body.max_live_trades_per_scan)));
   }
-  if (typeof body.auto_profiler_enabled === 'boolean') {
-    state.auto_profiler_enabled = body.auto_profiler_enabled;
+}
+
+function applyNumericConfig(state, body) {
+  applyNumericRiskParams(state, body);
+  applyNumericScalpParams(state, body);
+  applySymbolConfig(state, body);
+  applyPositionSizeConfig(state, body);
+}
+
+function applyRiskLockFlags(state, body, forceUnlockManualRiskLock) {
+  if (typeof body.manual_risk_lock !== 'boolean') return;
+  if (state.manual_risk_lock && body.manual_risk_lock === false && !forceUnlockManualRiskLock) {
+    state.manual_risk_lock = true;
+  } else {
+    state.manual_risk_lock = body.manual_risk_lock;
   }
-  if (typeof body.manual_risk_lock === 'boolean') {
-    if (state.manual_risk_lock && body.manual_risk_lock === false && !forceUnlockManualRiskLock) {
-      state.manual_risk_lock = true;
-    } else {
-      state.manual_risk_lock = body.manual_risk_lock;
-    }
-    let override;
-    if (body.manual_risk_lock === false && forceUnlockManualRiskLock) {
-      override = true;
-    } else if (body.manual_risk_lock === true) {
-      override = false;
-    } else {
-      override = state.manual_risk_lock_override === true;
-    }
-    state.manual_risk_lock_override = override;
-    if (forceUnlockManualRiskLock && body.manual_risk_lock === false) {
-      await c.env.BOT_STATE.put('manual_risk_lock_override', '1').catch(() => { });
-    } else if (body.manual_risk_lock === true) {
-      await c.env.BOT_STATE.put('manual_risk_lock_override', '0').catch(() => { });
-    }
+  if (body.manual_risk_lock === false && forceUnlockManualRiskLock) {
+    state.manual_risk_lock_override = true;
+  } else if (body.manual_risk_lock === true) {
+    state.manual_risk_lock_override = false;
+  } else {
+    state.manual_risk_lock_override = state.manual_risk_lock_override === true;
   }
-  if (typeof body.minute_report_enabled === 'boolean') {
-    state.minute_report_enabled = body.minute_report_enabled;
+}
+
+function applyStrategyFlags(state, body) {
+  const requested = body.strategy_flags && typeof body.strategy_flags === 'object' ? body.strategy_flags : null;
+  if (!requested) return;
+  const current = state.strategy_flags || {};
+  const nextFlags = {
+    cex: current.cex !== false, dex: current.dex !== false,
+    perps: current.perps !== false, funding: current.funding !== false,
+    triangular: current.triangular !== false, statistical: current.statistical !== false,
+    scalp_forward: current.scalp_forward !== false, scalp_reverse: current.scalp_reverse !== false,
+    scalp_parallel: current.scalp_parallel !== false,
+  };
+  for (const key of Object.keys(nextFlags)) {
+    if (typeof requested[key] === 'boolean') nextFlags[key] = requested[key];
   }
-  if (typeof body.enforce_core_spot_strategies === 'boolean') {
-    state.enforce_core_spot_strategies = body.enforce_core_spot_strategies;
-  }
+  state.strategy_flags = nextFlags;
+}
+
+function applyProfileBurstConfig(state, body) {
   if (typeof body.auto_profile === 'string') {
     const requestedProfile = String(body.auto_profile || '').toLowerCase();
     if (!state.manual_risk_lock && AUTO_PROFILES[requestedProfile]) {
@@ -1209,8 +1144,10 @@ app.post('/config', async (c) => {
     const mins = clampInt(body.burst_overdrive_minutes, 0, 120);
     if (state.manual_risk_lock) {
       state.burst_overdrive_until_ts = 0;
+    } else if (mins > 0) {
+      state.burst_overdrive_until_ts = Date.now() + mins * 60_000;
     } else {
-      state.burst_overdrive_until_ts = mins > 0 ? (Date.now() + mins * 60_000) : 0;
+      state.burst_overdrive_until_ts = 0;
     }
     if (!state.manual_risk_lock && mins > 0) {
       applyProfileToState(state, 'overdrive');
@@ -1219,80 +1156,132 @@ app.post('/config', async (c) => {
   }
   if (typeof body.burst_revert_profile === 'string') {
     const requestedRevert = String(body.burst_revert_profile || '').toLowerCase();
-    if (['conservative', 'balanced', 'turbo'].includes(requestedRevert)) {
-      state.burst_revert_profile = requestedRevert;
-    }
+    if (['conservative', 'balanced', 'turbo'].includes(requestedRevert)) state.burst_revert_profile = requestedRevert;
   }
-  const requestedStrategyFlags = body.strategy_flags && typeof body.strategy_flags === 'object'
-    ? body.strategy_flags
-    : null;
-  const blockedBySpotLock = Boolean(
-    (state.spot_only_lock === true || forceSpotOnlyLock) &&
-    requestedStrategyFlags &&
-    (requestedStrategyFlags.perps === true || requestedStrategyFlags.funding === true)
-  );
+}
 
-  if (requestedStrategyFlags) {
-    const current = state.strategy_flags || {};
-    const nextFlags = {
-      cex: current.cex !== false,
-      dex: current.dex !== false,
-      perps: current.perps !== false,
-      funding: current.funding !== false,
-      triangular: current.triangular !== false,
-      statistical: current.statistical !== false,
-      scalp_forward: current.scalp_forward !== false,
-      scalp_reverse: current.scalp_reverse !== false,
-      scalp_parallel: current.scalp_parallel !== false,
-    };
-    for (const key of Object.keys(nextFlags)) {
-      if (typeof requestedStrategyFlags[key] === 'boolean') {
-        nextFlags[key] = requestedStrategyFlags[key];
-      }
-    }
-    state.strategy_flags = nextFlags;
-  }
+function applyBooleanConfig(state, body, forceSpotOnlyLock, forceUnlockManualRiskLock) {
+  if (typeof body.multi_strategy_live === 'boolean') state.multi_strategy_live = body.multi_strategy_live;
+  if (typeof body.auto_profiler_enabled === 'boolean') state.auto_profiler_enabled = body.auto_profiler_enabled;
+  if (typeof body.minute_report_enabled === 'boolean') state.minute_report_enabled = body.minute_report_enabled;
+  if (typeof body.enforce_core_spot_strategies === 'boolean') state.enforce_core_spot_strategies = body.enforce_core_spot_strategies;
+
+  applyRiskLockFlags(state, body, forceUnlockManualRiskLock);
 
   if (typeof body.spot_only_lock === 'boolean') {
     state.spot_only_lock = forceSpotOnlyLock ? true : body.spot_only_lock;
   }
 
-  // Spot-only lock guard: perps/funding cannot be enabled through generic config.
+  applyStrategyFlags(state, body);
+  applyProfileBurstConfig(state, body);
+}
+
+function applyRiskLockFinalize(state, forceSpotOnlyLock, lockedRiskValues) {
   if (state.spot_only_lock === true || forceSpotOnlyLock) {
     state.spot_only_lock = true;
-    state.strategy_flags = {
-      ...state.strategy_flags,
-      perps: false,
-      funding: false,
-    };
+    state.strategy_flags = { ...state.strategy_flags, perps: false, funding: false };
   }
-
-  // Manual risk lock freezes profile automation so manual risk limits remain stable.
   if (state.manual_risk_lock) {
     state.auto_profiler_enabled = false;
     state.burst_overdrive_until_ts = 0;
   }
-
-  // Sticky lock: when active, preserve locked risk values unless force-unlock is explicit.
   if (lockedRiskValues) {
     state.manual_risk_lock = true;
-    state.position_size_usd = lockedRiskValues.position_size_usd;
-    state.max_live_trades_per_scan = lockedRiskValues.max_live_trades_per_scan;
-    state.max_daily_loss_usd = lockedRiskValues.max_daily_loss_usd;
-    state.max_per_trade_loss_pct = lockedRiskValues.max_per_trade_loss_pct;
-    state.min_seconds_between_trades = lockedRiskValues.min_seconds_between_trades;
-    state.auto_profiler_enabled = false;
-    state.auto_profile = lockedRiskValues.auto_profile;
-    state.burst_overdrive_until_ts = 0;
+    Object.assign(state, {
+      position_size_usd: lockedRiskValues.position_size_usd,
+      max_live_trades_per_scan: lockedRiskValues.max_live_trades_per_scan,
+      max_daily_loss_usd: lockedRiskValues.max_daily_loss_usd,
+      max_per_trade_loss_pct: lockedRiskValues.max_per_trade_loss_pct,
+      min_seconds_between_trades: lockedRiskValues.min_seconds_between_trades,
+      auto_profiler_enabled: false,
+      auto_profile: lockedRiskValues.auto_profile,
+      burst_overdrive_until_ts: 0,
+    });
+  }
+}
+
+async function validateConfigAuth(c, state, body, forceManualRiskLock, forceSpotOnlyLock) {
+  const forceUnlockRequested = body.force_unlock_manual_risk_lock === true;
+  const unlockHeader = String(c.req.header('x-risk-unlock-token') || '').trim();
+  const unlockTokenConfigured = String(c.env.RISK_UNLOCK_TOKEN || '').trim();
+  let forceUnlockManualRiskLock = false;
+
+  if (forceUnlockRequested) {
+    if (!unlockTokenConfigured) {
+      return { error: c.json({ success: false, error: 'RISK_UNLOCK_TOKEN is not configured; force unlock is disabled' }, 403), forceUnlockManualRiskLock: false, blockedBySpotLock: false };
+    }
+    if (!constantTimeEquals(unlockHeader, unlockTokenConfigured)) {
+      return { error: c.json({ success: false, error: 'Invalid x-risk-unlock-token' }, 403), forceUnlockManualRiskLock: false, blockedBySpotLock: false };
+    }
+    forceUnlockManualRiskLock = true;
+    await c.env.BOT_STATE.put('manual_risk_lock_override', '1').catch(() => { });
+  }
+
+  const isFiniteNum = (v) => typeof v === 'number' && Number.isFinite(v);
+  const touching = typeof body.manual_risk_lock === 'boolean' || typeof body.auto_profiler_enabled === 'boolean' ||
+    typeof body.auto_profile === 'string' || isFiniteNum(body.position_size_usd) ||
+    isFiniteNum(body.max_live_trades_per_scan) || isFiniteNum(body.max_daily_loss_usd) ||
+    isFiniteNum(body.max_per_trade_loss_pct) || isFiniteNum(body.min_seconds_between_trades) ||
+    isFiniteNum(body.burst_overdrive_minutes) || typeof body.burst_revert_profile === 'string';
+
+  if (forceManualRiskLock && touching) {
+    await logAdminEvent(c.env, 'config_forced_lock_rejected', c.req.raw);
+    return { error: c.json({ success: false, error: 'MANUAL_RISK_LOCK_FORCE is enabled; protected risk settings are immutable', forcedByEnvironment: true }, 423), forceUnlockManualRiskLock: false, blockedBySpotLock: false };
+  }
+  if (state.manual_risk_lock === true && touching && !forceUnlockManualRiskLock) {
+    await logAdminEvent(c.env, 'config_locked_rejected', c.req.raw);
+    return { error: c.json({ success: false, error: 'manual_risk_lock is active; protected risk settings are locked', requiresForceUnlock: true }, 423), forceUnlockManualRiskLock: false, blockedBySpotLock: false };
+  }
+
+  const requestedFlags = body.strategy_flags && typeof body.strategy_flags === 'object' ? body.strategy_flags : null;
+  const blockedBySpotLock = Boolean((state.spot_only_lock === true || forceSpotOnlyLock) && requestedFlags &&
+    (requestedFlags.perps === true || requestedFlags.funding === true));
+
+  return { error: null, forceUnlockManualRiskLock, blockedBySpotLock };
+}
+
+app.post('/config', async (c) => {
+  const limited = await checkRateLimit(c.env, c);
+  if (limited) return limited;
+  if (!isAuthorized(c.env, c)) return authDenied(c.env, c);
+  let body;
+  try { body = await c.req.json(); } catch { return c.text('Invalid JSON', 400); }
+  const state = await getState(c.env);
+  const forceManualRiskLock = parseEnvBool(c.env.MANUAL_RISK_LOCK_FORCE);
+  const forceSpotOnlyLock = ['1', 'true', 'on', 'yes'].includes(String(c.env.SPOT_ONLY_LOCK_FORCE || '').toLowerCase());
+
+  const auth = await validateConfigAuth(c, state, body, forceManualRiskLock, forceSpotOnlyLock);
+  if (auth.error) return auth.error;
+
+  const forceUnlockManualRiskLock = auth.forceUnlockManualRiskLock;
+  const blockedBySpotLock = auth.blockedBySpotLock;
+
+  const lockProtected = state.manual_risk_lock === true && !forceUnlockManualRiskLock;
+  const lockedRiskValues = lockProtected ? {
+    position_size_usd: state.position_size_usd, max_live_trades_per_scan: state.max_live_trades_per_scan,
+    max_daily_loss_usd: state.max_daily_loss_usd, max_per_trade_loss_pct: state.max_per_trade_loss_pct,
+    min_seconds_between_trades: state.min_seconds_between_trades,
+    auto_profiler_enabled: state.auto_profiler_enabled, auto_profile: state.auto_profile,
+    burst_overdrive_until_ts: state.burst_overdrive_until_ts,
+  } : null;
+
+  applyNumericConfig(state, body);
+  applyBooleanConfig(state, body, forceSpotOnlyLock, forceUnlockManualRiskLock);
+  applyRiskLockFinalize(state, forceSpotOnlyLock, lockedRiskValues);
+
+  if (typeof body.manual_risk_lock === 'boolean') {
+    if (forceUnlockManualRiskLock && body.manual_risk_lock === false) {
+      await c.env.BOT_STATE.put('manual_risk_lock_override', '1').catch(() => { });
+    } else if (body.manual_risk_lock === true) {
+      await c.env.BOT_STATE.put('manual_risk_lock_override', '0').catch(() => { });
+    }
   }
 
   state.last_config_change_ts = Date.now();
 
   if (blockedBySpotLock) {
-    await sendTelegramAlert(
-      c.env,
-      '🛡️ *Spot-only lock blocked a config transition*\n' +
-      'Attempted to enable perps/funding via /config while lock is active.'
+    await sendTelegramAlert(c.env,
+      '🛡️ *Spot-only lock blocked a config transition*\nAttempted to enable perps/funding via /config while lock is active.'
     );
   }
 
@@ -1533,6 +1522,45 @@ app.get('/api/execution-lock', async (c) => {
 
 // ── API: Safety state snapshot ───────────────────────────────────────────────
 // Single payload for operational guardrails and runtime safety checks.
+
+async function probeMexcReadiness(env, mexcConfigured, perpsEnabled) {
+  let spotReady = false;
+  let spotError = null;
+  let spotBalance = null;
+  if (mexcConfigured) {
+    try {
+      const bal = await getMEXCBalance(env, 'USDT');
+      spotBalance = bal;
+      spotReady = Number(bal?.free || 0) > 0;
+    } catch (e) {
+      spotError = e.message;
+    }
+  }
+
+  let futuresReady = false;
+  let futuresError = null;
+  let futuresBalance = null;
+  if (mexcConfigured && perpsEnabled) {
+    try {
+      futuresBalance = await getMEXCFuturesBalance(env, 'USDT');
+      futuresReady = true;
+    } catch (e) {
+      futuresError = e.message;
+    }
+  }
+
+  let executionMode;
+  if (!perpsEnabled) {
+    executionMode = spotReady ? 'spot-only' : 'blocked';
+  } else if (futuresReady) {
+    executionMode = 'futures+spot';
+  } else {
+    executionMode = spotReady ? 'spot-fallback' : 'blocked';
+  }
+
+  return { spotReady, spotError, spotBalance, futuresReady, futuresError, futuresBalance, executionMode };
+}
+
 app.get('/api/safety-state', async (c) => {
   if (!isAuthorized(c.env, c)) return authDenied(c.env, c, true);
   const forceSpotOnlyLock = ['1', 'true', 'on', 'yes'].includes(String(c.env.SPOT_ONLY_LOCK_FORCE || '').toLowerCase());
@@ -1550,46 +1578,16 @@ app.get('/api/safety-state', async (c) => {
   const adminTokenSet = !!(c.env.ADMIN_TOKEN);
   const tradingEnabled = !!state.trading_enabled;
   const paperMode = state.paper_trading !== false;
-  const executionExchangesReady = executionProbe.allConfiguredExchangesHealthy;
   const perpsEnabled = state?.strategy_flags?.perps !== false;
   const mexcConfigured = hasExchangeCredentials(c.env, 'mexc');
-
-  let spotReady = false;
-  let spotError = null;
-  if (mexcConfigured) {
-    try {
-      const bal = await getMEXCBalance(c.env, 'USDT');
-      spotReady = Number(bal?.free || 0) > 0;
-    } catch (e) {
-      spotError = e.message;
-    }
-  }
-
-  let futuresReady = false;
-  let futuresError = null;
-  if (mexcConfigured && perpsEnabled) {
-    try {
-      await getMEXCFuturesBalance(c.env, 'USDT');
-      futuresReady = true;
-    } catch (e) {
-      futuresError = e.message;
-    }
-  }
-
-  let executionMode;
-  if (!perpsEnabled) {
-    executionMode = spotReady ? 'spot-only' : 'blocked';
-  } else if (futuresReady) {
-    executionMode = 'futures+spot';
-  } else {
-    executionMode = spotReady ? 'spot-fallback' : 'blocked';
-  }
+  const { spotReady, spotError, futuresReady, futuresError, executionMode } =
+    await probeMexcReadiness(c.env, mexcConfigured, perpsEnabled);
 
   const readyForLive = (
     adminTokenSet &&
     tradingEnabled &&
     !paperMode &&
-    executionExchangesReady
+    executionProbe.allConfiguredExchangesHealthy
   );
 
   return c.json({
@@ -1634,7 +1632,7 @@ app.get('/api/proxy-stats', async (c) => {
     const externalStats = getExternalProxyManager(c.env).getStats();
     externalProvider = externalStats.provider ?? 'none';
     externalHealthy = !!externalStats.healthy;
-  } catch (_) { /* external proxy unavailable — best-effort diagnostic */ }
+  } catch (err) { console.error('[proxy-stats] external proxy unavailable:', err?.message); }
   return c.json({
     success: true,
     proxyRouting: stats.proxyRouting,
@@ -1730,7 +1728,7 @@ app.get('/api/readiness', async (c) => {
       failures: bmStats.circuitBreakerFailures ?? 0,
       rateLimitUsed: bmStats.rateLimitRequests ?? 0,
     };
-  } catch (_) { /* Bitmart bridge unavailable — best-effort diagnostic */ }
+  } catch (err) { console.error('[readiness] BitMart bridge unavailable:', err?.message); }
 
   // ---- External proxy -----------------------------------------------------
   let proxyStatus = { provider: 'none', enabled: false, healthy: false };
@@ -1743,7 +1741,7 @@ app.get('/api/readiness', async (c) => {
       enabled: ps.enabled ?? false,
       healthy: ps.healthy ?? false,
     };
-  } catch (_) { /* external proxy unavailable — best-effort diagnostic */ }
+  } catch (err) { console.error('[readiness] external proxy unavailable:', err?.message); }
 
   // ---- System flags -------------------------------------------------------
   const adminTokenSet = !!(c.env.ADMIN_TOKEN);
@@ -2137,46 +2135,10 @@ app.get('/api/execution-health', async (c) => {
   ]);
   const executorStats = getAutoExecutor(c.env).getStats();
   const perpsEnabled = state?.strategy_flags?.perps !== false;
-
   const mexcConfigured = hasExchangeCredentials(c.env, 'mexc');
+  const { spotReady, spotError, spotBalance, futuresReady, futuresError, futuresBalance, executionMode } =
+    await probeMexcReadiness(c.env, mexcConfigured, perpsEnabled);
 
-  let spotReady = false;
-  let spotBalance = null;
-  let spotError = null;
-  if (mexcConfigured) {
-    try {
-      const bal = await getMEXCBalance(c.env, 'USDT');
-      spotBalance = bal;
-      spotReady = bal.free > 0;
-    } catch (e) {
-      spotError = e.message;
-    }
-  }
-
-  let futuresReady = false;
-  let futuresBalance = null;
-  let futuresError = null;
-  if (mexcConfigured && perpsEnabled) {
-    try {
-      futuresBalance = await getMEXCFuturesBalance(c.env, 'USDT');
-      futuresReady = true;
-    } catch (e) {
-      futuresError = e.message;
-    }
-  }
-
-  let executionMode;
-  if (perpsEnabled) {
-    if (futuresReady) {
-      executionMode = 'futures+spot';
-    } else if (spotReady) {
-      executionMode = 'spot-fallback';
-    } else {
-      executionMode = 'blocked';
-    }
-  } else {
-    executionMode = spotReady ? 'spot-only' : 'blocked';
-  }
   const paperMode = state?.paper_trading !== false;
   const blockedReasons = [];
   if (!mexcConfigured) blockedReasons.push('MEXC credentials missing');
@@ -2245,7 +2207,7 @@ app.get('/api/exchange/:exchange', async (c) => {
       let usdt_equity = null;
       try {
         usdt_equity = await getBitgetAccountEquityUSDT(c.env);
-      } catch (_) { /* best-effort equity lookup */ }
+      } catch (err) { console.error('[exchange] bitget equity lookup failed:', err?.message); }
       return c.json({ exchange, configured: true, balance, ...(usdt_equity ? { usdt_equity } : {}) });
     }
     return c.json({ exchange, configured: true, balance });
@@ -2299,7 +2261,7 @@ app.post('/api/exchange/:exchange/order', async (c) => {
   }
 
   let body;
-  try { body = await c.req.json(); } catch (_) { /* invalid JSON */ return c.json({ error: 'Invalid JSON body' }, 400); }
+  try { body = await c.req.json(); } catch (err) { console.error('[exchange-order] JSON parse failed:', err?.message); return c.json({ error: 'Invalid JSON body' }, 400); }
 
   const { symbol, side, quantity, sizeUsd } = body || {};
   if (symbol == null || side == null || quantity == null || sizeUsd == null) {
@@ -2464,7 +2426,7 @@ app.post('/api/broker/:broker/order', async (c) => {
   }
 
   let body;
-  try { body = await c.req.json(); } catch (_) { /* invalid JSON */ return c.json({ error: 'Invalid JSON body' }, 400); }
+  try { body = await c.req.json(); } catch (err) { console.error('[broker-order] JSON parse failed:', err?.message); return c.json({ error: 'Invalid JSON body' }, 400); }
 
   const { symbol, side, quantity, sizeUsd } = body || {};
   if (!symbol || !side) {
@@ -2513,7 +2475,7 @@ app.get('/api/dex', async (c) => {
   if (alchemyConfigured) {
     try {
       currentOpportunity = await scanDEX(c.env);
-    } catch (_) { }
+    } catch (err) { console.error('[dex] scanDEX failed:', err?.message); }
   }
 
   return c.json({
@@ -2615,78 +2577,20 @@ app.get('/api/platforms', async (c) => {
     })
   );
 
-  // Public data-only platforms — no credentials required
-  const DATA_ONLY_PLATFORMS = [
-    {
-      name: 'bybit',
-      type: 'cex',
-      executionMode: 'data-only',
-      configured: false,
-      missingKeys: [],
-      balance: null,
-      error: null,
-      strategies: ['cex-price-feed', 'perps-price-feed'],
-      note: 'بيانات أسعار عامة فقط (قيود تنظيمية BaFin الألمانية — لا تنفيذ)',
-      dataOnly: true,
-    },
-    {
-      name: 'gateio',
-      type: 'cex',
-      executionMode: 'data-only',
-      configured: false,
-      missingKeys: [],
-      balance: null,
-      error: null,
-      strategies: ['cex-price-feed'],
-      note: 'بيانات أسعار عامة فقط (قيود تنظيمية BaFin الألمانية — لا تنفيذ)',
-      dataOnly: true,
-    },
-    {
-      name: 'kraken',
-      type: 'cex',
-      executionMode: 'data-only',
-      configured: false,
-      missingKeys: [],
-      balance: null,
-      error: null,
-      strategies: ['cex-price-feed'],
-      note: 'بيانات أسعار عامة فقط — لا يلزم مفتاح API',
-      dataOnly: true,
-    },
-    {
-      name: 'coinbase',
-      type: 'cex',
-      executionMode: 'data-only',
-      configured: false,
-      missingKeys: [],
-      balance: null,
-      error: null,
-      strategies: ['cex-price-feed'],
-      note: 'بيانات أسعار عامة فقط — لا يلزم مفتاح API',
-      dataOnly: true,
-    },
-  ];
-  platformResults.push(...DATA_ONLY_PLATFORMS);
-
-  // MetaMask is browser-only — always considered "configured" on the server side
-  platformResults.push({
-    name: 'metamask',
-    type: 'web3',
-    executionMode: 'browser-signing',
-    configured: true,
-    missingKeys: [],
-    balance: null,
-    error: null,
-    strategies: ['dex-gmx', 'dex-dydx'],
-    note: 'Web3 browser wallet; on-chain execution requires browser + MetaMask extension. Server executes via HFT engine private key.'
-  });
-
-  const configuredCount = platformResults.filter(p => p.configured).length;
+  // Public data-only platforms + MetaMask — appended in one pass
+  const allPlatforms = platformResults.concat([
+    { name: 'bybit', type: 'cex', executionMode: 'data-only', configured: false, missingKeys: [], balance: null, error: null, strategies: ['cex-price-feed', 'perps-price-feed'], note: 'بيانات أسعار عامة فقط (قيود تنظيمية BaFin الألمانية — لا تنفيذ)', dataOnly: true },
+    { name: 'gateio', type: 'cex', executionMode: 'data-only', configured: false, missingKeys: [], balance: null, error: null, strategies: ['cex-price-feed'], note: 'بيانات أسعار عامة فقط (قيود تنظيمية BaFin الألمانية — لا تنفيذ)', dataOnly: true },
+    { name: 'kraken', type: 'cex', executionMode: 'data-only', configured: false, missingKeys: [], balance: null, error: null, strategies: ['cex-price-feed'], note: 'بيانات أسعار عامة فقط — لا يلزم مفتاح API', dataOnly: true },
+    { name: 'coinbase', type: 'cex', executionMode: 'data-only', configured: false, missingKeys: [], balance: null, error: null, strategies: ['cex-price-feed'], note: 'بيانات أسعار عامة فقط — لا يلزم مفتاح API', dataOnly: true },
+    { name: 'metamask', type: 'web3', executionMode: 'browser-signing', configured: true, missingKeys: [], balance: null, error: null, strategies: ['dex-gmx', 'dex-dydx'], note: 'Web3 browser wallet; on-chain execution requires browser + MetaMask extension. Server executes via HFT engine private key.' },
+  ]);
+  const configuredCount = allPlatforms.filter(p => p.configured).length;
 
   return c.json({
     success: true,
-    summary: { total: platformResults.length, configured: configuredCount, unconfigured: platformResults.length - configuredCount },
-    platforms: platformResults
+    summary: { total: allPlatforms.length, configured: configuredCount, unconfigured: allPlatforms.length - configuredCount },
+    platforms: allPlatforms
   });
 });
 
@@ -2894,6 +2798,113 @@ app.get('/api/version', (c) => {
 });
 
 // ── Telegram webhook ──────────────────────────────────────────────────────────
+
+async function handleTelegramHelp(send) {
+  await send(
+    `🔷 *Nexus Arbitrage Hub*\n\n` +
+    `📊 الاستراتيجيات: CEX + DEX + Perps + Funding Rate\n` +
+    `🏦 المنصات: MEXC, Binance, KuCoin, Bitget, Bitmart, Bybit, Gate.io\n` +
+    `📈 الأزواج: 29 زوج من أكبر العملات\n\n` +
+    `⚡ *الأوامر:*\n` +
+    `/status — حالة البوت والإحصائيات\n` +
+    `/scan — مسح فوري للفرص\n` +
+    `/start\\_trading — تشغيل التداول التلقائي\n` +
+    `/stop\\_trading — إيقاف التداول التلقائي\n` +
+    `/pnl — الأرباح حسب الاستراتيجية\n` +
+    `/mode — الوضع الحالي (Paper/Live)\n` +
+    `/help — قائمة الأوامر`
+  );
+}
+
+async function handleTelegramStatus(env, state, send) {
+  const equity = (state.initial_capital || 1000) + (state.total_pnl || 0);
+  const lastScan = await env.BOT_STATE.get('nexus_last_scan', 'json').catch(() => null);
+  const configuredExchanges = getConfiguredExchanges(env);
+  const credStatus = configuredExchanges.length > 0
+    ? `✅ ${configuredExchanges.length} منصة مُهيأة: ${configuredExchanges.join(', ')}`
+    : `⚠️ لا توجد مفاتيح API — أضف الأسرار عبر: wrangler secret put MEXC_API_KEY`;
+  const autoStopLine = state.auto_stopped ? `🛑 إيقاف تلقائي: ${state.auto_stop_reason}\n` : '';
+  const modeLabel = state.paper_trading === false ? '🔴 Live' : '📄 Paper';
+  await send(
+    `⚙️ *حالة Nexus Hub*\n\n` +
+    `الوضع: ${modeLabel}\n` +
+    `التداول: ${state.trading_enabled ? '✅ مفعّل' : '❌ متوقف'}\n` +
+    `${autoStopLine}` +
+    `🔑 المنصات: ${credStatus}\n` +
+    `💰 رأس المال: $${equity.toFixed(2)}\n` +
+    `📈 إجمالي الأرباح: $${(state.total_pnl || 0).toFixed(2)}\n` +
+    `📊 ربح اليوم: $${(state.daily_pnl || 0).toFixed(2)}\n` +
+    `🎯 صفقات اليوم: ${state.daily_trades || 0}\n` +
+    `📊 إجمالي الصفقات: ${state.total_trades || 0}\n` +
+    (lastScan ? `🕐 آخر مسح: ${new Date(lastScan.timestamp).toLocaleString('ar')}` : '🕐 لم يتم المسح بعد')
+  );
+}
+
+async function handleTelegramScan(env, state, send) {
+  await send('🔍 جاري المسح عبر CEX + DEX + Perps...');
+  const result = await runScan(env, state, sendTelegramAlert, {
+    source: 'telegram',
+    trigger: '/telegram/webhook:/scan',
+  });
+  await saveState(env, state);
+  if (result) {
+    const opp = result.opportunity;
+    await send(
+      `🎯 *أفضل فرصة وُجدت:*\n\n` +
+      `الزوج: *${opp.symbol}*\n` +
+      `الاستراتيجية: ${opp.strategy.toUpperCase()}\n` +
+      `الاتجاه: ${opp.direction}\n` +
+      `شراء: $${Number(opp.buyPrice).toFixed(4)}\n` +
+      `بيع: $${Number(opp.sellPrice).toFixed(4)}\n` +
+      `صافي الربح: *${opp.netPct.toFixed(4)}%*\n` +
+      `معامل الأمان: ${(opp.safetyFactor * 100).toFixed(1)}%\n` +
+      `الحجم: $${result.sizeUsd.toFixed(2)}`
+    );
+  } else {
+    await send('ℹ️ لا توجد فرص مربحة عند الحد الحالي');
+  }
+}
+
+async function handleTelegramPnl(env, state, send) {
+  const pnl = await getStrategyPnL(env);
+  await send(
+    `📊 *الأرباح حسب الاستراتيجية:*\n\n` +
+    `📈 CEX: $${pnl.cex.pnl.toFixed(2)} (${pnl.cex.trades} صفقة)\n` +
+    `🌐 DEX: $${pnl.dex.pnl.toFixed(2)} (${pnl.dex.trades} صفقة)\n` +
+    `⚡ Perps: $${pnl.perps.pnl.toFixed(2)} (${pnl.perps.trades} صفقة)\n` +
+    `──────────────────\n` +
+    `💰 الإجمالي: $${(state.total_pnl || 0).toFixed(2)}`
+  );
+}
+
+const TELEGRAM_COMMANDS = {
+  '/start': handleTelegramHelp,
+  '/help': handleTelegramHelp,
+  '/status': handleTelegramStatus,
+  '/scan': handleTelegramScan,
+  '/pnl': handleTelegramPnl,
+  '/start_trading': async (env, state, send) => {
+    state.trading_enabled = true;
+    state.auto_stopped = false;
+    state.auto_stop_reason = null;
+    await saveState(env, state);
+    await send('▶️ *تم تشغيل التداول التلقائي* ✅');
+  },
+  '/stop_trading': async (env, state, send) => {
+    state.trading_enabled = false;
+    await saveState(env, state);
+    await send('⏸️ *تم إيقاف التداول التلقائي*');
+  },
+  '/mode': async (_env, state, send) => {
+    const paperLabel = state.paper_trading === false ? '🔴 Live Trading (حقيقي)' : '📄 Paper Trading (تجريبي)';
+    await send(
+      `🎛️ *وضع التداول الحالي:*\n` +
+      `${paperLabel}\n\n` +
+      `لتغيير الوضع استخدم لوحة التحكم على الإنترنت`
+    );
+  },
+};
+
 app.post('/telegram/webhook', async (c) => {
   // Validate the optional webhook secret set via `wrangler secret put TELEGRAM_WEBHOOK_SECRET`
   // and passed to Telegram during setWebhook as the `secret_token` parameter.
@@ -2929,100 +2940,17 @@ app.post('/telegram/webhook', async (c) => {
   };
 
   const cmd = text.trim().split(/\s+/)[0].toLowerCase();
+  const handler = TELEGRAM_COMMANDS[cmd];
   const state = await getState(c.env);
 
-  try {
-    if (cmd === '/start' || cmd === '/help') {
-      await send(
-        `🔷 *Nexus Arbitrage Hub*\n\n` +
-        `📊 الاستراتيجيات: CEX + DEX + Perps + Funding Rate\n` +
-        `🏦 المنصات: MEXC, Binance, KuCoin, Bitget, Bitmart, Bybit, Gate.io\n` +
-        `📈 الأزواج: 29 زوج من أكبر العملات\n\n` +
-        `⚡ *الأوامر:*\n` +
-        `/status — حالة البوت والإحصائيات\n` +
-        `/scan — مسح فوري للفرص\n` +
-        `/start\\_trading — تشغيل التداول التلقائي\n` +
-        `/stop\\_trading — إيقاف التداول التلقائي\n` +
-        `/pnl — الأرباح حسب الاستراتيجية\n` +
-        `/mode — الوضع الحالي (Paper/Live)\n` +
-        `/help — قائمة الأوامر`
-      );
-    } else if (cmd === '/status') {
-      const equity = (state.initial_capital || 1000) + (state.total_pnl || 0);
-      const lastScan = await c.env.BOT_STATE.get('nexus_last_scan', 'json').catch(() => null);
-      const configuredExchanges = getConfiguredExchanges(c.env);
-      const credStatus = configuredExchanges.length > 0
-        ? `✅ ${configuredExchanges.length} منصة مُهيأة: ${configuredExchanges.join(', ')}`
-        : `⚠️ لا توجد مفاتيح API — أضف الأسرار عبر: wrangler secret put MEXC_API_KEY`;
-      const autoStopLine = state.auto_stopped ? `🛑 إيقاف تلقائي: ${state.auto_stop_reason}\n` : '';
-      const modeLabel = state.paper_trading === false ? '🔴 Live' : '📄 Paper';
-      await send(
-        `⚙️ *حالة Nexus Hub*\n\n` +
-        `الوضع: ${modeLabel}\n` +
-        `التداول: ${state.trading_enabled ? '✅ مفعّل' : '❌ متوقف'}\n` +
-        `${autoStopLine}` +
-        `🔑 المنصات: ${credStatus}\n` +
-        `💰 رأس المال: $${equity.toFixed(2)}\n` +
-        `📈 إجمالي الأرباح: $${(state.total_pnl || 0).toFixed(2)}\n` +
-        `📊 ربح اليوم: $${(state.daily_pnl || 0).toFixed(2)}\n` +
-        `🎯 صفقات اليوم: ${state.daily_trades || 0}\n` +
-        `📊 إجمالي الصفقات: ${state.total_trades || 0}\n` +
-        (lastScan ? `🕐 آخر مسح: ${new Date(lastScan.timestamp).toLocaleString('ar')}` : '🕐 لم يتم المسح بعد')
-      );
-    } else if (cmd === '/scan') {
-      await send('🔍 جاري المسح عبر CEX + DEX + Perps...');
-      const result = await runScan(c.env, state, sendTelegramAlert, {
-        source: 'telegram',
-        trigger: '/telegram/webhook:/scan',
-      });
-      await saveState(c.env, state);
-      if (result) {
-        const opp = result.opportunity;
-        await send(
-          `🎯 *أفضل فرصة وُجدت:*\n\n` +
-          `الزوج: *${opp.symbol}*\n` +
-          `الاستراتيجية: ${opp.strategy.toUpperCase()}\n` +
-          `الاتجاه: ${opp.direction}\n` +
-          `شراء: $${Number(opp.buyPrice).toFixed(4)}\n` +
-          `بيع: $${Number(opp.sellPrice).toFixed(4)}\n` +
-          `صافي الربح: *${opp.netPct.toFixed(4)}%*\n` +
-          `معامل الأمان: ${(opp.safetyFactor * 100).toFixed(1)}%\n` +
-          `الحجم: $${result.sizeUsd.toFixed(2)}`
-        );
-      } else {
-        await send('ℹ️ لا توجد فرص مربحة عند الحد الحالي');
-      }
-    } else if (cmd === '/start_trading') {
-      state.trading_enabled = true;
-      state.auto_stopped = false;
-      state.auto_stop_reason = null;
-      await saveState(c.env, state);
-      await send('▶️ *تم تشغيل التداول التلقائي* ✅');
-    } else if (cmd === '/stop_trading') {
-      state.trading_enabled = false;
-      await saveState(c.env, state);
-      await send('⏸️ *تم إيقاف التداول التلقائي*');
-    } else if (cmd === '/pnl') {
-      const pnl = await getStrategyPnL(c.env);
-      await send(
-        `📊 *الأرباح حسب الاستراتيجية:*\n\n` +
-        `📈 CEX: $${pnl.cex.pnl.toFixed(2)} (${pnl.cex.trades} صفقة)\n` +
-        `🌐 DEX: $${pnl.dex.pnl.toFixed(2)} (${pnl.dex.trades} صفقة)\n` +
-        `⚡ Perps: $${pnl.perps.pnl.toFixed(2)} (${pnl.perps.trades} صفقة)\n` +
-        `──────────────────\n` +
-        `💰 الإجمالي: $${(state.total_pnl || 0).toFixed(2)}`
-      );
-    } else if (cmd === '/mode') {
-      const paperLabel = state.paper_trading === false ? '🔴 Live Trading (حقيقي)' : '📄 Paper Trading (تجريبي)';
-      await send(
-        `🎛️ *وضع التداول الحالي:*\n` +
-        `${paperLabel}\n\n` +
-        `لتغيير الوضع استخدم لوحة التحكم على الإنترنت`
-      );
+  if (handler) {
+    try {
+      await handler(c.env, state, send);
+    } catch (err) {
+      await send(`⚠️ خطأ: ${err.message}`).catch(() => { });
     }
-  } catch (err) {
-    await send(`⚠️ خطأ: ${err.message}`).catch(() => { });
   }
+
   return c.json({ ok: true });
 });
 
@@ -3167,139 +3095,92 @@ app.post('/api/memory/reset', async (c) => {
   }
 });
 
-// ─── Scheduled cron cycle ─────────────────────────────────────────────────────
-async function runScheduledCycle(env) {
-  const state = await getState(env);
-  const cycleStartConfigTs = Number(state?.last_config_change_ts || 0);
-  const forceSpotOnlyLock = ['1', 'true', 'on', 'yes'].includes(String(env.SPOT_ONLY_LOCK_FORCE || '').toLowerCase());
+// ─── Scheduled cron cycle helpers ────────────────────────────────────────────
 
-  const now = Date.now();
-  let lockStateAdjusted = false;
-
+async function enforceSpotLock(env, state, forceSpotOnlyLock, now, cycleStartConfigTs) {
   if (forceSpotOnlyLock && state.spot_only_lock !== true) {
     state.spot_only_lock = true;
-    lockStateAdjusted = true;
   }
+  if (state.spot_only_lock !== true && !forceSpotOnlyLock) return false;
 
-  if (state.spot_only_lock === true || forceSpotOnlyLock) {
-    const hasPerps = state?.strategy_flags?.perps !== false;
-    const hasFunding = state?.strategy_flags?.funding !== false;
-    const hasDexDisabled = state?.strategy_flags?.dex === false;
-    const shouldForceDexEnabled = forceSpotOnlyLock && isHFTEngineConfigured(env) && Boolean(env.ALCHEMY_API_KEY);
-    if (hasPerps || hasFunding || (shouldForceDexEnabled && hasDexDisabled)) {
-      state.spot_only_lock = true;
-      state.strategy_flags = {
-        ...state.strategy_flags,
-        dex: shouldForceDexEnabled ? true : (state?.strategy_flags?.dex !== false),
-        perps: false,
-        funding: false,
-      };
-      state.last_config_change_ts = now;
-      lockStateAdjusted = true;
-    }
-  }
+  const hasPerps = state?.strategy_flags?.perps !== false;
+  const hasFunding = state?.strategy_flags?.funding !== false;
+  const hasDexDisabled = state?.strategy_flags?.dex === false;
+  const shouldForceDexEnabled = forceSpotOnlyLock && isHFTEngineConfigured(env) && Boolean(env.ALCHEMY_API_KEY);
+  if (!hasPerps && !hasFunding && !(shouldForceDexEnabled && hasDexDisabled)) return false;
 
-  if (lockStateAdjusted) {
-    await saveStateWithConfigGuard(env, state, cycleStartConfigTs);
-    await logBotEvent(env, 'spot_lock_enforced', {
-      at: now,
-      strategy_flags: state.strategy_flags,
-    });
-  }
+  state.spot_only_lock = true;
+  state.strategy_flags = {
+    ...state.strategy_flags,
+    dex: shouldForceDexEnabled ? true : (state?.strategy_flags?.dex !== false),
+    perps: false,
+    funding: false,
+  };
+  state.last_config_change_ts = now;
+  await saveStateWithConfigGuard(env, state, cycleStartConfigTs);
+  await logBotEvent(env, 'spot_lock_enforced', { at: now, strategy_flags: state.strategy_flags });
+  return true;
+}
 
-  // Guard against runtime drift: keep core spot strategies active in live
-  // multi-strategy mode unless explicitly disabled by operator.
-  const shouldEnforceCoreSpotStrategies =
+async function enforceCoreStrategies(env, state, forceSpotOnlyLock, now, cycleStartConfigTs) {
+  const shouldEnforce =
     state.enforce_core_spot_strategies !== false &&
     state.paper_trading === false &&
     state.multi_strategy_live !== false;
+  if (!shouldEnforce) return;
 
-  if (shouldEnforceCoreSpotStrategies) {
-    const currentFlags = state.strategy_flags || {};
-    const nextFlags = {
-      ...currentFlags,
-      cex: true,
-      dex: true,
-      triangular: true,
-      statistical: true,
-      scalp_forward: true,
-      scalp_reverse: true,
-      scalp_parallel: true,
-    };
-
-    if (state.spot_only_lock === true || forceSpotOnlyLock) {
-      nextFlags.perps = false;
-      nextFlags.funding = false;
-    }
-
-    const driftDetected =
-      currentFlags.cex !== true ||
-      currentFlags.dex !== true ||
-      currentFlags.triangular !== true ||
-      currentFlags.statistical !== true ||
-      currentFlags.scalp_forward !== true ||
-      currentFlags.scalp_reverse !== true ||
-      currentFlags.scalp_parallel !== true ||
-      ((state.spot_only_lock === true || forceSpotOnlyLock) &&
-        (currentFlags.perps !== false || currentFlags.funding !== false));
-
-    if (driftDetected) {
-      const previousFlags = {
-        cex: currentFlags.cex !== false,
-        dex: currentFlags.dex !== false,
-        perps: currentFlags.perps !== false,
-        funding: currentFlags.funding !== false,
-        triangular: currentFlags.triangular !== false,
-        statistical: currentFlags.statistical !== false,
-        scalp_forward: currentFlags.scalp_forward !== false,
-        scalp_reverse: currentFlags.scalp_reverse !== false,
-        scalp_parallel: currentFlags.scalp_parallel !== false,
-      };
-
-      state.strategy_flags = nextFlags;
-      state.last_config_change_ts = now;
-
-      const hourStart = Math.floor(now / 3_600_000) * 3_600_000;
-      const guardStats = await env.BOT_STATE.get(CORE_STRATEGY_GUARD_STATS_KEY, 'json').catch(() => null) || {};
-      if (Number(guardStats.hourStart || 0) !== hourStart) {
-        guardStats.hourStart = hourStart;
-        guardStats.count = 0;
-      }
-      guardStats.count = Number(guardStats.count || 0) + 1;
-
-      await saveStateWithConfigGuard(env, state, cycleStartConfigTs);
-      await env.BOT_STATE.put(
-        CORE_STRATEGY_GUARD_STATS_KEY,
-        JSON.stringify(guardStats),
-        { expirationTtl: 2 * 24 * 60 * 60 }
-      ).catch(() => { });
-      await env.BOT_STATE.put(
-        CORE_STRATEGY_GUARD_LAST_KEY,
-        JSON.stringify({
-          at: now,
-          countThisHour: guardStats.count,
-          previous_flags: previousFlags,
-          strategy_flags: state.strategy_flags,
-        }),
-        { expirationTtl: 2 * 24 * 60 * 60 }
-      ).catch(() => { });
-      await logBotEvent(env, 'core_strategy_guard_enforced', {
-        at: now,
-        countThisHour: guardStats.count,
-        previous_flags: previousFlags,
-        strategy_flags: state.strategy_flags,
-      });
-      await sendTelegramAlert(
-        env,
-        '🛡️ *Core Strategy Guard Intervention*\n' +
-        `Count (this hour): ${guardStats.count}\n` +
-        `Execution mode: ${state.paper_trading === false ? 'LIVE' : 'PAPER'}\n` +
-        `Before: tri=${previousFlags.triangular}, stat=${previousFlags.statistical}\n` +
-        `After: tri=${state.strategy_flags?.triangular === true}, stat=${state.strategy_flags?.statistical === true}`
-      );
-    }
+  const currentFlags = state.strategy_flags || {};
+  const nextFlags = {
+    ...currentFlags,
+    cex: true, dex: true, triangular: true, statistical: true,
+    scalp_forward: true, scalp_reverse: true, scalp_parallel: true,
+  };
+  if (state.spot_only_lock === true || forceSpotOnlyLock) {
+    nextFlags.perps = false;
+    nextFlags.funding = false;
   }
 
+  const driftDetected =
+    currentFlags.cex !== true || currentFlags.dex !== true ||
+    currentFlags.triangular !== true || currentFlags.statistical !== true ||
+    currentFlags.scalp_forward !== true || currentFlags.scalp_reverse !== true || currentFlags.scalp_parallel !== true ||
+    ((state.spot_only_lock === true || forceSpotOnlyLock) &&
+      (currentFlags.perps !== false || currentFlags.funding !== false));
+  if (!driftDetected) return;
+
+  const previousFlags = {
+    cex: currentFlags.cex !== false, dex: currentFlags.dex !== false,
+    perps: currentFlags.perps !== false, funding: currentFlags.funding !== false,
+    triangular: currentFlags.triangular !== false, statistical: currentFlags.statistical !== false,
+    scalp_forward: currentFlags.scalp_forward !== false, scalp_reverse: currentFlags.scalp_reverse !== false,
+    scalp_parallel: currentFlags.scalp_parallel !== false,
+  };
+  state.strategy_flags = nextFlags;
+  state.last_config_change_ts = now;
+
+  const hourStart = Math.floor(now / 3_600_000) * 3_600_000;
+  const guardStats = await env.BOT_STATE.get(CORE_STRATEGY_GUARD_STATS_KEY, 'json').catch(() => null) || {};
+  if (Number(guardStats.hourStart || 0) !== hourStart) { guardStats.hourStart = hourStart; guardStats.count = 0; }
+  guardStats.count = Number(guardStats.count || 0) + 1;
+
+  await saveStateWithConfigGuard(env, state, cycleStartConfigTs);
+  await env.BOT_STATE.put(CORE_STRATEGY_GUARD_STATS_KEY, JSON.stringify(guardStats), { expirationTtl: 2 * 24 * 60 * 60 }).catch(() => { });
+  await env.BOT_STATE.put(CORE_STRATEGY_GUARD_LAST_KEY, JSON.stringify({
+    at: now, countThisHour: guardStats.count, previous_flags: previousFlags, strategy_flags: state.strategy_flags,
+  }), { expirationTtl: 2 * 24 * 60 * 60 }).catch(() => { });
+  await logBotEvent(env, 'core_strategy_guard_enforced', {
+    at: now, countThisHour: guardStats.count, previous_flags: previousFlags, strategy_flags: state.strategy_flags,
+  });
+  await sendTelegramAlert(env,
+    '🛡️ *Core Strategy Guard Intervention*\n' +
+    `Count (this hour): ${guardStats.count}\n` +
+    `Execution mode: ${state.paper_trading === false ? 'LIVE' : 'PAPER'}\n` +
+    `Before: tri=${previousFlags.triangular}, stat=${previousFlags.statistical}\n` +
+    `After: tri=${state.strategy_flags?.triangular === true}, stat=${state.strategy_flags?.statistical === true}`
+  );
+}
+
+function handleProfileAndBurst(state, now) {
   const manualRiskLock = state.manual_risk_lock === true;
   if (manualRiskLock) {
     state.auto_profiler_enabled = false;
@@ -3307,38 +3188,71 @@ async function runScheduledCycle(env) {
   }
 
   const inBurst = !manualRiskLock && Number(state.burst_overdrive_until_ts || 0) > now;
-
   if (!manualRiskLock && inBurst) {
     applyProfileToState(state, 'overdrive');
   } else if (!manualRiskLock && Number(state.burst_overdrive_until_ts || 0) > 0) {
     state.burst_overdrive_until_ts = 0;
     const revertProfile = ['conservative', 'balanced', 'turbo'].includes(String(state.burst_revert_profile || '').toLowerCase())
-      ? String(state.burst_revert_profile || '').toLowerCase()
-      : 'balanced';
+      ? String(state.burst_revert_profile || '').toLowerCase() : 'balanced';
     applyProfileToState(state, revertProfile);
     state.auto_profile_last_change_ts = now;
   }
+  return { manualRiskLock, inBurst };
+}
+
+async function handleDailyReset(env, state, now) {
+  if (now - (state.last_daily_reset || 0) <= 86_400_000) return;
+  await sendDailyReport(env, state);
+  state.daily_pnl = 0;
+  state.daily_trades = 0;
+  state.daily_volume_usd = 0;
+  state.last_daily_reset = now;
+  if (state.auto_stopped) {
+    state.auto_stopped = false;
+    state.auto_stop_reason = null;
+    await logBotEvent(env, 'daily_reset', { reset_time: now });
+  }
+}
+
+async function applyAutoProfiler(env, state, manualRiskLock, inBurst, now) {
+  if (manualRiskLock || !state.auto_profiler_enabled || inBurst) return;
+  const noOpp = Number(state.no_opportunity_streak || 0);
+  const hitStreak = Number(state.opportunity_hit_streak || 0);
+  const currentProfile = String(state.auto_profile || 'balanced');
+  let nextProfile = currentProfile;
+
+  if (noOpp >= 6) nextProfile = 'turbo';
+  if (noOpp >= 16) nextProfile = 'overdrive';
+  if (hitStreak >= 1) nextProfile = 'balanced';
+
+  if (nextProfile !== currentProfile && AUTO_PROFILES[nextProfile]) {
+    applyProfileToState(state, nextProfile);
+    state.auto_profile_last_change_ts = now;
+    await sendTelegramAlert(env,
+      `⚙️ *Auto-Profiler* switched profile\n${currentProfile} → ${nextProfile}\n` +
+      `no-op streak: ${noOpp}, hit streak: ${hitStreak}`
+    );
+  }
+}
+
+// ─── Scheduled cron cycle ─────────────────────────────────────────────────────
+async function runScheduledCycle(env) {
+  const state = await getState(env);
+  const cycleStartConfigTs = Number(state?.last_config_change_ts || 0);
+  const forceSpotOnlyLock = ['1', 'true', 'on', 'yes'].includes(String(env.SPOT_ONLY_LOCK_FORCE || '').toLowerCase());
+  const now = Date.now();
+
+  await enforceSpotLock(env, state, forceSpotOnlyLock, now, cycleStartConfigTs);
+  await enforceCoreStrategies(env, state, forceSpotOnlyLock, now, cycleStartConfigTs);
+
+  const { manualRiskLock, inBurst } = handleProfileAndBurst(state, now);
 
   if (!state.trading_enabled) {
     console.log('🔕 Nexus: التداول معطّل');
     return null;
   }
 
-  // Daily reset (every 24 h)
-  if (now - (state.last_daily_reset || 0) > 86_400_000) {
-    // Send daily summary before resetting counters
-    await sendDailyReport(env, state);
-
-    state.daily_pnl = 0;
-    state.daily_trades = 0;
-    state.daily_volume_usd = 0;
-    state.last_daily_reset = now;
-    if (state.auto_stopped) {
-      state.auto_stopped = false;
-      state.auto_stop_reason = null;
-      await logBotEvent(env, 'daily_reset', { reset_time: now });
-    }
-  }
+  await handleDailyReset(env, state, now);
 
   // Auto-stop guard
   if (state.auto_stopped) {
@@ -3356,60 +3270,28 @@ async function runScheduledCycle(env) {
     return null;
   }
 
-  // Throttle: enforce a minimum gap between consecutive trades to prevent
-  // over-trading and allow market prices to settle between executions.
+  // Throttle: enforce a minimum gap between consecutive trades
   const minMs = (state.min_seconds_between_trades || 3) * 1000;
   if (state.last_trade_timestamp && now - state.last_trade_timestamp < minMs) {
     return null;
   }
 
-  // Drawdown warning alerts (before the scan, so the alert goes out promptly)
   const equity = (state.initial_capital || 1000) + (state.total_pnl || 0);
   await sendDrawdownWarning(env, state, equity);
 
-  const result = await runScan(env, state, sendTelegramAlert, {
-    source: 'scheduled',
-    trigger: 'cron.scheduled',
-  });
+  const result = await runScan(env, state, sendTelegramAlert, { source: 'scheduled', trigger: 'cron.scheduled' });
 
   const lastScan = await env.BOT_STATE.get('nexus_last_scan', 'json').catch(() => null);
   const hadOpportunity = hasLastScanOpportunity(lastScan);
+  state.no_opportunity_streak = hadOpportunity ? 0 : Number(state.no_opportunity_streak || 0) + 1;
+  state.opportunity_hit_streak = hadOpportunity ? Number(state.opportunity_hit_streak || 0) + 1 : 0;
 
-  state.no_opportunity_streak = hadOpportunity
-    ? 0
-    : Number(state.no_opportunity_streak || 0) + 1;
-  state.opportunity_hit_streak = hadOpportunity
-    ? Number(state.opportunity_hit_streak || 0) + 1
-    : 0;
-
-  // Auto-profiler adapts runtime scan aggressiveness by recent hit/no-hit streaks.
-  if (!manualRiskLock && state.auto_profiler_enabled && !inBurst) {
-    const noOpp = Number(state.no_opportunity_streak || 0);
-    const hitStreak = Number(state.opportunity_hit_streak || 0);
-    const currentProfile = String(state.auto_profile || 'balanced');
-    let nextProfile = currentProfile;
-
-    if (noOpp >= 6) nextProfile = 'turbo';
-    if (noOpp >= 16) nextProfile = 'overdrive';
-    // Rebalance quickly after the first confirmed opportunity to reduce overfitting risk.
-    if (hitStreak >= 1) nextProfile = 'balanced';
-
-    if (nextProfile !== currentProfile && AUTO_PROFILES[nextProfile]) {
-      applyProfileToState(state, nextProfile);
-      state.auto_profile_last_change_ts = now;
-      await sendTelegramAlert(
-        env,
-        `⚙️ *Auto-Profiler* switched profile\n${currentProfile} → ${nextProfile}\n` +
-        `no-op streak: ${noOpp}, hit streak: ${hitStreak}`
-      );
-    }
-  }
+  await applyAutoProfiler(env, state, manualRiskLock, inBurst, now);
 
   if (state.minute_report_enabled) {
     const lastReportAt = Number(state.minute_report_last_ts || 0);
     if (now - lastReportAt >= 55_000) {
-      const msg = buildMinuteScanMessage(state, lastScan);
-      await sendTelegramAlert(env, msg);
+      await sendTelegramAlert(env, buildMinuteScanMessage(state, lastScan));
       state.minute_report_last_ts = now;
     }
   }
