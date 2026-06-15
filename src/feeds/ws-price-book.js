@@ -163,6 +163,9 @@ const BINANCE_WS_BASE = 'wss://stream.binance.com:9443/ws';
 // MEXC WS base URL available for future market-data expansions
 // const MEXC_WS_BASE = 'wss://wbs.mexc.com/ws';
 
+// Bybit WebSocket for linear perpetual and spot price streaming
+const BYBIT_WS_BASE = 'wss://stream.bybit.com/v5/public/spot';
+
 /**
  * Generates WebSocket connection URLs for Binance mini-ticker streams.
  * @param {string[]} symbols - trading symbols (e.g. ['btcusdt', 'ethusdt'])
@@ -171,6 +174,16 @@ const BINANCE_WS_BASE = 'wss://stream.binance.com:9443/ws';
 export function binanceStreamUrl(symbols) {
     const streams = symbols.map(s => `${s}@miniTicker`).join('/');
     return `${BINANCE_WS_BASE}/${streams}`;
+}
+
+/**
+ * Generates WebSocket connection URL for Bybit ticker streams.
+ * @param {string[]} symbols - trading symbols (e.g. ['BTCUSDT', 'ETHUSDT'])
+ * @returns {string}
+ */
+export function bybitStreamUrl(symbols) {
+    // Bybit uses a single endpoint; subscribe on connect
+    return BYBIT_WS_BASE;
 }
 
 /**
@@ -199,6 +212,35 @@ export function processMexcTicker(msg) {
 
     const book = getPriceBook();
     book.update(symbol, 'mexc_ws', price);
+}
+
+/**
+ * Processes a Bybit ticker message and updates the price book.
+ * @param {object} msg - Bybit ticker message
+ */
+export function processBybitTicker(msg) {
+    if (!msg?.data?.symbol || !msg?.data?.lastPrice) return;
+    const symbol = msg.data.symbol.toUpperCase();
+    const price = Number.parseFloat(msg.data.lastPrice);
+    if (!Number.isFinite(price) || price <= 0) return;
+
+    const book = getPriceBook();
+    book.update(symbol, 'bybit_ws', price);
+}
+
+/**
+ * Generic multi-exchange ticker processor — dispatches to the correct handler
+ * based on message format. Supports Binance, MEXC, and Bybit formats.
+ * @param {string} exchange — 'binance', 'mexc', or 'bybit'
+ * @param {object} msg — raw ticker message
+ */
+export function processTicker(exchange, msg) {
+    switch (exchange) {
+        case 'binance': return processBinanceTicker(msg);
+        case 'mexc': return processMexcTicker(msg);
+        case 'bybit': return processBybitTicker(msg);
+        default: break;
+    }
 }
 
 // ── Aggregated price fetch (WebSocket-first, REST-fallback) ──────────────────

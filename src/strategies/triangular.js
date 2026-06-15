@@ -144,9 +144,20 @@ function evalTriangle(tri, pA, pB, pC, exchange, fee) {
 export function scanTriangular(exchange, fee, prices) {
   if (!prices || typeof prices !== 'object') return null;
 
-  let best = null;
+  // Generate dynamic routes from available price book + merge with hardcoded
+  const dynamicRoutes = generateDynamicTriangles(prices);
+  const seen = new Set();
+  const allTriangles = [];
+  for (const tri of [...TRIANGLES, ...dynamicRoutes]) {
+    const key = `${tri.a}|${tri.b}|${tri.c}`;
+    if (!seen.has(key) && !seen.has(`${tri.c}|${tri.b}|${tri.a}`)) {
+      seen.add(key);
+      allTriangles.push(tri);
+    }
+  }
 
-  for (const tri of TRIANGLES) {
+  let best = null;
+  for (const tri of allTriangles) {
     const pA = prices[tri.a];
     const pB = prices[tri.b];
     const pC = prices[tri.c];

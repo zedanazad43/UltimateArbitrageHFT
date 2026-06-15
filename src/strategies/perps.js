@@ -13,7 +13,9 @@ const SLIPPAGE_OVERRIDES = {
   mexc: 0.03,  // MEXC has tight spreads on majors
   binance: 0.02,  // deepest order books
   mexc_perp: 0.03,  // MEXC perps — moderate liquidity
+  binance_perp: 0.02, // Binance USDM perps — deep liquidity
   bybit: 0.04,
+  bybit_perp: 0.04, // Bybit linear perps
   kucoin: 0.05,
   bitget: 0.06,
   gateio: 0.07,
@@ -40,18 +42,22 @@ function addRejection(options, reason, count = 1) {
 }
 
 /**
- * Finds arbitrage between spot sources and the perpetual (funding rate spread).
+ * Finds arbitrage between spot sources and perpetual sources (funding rate spread).
  * The perp price diverges from spot during high funding — we exploit that gap.
+ * Accepts multiple perp sources (MEXC, Binance, Bybit) and evaluates all.
  *
  * @param {string} symbol
  * @param {Array}  spotSources — array of spot { price, exchange, fee }
- * @param {object|null} perpSource — { price, exchange, fee } from MEXC perps
+ * @param {object|Array|null} perpSources — single perp source or array of perp sources
  * @param {number} maxSpreadPct — volatility guard
  * @param {object}  options — { minSafetyFactor, slippageMultiplier }
  * @returns {object|null} OpportunityObject or null
  */
-export function scanPerps(symbol, spotSources, perpSource, maxSpreadPct, options = {}) {
-  if (!perpSource) {
+export function scanPerps(symbol, spotSources, perpSources, maxSpreadPct, options = {}) {
+  // Normalize to array — supports both old single-source and new multi-source callers
+  const perps = Array.isArray(perpSources) ? perpSources.filter(Boolean) : (perpSources ? [perpSources] : []);
+
+  if (perps.length === 0) {
     addRejection(options, 'missing_perp_source');
     return null;
   }
@@ -67,70 +73,75 @@ export function scanPerps(symbol, spotSources, perpSource, maxSpreadPct, options
     ? options.slippageMultiplier
     : 1;
 
-  // Spread guard across all sources (spot + perp)
-  const allSources = [...spotSources, perpSource];
-  const prices = allSources.map(s => s.price);
-  const priceMin = Math.min(...prices);
-  const priceMax = Math.max(...prices);
-  const spread = ((priceMax - priceMin) / priceMin) * 100;
-  if (spread > maxSpreadPct) {
-    addRejection(options, 'spread_guard_exceeded');
-    return null;
-  }
-
   let best = null;
   let rejectedNonPositiveSpread = 0;
   let rejectedDataOnlyVenue = 0;
   let rejectedNonPositiveNet = 0;
   let rejectedLowSafety = 0;
-  // Evaluate spot→perp and perp→spot directions for each spot source
-  for (const spot of spotSources) {
-    for (const [buy, sell] of [[spot, perpSource], [perpSource, spot]]) {
-      if (sell.price <= buy.price) {
-        rejectedNonPositiveSpread++;
-        continue;
-      }
 
-      // Skip opportunities involving data-only exchanges as execution venues
-      if (DATA_ONLY_EXCHANGES.has(buy.exchange) || DATA_ONLY_EXCHANGES.has(sell.exchange)) {
-        rejectedDataOnlyVenue++;
-        continue;
-      }
+  // Evaluate against each perp source
+  for (const perpSource of perps) {
+    // Spread guard across all sources (spot + perp)
+    const allSources = [...spotSources, perpSource];
+    const prices = allSources.map(s => s.price);
+    const priceMin = Math.min(...prices);
+    const priceMax = Math.max(...prices);
+    const spread = ((priceMax - priceMin) / priceMin) * 100;
+    if (spread > maxSpreadPct) {
+      addRejection(options, 'spread_guard_exceeded');
+      continue;
+    }
 
-      const grossPct = ((sell.price - buy.price) / buy.price) * 100;
-      const totalFeePct = (buy.fee + sell.fee) * 100;
-      // Deduct estimated market-impact slippage on both legs
-      const totalSlippagePct = (slippagePct(buy.exchange) + slippagePct(sell.exchange)) * slippageMultiplier;
-      const netPct = grossPct - totalFeePct - totalSlippagePct;
-      if (netPct <= 0) {
-        rejectedNonPositiveNet++;
-        continue;
-      }
+    // Evaluate spot→perp and perp→spot for each spot source against this perp
+    for (const spot of spotSources) {
+      for (const [buy, sell] of [[spot, perpSource], [perpSource, spot]]) {
+        if (sell.price <= buy.price) {
+          rejectedNonPositiveSpread++;
+          continue;
+        }
 
-      const safetyFactor = netPct / grossPct;
-      if (safetyFactor < minSafetyFactor) {
-        rejectedLowSafety++;
-        continue;
-      }
+        // Skip opportunities involving data-only exchanges as execution venues
+        if (DATA_ONLY_EXCHANGES.has(buy.exchange) || DATA_ONLY_EXCHANGES.has(sell.exchange)) {
+          rejectedDataOnlyVenue++;
+          continue;
+        }
 
-      if (!best || netPct > best.netPct) {
-        best = {
-          strategy: 'perps',
-          symbol,
-          buyExchange: buy.exchange,
-          sellExchange: sell.exchange,
-          buyPrice: buy.price,
-          sellPrice: sell.price,
-          grossPct,
-          netPct,
-          safetyFactor,
-          direction: `${buy.exchange.toUpperCase()}→${sell.exchange.toUpperCase()}`,
-          isPerp: true,
-          slippagePct: totalSlippagePct
-        };
+        const grossPct = ((sell.price - buy.price) / buy.price) * 100;
+        const totalFeePct = (buy.fee + sell.fee) * 100;
+        const totalSlippagePct = (slippagePct(buy.exchange) + slippagePct(sell.exchange)) * slippageMultiplier;
+        const netPct = grossPct - totalFeePct - totalSlippagePct;
+        if (netPct <= 0) {
+          rejectedNonPositiveNet++;
+          continue;
+        }
+
+        const safetyFactor = netPct / grossPct;
+        if (safetyFactor < minSafetyFactor) {
+          rejectedLowSafety++;
+          continue;
+        }
+
+        if (!best || netPct > best.netPct) {
+          best = {
+            strategy: 'perps',
+            symbol,
+            buyExchange: buy.exchange,
+            sellExchange: sell.exchange,
+            buyPrice: buy.price,
+            sellPrice: sell.price,
+            grossPct,
+            netPct,
+            safetyFactor,
+            direction: `${buy.exchange.toUpperCase()}→${sell.exchange.toUpperCase()}`,
+            isPerp: true,
+            slippagePct: totalSlippagePct,
+            fundingRate: perpSource.fundingRate,
+          };
+        }
       }
     }
   }
+
   if (!best) {
     addRejection(options, 'non_positive_spread', rejectedNonPositiveSpread);
     addRejection(options, 'data_only_execution_venue', rejectedDataOnlyVenue);

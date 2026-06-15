@@ -648,10 +648,20 @@ export class MarketStreamer {
     this.state = state;
     this.env = env;
     this.prices = {};
+    this.sessions = []; // WebSocket connections
   }
 
   async fetch(request) {
     const url = new URL(request.url);
+
+    // WebSocket upgrade for real-time streaming
+    if (request.headers.get('Upgrade') === 'websocket') {
+      const pair = new WebSocketPair();
+      const [client, server] = Object.values(pair);
+      this.handleSession(server);
+      return new Response(null, { status: 101, webSocket: client });
+    }
+
     if (url.pathname === '/price') {
       const symbol = url.searchParams.get('symbol') || 'BTCUSDT';
       const price = this.prices[symbol] || 0;
@@ -660,9 +670,41 @@ export class MarketStreamer {
     if (url.pathname === '/update' && request.method === 'POST') {
       const { symbol, price } = await request.json();
       if (symbol && price) this.prices[symbol] = price;
+      // Broadcast to all connected WebSocket clients
+      this.broadcast({ type: 'price', symbol, price, timestamp: Date.now() });
       return Response.json({ ok: true });
     }
+    if (url.pathname === '/snapshot') {
+      return Response.json({ prices: this.prices, sessions: this.sessions.length });
+    }
     return new Response('MarketStreamer OK');
+  }
+
+  handleSession(ws) {
+    this.sessions.push(ws);
+    ws.accept();
+    // Send current snapshot on connect
+    ws.send(JSON.stringify({ type: 'snapshot', prices: this.prices, timestamp: Date.now() }));
+
+    ws.addEventListener('message', (event) => {
+      try {
+        const msg = JSON.parse(event.data);
+        if (msg.type === 'subscribe' && msg.symbol) {
+          ws.send(JSON.stringify({ type: 'subscribed', symbol: msg.symbol }));
+        }
+      } catch { /* ignore malformed */ }
+    });
+
+    ws.addEventListener('close', () => {
+      this.sessions = this.sessions.filter(s => s !== ws);
+    });
+  }
+
+  broadcast(data) {
+    const msg = JSON.stringify(data);
+    for (const ws of this.sessions) {
+      try { ws.send(msg); } catch { /* disconnected */ }
+    }
   }
 }
 
@@ -815,6 +857,58 @@ app.get('/prices', async (c) => {
   } catch {
     return c.json({ success: false, prices: {}, feedStatus: 'unavailable' }, 503);
   }
+});
+
+// ── WebSocket Live Price Stream ──────────────────────────────────────────────
+// GET /api/prices/stream — upgrades to WebSocket for real-time price streaming.
+// Requires MARKET_STREAMER Durable Object binding in wrangler.toml.
+// Clients receive { type: 'snapshot', prices, timestamp } on connect,
+// then { type: 'price', symbol, exchange, price } updates as they arrive.
+app.get('/api/prices/stream', async (c) => {
+  if (!c.env.MARKET_STREAMER) {
+    return c.json({ error: 'WebSocket streaming not configured (MARKET_STREAMER binding missing)' }, 503);
+  }
+
+  // Check for WebSocket upgrade
+  if (c.req.header('Upgrade') !== 'websocket') {
+    // Return SSE fallback for browsers that don't use WebSocket
+    const { getPriceBook } = await import('./src/feeds/ws-price-book.js');
+    const book = getPriceBook();
+    const symbols = c.req.query('symbols')?.split(',').map(s => s.trim().toUpperCase()) || ['BTCUSDT'];
+
+    let closed = false;
+    const stream = new ReadableStream({
+      start(controller) {
+        const interval = setInterval(() => {
+          if (closed) { clearInterval(interval); return; }
+          const prices = {};
+          for (const symbol of symbols) {
+            const all = book.getAll(symbol);
+            if (all.length > 0) {
+              const exchangeMap = {};
+              for (const { exchange, price } of all) exchangeMap[exchange] = price;
+              prices[symbol] = exchangeMap;
+            }
+          }
+          controller.enqueue(`data: ${JSON.stringify({ prices, timestamp: Date.now() })}\n\n`);
+        }, 1000);
+      },
+      cancel() { closed = true; },
+    });
+
+    return new Response(stream, {
+      headers: {
+        'Content-Type': 'text/event-stream',
+        'Cache-Control': 'no-cache',
+        'Connection': 'keep-alive',
+      },
+    });
+  }
+
+  // Delegate WebSocket to Durable Object
+  const id = c.env.MARKET_STREAMER.idFromName('live-prices');
+  const stub = c.env.MARKET_STREAMER.get(id);
+  return stub.fetch(c.req.raw);
 });
 
 // ── Dashboard routes ──────────────────────────────────────────────────────────

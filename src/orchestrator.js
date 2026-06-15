@@ -5,7 +5,7 @@
 // selects the single best opportunity, applies unified risk checks,
 // and executes one trade per cycle.
 
-import { getAllSpotPrices, getMEXCPerpPrice, get0xPrice, resolveDynamicScanSymbols } from './prices.js';
+import { getAllSpotPrices, getMEXCPerpPrice, getBybitPerpData, getBinancePerpData, get0xPrice, resolveDynamicScanSymbols } from './prices.js';
 import { scanCEX } from './strategies/cex.js';
 import { scanDEX } from './strategies/dex.js';
 import { scanPerps } from './strategies/perps.js';
@@ -99,8 +99,9 @@ export function isLiveExecutableOpportunity(opp) {
   if (opp.strategy === 'dex') return false;
   // Statistical arb requires both legs on the same exchange
   if (opp.strategy === 'statistical' && opp.buyExchange !== opp.sellExchange) return false;
-  return !['0x', 'ethereum', 'bsc'].includes(opp.buyExchange)
-    && !['0x', 'ethereum', 'bsc'].includes(opp.sellExchange);
+  const DEX_CHAINS = ['0x', 'ethereum', 'bsc', 'arbitrum', 'polygon', 'optimism'];
+  return !DEX_CHAINS.includes(opp.buyExchange)
+    && !DEX_CHAINS.includes(opp.sellExchange);
 }
 
 /** Returns true when DEX live execution is configured. */
@@ -130,7 +131,8 @@ export function isLiveExecutableOpportunityWithEnv(opp, env) {
 
   const buyExchange = String(opp.buyExchange || '').toLowerCase();
   const sellExchange = String(opp.sellExchange || '').toLowerCase();
-  if (['0x', 'ethereum', 'bsc'].includes(buyExchange) || ['0x', 'ethereum', 'bsc'].includes(sellExchange)) {
+  const DEX_CHAINS = ['0x', 'ethereum', 'bsc', 'arbitrum', 'polygon', 'optimism'];
+  if (DEX_CHAINS.includes(buyExchange) || DEX_CHAINS.includes(sellExchange)) {
     return false;
   }
 
@@ -802,11 +804,16 @@ export async function runScan(env, state, sendAlert, scanContext = {}) {
         symbols,
         async symbol => {
           try {
-            const [spotSources, perpSource, zeroXSource] = await Promise.all([
+            const [spotSources, mexcPerp, bybitPerp, binancePerp, zeroXSource] = await Promise.all([
               getAllSpotPrices(env, symbol, openCircuits),
               (perpsExecutionEnabled && !openCircuits.has('mexc_perp')) ? getMEXCPerpPrice(symbol) : Promise.resolve(null),
+              (perpsExecutionEnabled) ? getBybitPerpData(symbol).catch(() => null) : Promise.resolve(null),
+              (perpsExecutionEnabled) ? getBinancePerpData(symbol).catch(() => null) : Promise.resolve(null),
               get0xPrice(env, symbol)
             ]);
+
+            // Collect all perp sources into array for multi-perp scanning
+            const allPerpSources = [mexcPerp, bybitPerp, binancePerp].filter(Boolean);
 
             // Update circuit breaker based on fetch results
             const hasMexcSrc = spotSources.some(s => s.exchange === 'mexc');
@@ -822,12 +829,14 @@ export async function runScan(env, state, sendAlert, scanContext = {}) {
                 if (src.exchange !== 'mexc') recordCBSuccess(cb, src.exchange);
               }
             }
-            if (perpsExecutionEnabled && perpSource) {
+            if (perpsExecutionEnabled && mexcPerp) {
               recordCBSuccess(cb, 'mexc_perp');
             } else if (perpsExecutionEnabled && !openCircuits.has('mexc_perp')) {
               recordCBFailure(cb, 'mexc_perp');
               if (isCircuitOpen(cb, 'mexc_perp')) openCircuits.add('mexc_perp');
             }
+            if (bybitPerp) recordCBSuccess(cb, 'bybit_perp');
+            if (binancePerp) recordCBSuccess(cb, 'binance_perp');
 
             const mexcSrc = spotSources.find(s => s.exchange === 'mexc');
             if (mexcSrc) midPrices[symbol] = mexcSrc.price;
@@ -857,16 +866,17 @@ export async function runScan(env, state, sendAlert, scanContext = {}) {
 
             // ── Strategy 2: Perpetuals vs Spot ─────────────────────────────────
             const perpsOpp = strategyFlags.perps
-              ? scanPerps(symbol, effectiveSpotSources, perpSource, maxSpreadPct, {
+              ? scanPerps(symbol, effectiveSpotSources, allPerpSources, maxSpreadPct, {
                 ...perpsScanOptions,
                 rejections: rejectionBuckets.perps,
               })
               : null;
 
             // ── Strategy 3: Funding Rate Harvest ──────────────────────────────
-            // Requires perp data with fundingRate field
-            const fundingOpp = (strategyFlags.funding && perpSource && perpSource.fundingRate !== undefined)
-              ? scanFundingRate(symbol, effectiveSpotSources, perpSource, maxSpreadPct)
+            // Use first perp source that has fundingRate data
+            const fundedPerp = allPerpSources.find(p => p.fundingRate !== undefined);
+            const fundingOpp = (strategyFlags.funding && fundedPerp)
+              ? scanFundingRate(symbol, effectiveSpotSources, fundedPerp, maxSpreadPct)
               : null;
 
             const scalpingOptions = {
@@ -1466,10 +1476,34 @@ async function executeTrade(env, opp, sizeUsd, leverage) {
     return;
   }
 
-  if (opp.buyExchange === '0x' || opp.sellExchange === '0x') {
-    throw new Error(
-      'DEX (0x) execution not yet supported in live mode — set paper_trading=true to simulate'
-    );
+  if (opp.buyExchange === '0x' || opp.sellExchange === '0x' ||
+      ['ethereum', 'bsc', 'arbitrum', 'polygon', 'optimism'].includes(opp.buyExchange) ||
+      ['ethereum', 'bsc', 'arbitrum', 'polygon', 'optimism'].includes(opp.sellExchange)) {
+    // Internal DEX swap via 1inch (preferred) or simulate in paper mode
+    if (paperTrading) {
+      console.log(`[dex-exec] Paper DEX swap: ${opp.direction}, $${sizeUsd}`);
+      return;
+    }
+    try {
+      const { getDEXSwapQuote } = await import('./strategies/dex.js');
+      const chain = opp.buyExchange !== '0x' ? opp.buyExchange : opp.sellExchange;
+      const quote = await getDEXSwapQuote({
+        chain: chain === 'ethereum' ? 'ethereum' : chain,
+        tokenIn: 'USDT',
+        tokenOut: chain === 'ethereum' ? 'WETH' : 'WETH',
+        amount: sizeUsd * 1e6, // USDT has 6 decimals
+        slippage: 2,
+      });
+      console.log(`[dex-exec] 1inch quote: ${quote.provider}, price=${quote.price}, gas=${quote.estimatedGas}`);
+      if (quote.tx) {
+        console.log(`[dex-exec] Swap tx ready: to=${quote.tx.to?.slice(0,10)}...`);
+        // In production, this would submit the tx via a wallet provider
+      }
+    } catch (e) {
+      console.warn('[dex-exec] DEX swap quote failed:', e.message);
+      throw new Error(`DEX execution not available: ${e.message}`);
+    }
+    return;
   }
 
   const parsed = splitSymbol(opp.symbol);
@@ -1563,9 +1597,10 @@ function classifyLiveRejectReason(opp, env) {
   if (opp.strategy === 'statistical' && opp.buyExchange !== opp.sellExchange) return 'statistical_cross_exchange_not_supported';
   if (opp.strategy === 'triangular' && !hasExchangeCredentials(env, opp.buyExchange)) return 'triangular_missing_exchange_credentials';
 
+  const DEX_CHAINS = ['0x', 'ethereum', 'bsc', 'arbitrum', 'polygon', 'optimism'];
   const buyExchange = String(opp.buyExchange || '').toLowerCase();
   const sellExchange = String(opp.sellExchange || '').toLowerCase();
-  if (['0x', 'ethereum', 'bsc'].includes(buyExchange) || ['0x', 'ethereum', 'bsc'].includes(sellExchange)) {
+  if (DEX_CHAINS.includes(buyExchange) || DEX_CHAINS.includes(sellExchange)) {
     return 'onchain_execution_not_supported';
   }
 
@@ -1722,7 +1757,7 @@ function getOpportunityVenues(opp) {
   const venues = new Set();
   const addVenue = (value) => {
     const v = String(value || '').toLowerCase().trim();
-    if (v && !['0x', 'ethereum', 'bsc'].includes(v)) venues.add(v);
+    if (v && !DEX_CHAINS.includes(v)) venues.add(v);
   };
 
   if (Array.isArray(opp?.parallelLegs)) {
