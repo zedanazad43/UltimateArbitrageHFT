@@ -43,26 +43,16 @@ You MUST respond with EXACTLY these 6 sections:
 
 Do NOT use any delivery tools. Return plain text analysis only."""
 
-PEER_REVIEW_TEMPLATE = """You are an independent AI advisor reviewing a disagreement in a multi-model council.
+PEER_REVIEW_TEMPLATE = """Re-evaluate your council answer given these disagreements.
 
-## Original Question
-{question}
-
-## Points of Disagreement
-{disagreement_points}
-
-## Your Original Position
-{original_position}
-
-Please reconsider these specific points. You may:
-- Stand by your position if evidence is strong
-- Adjust your position if the counter-argument is compelling
-- Note any nuance you may have missed
+ORIGINAL QUESTION: {question}
+DISAGREEMENTS: {disagreement_points}
+YOUR PREVIOUS CONCLUSION: {original_position}
 
 Respond with:
-1. **Revised Conclusion** (or confirmation of original)
-2. **What Changed** (if anything) and why
-3. **Remaining Uncertainty** after this review"""
+1. REVISED CONCLUSION (or confirm original)
+2. WHAT CHANGED and why
+3. REMAINING UNCERTAINTY"""
 
 
 @dataclass
@@ -138,17 +128,17 @@ def _parse_verdict(content: str) -> Optional[Dict[str, Any]]:
             continue
         low = ls.lower()
         if "**" in ls:
-            if "final conclusion" in low:
+            if "conclusion:" in low or "final conclusion" in low:
                 current_section = "conclusion"; continue
-            elif "confidence level" in low:
+            elif "confidence:" in low or "confidence level" in low:
                 current_section = "confidence"; continue
-            elif "key evidence" in low:
+            elif "evidence:" in low or "key evidence" in low:
                 current_section = "evidence"; continue
-            elif "key assumption" in low:
+            elif "assumptions:" in low or "key assumption" in low:
                 current_section = "assumptions"; continue
-            elif "failure point" in low:
+            elif "failure point:" in low or "failure point" in low:
                 current_section = "failure_point"; continue
-            elif "peer review needed" in low:
+            elif "review needed" in low or "peer review needed" in low:
                 current_section = "peer_review_needed"; continue
         if current_section == "peer_review_needed":
             if "yes" in low:

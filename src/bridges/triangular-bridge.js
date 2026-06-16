@@ -87,9 +87,9 @@ async function evalTriangleWithDepth(tri, prices, orderBooks, exchange, _fee) {
   const obA = orderBooks[tri.a];
   const obB = orderBooks[tri.b];
   const obC = orderBooks[tri.c];
-  // threeLegFee computed from fee parameter
   // Fee-based profitability computed from three-leg deductions
   // threeLegFee = (1 - fee) ** 3; — reserved for future risk-adjusted P&L
+  const q1_1 = (1 / pA) * (1 - fee);
   const q2_1 = (q1_1 / pB) * (1 - fee);
   const q3_1 = q2_1 * pC * (1 - fee);
   const netPct1 = (q3_1 - 1) * 100;

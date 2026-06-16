@@ -181,7 +181,7 @@ export function binanceStreamUrl(symbols) {
  * @param {string[]} symbols - trading symbols (e.g. ['BTCUSDT', 'ETHUSDT'])
  * @returns {string}
  */
-export function bybitStreamUrl(symbols) {
+export function bybitStreamUrl(_symbols) {
     // Bybit uses a single endpoint; subscribe on connect
     return BYBIT_WS_BASE;
 }

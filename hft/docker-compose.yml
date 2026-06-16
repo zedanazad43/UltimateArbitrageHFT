@@ -14,7 +14,7 @@ services:
     container_name: ultimate-hft-engine
     restart: unless-stopped
     ports:
-      - "9090:9090"   # Prometheus metrics
+      - "9090:9090" # Prometheus metrics
     env_file:
       - .env
     environment:

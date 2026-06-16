@@ -6,39 +6,44 @@ import { getAlchemyPrice, getPancakePrice, getCoinGeckoSimplePrice, getDEXScreen
 // ── Chain configuration ──────────────────────────────────────────────────────
 
 const CHAINS = {
-  ethereum:  { chainId: 'ethereum',  label: 'Ethereum',  gasUsd: 5.0,
+  ethereum: {
+    chainId: 'ethereum', label: 'Ethereum', gasUsd: 5.0,
     tokens: {
-      ETH: { geckoId: 'ethereum',     address: null, dexQuery: 'ethereum' },
-      BTC: { geckoId: 'bitcoin',      address: null, dexQuery: 'ethereum' },
-      BNB: { geckoId: 'binancecoin',  address: null, dexQuery: 'ethereum' },
+      ETH: { geckoId: 'ethereum', address: null, dexQuery: 'ethereum' },
+      BTC: { geckoId: 'bitcoin', address: null, dexQuery: 'ethereum' },
+      BNB: { geckoId: 'binancecoin', address: null, dexQuery: 'ethereum' },
     }
   },
-  bsc:       { chainId: 'bsc',       label: 'BSC',       gasUsd: 0.15,
+  bsc: {
+    chainId: 'bsc', label: 'BSC', gasUsd: 0.15,
     tokens: {
-      ETH: { geckoId: 'ethereum',     address: '0x2170ed0880ac9a755fd29b2688956bd959f933f8', dexQuery: 'bsc' },
-      BTC: { geckoId: 'bitcoin',      address: '0x7130d2a12b9bcbfae4f2634d864a1ee1ce3ead9c', dexQuery: 'bsc' },
-      BNB: { geckoId: 'binancecoin',  address: '0xbb4cdb9cbd36b01bd1cbaebf2de08d9173bc095c', dexQuery: 'bsc' },
+      ETH: { geckoId: 'ethereum', address: '0x2170ed0880ac9a755fd29b2688956bd959f933f8', dexQuery: 'bsc' },
+      BTC: { geckoId: 'bitcoin', address: '0x7130d2a12b9bcbfae4f2634d864a1ee1ce3ead9c', dexQuery: 'bsc' },
+      BNB: { geckoId: 'binancecoin', address: '0xbb4cdb9cbd36b01bd1cbaebf2de08d9173bc095c', dexQuery: 'bsc' },
     }
   },
-  arbitrum:  { chainId: 'arbitrum',  label: 'Arbitrum',  gasUsd: 0.10,
+  arbitrum: {
+    chainId: 'arbitrum', label: 'Arbitrum', gasUsd: 0.10,
     tokens: {
-      ETH: { geckoId: 'ethereum',     address: '0x82aF49447D8a07e3bd95BD0d56f35241523fBab1', dexQuery: 'arbitrum' },
-      BTC: { geckoId: 'bitcoin',      address: '0x2f2a2543B76A4166549F7aaB2e75Bef0aefC5B0f', dexQuery: 'arbitrum' },
-      ARB: { geckoId: 'arbitrum',     address: '0x912CE59144191C1204E64559FE8253a0e49E6548', dexQuery: 'arbitrum' },
+      ETH: { geckoId: 'ethereum', address: '0x82aF49447D8a07e3bd95BD0d56f35241523fBab1', dexQuery: 'arbitrum' },
+      BTC: { geckoId: 'bitcoin', address: '0x2f2a2543B76A4166549F7aaB2e75Bef0aefC5B0f', dexQuery: 'arbitrum' },
+      ARB: { geckoId: 'arbitrum', address: '0x912CE59144191C1204E64559FE8253a0e49E6548', dexQuery: 'arbitrum' },
     }
   },
-  polygon:   { chainId: 'polygon',   label: 'Polygon',   gasUsd: 0.02,
+  polygon: {
+    chainId: 'polygon', label: 'Polygon', gasUsd: 0.02,
     tokens: {
-      ETH: { geckoId: 'ethereum',     address: '0x7ceB23fD6bC0adD59E62ac25578270cFf1b9f619', dexQuery: 'polygon' },
-      BTC: { geckoId: 'bitcoin',      address: '0x1BFD67037B42Cf73acF2047067bd4F2C47D9BfD6', dexQuery: 'polygon' },
+      ETH: { geckoId: 'ethereum', address: '0x7ceB23fD6bC0adD59E62ac25578270cFf1b9f619', dexQuery: 'polygon' },
+      BTC: { geckoId: 'bitcoin', address: '0x1BFD67037B42Cf73acF2047067bd4F2C47D9BfD6', dexQuery: 'polygon' },
       MATIC: { geckoId: 'matic-network', address: '0x0000000000000000000000000000000000001010', dexQuery: 'polygon' },
     }
   },
-  optimism:  { chainId: 'optimism',  label: 'Optimism',  gasUsd: 0.05,
+  optimism: {
+    chainId: 'optimism', label: 'Optimism', gasUsd: 0.05,
     tokens: {
-      ETH: { geckoId: 'ethereum',     address: '0x4200000000000000000000000000000000000006', dexQuery: 'optimism' },
-      BTC: { geckoId: 'bitcoin',      address: '0x68f180fcCe6836688e9084f035309E29Bf0A2095', dexQuery: 'optimism' },
-      OP: { geckoId: 'optimism',      address: '0x4200000000000000000000000000000000000042', dexQuery: 'optimism' },
+      ETH: { geckoId: 'ethereum', address: '0x4200000000000000000000000000000000000006', dexQuery: 'optimism' },
+      BTC: { geckoId: 'bitcoin', address: '0x68f180fcCe6836688e9084f035309E29Bf0A2095', dexQuery: 'optimism' },
+      OP: { geckoId: 'optimism', address: '0x4200000000000000000000000000000000000042', dexQuery: 'optimism' },
     }
   },
 };
@@ -51,7 +56,7 @@ export const DEX_TOKENS = [
   { symbol: 'BNBUSDT', alchemySymbol: 'BNB', coinGeckoId: 'binancecoin', bscAddress: '0xbb4cdb9cbd36b01bd1cbaebf2de08d9173bc095c' },
 ];
 
-const MIN_SPREAD_PCT  = 0.3;  // minimum gross spread to consider
+const MIN_SPREAD_PCT = 0.3;  // minimum gross spread to consider
 const BRIDGE_COST_PCT = 0.2;  // estimated bridge/gas cost deducted from profit
 
 // Estimated swap gas cost in USD per leg (ETH mainnet at ~20 Gwei, BNB Chain at ~3 Gwei).
@@ -186,18 +191,18 @@ async function scanDEXPair(alchemyKey, token) {
 
   const buyOnEth = spreadPct > 0; // BSC more expensive → buy on Ethereum, sell on BSC
   return {
-    strategy:       'dex',
-    symbol:         token.symbol,
-    buyExchange:    buyOnEth ? 'ethereum' : 'bsc',
-    sellExchange:   buyOnEth ? 'bsc'      : 'ethereum',
-    buyPrice:       buyOnEth ? ethPrice   : bscPrice,
-    sellPrice:      buyOnEth ? bscPrice   : ethPrice,
-    grossPct:       absSpread,
+    strategy: 'dex',
+    symbol: token.symbol,
+    buyExchange: buyOnEth ? 'ethereum' : 'bsc',
+    sellExchange: buyOnEth ? 'bsc' : 'ethereum',
+    buyPrice: buyOnEth ? ethPrice : bscPrice,
+    sellPrice: buyOnEth ? bscPrice : ethPrice,
+    grossPct: absSpread,
     netPct,
-    safetyFactor:   netPct / absSpread,
-    direction:      buyOnEth ? 'ETH→BSC'  : 'BSC→ETH',
+    safetyFactor: netPct / absSpread,
+    direction: buyOnEth ? 'ETH→BSC' : 'BSC→ETH',
     gasEstimateUSD: GAS_ESTIMATE_USD,
-    isPerp:         false,
+    isPerp: false,
   };
 }
 

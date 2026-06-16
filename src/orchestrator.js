@@ -1477,9 +1477,10 @@ async function executeTrade(env, opp, sizeUsd, leverage) {
   }
 
   if (opp.buyExchange === '0x' || opp.sellExchange === '0x' ||
-      ['ethereum', 'bsc', 'arbitrum', 'polygon', 'optimism'].includes(opp.buyExchange) ||
-      ['ethereum', 'bsc', 'arbitrum', 'polygon', 'optimism'].includes(opp.sellExchange)) {
+    ['ethereum', 'bsc', 'arbitrum', 'polygon', 'optimism'].includes(opp.buyExchange) ||
+    ['ethereum', 'bsc', 'arbitrum', 'polygon', 'optimism'].includes(opp.sellExchange)) {
     // Internal DEX swap via 1inch (preferred) or simulate in paper mode
+    const { paper_trading: paperTrading } = await import("../state.js").then(m => m.getState(env)).catch(() => ({ paper_trading: true }));
     if (paperTrading) {
       console.log(`[dex-exec] Paper DEX swap: ${opp.direction}, $${sizeUsd}`);
       return;
@@ -1496,12 +1497,12 @@ async function executeTrade(env, opp, sizeUsd, leverage) {
       });
       console.log(`[dex-exec] 1inch quote: ${quote.provider}, price=${quote.price}, gas=${quote.estimatedGas}`);
       if (quote.tx) {
-        console.log(`[dex-exec] Swap tx ready: to=${quote.tx.to?.slice(0,10)}...`);
+        console.log(`[dex-exec] Swap tx ready: to=${quote.tx.to?.slice(0, 10)}...`);
         // In production, this would submit the tx via a wallet provider
       }
     } catch (e) {
       console.warn('[dex-exec] DEX swap quote failed:', e.message);
-      throw new Error(`DEX execution not available: ${e.message}`);
+      throw new Error(`DEX execution not available: ${e.message}`, { cause: e });
     }
     return;
   }
@@ -1757,7 +1758,8 @@ function getOpportunityVenues(opp) {
   const venues = new Set();
   const addVenue = (value) => {
     const v = String(value || '').toLowerCase().trim();
-    if (v && !DEX_CHAINS.includes(v)) venues.add(v);
+    const _DEX_CHAINS = ["0x","ethereum","bsc","arbitrum","polygon","optimism"];
+    if (v && !_DEX_CHAINS.includes(v)) venues.add(v);
   };
 
   if (Array.isArray(opp?.parallelLegs)) {
