@@ -167,6 +167,35 @@ def cmd_interactive(args) -> int:
     return 0
 
 
+def cmd_council(args) -> int:
+    """Run LLM Council - multi-provider parallel reasoning."""
+    from .skills.llm_council import run_council
+    prompt = args.prompt
+    if not prompt and not sys.stdin.isatty():
+        prompt = sys.stdin.read().strip()
+    if not prompt:
+        print("Error: No prompt provided.", file=sys.stderr)
+        return 1
+    print("=" * 60)
+    print("  LLM Council - Multi-Provider Parallel Reasoning")
+    print("=" * 60)
+    print(f"  Mode: {args.mode}  |  Max peers: {args.max_peers}")
+    print(f"  Q: {prompt[:120]}")
+    result = run_council(question=prompt, mode=args.mode, max_peers=args.max_peers)
+    if args.json:
+        import json
+        print(json.dumps(result.to_dict(), indent=2, ensure_ascii=False))
+        return 0
+    print(f"\nProviders: {result.providers_used} ({chr(44).join(result.provider_names)})")
+    print(f"Latency: {result.total_latency_ms:.0f}ms\n")
+    print("CONFIRMED:"); print(result.confirmed_conclusions); print()
+    print("ASSUMPTION-DEPENDENT:"); print(result.assumption_dependent); print()
+    print("UNCERTAINTY:"); print(result.remaining_uncertainty); print()
+    for v in result.verdicts:
+        print(f"  [{v.provider}/{v.model}] {v.confidence} | {v.latency_ms:.0f}ms")
+    return 0
+
+
 def cmd_concurrent(args) -> int:
     """Send prompt to all providers concurrently, get fastest response."""
     agent = AIMasterAgent(args.config)
@@ -207,7 +236,7 @@ Examples:
   aimaster chat --provider deepseek "..."   # Use specific provider
   aimaster list                             # List providers
   aimaster interactive                      # Interactive chat mode
-  aimaster concurrent "What is HFT?"        # Race all providers
+  aimaster concurrent "What is HFT?"        # Race all providers\n  aimaster council \"Q\"           # LLM Council
   echo "Hello" | aimaster chat              # Pipe input
         """,
     )
@@ -241,11 +270,19 @@ Examples:
     p_int.set_defaults(func=cmd_interactive)
 
     # concurrent
-    p_conc = subparsers.add_parser("concurrent", help="Race all providers")
+    p_conc = subparsers.add_parser("concurrent", help="Race all providers\n  aimaster council \"Q\"           # LLM Council")
     p_conc.add_argument("prompt", nargs="?", help="The prompt text")
     p_conc.add_argument("--temperature", "-t", type=float, help="Temperature")
     p_conc.add_argument("--max-tokens", "-m", type=int, help="Max output tokens")
     p_conc.set_defaults(func=cmd_concurrent)
+
+    # council
+    pc = subparsers.add_parser("council", help="LLM Council")
+    pc.add_argument("prompt", nargs="?")
+    pc.add_argument("--mode","-M",choices=["balanced","debate"],default="balanced")
+    pc.add_argument("--max-peers","-n",type=int,default=3)
+    pc.add_argument("--json","-j",action="store_true")
+    pc.set_defaults(func=cmd_council)
 
     args = parser.parse_args()
 
