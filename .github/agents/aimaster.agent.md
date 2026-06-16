@@ -44,6 +44,29 @@ result = agent.chat("Your question")
 # result.success, result.content, result.provider_name, result.model, result.latency_ms
 ```
 
+
+## Skills (26 loaded from awesome-claude-skills)
+
+AIMaster now includes 26 curated skills from [ComposioHQ/awesome-claude-skills](https://github.com/ComposioHQ/awesome-claude-skills). Each skill is a reusable instruction package with a SKILL.md file, loaded via the SkillLoader.
+
+### Skill Commands
+`ash
+python aimaster/run.py skills list                          # List all loaded skills
+python aimaster/run.py skills search "changelog"            # Search by keyword
+python aimaster/run.py skills show changelog-generator      # Show full instructions
+python aimaster/run.py skills run changelog-generator "..." # Run skill with AI provider
+`
+
+### Available Skills
+artifacts-builder, brand-guidelines, canvas-design, changelog-generator, competitive-ads-extractor, content-research-writer, developer-growth-analysis, domain-name-brainstormer, file-organizer, image-enhancer, internal-comms, invoice-organizer, langsmith-fetch, lead-research-assistant, mcp-builder, meeting-insights-analyzer, raffle-winner-picker, skill-creator, skill-share, slack-gif-creator, tailored-resume-generator, theme-factory, twitter-algorithm-optimizer, video-downloader, webapp-testing, youtube-downloader
+
+### Python API
+`python
+from aimaster.skills.loader import SkillLoader
+loader = SkillLoader()
+skill = loader.get_skill("changelog-generator")
+print(skill.body)  # Full Markdown instructions
+`
 ## Constraints
 - DO NOT modify aimaster source files unless explicitly asked
 - DO NOT expose API keys — they are read from environment variables (DEEPSEEK_API_KEY, CODEGEEX_API_KEY, GITHUB_TOKEN)

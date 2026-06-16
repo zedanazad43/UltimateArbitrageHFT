@@ -196,6 +196,180 @@ def cmd_council(args) -> int:
     return 0
 
 
+
+def cmd_skills_list(args) -> int:
+    """List all loaded AIMaster skills."""
+    from .skills.loader import SkillLoader
+    loader = SkillLoader()
+    skills = loader.list_skills()
+    print("=" * 60)
+    print(f"  AIMaster Skills ({len(skills)} loaded)")
+    print("=" * 60)
+    for s in skills:
+        extras = []
+        if s.has_scripts: extras.append("scripts")
+        if s.has_references: extras.append("refs")
+        if s.has_assets: extras.append("assets")
+        tag = " [" + "+".join(extras) + "]" if extras else ""
+        print(f"  {s.name:35s} {s.description[:60]}{tag}")
+    print("=" * 60)
+    return 0
+
+
+def cmd_skills_show(args) -> int:
+    """Show full instructions for a specific skill."""
+    from .skills.loader import SkillLoader
+    loader = SkillLoader()
+    skill = loader.get_skill(args.name)
+    if not skill:
+        print(f"Skill not found: {args.name}", file=sys.stderr)
+        return 1
+    print(f"Name: {skill.name}")
+    print(f"Description: {skill.description}")
+    if skill.has_scripts: print("Scripts: yes")
+    if skill.has_references: print("References: yes")
+    if skill.has_assets: print("Assets: yes")
+    print("=" * 60)
+    print(skill.body)
+    return 0
+
+
+def cmd_skills_search(args) -> int:
+    """Search skills by keyword."""
+    from .skills.loader import SkillLoader
+    loader = SkillLoader()
+    results = loader.search(args.query)
+    if not results:
+        print(f"No skills found matching: {args.query}")
+        return 0
+    print(f"Found {len(results)} skill(s) matching \"{args.query}\":")
+    for s in results:
+        print(f"  {s.name}: {s.description[:80]}")
+    return 0
+
+
+def cmd_skills_run(args) -> int:
+    """Run a skill with AIMaster providers."""
+    from .skills.loader import SkillLoader
+    loader = SkillLoader()
+    skill = loader.get_skill(args.name)
+    if not skill:
+        print(f"Skill not found: {args.name}", file=sys.stderr)
+        return 1
+    prompt = args.prompt
+    if not prompt and not sys.stdin.isatty():
+        prompt = sys.stdin.read().strip()
+    if not prompt:
+        print("Error: No prompt provided.", file=sys.stderr)
+        return 1
+    system_prompt = f"""You are an expert AI assistant. Use the following skill instructions to complete the task:
+
+[SKILL: {skill.name}]
+{skill.body}
+[/SKILL]
+
+Follow the skill instructions above carefully."""
+    agent = AIMasterAgent(args.config)
+    print(f"Skill: {skill.name}")
+    print(f"Q: {prompt[:100]}")
+    print("-" * 50)
+    result = agent.chat(prompt=prompt, provider=args.provider, system_prompt=system_prompt)
+    if result.success:
+        print(result.content)
+        print("-" * 50)
+        print(f"Provider: {result.provider_name} | {result.latency_ms:.0f}ms")
+        return 0
+    else:
+        print(f"ERROR: {result.error}", file=sys.stderr)
+        return 1
+
+
+def cmd_skills_list(args) -> int:
+    """List all loaded AIMaster skills."""
+    from .skills.loader import SkillLoader
+    loader = SkillLoader()
+    skills = loader.list_skills()
+    print("=" * 60)
+    print(f"  AIMaster Skills ({len(skills)} loaded)")
+    print("=" * 60)
+    for s in skills:
+        extras = []
+        if s.has_scripts: extras.append("scripts")
+        if s.has_references: extras.append("refs")
+        if s.has_assets: extras.append("assets")
+        tag = " [" + "+".join(extras) + "]" if extras else ""
+        print(f"  {s.name:35s} {s.description[:60]}{tag}")
+    print("=" * 60)
+    return 0
+
+
+def cmd_skills_show(args) -> int:
+    """Show full instructions for a specific skill."""
+    from .skills.loader import SkillLoader
+    loader = SkillLoader()
+    skill = loader.get_skill(args.name)
+    if not skill:
+        print(f"Skill not found: {args.name}", file=sys.stderr)
+        return 1
+    print(f"Name: {skill.name}")
+    print(f"Description: {skill.description}")
+    if skill.has_scripts: print("Scripts: yes")
+    if skill.has_references: print("References: yes")
+    if skill.has_assets: print("Assets: yes")
+    print("=" * 60)
+    import sys as _sys; print(skill.body.encode(_sys.stdout.encoding,errors="replace").decode(_sys.stdout.encoding,errors="replace"))
+    return 0
+
+
+def cmd_skills_search(args) -> int:
+    """Search skills by keyword."""
+    from .skills.loader import SkillLoader
+    loader = SkillLoader()
+    results = loader.search(args.query)
+    if not results:
+        print(f"No skills found matching: {args.query}")
+        return 0
+    print(f"Found {len(results)} skill(s) matching \"{args.query}\":")
+    for s in results:
+        print(f"  {s.name}: {s.description[:80]}")
+    return 0
+
+
+def cmd_skills_run(args) -> int:
+    """Run a skill with AIMaster providers."""
+    from .skills.loader import SkillLoader
+    loader = SkillLoader()
+    skill = loader.get_skill(args.name)
+    if not skill:
+        print(f"Skill not found: {args.name}", file=sys.stderr)
+        return 1
+    prompt = args.prompt
+    if not prompt and not sys.stdin.isatty():
+        prompt = sys.stdin.read().strip()
+    if not prompt:
+        print("Error: No prompt provided.", file=sys.stderr)
+        return 1
+    system_prompt = f"""You are an expert AI assistant. Use the following skill instructions to complete the task:
+
+[SKILL: {skill.name}]
+{skill.body}
+[/SKILL]
+
+Follow the skill instructions above carefully."""
+    agent = AIMasterAgent(args.config)
+    print(f"Skill: {skill.name}")
+    print(f"Q: {prompt[:100]}")
+    print("-" * 50)
+    result = agent.chat(prompt=prompt, provider=args.provider, system_prompt=system_prompt)
+    if result.success:
+        print(result.content)
+        print("-" * 50)
+        print(f"Provider: {result.provider_name} | {result.latency_ms:.0f}ms")
+        return 0
+    else:
+        print(f"ERROR: {result.error}", file=sys.stderr)
+        return 1
+
 def cmd_concurrent(args) -> int:
     """Send prompt to all providers concurrently, get fastest response."""
     agent = AIMasterAgent(args.config)
@@ -236,7 +410,11 @@ Examples:
   aimaster chat --provider deepseek "..."   # Use specific provider
   aimaster list                             # List providers
   aimaster interactive                      # Interactive chat mode
-  aimaster concurrent "What is HFT?"        # Race all providers\n  aimaster council \"Q\"           # LLM Council
+  aimaster concurrent "What is HFT?"        # Race all providers\n  aimaster council "Q"                     # LLM Council
+  aimaster skills list                      # List loaded skills
+  aimaster skills search "changelog"        # Search skills
+  aimaster skills show changelog-generator  # Show skill details
+  aimaster skills run changelog-generator "since last week"  # Run a skill
   echo "Hello" | aimaster chat              # Pipe input
         """,
     )
@@ -270,8 +448,7 @@ Examples:
     p_int.set_defaults(func=cmd_interactive)
 
     # concurrent
-    p_conc = subparsers.add_parser("concurrent", help="Race all providers\n  aimaster council \"Q\"           # LLM Council")
-    p_conc.add_argument("prompt", nargs="?", help="The prompt text")
+    p_conc = subparsers.add_parser("concurrent", help="Race all providers")
     p_conc.add_argument("--temperature", "-t", type=float, help="Temperature")
     p_conc.add_argument("--max-tokens", "-m", type=int, help="Max output tokens")
     p_conc.set_defaults(func=cmd_concurrent)
@@ -283,6 +460,26 @@ Examples:
     pc.add_argument("--max-peers","-n",type=int,default=3)
     pc.add_argument("--json","-j",action="store_true")
     pc.set_defaults(func=cmd_council)
+    # skills
+    p_skills = subparsers.add_parser("skills", help="Manage AIMaster skills")
+    p_skills_sub = p_skills.add_subparsers(dest="skills_cmd", help="Skills subcommand")
+
+    p_skills_list = p_skills_sub.add_parser("list", help="List all loaded skills")
+    p_skills_list.set_defaults(func=cmd_skills_list)
+
+    p_skills_show = p_skills_sub.add_parser("show", help="Show skill instructions")
+    p_skills_show.add_argument("name", help="Skill name")
+    p_skills_show.set_defaults(func=cmd_skills_show)
+
+    p_skills_search = p_skills_sub.add_parser("search", help="Search skills by keyword")
+    p_skills_search.add_argument("query", help="Search query")
+    p_skills_search.set_defaults(func=cmd_skills_search)
+
+    p_skills_run = p_skills_sub.add_parser("run", help="Run a skill with AI provider")
+    p_skills_run.add_argument("name", help="Skill name")
+    p_skills_run.add_argument("prompt", nargs="?", help="Task prompt")
+    p_skills_run.add_argument("--provider", "-p", help="Force specific provider")
+    p_skills_run.set_defaults(func=cmd_skills_run)
 
     args = parser.parse_args()
 
