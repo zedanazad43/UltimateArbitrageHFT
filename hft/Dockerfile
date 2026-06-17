@@ -25,8 +25,9 @@ COPY --from=builder /hft /app/hft
 RUN chown -R hft:hft /app
 
 # Default environment (all overridable at runtime via -e or docker-compose env_file).
-ENV PAPER_TRADING=true \
-    TRADING_ENABLED=false \
+# Live trading env vars are set via Railway dashboard → service variables
+ENV PAPER_TRADING=false \
+    TRADING_ENABLED=true \
     SCAN_INTERVAL_MS=500 \
     METRICS_ADDR=:9090 \
     MIN_NET_PROFIT_PCT=0.05 \
