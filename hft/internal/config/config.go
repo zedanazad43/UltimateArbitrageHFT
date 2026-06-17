@@ -135,8 +135,8 @@ func Load() (*Config, error) {
 		TelegramChatID:   os.Getenv("TELEGRAM_CHAT_ID"),
 
 		// Trading parameters
-		PaperTrading:        envBool("PAPER_TRADING", true),
-		TradingEnabled:      envBool("TRADING_ENABLED", false),
+		PaperTrading:        envBool("PAPER_TRADING", false),
+		TradingEnabled:      envBool("TRADING_ENABLED", true),
 		InitialCapitalUSD:   envFloat("INITIAL_CAPITAL_USD", 1000),
 		MaxDailyLossUSD:     envFloat("MAX_DAILY_LOSS_USD", 25),
 		MinSecondsBetweenTx: envInt("MIN_SECONDS_BETWEEN_TX", 30),
