@@ -38,6 +38,7 @@ Set build command, output dir, env vars. Framework auto-detection configures aut
 ## Environment Variables
 
 ### Local (.dev.vars)
+
 ```bash
 # .dev.vars (never commit)
 SECRET_KEY=<your-secret-key-here>
@@ -45,6 +46,7 @@ API_TOKEN="dev-token-123"
 ```
 
 ### Production
+
 ```bash
 echo "secret-value" | npx wrangler pages secret put SECRET_KEY --project-name=my-project
 npx wrangler pages secret list --project-name=my-project
@@ -56,6 +58,7 @@ Access: `env.SECRET_KEY`
 ## Static Config Files
 
 ### _redirects
+
 Place in build output (e.g., `dist/_redirects`):
 
 ```txt
@@ -69,6 +72,7 @@ Place in build output (e.g., `dist/_redirects`):
 **Note**: Functions take precedence
 
 ### _headers
+
 ```txt
 /secure/*
   X-Frame-Options: DENY
@@ -85,6 +89,7 @@ Place in build output (e.g., `dist/_redirects`):
 **Note**: Only static assets; Functions set headers in Response
 
 ### _routes.json
+
 Controls which requests invoke Functions (auto-generated for most frameworks):
 
 ```json
@@ -118,14 +123,17 @@ Automatically optimizes function execution location based on request patterns.
 ```
 
 **How it works**: System analyzes traffic over hours/days and places function execution closer to:
+
 - User clusters (e.g., regional traffic)
 - Data sources (e.g., D1 database primary location)
 
-**Benefits**: 
+**Benefits**:
+
 - Lower latency for read-heavy apps with centralized databases
 - Better performance for apps with regional traffic patterns
 
 **Trade-offs**:
+
 - Initial learning period: First requests may be slower while system optimizes
 - Optimization time: Performance improves over 24-48 hours
 
@@ -146,11 +154,13 @@ npx wrangler pages dev ./dist --remote --kv=KV --d1=DB
 ```
 
 **Use cases**:
+
 - Test against production data (read-only operations)
 - Debug binding-specific behavior
 - Validate changes before deployment
 
-**⚠️ Warning**: 
+**⚠️ Warning**:
+
 - Writes affect **real production data**
 - Use only for read-heavy debugging or with non-production accounts
 - Consider creating separate preview environments instead
@@ -194,6 +204,7 @@ npx wrangler pages dev -- npm run dev
 | **Subrequests** | 50/request | 10,000/request (Workers Paid) |
 
 **Notes**:
+
 - Functions use Workers runtime; Workers Paid plan increases limits
 - Free plan sufficient for most projects
 - Static requests always free (not counted toward limits)

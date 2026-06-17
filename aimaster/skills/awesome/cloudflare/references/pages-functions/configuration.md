@@ -76,6 +76,7 @@ SECRET_KEY=<your-secret-key-here>
 ```
 
 Accessed via `ctx.env.SECRET_KEY`. Set production secrets:
+
 ```bash
 echo "value" | npx wrangler pages secret put SECRET_KEY --project-name=my-app
 ```
@@ -83,17 +84,20 @@ echo "value" | npx wrangler pages secret put SECRET_KEY --project-name=my-app
 ## Static Config Files
 
 **_routes.json** - Custom routing:
+
 ```json
 { "version": 1, "include": ["/api/*"], "exclude": ["/static/*"] }
 ```
 
 **_headers** - Static headers:
+
 ```
 /static/*
   Cache-Control: public, max-age=31536000
 ```
 
 **_redirects** - Redirects:
+
 ```
 /old  /new  301
 ```

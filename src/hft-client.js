@@ -122,7 +122,7 @@ export async function executeViaHFT(env, opp, sizeUsd) {
     method: 'POST',
     body: JSON.stringify({
       opportunity: denormalizeOpportunity(opp),
-      size_usd:    sizeUsd,
+      size_usd: sizeUsd,
     }),
   });
 
@@ -150,19 +150,19 @@ export async function executeViaHFT(env, opp, sizeUsd) {
  */
 function normalizeOpportunity(o) {
   return {
-    strategy:     (o.Strategy     ?? o.strategy     ?? 'cex').toLowerCase(),
-    symbol:       o.Symbol        ?? o.symbol        ?? '',
-    buyExchange:  (o.BuyExchange  ?? o.buyExchange   ?? '').toLowerCase(),
-    sellExchange: (o.SellExchange ?? o.sellExchange  ?? '').toLowerCase(),
-    buyPrice:     o.BuyPrice      ?? o.buyPrice      ?? 0,
-    sellPrice:    o.SellPrice     ?? o.sellPrice     ?? 0,
-    grossPct:     o.GrossPct      ?? o.grossPct      ?? 0,
-    netPct:       o.NetPct        ?? o.netPct        ?? 0,
-    safetyFactor: o.SafetyFactor  ?? o.safetyFactor  ?? 0,
-    direction:    o.Direction     ?? o.direction     ?? '',
-    isPerp:       o.IsPerp        ?? o.isPerp        ?? false,
+    strategy: (o.Strategy ?? o.strategy ?? 'cex').toLowerCase(),
+    symbol: o.Symbol ?? o.symbol ?? '',
+    buyExchange: (o.BuyExchange ?? o.buyExchange ?? '').toLowerCase(),
+    sellExchange: (o.SellExchange ?? o.sellExchange ?? '').toLowerCase(),
+    buyPrice: o.BuyPrice ?? o.buyPrice ?? 0,
+    sellPrice: o.SellPrice ?? o.sellPrice ?? 0,
+    grossPct: o.GrossPct ?? o.grossPct ?? 0,
+    netPct: o.NetPct ?? o.netPct ?? 0,
+    safetyFactor: o.SafetyFactor ?? o.safetyFactor ?? 0,
+    direction: o.Direction ?? o.direction ?? '',
+    isPerp: o.IsPerp ?? o.isPerp ?? false,
     // Mark the source so the orchestrator can route execution back to the engine
-    source:       'hft_engine',
+    source: 'hft_engine',
   };
 }
 
@@ -175,17 +175,17 @@ function normalizeOpportunity(o) {
  */
 function denormalizeOpportunity(o) {
   return {
-    Strategy:     o.strategy,
-    Symbol:       o.symbol,
-    BuyExchange:  o.buyExchange,
+    Strategy: o.strategy,
+    Symbol: o.symbol,
+    BuyExchange: o.buyExchange,
     SellExchange: o.sellExchange,
-    BuyPrice:     o.buyPrice,
-    SellPrice:    o.sellPrice,
-    GrossPct:     o.grossPct,
-    NetPct:       o.netPct,
+    BuyPrice: o.buyPrice,
+    SellPrice: o.sellPrice,
+    GrossPct: o.grossPct,
+    NetPct: o.netPct,
     SafetyFactor: o.safetyFactor,
-    Direction:    o.direction,
-    IsPerp:       o.isPerp,
+    Direction: o.direction,
+    IsPerp: o.isPerp,
   };
 }
 
