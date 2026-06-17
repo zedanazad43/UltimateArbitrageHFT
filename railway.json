@@ -2,8 +2,7 @@
   "deploy": {
     "healthcheckPath": "/api/health",
     "restartPolicyMaxRetries": 5,
-    "startCommand": "/app/hft",
-    "healthcheckTimeout": 15,
+    "healthcheckTimeout": 120,
     "restartPolicyType": "ON_FAILURE"
   },
   "build": {
