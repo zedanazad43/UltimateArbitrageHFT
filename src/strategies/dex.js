@@ -1,7 +1,26 @@
 // nexus/src/strategies/dex.js — DEX Cross-Chain Arbitrage Strategy
 // Multi-chain support: ETH, BSC, Arbitrum, Polygon, Optimism
+// Chain list configurable via DEX_CHAINS env var (comma-separated).
+// Set DEX_MULTI_CHAIN_ENABLED=false to limit to ETH+BSC only.
 
 import { getAlchemyPrice, getPancakePrice, getCoinGeckoSimplePrice, getDEXScreenerPrice } from '../prices.js';
+
+// ── Resolve enabled chains from environment ──────────────────────────────────
+
+/**
+ * Returns the list of enabled chain IDs based on DEX_CHAINS and DEX_MULTI_CHAIN_ENABLED env vars.
+ * When DEX_MULTI_CHAIN_ENABLED is "false", only ethereum+bsc are active.
+ */
+export function getEnabledDexChains(env) {
+  const multiChain = String(env?.DEX_MULTI_CHAIN_ENABLED || 'true').toLowerCase() !== 'false';
+  if (!multiChain) return ['ethereum', 'bsc'];
+
+  const raw = String(env?.DEX_CHAINS || 'ethereum,polygon,arbitrum,optimism,bsc');
+  const requested = raw.split(',').map(s => s.trim().toLowerCase()).filter(Boolean);
+  return requested.filter(c => c in CHAINS).length > 0
+    ? requested.filter(c => c in CHAINS)
+    : ['ethereum', 'bsc'];
+}
 
 // ── Chain configuration ──────────────────────────────────────────────────────
 

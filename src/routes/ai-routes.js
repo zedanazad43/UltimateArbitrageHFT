@@ -307,5 +307,119 @@ export function registerAiRoutes(app, deps) {
       });
     }
   });
+
+  // ── AI Opportunity Filter — scores and filters opportunities via LLM ──────
+  // POST /api/ai/filter — accepts array of opportunities, returns scored + filtered list.
+  // Controlled by AI_FILTER_ENABLED env var (default: true). Falls back to
+  // heuristic scoring when AI gateway is unavailable or disabled.
+  app.post('/api/ai/filter', async (c) => {
+    if (!isAuthorized(c.env, c)) return authDenied(c.env, c, true);
+
+    const aiEnabled = String(c.env.AI_FILTER_ENABLED || 'true').toLowerCase() !== 'false';
+    const minConfidence = Number(c.env.AI_FILTER_MIN_CONFIDENCE) || 0.7;
+
+    let body;
+    try { body = await c.req.json(); } catch (_) { return c.json({ error: 'Invalid JSON' }, 400); }
+
+    const opportunities = Array.isArray(body.opportunities) ? body.opportunities : [];
+    if (opportunities.length === 0) {
+      return c.json({ success: true, filtered: [], total: 0, passed: 0, mode: 'heuristic' });
+    }
+
+    const aiAvailable = !!(c.env.AIWORKER || resolveAiGatewayChatUrl(c.env));
+
+    // Heuristic scoring (always applied as baseline)
+    function heuristicScore(opp) {
+      let score = 0;
+      const netPct = Number(opp.netPct || opp.net_profit_percent || 0);
+      const safety = Number(opp.safetyFactor || opp.safety_factor || 0.5);
+      const spread = Number(opp.spreadPct || opp.spread_pct || 0);
+
+      if (netPct > 1.0) score += 40;
+      else if (netPct > 0.5) score += 25;
+      else if (netPct > 0.2) score += 10;
+
+      if (safety > 0.8) score += 30;
+      else if (safety > 0.5) score += 15;
+
+      if (spread < 2) score += 20;
+      else if (spread < 5) score += 10;
+
+      // Penalize extreme spreads
+      if (spread > 15) score -= 20;
+
+      return Math.max(0, Math.min(100, score));
+    }
+
+    const scored = opportunities.map(opp => ({
+      ...opp,
+      heuristicScore: heuristicScore(opp),
+      aiScore: null,
+      aiRecommendation: null,
+    }));
+
+    // If AI is enabled and available, score top candidates via LLM
+    if (aiEnabled && aiAvailable && scored.length > 0) {
+      const top = scored.sort((a, b) => b.heuristicScore - a.heuristicScore).slice(0, 5);
+      const prompt = [
+        'You are a crypto arbitrage risk analyst. Score each opportunity below from 0-100 and give a one-word verdict (GO/NOGO).',
+        'Consider: net profit %, safety factor, spread %, strategy type, and current market conditions.',
+        '',
+        ...top.map((o, i) =>
+          `#${i + 1}: ${o.symbol || '?'} | ${o.strategy || '?'} | Net: ${o.netPct || 0}% | Safety: ${(o.safetyFactor || 0.5) * 100}% | Spread: ${o.spreadPct || 0}%`
+        ),
+        '',
+        'Respond as JSON array: [{"index":1,"score":85,"verdict":"GO"},...]',
+      ].join('\n');
+
+      try {
+        const ai = await runConfiguredLlm(c.env, { messages: [{ role: 'user', content: prompt }], max_tokens: 256 });
+        const aiText = (ai.text || '').trim();
+        // Try to extract JSON array from response
+        const jsonMatch = aiText.match(/\[[\s\S]*\]/);
+        if (jsonMatch) {
+          const aiScores = JSON.parse(jsonMatch[0]);
+          for (const item of aiScores) {
+            if (item.index >= 1 && item.index <= top.length) {
+              top[item.index - 1].aiScore = item.score;
+              top[item.index - 1].aiRecommendation = item.verdict;
+            }
+          }
+        }
+      } catch (e) {
+        console.error('[AI filter] LLM scoring failed:', e.message);
+        // Fall through to heuristic-only mode
+      }
+
+      // Merge AI scores back into the full list
+      for (const t of top) {
+        const idx = scored.findIndex(s => s.symbol === t.symbol && s.strategy === t.strategy);
+        if (idx >= 0) {
+          scored[idx].aiScore = t.aiScore;
+          scored[idx].aiRecommendation = t.aiRecommendation;
+        }
+      }
+    }
+
+    const mode = aiEnabled && aiAvailable ? 'ai+heuristic' : 'heuristic';
+    const threshold = aiEnabled && aiAvailable ? minConfidence * 100 : 40;
+    const finalScore = (opp) => opp.aiScore ?? opp.heuristicScore;
+    const filtered = scored
+      .filter(opp => finalScore(opp) >= threshold)
+      .sort((a, b) => finalScore(b) - finalScore(a));
+
+    return c.json({
+      success: true,
+      mode,
+      aiEnabled,
+      aiAvailable,
+      threshold,
+      total: scored.length,
+      passed: filtered.length,
+      filtered,
+      all: scored,
+      generatedAt: new Date().toISOString(),
+    });
+  });
 }
 

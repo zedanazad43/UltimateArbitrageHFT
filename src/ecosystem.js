@@ -247,3 +247,113 @@ export function recommendEcosystem(goal = 'quick_start') {
 export function getApiKeySecurityChecklist() {
   return [...API_KEY_SECURITY_CHECKLIST];
 }
+
+// ── Executable Integration Health Probes ──────────────────────────────────────
+// These probe Hummingbot, Freqtrade, Superalgos, CrewAI, AutoGPT, and CCXT REST
+// endpoints when configured. Each returns { configured, healthy, url, error }.
+
+export const EXECUTABLE_INTEGRATION_IDS = ['hummingbot', 'freqtrade', 'superalgos', 'crewai', 'autogpt', 'ccxt_rest'];
+
+function getIntegrationUrl(env, id) {
+  const upper = id.toUpperCase();
+  const executeUrl = env[`${upper}_EXECUTE_URL`] || '';
+  const statusUrl = env[`${upper}_STATUS_URL`] || '';
+  return { executeUrl: String(executeUrl).trim(), statusUrl: String(statusUrl).trim() };
+}
+
+export async function probeExecutableIntegrations(env) {
+  const results = [];
+  for (const id of EXECUTABLE_INTEGRATION_IDS) {
+    const { executeUrl, statusUrl } = getIntegrationUrl(env, id);
+    const configured = !!executeUrl || !!statusUrl;
+    if (!configured) {
+      results.push({ id, configured: false, healthy: false, note: 'No URL configured — set *_EXECUTE_URL and *_STATUS_URL env vars' });
+      continue;
+    }
+
+    // Probe status endpoint if available
+    let healthy;
+    let error = null;
+    if (statusUrl) {
+      try {
+        const token = env[`${id.toUpperCase()}_API_TOKEN`];
+        const headers = { Accept: 'application/json' };
+        if (token) headers.Authorization = `Bearer ${token}`;
+
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 5000);
+        const resp = await fetch(statusUrl, { headers, signal: controller.signal });
+        clearTimeout(timeout);
+        healthy = resp.ok;
+        if (!resp.ok) error = `HTTP ${resp.status}`;
+        await resp.body?.cancel();
+      } catch (e) {
+        error = e.message;
+        healthy = false;
+      }
+    } else {
+      // Can only verify URL is configured
+      healthy = null; // unknown without status endpoint
+    }
+
+    results.push({
+      id,
+      configured: true,
+      executeUrl: executeUrl || null,
+      statusUrl: statusUrl || null,
+      healthy,
+      error,
+      note: healthy === null ? 'Status endpoint not configured — health unknown' : null,
+    });
+  }
+  return results;
+}
+
+export function listExecutableIntegrationIds() {
+  return [...EXECUTABLE_INTEGRATION_IDS];
+}
+
+export async function executeExecutableIntegration(env, integration, payload = {}) {
+  const { executeUrl } = getIntegrationUrl(env, integration);
+  if (!executeUrl) {
+    throw new Error(`${integration} EXECUTE_URL not configured`);
+  }
+
+  const token = env[`${integration.toUpperCase()}_API_TOKEN`];
+  const headers = { 'Content-Type': 'application/json' };
+  if (token) headers.Authorization = `Bearer ${token}`;
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 30000);
+  const resp = await fetch(executeUrl, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify(payload),
+    signal: controller.signal,
+  });
+  clearTimeout(timeout);
+
+  const body = await resp.json().catch(() => ({}));
+  if (!resp.ok) throw new Error(`Integration ${integration} returned ${resp.status}: ${JSON.stringify(body).slice(0, 200)}`);
+
+  return { integration, status: resp.status, data: body };
+}
+
+export async function executeAllExecutableIntegrations(env, payloadByIntegration = {}, defaultPayload = {}) {
+  const results = [];
+  for (const id of EXECUTABLE_INTEGRATION_IDS) {
+    const { executeUrl } = getIntegrationUrl(env, id);
+    if (!executeUrl) {
+      results.push({ id, success: false, error: 'Not configured', configured: false });
+      continue;
+    }
+    try {
+      const payload = payloadByIntegration[id] || defaultPayload;
+      const result = await executeExecutableIntegration(env, id, payload);
+      results.push({ id, success: true, ...result });
+    } catch (e) {
+      results.push({ id, success: false, error: e.message, configured: true });
+    }
+  }
+  return results;
+}

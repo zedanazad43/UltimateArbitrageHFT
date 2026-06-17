@@ -13,8 +13,9 @@ export default [
       ".tmp-*.js",
       "*.tmp.js",
       "tmp-*.js",
-      "aimsaster_skills_list/**",
-      "aimsaster_council_temp/**",
+      "aimaster_skills_list/**",
+      "aimaster_council_temp/**",
+      "aimaster/**",
     ],
   },
   // Base rules for all JS files

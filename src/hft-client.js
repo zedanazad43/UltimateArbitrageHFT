@@ -188,3 +188,31 @@ function denormalizeOpportunity(o) {
     IsPerp:       o.isPerp,
   };
 }
+
+// ── Health Check with Retry ──────────────────────────────────────────────────
+
+// Health Check with Retry
+export async function checkHFTEngineHealth(env, maxRetries = 2) {
+  if (!isHFTEngineConfigured(env)) return false;
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    try {
+      const base = String(env.HFT_ENGINE_URL || '').trim().replace(/\/+$/, '');
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 3000);
+      const resp = await fetch(base + '/api/health', { signal: controller.signal });
+      clearTimeout(timeout);
+      if (resp.ok) {
+        const data = await resp.json().catch(() => ({}));
+        if (data.status === 'ok') return true;
+      }
+      if (attempt < maxRetries) {
+        await new Promise(r => setTimeout(r, 1000 * (attempt + 1)));
+      }
+    } catch (_e) {
+      if (attempt < maxRetries) {
+        await new Promise(r => setTimeout(r, 1000 * (attempt + 1)));
+      }
+    }
+  }
+  return false;
+}

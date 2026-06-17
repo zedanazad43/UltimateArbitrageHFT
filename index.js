@@ -33,6 +33,10 @@ import {
 } from './src/temporal/cf-client.js';
 import { registerSystemRoutes } from './src/routes/system-routes.js';
 import { registerAiRoutes } from './src/routes/ai-routes.js';
+
+import { CircuitBreaker } from './src/circuit-breaker.js';
+import { runLiveMonitor } from './src/monitor-live.js';
+import { registerAIMasterRoutes } from './src/routes/aimaster-routes.js';
 import { registerTemporalRoutes } from './src/routes/temporal-routes.js';
 
 
@@ -1921,6 +1925,91 @@ app.get('/api/report', async (c) => {
   });
 });
 
+// ── API: Detailed Analytics Dashboard ─────────────────────────────────────────
+// GET /api/analytics/detailed — comprehensive trade analytics with strategy breakdown,
+// win rates, PnL charts, drawdown metrics, and performance recommendations.
+app.get('/api/analytics/detailed', async (c) => {
+  if (!isAuthorized(c.env, c)) return authDenied(c.env, c, true);
+  const days = Math.max(1, Math.min(90, Number(c.req.query('days') || 7)));
+  const capital = Number(c.req.query('capital') || 1000);
+  const toMs = Date.now();
+  const fromMs = toMs - days * 24 * 60 * 60 * 1000;
+
+  const [state, metrics, trades] = await Promise.all([
+    getState(c.env),
+    getPerformanceMetrics(c.env, fromMs, toMs),
+    exportTrades(c.env, fromMs, toMs),
+  ]);
+
+  // Strategy breakdown
+  const strategyPnl = await getStrategyPnL(c.env);
+  const strategyMap = {};
+  for (const [key, val] of Object.entries(strategyPnl)) {
+    strategyMap[key] = {
+      trades: val.trades || 0,
+      pnl: Number((val.pnl || 0).toFixed(2)),
+      winRate: val.winRate || 0,
+    };
+  }
+
+  // Win rate calculation
+  const winCount = trades.filter(t => (t.net_profit_percent || 0) > 0).length;
+  const lossCount = trades.filter(t => (t.net_profit_percent || 0) < 0).length;
+  const totalTrades = trades.length;
+  const winRate = totalTrades > 0 ? ((winCount / totalTrades) * 100).toFixed(1) : 0;
+
+  // Drawdown analysis
+  let peak = capital;
+  let maxDrawdown = 0;
+  let currentEquity = capital;
+  for (const t of trades) {
+    currentEquity += (t.net_profit_percent || 0) > 0 ? (t.size_usd || 0) * (t.net_profit_percent || 0) / 100 : -(t.size_usd || Math.abs(t.net_profit_percent || 0) / 100);
+    if (currentEquity > peak) peak = currentEquity;
+    const dd = ((peak - currentEquity) / peak) * 100;
+    if (dd > maxDrawdown) maxDrawdown = dd;
+  }
+
+  // Daily PnL trend
+  const dailyPnlMap = {};
+  for (const t of trades) {
+    const day = (t.created_at || '').substring(0, 10);
+    dailyPnlMap[day] = (dailyPnlMap[day] || 0) + (t.net_profit_percent || 0);
+  }
+  const dailyTrend = Object.entries(dailyPnlMap).map(([date, pnl]) => ({ date, pnl: Number(pnl.toFixed(4)) })).sort((a, b) => a.date.localeCompare(b.date));
+
+  // Recommendation engine
+  const recommendations = [];
+  if (winRate < 45) recommendations.push('⚠️ Win rate below 45% — consider tightening min profit threshold');
+  if (maxDrawdown > 15) recommendations.push('🚨 Max drawdown > 15% — reduce position size or enforce stricter stop-loss');
+  if (totalTrades < 5 && days >= 3) recommendations.push('📉 Low trade count — widen spread tolerance or increase scan frequency');
+  if (totalTrades > 50 && winRate > 55) recommendations.push('✅ Strong performance — consider scaling position size gradually');
+  if (Object.values(strategyMap).some(s => s.trades > 0 && s.winRate < 30)) {
+    const underperformers = Object.entries(strategyMap).filter(([, s]) => s.trades > 0 && s.winRate < 30).map(([k]) => k).join(', ');
+    recommendations.push(`🔧 Underperforming strategies: ${underperformers} — consider disabling or adjusting parameters`);
+  }
+
+  return c.json({
+    success: true,
+    period_days: days,
+    summary: {
+      totalTrades,
+      winCount,
+      lossCount,
+      winRate: Number(winRate),
+      totalPnl: Number((metrics?.total_pnl || state?.total_pnl || 0).toFixed(2)),
+      maxDrawdownPct: Number(maxDrawdown.toFixed(2)),
+      initialCapital: capital,
+      currentEquity: Number(currentEquity.toFixed(2)),
+      returnPct: Number((((currentEquity - capital) / capital) * 100).toFixed(2)),
+      dailyAvgTrades: Number((totalTrades / days).toFixed(1)),
+    },
+    strategies: strategyMap,
+    dailyTrend,
+    recommendations,
+    generatedAt: new Date().toISOString(),
+  });
+});
+
 // ── API: Recent admin/bot logs ───────────────────────────────────────────────
 app.get('/api/logs', async (c) => {
   if (!isAuthorized(c.env, c)) return authDenied(c.env, c, true);
@@ -2802,6 +2891,8 @@ app.get('/api/export', async (c) => {
   });
 });
 
+registerAIMasterRoutes(app);
+
 registerAiRoutes(app, {
   isAuthorized,
   authDenied,
@@ -3348,19 +3439,37 @@ async function runScheduledCycle(env) {
 
   await handleDailyReset(env, state, now);
 
+  // Circuit breaker check
+  const cb = new CircuitBreaker(env.BOT_STATE);
+  const breakerAllowed = await cb.isTradingAllowed();
+  if (!breakerAllowed) {
+    const status = await cb.getStatus();
+    console.log('🚫 Circuit breaker OPEN — trading suspended:', status.trip_reason);
+    await sendTelegramAlert(env, `🚫 *Circuit Breaker OPEN*\nReason: ${status.trip_reason}\nTrading suspended. Use /api/admin/reset-breaker to reset.`);
+    return null;
+  }
+
   // Auto-stop guard
   if (state.auto_stopped) {
     console.log('🛑 Nexus: إيقاف تلقائي نشط —', state.auto_stop_reason);
     return null;
   }
 
-  const maxDailyLoss = state.max_daily_loss_usd ?? 25;
+  // ── Daily Loss Limit (MAX_DAILY_LOSS_USD env var overrides default 25) ────
+  const maxDailyLoss = Number(env.MAX_DAILY_LOSS_USD) || state.max_daily_loss_usd || 25;
   if (state.daily_pnl <= -maxDailyLoss) {
     state.auto_stopped = true;
-    state.auto_stop_reason = `تجاوز حد الخسارة اليومية $${maxDailyLoss}`;
+    state.auto_stop_reason = `تجاوز حد الخسارة اليومية $${maxDailyLoss} | PnL: $${(state.daily_pnl || 0).toFixed(2)}`;
     await saveStateWithConfigGuard(env, state, cycleStartConfigTs);
-    await logBotEvent(env, 'auto_stop', { reason: state.auto_stop_reason });
-    await sendTelegramAlert(env, `🛑 *إيقاف تلقائي*\n${state.auto_stop_reason}`);
+    await logBotEvent(env, 'auto_stop', { reason: state.auto_stop_reason, daily_pnl: state.daily_pnl, max_daily_loss_usd: maxDailyLoss });
+    await sendTelegramAlert(env,
+      `🛑 *إيقاف تلقائي — حد الخسارة اليومية*\n\n` +
+      `💰 الحد: $${maxDailyLoss}\n` +
+      `📉 خسارة اليوم: $${Math.abs(state.daily_pnl || 0).toFixed(2)}\n` +
+      `📊 صفقات اليوم: ${state.daily_trades || 0}\n` +
+      `⚙️ المصدر: ${env.MAX_DAILY_LOSS_USD ? 'Cloudflare env var' : 'default config'}\n\n` +
+      `🔒 تم إيقاف التداول تلقائياً. راجع الإعدادات ثم شغّل يدوياً.`
+    );
     return null;
   }
 
@@ -3476,6 +3585,26 @@ async function sendDailyReport(env, state) {
     console.error('[daily_report] error:', e.message);
   }
 }
+
+// ── Monitor and Circuit Breaker API ────────────────────────────────────────
+app.get('/api/monitor/status', async (c) => {
+  const breaker = new CircuitBreaker(c.env.BOT_STATE);
+  const status = await breaker.getStatus();
+  return c.json({ success: true, ...status });
+});
+
+app.post('/api/admin/reset-breaker', async (c) => {
+  if (!isAuthorized(c)) return authDenied(c, 'reset breaker');
+  const breaker = new CircuitBreaker(c.env.BOT_STATE);
+  await breaker.reset();
+  await logAdminEvent(c.env, 'reset_circuit_breaker', c.req.header('CF-Connecting-IP') || 'unknown');
+  return c.json({ success: true, message: 'Circuit breaker reset to HALF_OPEN' });
+});
+
+app.post('/api/monitor/run', async (c) => {
+  const report = await runLiveMonitor(c.env);
+  return c.json(report);
+});
 
 // ─── Exports ──────────────────────────────────────────────────────────────────
 export default {
