@@ -1,11 +1,12 @@
 # ── Build stage ───────────────────────────────────────────────────────────────
-FROM golang:1.24-alpine AS builder
+FROM golang:1.25-alpine AS builder
 
 # Install build dependencies (gcc is needed by go-ethereum's C bindings).
 RUN apk add --no-cache gcc musl-dev linux-headers
 
 WORKDIR /src
 COPY hft/go.mod hft/go.sum ./
+ENV GOTOOLCHAIN=auto
 RUN go mod download
 
 COPY hft/ .
