@@ -168,7 +168,7 @@ export async function exchangeFetch(url, options = {}, exchange, maxRetries = 2,
 
   // If an external gateway is configured, prefer it for execution exchanges
   // to avoid direct Cloudflare egress geoblocks/WAF on sensitive endpoints.
-  if (env && ex && ['kucoin', 'bitget'].includes(ex)) {
+  if (env && ex && ['kucoin', 'bitget', 'binance'].includes(ex)) {
     try {
       const proxyManager = getExternalProxyManager(env);
       if (proxyManager.getStats()?.enabled) {

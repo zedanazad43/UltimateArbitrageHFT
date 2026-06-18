@@ -85,9 +85,9 @@ func init() {
 // ─── Circuit breaker (in-memory) ─────────────────────────────────────────────
 
 type cbState struct {
-	failures   int
-	lastFail   time.Time
-	open       bool
+	failures int
+	lastFail time.Time
+	open     bool
 }
 
 type circuitBreaker struct {
@@ -137,10 +137,10 @@ type engine struct {
 	notifier *notify.Notifier
 	cb       *circuitBreaker
 
-	equity       float64 // tracks running P&L
-	dailyPnL     float64
-	dailyTrades  int
-	lastTrade    time.Time
+	equity      float64 // tracks running P&L
+	dailyPnL    float64
+	dailyTrades int
+	lastTrade   time.Time
 }
 
 func newEngine(cfg *config.Config, database *db.DB) *engine {
