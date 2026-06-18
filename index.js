@@ -27,6 +27,7 @@ import { normalizeRebalancePolicy, computeRebalancePlan, buildRebalanceWeights, 
 import { discoverSymbolCatalog, resolveDynamicScanSymbols, getAllSpotPrices, isLikelyTradeableSymbol } from './src/prices.js';
 import { preWarmPriceCache } from './src/bridges/ccxt-bridge.js';
 import { getUltraFastPriceEngine } from './src/ultra-fast-engine.js';
+import { getWebSocketPriceManager } from './src/ws-price-stream.js';
 import { SUPPORTED_BROKERS, hasBrokerCredentials, getMissingBrokerCredentialKeys, getBrokerAccountSummary, placeBrokerMarketOrder } from './src/brokerage.js';
 import {
   startWorkflow,
@@ -3477,8 +3478,14 @@ async function applyAutoProfiler(env, state, manualRiskLock, inBurst, now) {
 
 // ─── Scheduled cron cycle ─────────────────────────────────────────────────────
 async function runScheduledCycle(env) {
-  // ── Ultra-Fast Price Pre-Warm (2-3s parallel across all exchanges) ──
+  // ── Ultra-Fast Price Pre-Warm (REST parallel + WebSocket real-time) ──
   preWarmPriceCache(env).catch(() => { });
+  // Start WebSocket price streams for sub-second live updates
+  const priceEngine = getUltraFastPriceEngine(env);
+  priceEngine.connectWebSocketFeeds().then((results) => {
+    const connected = results?.filter(r => r?.exchange && !r.error).length || 0;
+    if (connected > 0) console.log(`[ws] Live feeds: ${connected} exchanges`);
+  }).catch(() => { });
 
   const state = await getState(env);
   const cycleStartConfigTs = Number(state?.last_config_change_ts || 0);
@@ -3663,7 +3670,7 @@ app.get('/api/monitor/status', async (c) => {
 });
 
 app.post('/api/admin/reset-breaker', async (c) => {
-  if (!isAuthorized(c)) return authDenied(c, 'reset breaker');
+  if (!isAuthorized(c.env, c)) return authDenied(c.env, c, true);
   const breaker = new CircuitBreaker(c.env.BOT_STATE);
   await breaker.reset();
   await logAdminEvent(c.env, 'reset_circuit_breaker', c.req.header('CF-Connecting-IP') || 'unknown');
@@ -3750,4 +3757,10 @@ app.get('/api/ultra-fast/prewarm', async (c) => {
   if (!isAuthorized(c.env, c)) return authDenied(c.env, c, true);
   const result = await preWarmPriceCache(c.env);
   return c.json({ success: true, ...result });
+});
+
+app.get('/api/ultra-fast/ws-status', async (c) => {
+  if (!isAuthorized(c.env, c)) return authDenied(c.env, c, true);
+  const ws = getWebSocketPriceManager(c.env);
+  return c.json({ success: true, ...ws.getStats() });
 });

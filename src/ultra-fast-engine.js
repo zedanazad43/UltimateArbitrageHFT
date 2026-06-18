@@ -1,6 +1,8 @@
 // ===== Ultra-Fast Price Engine v4.0 =====
 // Parallel price fetching, WebSocket streams, in-memory caching, proxy bypass
 
+import { getWebSocketPriceManager } from './ws-price-stream.js';
+
 let _parallelEngine = null;
 
 export class UltraFastPriceEngine {
@@ -276,11 +278,39 @@ export class UltraFastPriceEngine {
     }
 
     getStats() {
+        const ws = getWebSocketPriceManager(this.env);
         return {
             cacheSize: this.priceCache.size,
             pendingFetches: this.pendingFetches.size,
             cacheTTL: this.cacheTTL,
+            webSocket: ws.getStats(),
         };
+    }
+
+    /**
+     * Syncs WebSocket live prices into the in-memory cache.
+     * Call this once at startup — it subscribes to all exchanges and
+     * continuously updates the cache with sub-second latency.
+     */
+    async connectWebSocketFeeds(symbols = null) {
+        const ws = getWebSocketPriceManager(this.env);
+        const targetSymbols = symbols || [...new Set([
+            'BTCUSDT', 'ETHUSDT', 'SOLUSDT', 'XRPUSDT', 'BNBUSDT', 'ADAUSDT', 'DOGEUSDT',
+            'LTCUSDT', 'TRXUSDT', 'LINKUSDT', 'AVAXUSDT', 'DOTUSDT'
+        ])];
+
+        const results = await ws.connectAll(targetSymbols);
+
+        // Bridge WS prices into the UltraFastPriceEngine cache
+        for (const result of results) {
+            if (result?.exchange) {
+                ws.subscribe(result.exchange, (prices) => {
+                    this.cacheResults(prices);
+                });
+            }
+        }
+
+        return results;
     }
 }
 
