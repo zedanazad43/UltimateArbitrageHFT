@@ -1,8 +1,11 @@
 // ===== NEXUS ARBITRAGE HUB — Final Integrated Bot =====
 // Entry point: ultimate-arbitrage-hft Cloudflare Worker
 // Integrates: CEX + DEX + Perps strategies, admin dashboard, Telegram bot
+// AI Agent: Autonomous self-learning trading agent v2.0
 
 import { Hono } from 'hono';
+import { AITradingAgent } from './src/ai-trading-agent.js';
+import { RailwayMonitor, CloudflareOptimizer, AIModelRouter } from './src/infrastructure-optimizer.js';
 import { cors } from 'hono/cors';
 import PerformanceOptimizer from './src/performance-optimizer.js';
 import ReliabilityManager from './src/reliability-manager.js';
@@ -2900,6 +2903,39 @@ registerAiRoutes(app, {
   authDenied,
 });
 
+// ── AI Trading Agent Routes ──────────────────────────────────────────────────
+app.get('/api/ai/status', async (c) => {
+  if (!isAuthorized(c.env, c)) return authDenied(c.env, c, true);
+  const state = await getState(c.env);
+  const aiAgent = new AITradingAgent(c.env, state);
+  const report = await aiAgent.generateReport();
+  return c.json(report);
+});
+
+app.get('/api/ai/health', async (c) => {
+  if (!isAuthorized(c.env, c)) return authDenied(c.env, c, true);
+  const state = await getState(c.env);
+  const aiAgent = new AITradingAgent(c.env, state);
+  const health = await aiAgent.checkHealth();
+  return c.json(health);
+});
+
+app.post('/api/ai/recover', async (c) => {
+  if (!isAuthorized(c.env, c)) return authDenied(c.env, c, true);
+  const state = await getState(c.env);
+  const aiAgent = new AITradingAgent(c.env, state);
+  const result = await aiAgent.autoRecover();
+  return c.json(result);
+});
+
+app.get('/api/ai/dex-status', async (c) => {
+  if (!isAuthorized(c.env, c)) return authDenied(c.env, c, true);
+  const state = await getState(c.env);
+  const aiAgent = new AITradingAgent(c.env, state);
+  const dexSnapshot = await aiAgent.dex.getDexSnapshot();
+  return c.json(dexSnapshot);
+});
+
 // ── API: Ecosystem integrations ────────────────────────────────────────────────
 app.get('/api/ecosystem', (c) => {
   return c.json({
@@ -2937,6 +2973,28 @@ app.post('/api/integrations/executive/execute', async (c) => {
   try {
     const { integration, payload } = await c.req.json().catch(() => ({}));
     const ids = listExecutableIntegrationIds();
+
+// ── Infrastructure Optimizer Routes ──────────────────────────────────────────
+app.get('/api/infra/status', async (c) => {
+  if (!isAuthorized(c.env, c)) return authDenied(c.env, c, true);
+  const railway = new RailwayMonitor(c.env);
+  const cloudflare = new CloudflareOptimizer(c.env);
+  const aiRouter = new AIModelRouter(c.env);
+  
+  const [railwayHealth, proxyStatus, edgeStatus, aiModels] = await Promise.all([
+    railway.checkHealth(),
+    railway.getProxyStatus(),
+    cloudflare.getEdgeStatus(),
+    aiRouter.getAvailableModels(),
+  ]);
+
+  return c.json({
+    railway: { url: railway.hftUrl, ...railwayHealth, proxy: proxyStatus },
+    cloudflare: edgeStatus,
+    aiModels,
+    timestamp: new Date().toISOString(),
+  });
+});
     if (!ids.includes(integration)) {
       return c.json({ error: `integration must be one of: ${ids.join(', ')}` }, 400);
     }
@@ -3483,6 +3541,14 @@ async function runScheduledCycle(env) {
 
   const equity = (state.initial_capital || 1000) + (state.total_pnl || 0);
   await sendDrawdownWarning(env, state, equity);
+
+  // ── AI Trading Agent: autonomous decision-making ──────────────────────────
+  const aiAgent = new AITradingAgent(env, state);
+  const aiDecision = await aiAgent.think(null); // Pre-scan AI assessment
+  if (aiDecision.action === 'stop') {
+    console.log(`🤖 AI Agent: ${aiDecision.reason}`);
+    return null;
+  }
 
   const result = await runScan(env, state, sendTelegramAlert, { source: 'scheduled', trigger: 'cron.scheduled' });
 
