@@ -29,7 +29,7 @@ jobs:
         run: npm run check:symbol-catalog
         env:
           WORKFLOW_ADMIN_TOKEN: ${{ secrets.WORKFLOW_ADMIN_TOKEN }}
-          SYMBOL_CATALOG_URL: https://ultimatearbitragehft.zedanazad43.workers.dev
+          SYMBOL_CATALOG_URL: https://api.ecostamp.net
           MIN_MEXC_SYMBOLS: '1000'
           MIN_BINANCE_SYMBOLS: '250'
           MIN_BITGET_SYMBOLS: '300'

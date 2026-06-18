@@ -14,7 +14,7 @@ on:
         description: Worker base URL
         required: false
         type: string
-        default: https://ultimatearbitragehft.zedanazad43.workers.dev
+        default: https://api.ecostamp.net
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
@@ -43,7 +43,7 @@ jobs:
         env:
           WORKFLOW_ADMIN_TOKEN_SECRET: ${{ secrets.WORKFLOW_ADMIN_TOKEN }}
           SIMULATE_FAILURE: ${{ inputs.simulate_failure || 'false' }}
-          BASE_URL: ${{ inputs.base_url || 'https://ultimatearbitragehft.zedanazad43.workers.dev' }}
+          BASE_URL: ${{ inputs.base_url || 'https://api.ecostamp.net' }}
           EVENT_NAME: ${{ github.event_name }}
         run: |
           # Scheduled runs should always execute a real smoke check.

@@ -32,7 +32,7 @@ jobs:
           ADMIN_TOKEN: ${{ secrets.WORKFLOW_ADMIN_TOKEN }}
         run: |
           set -euo pipefail
-          npm run smoke:safety-lock -- --base https://ultimatearbitragehft.zedanazad43.workers.dev 2>&1 | tee artifacts/nightly-audit/safety-lock.log
+          npm run smoke:safety-lock -- --base https://api.ecostamp.net 2>&1 | tee artifacts/nightly-audit/safety-lock.log
 
       - name: Core flags drift audit
         id: core_flags_audit
@@ -41,7 +41,7 @@ jobs:
           ADMIN_TOKEN: ${{ secrets.WORKFLOW_ADMIN_TOKEN }}
         run: |
           set -euo pipefail
-          npm run smoke:core-flags -- --base https://ultimatearbitragehft.zedanazad43.workers.dev --samples 30 --interval-ms 60000 2>&1 | tee artifacts/nightly-audit/core-flags.log
+          npm run smoke:core-flags -- --base https://api.ecostamp.net --samples 30 --interval-ms 60000 2>&1 | tee artifacts/nightly-audit/core-flags.log
 
       - name: Upload nightly audit artifact
         if: always()

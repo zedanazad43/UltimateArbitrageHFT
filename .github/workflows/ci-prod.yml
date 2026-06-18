@@ -182,7 +182,7 @@ jobs:
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     environment:
       name: production
-      url: https://ultimatearbitragehft.zedanazad43.workers.dev
+      url: https://api.ecostamp.net
     steps:
       - uses: actions/checkout@v5
 
@@ -485,7 +485,7 @@ jobs:
         id: enforce_spot_lock
         timeout-minutes: 3
         run: |
-          API_BASE="https://ultimatearbitragehft.zedanazad43.workers.dev"
+          API_BASE="https://api.ecostamp.net"
 
           if [ -z "$WORKFLOW_ADMIN_TOKEN" ]; then
             echo "::error::WORKFLOW_ADMIN_TOKEN is required to enforce spot lock"
@@ -557,7 +557,7 @@ jobs:
           exit 1
         env:
           ADMIN_TOKEN: ${{ secrets.WORKFLOW_ADMIN_TOKEN }}
-          API_BASE: https://ultimatearbitragehft.zedanazad43.workers.dev
+          API_BASE: https://api.ecostamp.net
 
       - name: Post-deploy lock bypass guard test
         id: lock_bypass_guard_test
@@ -578,7 +578,7 @@ jobs:
           exit 1
         env:
           ADMIN_TOKEN: ${{ secrets.WORKFLOW_ADMIN_TOKEN }}
-          API_BASE: https://ultimatearbitragehft.zedanazad43.workers.dev
+          API_BASE: https://api.ecostamp.net
 
       - name: Post-deploy core flags stability smoke test
         id: core_flags_smoke_test
@@ -599,7 +599,7 @@ jobs:
           exit 1
         env:
           ADMIN_TOKEN: ${{ secrets.WORKFLOW_ADMIN_TOKEN }}
-          API_BASE: https://ultimatearbitragehft.zedanazad43.workers.dev
+          API_BASE: https://api.ecostamp.net
 
       - name: Post-deploy canary guard (30-minute)
         id: canary_guard_test
@@ -610,7 +610,7 @@ jobs:
           echo "✅ Canary guard window passed"
         env:
           ADMIN_TOKEN: ${{ secrets.WORKFLOW_ADMIN_TOKEN }}
-          API_BASE: https://ultimatearbitragehft.zedanazad43.workers.dev
+          API_BASE: https://api.ecostamp.net
 
       - name: Telegram alert on smoke test failure
         if: ${{ failure() && (steps.smoke_test.outcome == 'failure' || steps.safety_smoke_test.outcome == 'failure' || steps.lock_bypass_guard_test.outcome == 'failure' || steps.core_flags_smoke_test.outcome == 'failure' || steps.canary_guard_test.outcome == 'failure') }}
