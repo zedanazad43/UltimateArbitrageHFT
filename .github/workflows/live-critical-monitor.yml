@@ -2,21 +2,21 @@ name: Live Critical Monitor (Cloud)
 
 on:
   schedule:
-    - cron: '*/5 * * * *'
+    - cron: "*/5 * * * *"
   workflow_dispatch:
     inputs:
       base_url:
         description: Base URL for monitor checks
         required: false
-        default: 'https://api.ecostamp.net'
+        default: "https://api.ecostamp.net"
       auto_stop:
         description: Execute auto-stop sequence on critical
         required: false
-        default: 'true'
+        default: "true"
       max_daily_loss_usd:
         description: Operational loss threshold (absolute USD)
         required: false
-        default: '12'
+        default: "12"
 
 permissions:
   contents: read

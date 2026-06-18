@@ -2,7 +2,7 @@ name: Spot Lock Weekly Report
 
 on:
   schedule:
-    - cron: '20 0 * * 1'
+    - cron: "20 0 * * 1"
   workflow_dispatch:
   repository_dispatch:
     types:

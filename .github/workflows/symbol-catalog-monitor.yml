@@ -2,7 +2,7 @@ name: Symbol Catalog Monitor
 
 on:
   schedule:
-    - cron: '*/30 * * * *'
+    - cron: "*/30 * * * *"
   workflow_dispatch:
 
 permissions:
@@ -19,7 +19,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v6
         with:
-          node-version: '24'
+          node-version: "24"
           cache: npm
 
       - name: Install dependencies
@@ -30,13 +30,13 @@ jobs:
         env:
           WORKFLOW_ADMIN_TOKEN: ${{ secrets.WORKFLOW_ADMIN_TOKEN }}
           SYMBOL_CATALOG_URL: https://api.ecostamp.net
-          MIN_MEXC_SYMBOLS: '1000'
-          MIN_BINANCE_SYMBOLS: '250'
-          MIN_BITGET_SYMBOLS: '300'
-          MIN_METAMASK_SYMBOLS: '1000'
-          MIN_SCAN_SYMBOLS: '100'
-          BINANCE_REFERENCE_CHECK: 'true'
-          BINANCE_REFERENCE_OVERRIDE: 'true'
+          MIN_MEXC_SYMBOLS: "1000"
+          MIN_BINANCE_SYMBOLS: "250"
+          MIN_BITGET_SYMBOLS: "300"
+          MIN_METAMASK_SYMBOLS: "1000"
+          MIN_SCAN_SYMBOLS: "100"
+          BINANCE_REFERENCE_CHECK: "true"
+          BINANCE_REFERENCE_OVERRIDE: "true"
 
       - name: Telegram alert on failure
         if: failure() && env.TELEGRAM_BOT_TOKEN != '' && env.TELEGRAM_CHAT_ID != ''

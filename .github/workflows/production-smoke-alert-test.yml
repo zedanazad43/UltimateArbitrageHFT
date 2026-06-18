@@ -2,7 +2,7 @@ name: Production Smoke Alert Test
 
 on:
   schedule:
-    - cron: '*/15 * * * *'
+    - cron: "*/15 * * * *"
   workflow_dispatch:
     inputs:
       simulate_failure:

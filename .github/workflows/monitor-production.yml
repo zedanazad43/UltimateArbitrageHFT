@@ -5,16 +5,16 @@ env:
 
 on:
   schedule:
-    - cron: '*/10 * * * *'
-    - cron: '0 2 * * *'
-    - cron: '0 6 * * 1'
+    - cron: "*/10 * * * *"
+    - cron: "0 2 * * *"
+    - cron: "0 6 * * 1"
   workflow_dispatch:
     inputs:
       ops_alert_webhook:
         description: Optional external webhook URL for failure alerts
         required: false
         type: string
-        default: ''
+        default: ""
       run_self_evaluation:
         description: Run strategy self-evaluation during a manual dispatch
         required: false
