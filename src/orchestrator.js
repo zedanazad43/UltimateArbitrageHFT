@@ -711,13 +711,15 @@ export async function runScan(env, state, sendAlert, scanContext = {}) {
             reason: eligible ? 'ok' : 'insufficient_balance',
           };
         } catch (error) {
+          const isPermissiveMode = liveMinBalanceUsd <= 0;
           liveExchangeBalanceSnapshot[normalizedExchange] = {
             configured: true,
             balance: 0,
-            eligible: false,
-            reason: 'balance_check_failed',
+            eligible: isPermissiveMode,
+            reason: isPermissiveMode ? 'ok_permissive' : 'balance_check_failed',
             error: String(error?.message || error || 'unknown_error'),
           };
+          if (isPermissiveMode) liveEligibleExchanges.add(normalizedExchange);
         }
       }));
     }
