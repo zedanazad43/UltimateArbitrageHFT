@@ -16,8 +16,10 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"os"
 	"os/signal"
 	"strings"
@@ -202,6 +204,15 @@ func best(oops []*cex.Opportunity) *cex.Opportunity {
 		}
 	}
 	return b
+}
+
+// copyHeader copies all headers from src to dst.
+func copyHeader(dst, src http.Header) {
+	for k, vv := range src {
+		for _, v := range vv {
+			dst.Add(k, v)
+		}
+	}
 }
 
 // execute performs (or paper-simulates) a trade for the given opportunity.
@@ -497,6 +508,54 @@ func newAPIServer(eng *engine, secret string) *http.Server {
 		eng.execute(r.Context(), opp)
 		writeJSON(w, http.StatusOK, map[string]bool{"success": true})
 	}))
+
+	// ── GET/POST /proxy?target=<url> ─────────────────────────────────────────
+	// Forwards requests through Railway's egress IP (not blocked by exchanges).
+	mux.HandleFunc("/proxy", func(w http.ResponseWriter, r *http.Request) {
+		target := r.URL.Query().Get("target")
+		if target == "" {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "missing ?target="})
+			return
+		}
+		targetURL, err := url.Parse(target)
+		if err != nil || (targetURL.Scheme != "http" && targetURL.Scheme != "https") {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid target URL"})
+			return
+		}
+		allowed := map[string]bool{
+			"api.binance.com": true, "api1.binance.com": true, "api2.binance.com": true, "api3.binance.com": true,
+			"api.bitget.com": true, "capi.bitget.com": true, "api.kucoin.com": true,
+			"api.mexc.com": true, "contract.mexc.com": true, "api.bybit.com": true,
+			"api.htx.com": true, "api-cloud.bitmart.com": true,
+		}
+		if !allowed[targetURL.Host] {
+			writeJSON(w, http.StatusForbidden, map[string]string{"error": "host not allowed: " + targetURL.Host})
+			return
+		}
+		proxyReq, err := http.NewRequestWithContext(r.Context(), r.Method, target, r.Body)
+		if err != nil {
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+			return
+		}
+		copyHeader(proxyReq.Header, r.Header)
+		proxyReq.Header.Set("User-Agent", "UltimateArbitrageHFT-Proxy/1.0")
+		proxyReq.Header.Del("Host")
+		proxyReq.Header.Del("Cf-Connecting-Ip")
+		proxyReq.Header.Del("Cf-Ipcountry")
+		proxyReq.Header.Del("Cf-Ray")
+		proxyReq.Header.Del("X-Forwarded-For")
+		proxyReq.Header.Del("X-Real-Ip")
+		resp, err := http.DefaultClient.Do(proxyReq)
+		if err != nil {
+			writeJSON(w, http.StatusBadGateway, map[string]string{"error": err.Error()})
+			return
+		}
+		defer resp.Body.Close()
+		copyHeader(w.Header(), resp.Header)
+		w.Header().Set("X-Proxy-By", "railway-hft")
+		w.WriteHeader(resp.StatusCode)
+		io.Copy(w, resp.Body)
+	})
 
 	return &http.Server{
 		Addr:         eng.cfg.APIAddr,
