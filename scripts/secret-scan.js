@@ -12,11 +12,16 @@ const SKIP_DIRS = new Set([
   'node_modules',
   '.node_modules',
   '.wrangler',
-  '.qodo'
+  '.qodo',
+  'logs',
+  'oracleJdk-26',
+  'archive',
+  'proxy-gateway',
 ]);
 
 const SKIP_FILES = new Set([
-  'package-lock.json'
+  'package-lock.json',
+  '.dev.vars',
 ]);
 
 const TEXT_EXTS = new Set([
@@ -59,7 +64,7 @@ function shouldScanFile(filePath) {
   const rel = path.relative(ROOT, filePath);
   if (!rel || rel.startsWith('..')) return false;
   const parts = rel.split(path.sep);
-  if (parts.some((p) => SKIP_DIRS.has(p))) return false;
+  if (parts.some((p) => SKIP_DIRS.has(p) || /^backup_/.test(p))) return false;
   if (SKIP_FILES.has(path.basename(rel))) return false;
   const ext = path.extname(rel).toLowerCase();
   if (TEXT_EXTS.has(ext)) return true;

@@ -4,14 +4,20 @@ import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 
 const ROOT = process.cwd();
-const SKIP_DIRS = new Set(['.git', 'node_modules', '.node_modules', '.wrangler', '.qodo']);
+const SKIP_DIRS = new Set(['.git', 'node_modules', '.node_modules', '.wrangler', '.qodo', 'logs', 'oracleJdk-26', 'archive', 'proxy-gateway']);
+
+function shouldSkipDir(name) {
+  if (SKIP_DIRS.has(name)) return true;
+  if (/^backup_/.test(name)) return true;
+  return false;
+}
 
 function listJsFiles(dir) {
   const out = [];
   for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
     const abs = path.join(dir, entry.name);
     if (entry.isDirectory()) {
-      if (SKIP_DIRS.has(entry.name)) continue;
+      if (shouldSkipDir(entry.name)) continue;
       out.push(...listJsFiles(abs));
       continue;
     }

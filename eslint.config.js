@@ -9,7 +9,11 @@ export default [
       "public/**",
       "UltimateArbitrageHFT/**",
       "money-transfer-project-template-java/**",
-      "backup_20260608_184915/**",
+      "backup_*/**",
+      "logs/**",
+      "oracleJdk-26/**",
+      "proxy-gateway/**",
+      "archive/**",
       ".tmp-*.js",
       "*.tmp.js",
       "tmp-*.js",
@@ -73,6 +77,21 @@ export default [
         TextDecoder: "readonly",
         crypto: "readonly",
       },
+    },
+  },
+  // index.js imports many modules for side effects / dynamic usage
+  {
+    files: ["index.js"],
+    rules: {
+      "no-unused-vars": [
+        "warn",
+        {
+          varsIgnorePattern: "^_",
+          argsIgnorePattern: "^_",
+          caughtErrors: "all",
+          caughtErrorsIgnorePattern: "^_",
+        },
+      ],
     },
   },
   // Cloudflare Worker / browser environment for main files
