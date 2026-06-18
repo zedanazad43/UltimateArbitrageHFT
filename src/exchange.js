@@ -3,6 +3,7 @@
 import { getGlobalProxyPool } from './infra/proxy-pool.js';
 import { auditLog, secureFetch } from './infra/security.js';
 import { getExternalProxyManager } from './infra/external-proxy.js';
+import { ProxyBypassEngine } from './ultra-fast-engine.js';
 
 // ── HMAC-SHA256 helpers ───────────────────────────────────────────────────────
 
@@ -166,19 +167,23 @@ function _detectExchangeFromUrl(url) {
 export async function exchangeFetch(url, options = {}, exchange, maxRetries = 2, env = null) {
   const ex = exchange || _detectExchangeFromUrl(url);
 
-  // If an external gateway is configured, prefer it for execution exchanges
-  // to avoid direct Cloudflare egress geoblocks/WAF on sensitive endpoints.
+  // ── Proxy bypass: try Railway proxy first, then direct for blocked exchanges ──
   if (env && ex && ['kucoin', 'bitget', 'binance'].includes(ex)) {
     try {
-      const proxyManager = getExternalProxyManager(env);
-      if (proxyManager.getStats()?.enabled) {
-        return proxyManager.fetchWithFallback(url, options, 15000);
-      }
+      const bypassEngine = new ProxyBypassEngine(env);
+      // Don't wait for health check — try bypass directly with sub-5s timeout
+      const result = await bypassEngine.fetchWithBypass(url, ex, {
+        method: options.method || 'GET',
+        headers: options.headers,
+        body: options.body,
+      });
+      if (result) return result;
     } catch (_) {
-      // Fall back to standard routing if external gateway is unavailable.
+      // Fall through to standard path below
     }
   }
 
+  // ── Standard routing: use global proxy pool ──
   const proxyPool = getGlobalProxyPool(env || undefined);
   return secureFetch(ex, url, options, proxyPool, maxRetries);
 }

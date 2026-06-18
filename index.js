@@ -25,6 +25,8 @@ import { renderControlPanel } from './src/control-panel.js';
 import { loadBotMemory, saveBotMemory, recordEvaluation, summarizeMemory } from './src/bot-memory.js';
 import { normalizeRebalancePolicy, computeRebalancePlan, buildRebalanceWeights, buildVenueRoutingWeights } from './src/rebalancer.js';
 import { discoverSymbolCatalog, resolveDynamicScanSymbols, getAllSpotPrices, isLikelyTradeableSymbol } from './src/prices.js';
+import { preWarmPriceCache } from './src/bridges/ccxt-bridge.js';
+import { getUltraFastPriceEngine } from './src/ultra-fast-engine.js';
 import { SUPPORTED_BROKERS, hasBrokerCredentials, getMissingBrokerCredentialKeys, getBrokerAccountSummary, placeBrokerMarketOrder } from './src/brokerage.js';
 import {
   startWorkflow,
@@ -2988,27 +2990,6 @@ app.post('/api/integrations/executive/execute', async (c) => {
     const { integration, payload } = await c.req.json().catch(() => ({}));
     const ids = listExecutableIntegrationIds();
 
-    // ── Infrastructure Optimizer Routes ──────────────────────────────────────────
-    app.get('/api/infra/status', async (c) => {
-      if (!isAuthorized(c.env, c)) return authDenied(c.env, c, true);
-      const railway = new RailwayMonitor(c.env);
-      const cloudflare = new CloudflareOptimizer(c.env);
-      const aiRouter = new AIModelRouter(c.env);
-
-      const [railwayHealth, proxyStatus, edgeStatus, aiModels] = await Promise.all([
-        railway.checkHealth(),
-        railway.getProxyStatus(),
-        cloudflare.getEdgeStatus(),
-        aiRouter.getAvailableModels(),
-      ]);
-
-      return c.json({
-        railway: { url: railway.hftUrl, ...railwayHealth, proxy: proxyStatus },
-        cloudflare: edgeStatus,
-        aiModels,
-        timestamp: new Date().toISOString(),
-      });
-    });
     if (!ids.includes(integration)) {
       return c.json({ error: `integration must be one of: ${ids.join(', ')}` }, 400);
     }
@@ -3496,6 +3477,9 @@ async function applyAutoProfiler(env, state, manualRiskLock, inBurst, now) {
 
 // ─── Scheduled cron cycle ─────────────────────────────────────────────────────
 async function runScheduledCycle(env) {
+  // ── Ultra-Fast Price Pre-Warm (2-3s parallel across all exchanges) ──
+  preWarmPriceCache(env).catch(() => {});
+
   const state = await getState(env);
   const cycleStartConfigTs = Number(state?.last_config_change_ts || 0);
   const forceSpotOnlyLock = ['1', 'true', 'on', 'yes'].includes(String(env.SPOT_ONLY_LOCK_FORCE || '').toLowerCase());
@@ -3556,18 +3540,18 @@ async function runScheduledCycle(env) {
   const equity = (state.initial_capital || 1000) + (state.total_pnl || 0);
   await sendDrawdownWarning(env, state, equity);
 
+  const result = await runScan(env, state, sendTelegramAlert, { source: 'scheduled', trigger: 'cron.scheduled' });
+
   // ── Unified AI Trading System v3.0 ──────────────────────────────────────
   const aiSystem = new UnifiedAITradingSystem(env, state);
   const marketData = { volatility: 0.5, avgSpread: 0.5, balance: equity };
   const performanceData = { winRate: 0.55, sharpeRatio: 0, recentTrades: [] };
-  
-  const aiDecision = await aiSystem.execute(scanResults, marketData, performanceData);
+
+  const aiDecision = await aiSystem.execute(result, marketData, performanceData);
   if (!aiDecision.orchestration?.success && aiDecision.rl?.action === 'conservative') {
     console.log(`🤖 AI v3.0: Conservative mode — ${aiDecision.orchestration?.message || 'holding'}`);
     return null;
   }
-
-  const result = await runScan(env, state, sendTelegramAlert, { source: 'scheduled', trigger: 'cron.scheduled' });
 
   const lastScan = await env.BOT_STATE.get('nexus_last_scan', 'json').catch(() => null);
   const hadOpportunity = hasLastScanOpportunity(lastScan);
@@ -3728,3 +3712,42 @@ export default {
     }
   },
 };
+
+// ── Infrastructure + Ultra-Fast Routes (top-level, not nested) ────────────────
+app.get('/api/infra/status', async (c) => {
+  if (!isAuthorized(c.env, c)) return authDenied(c.env, c, true);
+  const railway = new RailwayMonitor(c.env);
+  const cloudflare = new CloudflareOptimizer(c.env);
+  const aiRouter = new AIModelRouter(c.env);
+
+  const [railwayHealth, proxyStatus, edgeStatus, aiModels] = await Promise.all([
+    railway.checkHealth(),
+    railway.getProxyStatus(),
+    cloudflare.getEdgeStatus(),
+    aiRouter.getAvailableModels(),
+  ]);
+
+  return c.json({
+    railway: { url: railway.hftUrl, ...railwayHealth, proxy: proxyStatus },
+    cloudflare: edgeStatus,
+    aiModels,
+    timestamp: new Date().toISOString(),
+  });
+});
+
+app.get('/api/ultra-fast/status', async (c) => {
+  if (!isAuthorized(c.env, c)) return authDenied(c.env, c, true);
+  const engine = getUltraFastPriceEngine(c.env);
+  const preWarmStats = (await import('./src/bridges/ccxt-bridge.js')).getPreWarmStats();
+  return c.json({
+    priceEngine: engine.getStats(),
+    preWarm: preWarmStats,
+    timestamp: Date.now(),
+  });
+});
+
+app.get('/api/ultra-fast/prewarm', async (c) => {
+  if (!isAuthorized(c.env, c)) return authDenied(c.env, c, true);
+  const result = await preWarmPriceCache(c.env);
+  return c.json({ success: true, ...result });
+});

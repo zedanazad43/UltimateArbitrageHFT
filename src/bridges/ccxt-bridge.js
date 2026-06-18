@@ -14,6 +14,7 @@
 import { getGlobalProxyPool } from '../infra/proxy-pool.js';
 import { auditLog } from '../infra/security.js';
 import { getExternalProxyManager } from '../infra/external-proxy.js';
+import { getUltraFastPriceEngine } from '../ultra-fast-engine.js';
 
 // ── Exchange Normalization Map (ccxt-inspired) ────────────────────────────────
 
@@ -95,6 +96,7 @@ function setCachedOrderBook(exchange, symbol, book) {
 /**
  * Fetches ticker for a symbol on a specific exchange.
  * Returns unified format: { symbol, bid, ask, last, baseVolume, quoteVolume, timestamp }
+ * Uses ultra-fast parallel pre-fetch for light-speed price discovery.
  * 
  * @param {string} exchange - Exchange ID (mexc, binance, kucoin, etc.)
  * @param {string} symbol - Unified symbol format e.g. "BTC/USDT"
@@ -374,6 +376,85 @@ export function normalizeSymbol(exchange, unifiedSymbol) {
     return SYMBOL_NORMALIZE[exchange](unifiedSymbol);
   }
   return unifiedSymbol.replace('/', '');
+}
+
+// ── Ultra-Fast Batch Pre-Fetch ────────────────────────────────────────────────
+
+let _preWarmedExchanges = new Set();
+let _preWarmInProgress = false;
+
+/**
+ * Pre-warms the price cache by fetching all symbols from all exchanges in parallel.
+ * Call once at worker startup and periodically from runScheduledCycle.
+ * Uses UltraFastPriceEngine for 2-3s parallel fetch across 8 exchanges × 12 symbols.
+ */
+export async function preWarmPriceCache(env, symbols = null, exchanges = null) {
+  if (_preWarmInProgress) return;
+  _preWarmInProgress = true;
+
+  try {
+    const engine = getUltraFastPriceEngine(env);
+    const result = await engine.fetchAllPrices(symbols, exchanges);
+
+    if (result.prices && Object.keys(result.prices).length > 0) {
+      // Populate ccxt-bridge cache from ultra-fast engine results
+      const now = Date.now();
+      for (const [symbol, exchangePrices] of Object.entries(result.prices)) {
+        for (const [exchange, price] of Object.entries(exchangePrices)) {
+          const exSymbol = SYMBOL_NORMALIZE[exchange]
+            ? SYMBOL_NORMALIZE[exchange](symbol)
+            : symbol;
+          setCachedTicker(exchange, exSymbol, {
+            symbol: exSymbol,
+            bid: price * 0.999,
+            ask: price * 1.001,
+            last: price,
+            bidVolume: 0,
+            askVolume: 0,
+            exchange,
+            timestamp: now,
+            source: 'ultra-fast-pre-warm',
+          });
+
+          // Also cache with unified symbol as key (e.g. BTC/USDT)
+          if (exSymbol !== symbol) {
+            setCachedTicker(exchange, symbol, {
+              symbol,
+              bid: price * 0.999,
+              ask: price * 1.001,
+              last: price,
+              bidVolume: 0,
+              askVolume: 0,
+              exchange,
+              timestamp: now,
+              source: 'ultra-fast-pre-warm',
+            });
+          }
+        }
+      }
+
+      const exList = exchanges || ['all'];
+      exList.forEach(e => _preWarmedExchanges.add(e));
+    }
+
+    return result;
+  } catch (err) {
+    console.error(`[ccxt-bridge] Pre-warm failed: ${err.message}`);
+  } finally {
+    _preWarmInProgress = false;
+  }
+}
+
+/**
+ * Returns cache stats for monitoring.
+ */
+export function getPreWarmStats() {
+  return {
+    preWarmedExchanges: Array.from(_preWarmedExchanges),
+    preWarmInProgress: _preWarmInProgress,
+    tickerCacheSize: tickerCache.size,
+    orderBookCacheSize: orderBookCache.size,
+  };
 }
 
 /** Exported for tests */
