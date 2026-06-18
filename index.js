@@ -3478,7 +3478,7 @@ async function applyAutoProfiler(env, state, manualRiskLock, inBurst, now) {
 // ─── Scheduled cron cycle ─────────────────────────────────────────────────────
 async function runScheduledCycle(env) {
   // ── Ultra-Fast Price Pre-Warm (2-3s parallel across all exchanges) ──
-  preWarmPriceCache(env).catch(() => {});
+  preWarmPriceCache(env).catch(() => { });
 
   const state = await getState(env);
   const cycleStartConfigTs = Number(state?.last_config_change_ts || 0);

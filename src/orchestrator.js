@@ -27,6 +27,7 @@ import {
   hasExchangeCredentials, getRequiredCredentialKeys, getExchangeBalance, placeExchangeMarketOrder,
   getEnabledExecutionExchanges, isExecutionExchangeEnabled
 } from './exchange.js';
+import { LightningExecutor } from './ultra-fast-engine.js';
 
 const QUOTE_ASSETS = ['USDT', 'USDC', 'FDUSD', 'BUSD', 'DAI', 'TUSD', 'BTC', 'ETH'];
 const STABLE_QUOTES = new Set(['USDT', 'USDC', 'FDUSD', 'BUSD', 'DAI', 'TUSD']);
@@ -1409,6 +1410,8 @@ export async function executeCexArbWithHedge(
 
 // ── Trade execution ──────────────────────────────────────────────────────────
 async function executeTrade(env, opp, sizeUsd, leverage) {
+  const lightning = new LightningExecutor(env);
+
   if (opp.strategy === 'dex') {
     await executeDexTrade(env, opp, sizeUsd);
     return;
@@ -1416,6 +1419,8 @@ async function executeTrade(env, opp, sizeUsd, leverage) {
 
   if (opp.strategy === 'scalp_parallel' && Array.isArray(opp.parallelLegs) && opp.parallelLegs.length > 0) {
     const perLegSize = sizeUsd / opp.parallelLegs.length;
+    // ── Lightning-fast parallel execution: all legs batched in 50ms window ──
+    const batchResults = [];
     for (const leg of opp.parallelLegs) {
       const syntheticOpp = {
         ...opp,
@@ -1425,9 +1430,15 @@ async function executeTrade(env, opp, sizeUsd, leverage) {
         buyPrice: leg.buyPrice,
         sellPrice: leg.sellPrice,
       };
-      await executeTrade(env, syntheticOpp, perLegSize, leverage);
+      batchResults.push(lightning.batchExecute(
+        { type: 'scalp_leg', opp: syntheticOpp, sizeUsd: perLegSize, leverage },
+        ({ opp: legOpp, sizeUsd: sz, leverage: lev }) => executeTrade(env, legOpp, sz, lev)
+      ));
     }
-    return;
+    const results = await Promise.all(batchResults);
+    // Flush any remaining batches immediately
+    await lightning.flushBatch();
+    return results;
   }
 
   // Triangular arbitrage: execute all 3 legs on the same exchange
@@ -1462,19 +1473,35 @@ async function executeTrade(env, opp, sizeUsd, leverage) {
       throw new Error(`No execution credentials for statistical arb on ${exchange}`);
     }
     if (!opp.buySymbol || !opp.sellSymbol) {
-      // Fallback: use buyPrice/sellPrice from opportunity
-      const parsed = splitSymbol(opp.symbol);
-      if (!parsed) throw new Error(`Cannot parse symbol: ${opp.symbol}`);
+      // ── Lightning batch: buy + sell simultaneously ──
       await Promise.all([
-        placeExchangeMarketOrder(env, exchange, opp.symbol, 'BUY', null, sizeUsd / 2),
-        placeExchangeMarketOrder(env, exchange, opp.symbol, 'SELL', null, sizeUsd / 2)
+        lightning.batchExecute(
+          { exchange, symbol: opp.symbol, side: 'BUY', sizeUsd: sizeUsd / 2 },
+          ({ exchange: ex, symbol: sym, side: s, sizeUsd: sz }) =>
+            placeExchangeMarketOrder(env, ex, sym, s, null, sz)
+        ),
+        lightning.batchExecute(
+          { exchange, symbol: opp.symbol, side: 'SELL', sizeUsd: sizeUsd / 2 },
+          ({ exchange: ex, symbol: sym, side: s, sizeUsd: sz }) =>
+            placeExchangeMarketOrder(env, ex, sym, s, null, sz)
+        ),
       ]);
+      await lightning.flushBatch();
       return;
     }
     await Promise.all([
-      placeExchangeMarketOrder(env, exchange, opp.buySymbol, 'BUY', null, sizeUsd / 2),
-      placeExchangeMarketOrder(env, exchange, opp.sellSymbol, 'SELL', null, sizeUsd / 2)
+      lightning.batchExecute(
+        { exchange, symbol: opp.buySymbol, side: 'BUY', sizeUsd: sizeUsd / 2 },
+        ({ exchange: ex, symbol: sym, side: s, sizeUsd: sz }) =>
+          placeExchangeMarketOrder(env, ex, sym, s, null, sz)
+      ),
+      lightning.batchExecute(
+        { exchange, symbol: opp.sellSymbol, side: 'SELL', sizeUsd: sizeUsd / 2 },
+        ({ exchange: ex, symbol: sym, side: s, sizeUsd: sz }) =>
+          placeExchangeMarketOrder(env, ex, sym, s, null, sz)
+      ),
     ]);
+    await lightning.flushBatch();
     return;
   }
 

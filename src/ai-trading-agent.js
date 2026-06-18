@@ -7,7 +7,7 @@ import { CircuitBreaker } from './circuit-breaker.js';
 // ─── LLM Configuration ────────────────────────────────────────────────────────
 const DEFAULT_LLM_MODEL = '@cf/meta/llama-3.1-8b-instruct';
 const BACKUP_LLM_MODEL = '@cf/deepseek-ai/deepseek-r1-distill-qwen-8b';
-const AI_GATEWAY_URL = 'https://gateway.ai.cloudflare.com/v1/{account_id}/nexus-arbitrage';
+const _AI_GATEWAY_URL = 'https://gateway.ai.cloudflare.com/v1/{account_id}/nexus-arbitrage';
 
 class AITradingAgent {
     constructor(env, state) {
@@ -169,7 +169,7 @@ class AITradingAgent {
 
     // ─── Position Sizing ──────────────────────────────────────────────────────
 
-    sizePositions(ranked, riskAssessment) {
+    sizePositions(ranked, _riskAssessment) {
         return ranked.map(opp => {
             const baseSize = this.state.position_size_usd || 25;
             const maxSize = this.state.position_size_max_usd || 500;
@@ -182,12 +182,6 @@ class AITradingAgent {
             const adjustedKelly = Math.max(0.05, Math.min(0.25, kellyFraction));
 
             // Scale by opportunity score
-            const equity = context => {
-                const capital = this.state.initial_capital || 1000;
-                const profit = this.state.total_pnl || 0;
-                return capital + profit;
-            };
-
             // Dynamic sizing
             const equityValue = this.state.initial_capital + (this.state.total_pnl || 0);
             let size = baseSize * (opp.agentScore || 1) * (1 + adjustedKelly);
@@ -206,7 +200,7 @@ class AITradingAgent {
 
     // ─── Execution Decision Engine ────────────────────────────────────────────
 
-    async decideExecution(sized, context, riskAssessment) {
+    async decideExecution(sized, _context, _riskAssessment) {
         if (sized.length === 0) {
             return { action: 'idle', reason: 'no_viable_opportunities', timestamp: Date.now() };
         }
@@ -242,7 +236,7 @@ class AITradingAgent {
         }
 
         // Execution plan with DEX integration
-        const plan = await this.buildExecutionPlan(selected, context);
+        const plan = await this.buildExecutionPlan(selected, _context);
 
         return {
             action: 'execute',
@@ -280,7 +274,7 @@ class AITradingAgent {
         return plan;
     }
 
-    async determineRoute(exchange, opp, context) {
+    async determineRoute(exchange, _opp, _context) {
         // Check if exchange needs proxy routing
         const needsProxy = ['binance', 'bitget', 'kucoin'].includes(exchange?.toLowerCase());
 
@@ -294,7 +288,7 @@ class AITradingAgent {
 
     // ─── Learning & Self-Improvement ──────────────────────────────────────────
 
-    learn(decision, context) {
+    learn(decision, _context) {
         this.decisions.push({
             timestamp: Date.now(),
             decision: decision.action,
@@ -308,8 +302,8 @@ class AITradingAgent {
         }
 
         // Update confidence based on win rate
-        if (context.performance?.recentTrades) {
-            const trades = context.performance.recentTrades;
+        if (_context.performance?.recentTrades) {
+            const trades = _context.performance.recentTrades;
             if (trades.length > 10) {
                 const wins = trades.filter(t => (t.pnl || 0) > 0).length;
                 this.confidenceScore = Math.min(0.95, Math.max(0.3, wins / trades.length));
@@ -469,7 +463,7 @@ class DexOrchestrator {
         };
     }
 
-    async findOptimalRoute(opportunity) {
+    async findOptimalRoute(_opportunity) {
         const routes = [];
 
         for (const chain of this.chains) {
