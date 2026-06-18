@@ -1,10 +1,10 @@
 // ===== NEXUS ARBITRAGE HUB — Final Integrated Bot =====
 // Entry point: ultimate-arbitrage-hft Cloudflare Worker
 // Integrates: CEX + DEX + Perps strategies, admin dashboard, Telegram bot
-// AI Agent: Autonomous self-learning trading agent v2.0
+// AI Agent: Autonomous self-learning trading agent v3.0 (Reinforcement Learning + Deep Orchestration)
 
 import { Hono } from 'hono';
-import { AITradingAgent } from './src/ai-trading-agent.js';
+import { UnifiedAITradingSystem } from './src/ultimate-ai-engine.js';
 import { RailwayMonitor, CloudflareOptimizer, AIModelRouter } from './src/infrastructure-optimizer.js';
 import { cors } from 'hono/cors';
 import PerformanceOptimizer from './src/performance-optimizer.js';
@@ -2903,37 +2903,51 @@ registerAiRoutes(app, {
   authDenied,
 });
 
-// ── AI Trading Agent Routes ──────────────────────────────────────────────────
+// ── AI Trading Agent Routes (v3.0 Unified System) ───────────────────────────
 app.get('/api/ai/status', async (c) => {
   if (!isAuthorized(c.env, c)) return authDenied(c.env, c, true);
   const state = await getState(c.env);
-  const aiAgent = new AITradingAgent(c.env, state);
-  const report = await aiAgent.generateReport();
+  const system = new UnifiedAITradingSystem(c.env, state);
+  const report = await system.generateReport();
   return c.json(report);
 });
 
 app.get('/api/ai/health', async (c) => {
   if (!isAuthorized(c.env, c)) return authDenied(c.env, c, true);
   const state = await getState(c.env);
-  const aiAgent = new AITradingAgent(c.env, state);
-  const health = await aiAgent.checkHealth();
+  const system = new UnifiedAITradingSystem(c.env, state);
+  const health = await system.agent.checkHealth();
   return c.json(health);
 });
 
 app.post('/api/ai/recover', async (c) => {
   if (!isAuthorized(c.env, c)) return authDenied(c.env, c, true);
   const state = await getState(c.env);
-  const aiAgent = new AITradingAgent(c.env, state);
-  const result = await aiAgent.autoRecover();
+  const system = new UnifiedAITradingSystem(c.env, state);
+  const result = await system.agent.autoRecover();
   return c.json(result);
 });
 
 app.get('/api/ai/dex-status', async (c) => {
   if (!isAuthorized(c.env, c)) return authDenied(c.env, c, true);
   const state = await getState(c.env);
-  const aiAgent = new AITradingAgent(c.env, state);
-  const dexSnapshot = await aiAgent.dex.getDexSnapshot();
+  const system = new UnifiedAITradingSystem(c.env, state);
+  const dexSnapshot = await system.agent.dex.getDexSnapshot();
   return c.json(dexSnapshot);
+});
+
+app.get('/api/ai/rl-stats', async (c) => {
+  if (!isAuthorized(c.env, c)) return authDenied(c.env, c, true);
+  const state = await getState(c.env);
+  const system = new UnifiedAITradingSystem(c.env, state);
+  return c.json(system.rl.getStats());
+});
+
+app.get('/api/ai/optimizer', async (c) => {
+  if (!isAuthorized(c.env, c)) return authDenied(c.env, c, true);
+  const state = await getState(c.env);
+  const system = new UnifiedAITradingSystem(c.env, state);
+  return c.json(system.optimizer.getStatus());
 });
 
 // ── API: Ecosystem integrations ────────────────────────────────────────────────
@@ -2974,27 +2988,27 @@ app.post('/api/integrations/executive/execute', async (c) => {
     const { integration, payload } = await c.req.json().catch(() => ({}));
     const ids = listExecutableIntegrationIds();
 
-// ── Infrastructure Optimizer Routes ──────────────────────────────────────────
-app.get('/api/infra/status', async (c) => {
-  if (!isAuthorized(c.env, c)) return authDenied(c.env, c, true);
-  const railway = new RailwayMonitor(c.env);
-  const cloudflare = new CloudflareOptimizer(c.env);
-  const aiRouter = new AIModelRouter(c.env);
-  
-  const [railwayHealth, proxyStatus, edgeStatus, aiModels] = await Promise.all([
-    railway.checkHealth(),
-    railway.getProxyStatus(),
-    cloudflare.getEdgeStatus(),
-    aiRouter.getAvailableModels(),
-  ]);
+    // ── Infrastructure Optimizer Routes ──────────────────────────────────────────
+    app.get('/api/infra/status', async (c) => {
+      if (!isAuthorized(c.env, c)) return authDenied(c.env, c, true);
+      const railway = new RailwayMonitor(c.env);
+      const cloudflare = new CloudflareOptimizer(c.env);
+      const aiRouter = new AIModelRouter(c.env);
 
-  return c.json({
-    railway: { url: railway.hftUrl, ...railwayHealth, proxy: proxyStatus },
-    cloudflare: edgeStatus,
-    aiModels,
-    timestamp: new Date().toISOString(),
-  });
-});
+      const [railwayHealth, proxyStatus, edgeStatus, aiModels] = await Promise.all([
+        railway.checkHealth(),
+        railway.getProxyStatus(),
+        cloudflare.getEdgeStatus(),
+        aiRouter.getAvailableModels(),
+      ]);
+
+      return c.json({
+        railway: { url: railway.hftUrl, ...railwayHealth, proxy: proxyStatus },
+        cloudflare: edgeStatus,
+        aiModels,
+        timestamp: new Date().toISOString(),
+      });
+    });
     if (!ids.includes(integration)) {
       return c.json({ error: `integration must be one of: ${ids.join(', ')}` }, 400);
     }
@@ -3542,11 +3556,14 @@ async function runScheduledCycle(env) {
   const equity = (state.initial_capital || 1000) + (state.total_pnl || 0);
   await sendDrawdownWarning(env, state, equity);
 
-  // ── AI Trading Agent: autonomous decision-making ──────────────────────────
-  const aiAgent = new AITradingAgent(env, state);
-  const aiDecision = await aiAgent.think(null); // Pre-scan AI assessment
-  if (aiDecision.action === 'stop') {
-    console.log(`🤖 AI Agent: ${aiDecision.reason}`);
+  // ── Unified AI Trading System v3.0 ──────────────────────────────────────
+  const aiSystem = new UnifiedAITradingSystem(env, state);
+  const marketData = { volatility: 0.5, avgSpread: 0.5, balance: equity };
+  const performanceData = { winRate: 0.55, sharpeRatio: 0, recentTrades: [] };
+  
+  const aiDecision = await aiSystem.execute(scanResults, marketData, performanceData);
+  if (!aiDecision.orchestration?.success && aiDecision.rl?.action === 'conservative') {
+    console.log(`🤖 AI v3.0: Conservative mode — ${aiDecision.orchestration?.message || 'holding'}`);
     return null;
   }
 
