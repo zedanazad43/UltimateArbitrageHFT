@@ -97,7 +97,7 @@
     "@eslint/js": "^10.0.1",
     "eslint": "^10.2.1",
     "talisman": "^1.1.4",
-    "wrangler": "^4.0.0"
+    "wrangler": "^4.87.0"
   },
   "overrides": {
     "protobufjs": "^7.5.6",
