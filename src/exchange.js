@@ -492,7 +492,8 @@ export async function getBinanceBalance(env, asset = 'USDT') {
     const signature = await hmacHex(apiSecret, query);
     const resp = await exchangeFetch(
       `https://${host}/api/v3/account?${query}&signature=${signature}`,
-      { headers: { 'X-MBX-APIKEY': apiKey } }
+      { headers: { 'X-MBX-APIKEY': apiKey } },
+      'binance', 2, env
     );
     const data = await parseJsonResponse(resp, 'Binance account');
     return { data, host };
@@ -516,7 +517,7 @@ export async function getBinanceBalance(env, asset = 'USDT') {
   let { data, host } = result;
   if (data?.code === -1021 || String(data?.msg || '').toLowerCase().includes('timestamp')) {
     try {
-      const timeResp = await exchangeFetch(`https://${host}/api/v3/time`);
+      const timeResp = await exchangeFetch(`https://${host}/api/v3/time`, {}, 'binance', 2, env);
       const timeData = await parseJsonResponse(timeResp, 'Binance time');
       const retry = await fetchAccount(host, String(timeData?.serverTime || Date.now()));
       data = retry.data;
@@ -566,7 +567,7 @@ export async function placeMarketOrderBinance(env, symbol, side, quantity, sizeU
       'Content-Type': 'application/x-www-form-urlencoded'
     },
     body
-  });
+  }, 'binance', 2, env);
   const data = await parseJsonResponse(resp, 'Binance order');
   if (data.code) throw new Error(data.msg || `Binance spot error ${data.code}`);
   return data;
