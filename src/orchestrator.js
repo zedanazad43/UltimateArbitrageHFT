@@ -1760,7 +1760,7 @@ function getOpportunityVenues(opp) {
   const venues = new Set();
   const addVenue = (value) => {
     const v = String(value || '').toLowerCase().trim();
-    const _DEX_CHAINS = ["0x","ethereum","bsc","arbitrum","polygon","optimism"];
+    const _DEX_CHAINS = ["0x", "ethereum", "bsc", "arbitrum", "polygon", "optimism"];
     if (v && !_DEX_CHAINS.includes(v)) venues.add(v);
   };
 
