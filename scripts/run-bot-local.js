@@ -63,7 +63,7 @@ async function main() {
   env.AIWORKER = { run: async () => ({ response: 'AI stub' }) };
   env.RATE_LIMITER = { limit: () => ({ outcome: 'ok' }) };
   env.METADATA = { get: async () => ({}) };
-  env.MARKET_STREAMER = { idFromName: () => ({ fetch: async () => new Response('OK') }) };
+  env.MARKET_STREAMER = { idFromName: () => ({ fetch: async () => new globalThis.Response('OK') }) };
 
     createServer(async (req, res) => {
         try {
@@ -72,7 +72,7 @@ async function main() {
             for (const [k, v] of Object.entries(req.headers)) {
                 if (v) headers[k] = Array.isArray(v) ? v[0] : v;
             }
-            const cfReq = new Request(url, { method: req.method, headers });
+            const cfReq = new globalThis.Request(url, { method: req.method, headers });
             const cfRes = await handler(cfReq, env, { waitUntil: () => { } });
 
             res.writeHead(cfRes.status, Object.fromEntries(cfRes.headers.entries()));

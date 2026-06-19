@@ -1402,8 +1402,25 @@ export async function executeCexArbWithHedge(
   const buyResult = await placeOrder(env, buyExch, symbol, 'BUY', amount, requiredQuote);
   console.log(`[CEX Arb] ✅ BUY complete on ${buyExch}:`, JSON.stringify(buyResult).slice(0, 200));
 
-  const sellResult = await placeOrder(env, sellExch, symbol, 'SELL', amount, requiredQuote);
-  console.log(`[CEX Arb] ✅ SELL complete on ${sellExch}:`, JSON.stringify(sellResult).slice(0, 200));
+  let sellResult;
+  try {
+    sellResult = await placeOrder(env, sellExch, symbol, 'SELL', amount, requiredQuote);
+    console.log(`[CEX Arb] ✅ SELL complete on ${sellExch}:`, JSON.stringify(sellResult).slice(0, 200));
+  } catch (sellErr) {
+    console.warn(`[CEX Arb] ❌ SELL failed on ${sellExch}; attempting hedge close on ${buyExch}: ${sellErr.message}`);
+    try {
+      await placeOrder(env, buyExch, symbol, 'SELL', amount, requiredQuote);
+    } catch (hedgeErr) {
+      throw new Error(
+        `critical: sell leg failed on ${sellExch} and hedge failed on ${buyExch}; open exposure (${sellErr.message}; ${hedgeErr.message})`,
+        { cause: hedgeErr },
+      );
+    }
+    throw new Error(
+      `sell leg failed on ${sellExch} but hedge closed residual exposure on ${buyExch}: ${sellErr.message}`,
+      { cause: sellErr },
+    );
+  }
 
   return { buyResult, sellResult };
 }

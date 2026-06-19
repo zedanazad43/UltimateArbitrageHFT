@@ -550,11 +550,11 @@ func newAPIServer(eng *engine, secret string) *http.Server {
 			writeJSON(w, http.StatusBadGateway, map[string]string{"error": err.Error()})
 			return
 		}
-		defer resp.Body.Close()
+		defer func() { _ = resp.Body.Close() }()
 		copyHeader(w.Header(), resp.Header)
 		w.Header().Set("X-Proxy-By", "railway-hft")
 		w.WriteHeader(resp.StatusCode)
-		io.Copy(w, resp.Body)
+		_, _ = io.Copy(w, resp.Body)
 	})
 
 	return &http.Server{
