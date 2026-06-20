@@ -273,10 +273,12 @@ jobs:
           BITMART_MEMO: ${{ secrets.BITMART_MEMO }}
           BYBIT_API_KEY: ${{ secrets.BYBIT_API_KEY }}
           BYBIT_API_SECRET: ${{ secrets.BYBIT_API_SECRET }}
+          # Optional exchange API credentials (gracefully skipped if not configured)
           GATEIO_API_KEY: ${{ secrets.GATEIO_API_KEY }}
           GATEIO_API_SECRET: ${{ secrets.GATEIO_API_SECRET }}
           HTX_API_KEY: ${{ secrets.HTX_API_KEY }}
           HTX_API_SECRET: ${{ secrets.HTX_API_SECRET }}
+          # Optional Web3 API keys (gracefully skipped if not configured)
           ZEROX_API_KEY: ${{ secrets.ZEROX_API_KEY }}
           ALCHEMY_API_KEY: ${{ secrets.ALCHEMY_API_KEY }}
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
@@ -284,12 +286,14 @@ jobs:
           ADMIN_TOKEN: ${{ secrets.ADMIN_TOKEN }}
           WORKFLOW_ADMIN_TOKEN: ${{ secrets.WORKFLOW_ADMIN_TOKEN }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Optional service secrets (gracefully skipped if not configured)
           HFT_ENGINE_SECRET: ${{ secrets.HFT_ENGINE_SECRET }}
           TEMPORAL_API_KEY: ${{ secrets.TEMPORAL_API_KEY }}
           PROXY_URL: ${{ secrets.PROXY_URL }}
           PROXY_LIST: ${{ secrets.PROXY_LIST }}
           PROXY_AUTH_HEADER: ${{ secrets.PROXY_AUTH_HEADER }}
           EXTERNAL_PROXY_URL: ${{ secrets.EXTERNAL_PROXY_URL }}
+          # Optional external proxy configuration (gracefully skipped if not configured)
           EXTERNAL_PROXY_GATEWAY_URL: ${{ secrets.EXTERNAL_PROXY_GATEWAY_URL }}
           EXTERNAL_PROXY_PROVIDER: ${{ secrets.EXTERNAL_PROXY_PROVIDER }}
           EXTERNAL_PROXY_USERNAME: ${{ secrets.EXTERNAL_PROXY_USERNAME }}

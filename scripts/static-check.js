@@ -8,7 +8,7 @@ const SKIP_DIRS = new Set(['.git', 'node_modules', '.node_modules', '.wrangler',
 
 function shouldSkipDir(name) {
   if (SKIP_DIRS.has(name)) return true;
-  if (/^backup_/.test(name)) return true;
+  if (name.startsWith('backup_')) return true;
   return false;
 }
 

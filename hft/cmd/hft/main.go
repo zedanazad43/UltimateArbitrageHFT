@@ -410,6 +410,121 @@ type executeRequest struct {
 	SizeUSD     float64         `json:"size_usd"`
 }
 
+var allowedProxyHosts = map[string]bool{
+	"api.binance.com": true, "api1.binance.com": true, "api2.binance.com": true, "api3.binance.com": true,
+	"api.bitget.com": true, "capi.bitget.com": true, "api.kucoin.com": true,
+	"api.mexc.com": true, "contract.mexc.com": true, "api.bybit.com": true,
+	"api.htx.com": true, "api-cloud.bitmart.com": true,
+}
+
+func toAPIOpportunity(o *cex.Opportunity) apiOpportunity {
+	return apiOpportunity{
+		Strategy:     o.Strategy,
+		Symbol:       o.Symbol,
+		BuyExchange:  o.BuyExchange,
+		SellExchange: o.SellExchange,
+		BuyPrice:     o.BuyPrice,
+		SellPrice:    o.SellPrice,
+		GrossPct:     o.GrossPct,
+		NetPct:       o.NetPct,
+		SafetyFactor: o.SafetyFactor,
+		Direction:    o.Direction,
+		IsPerp:       o.IsPerp,
+	}
+}
+
+func toCEXOpportunity(o *apiOpportunity) *cex.Opportunity {
+	return &cex.Opportunity{
+		Strategy:     o.Strategy,
+		Symbol:       o.Symbol,
+		BuyExchange:  o.BuyExchange,
+		SellExchange: o.SellExchange,
+		BuyPrice:     o.BuyPrice,
+		SellPrice:    o.SellPrice,
+		GrossPct:     o.GrossPct,
+		NetPct:       o.NetPct,
+		SafetyFactor: o.SafetyFactor,
+		Direction:    o.Direction,
+		IsPerp:       o.IsPerp,
+	}
+}
+
+func handleAPIScan(eng *engine, writeJSON func(http.ResponseWriter, int, any)) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+			return
+		}
+		oops := eng.scan()
+		b := best(oops)
+		if b == nil {
+			writeJSON(w, http.StatusOK, map[string]any{"opportunity": nil})
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"opportunity": toAPIOpportunity(b)})
+	}
+}
+
+func handleAPIExecute(eng *engine, writeJSON func(http.ResponseWriter, int, any)) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+			return
+		}
+		var req executeRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Opportunity == nil {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid request body"})
+			return
+		}
+		eng.execute(r.Context(), toCEXOpportunity(req.Opportunity))
+		writeJSON(w, http.StatusOK, map[string]bool{"success": true})
+	}
+}
+
+func handleProxy(writeJSON func(http.ResponseWriter, int, any)) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		target := r.URL.Query().Get("target")
+		if target == "" {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "missing ?target="})
+			return
+		}
+		targetURL, err := url.Parse(target)
+		if err != nil || (targetURL.Scheme != "http" && targetURL.Scheme != "https") {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid target URL"})
+			return
+		}
+		if !allowedProxyHosts[targetURL.Host] {
+			writeJSON(w, http.StatusForbidden, map[string]string{"error": "host not allowed: " + targetURL.Host})
+			return
+		}
+		proxyReq, err := http.NewRequestWithContext(r.Context(), r.Method, target, r.Body)
+		if err != nil {
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+			return
+		}
+		copyHeader(proxyReq.Header, r.Header)
+		proxyReq.Header.Set("User-Agent", "UltimateArbitrageHFT-Proxy/1.0")
+		proxyReq.Header.Del("Host")
+		proxyReq.Header.Del("Cf-Connecting-Ip")
+		proxyReq.Header.Del("Cf-Ipcountry")
+		proxyReq.Header.Del("Cf-Ray")
+		proxyReq.Header.Del("X-Forwarded-For")
+		proxyReq.Header.Del("X-Real-Ip")
+
+		resp, err := http.DefaultClient.Do(proxyReq)
+		if err != nil {
+			writeJSON(w, http.StatusBadGateway, map[string]string{"error": err.Error()})
+			return
+		}
+		defer resp.Body.Close()
+
+		copyHeader(w.Header(), resp.Header)
+		w.Header().Set("X-Proxy-By", "railway-hft")
+		w.WriteHeader(resp.StatusCode)
+		io.Copy(w, resp.Body)
+	}
+}
+
 // newAPIServer builds the HTTP mux for the engine REST API.
 func newAPIServer(eng *engine, secret string) *http.Server {
 	mux := http.NewServeMux()
@@ -481,81 +596,11 @@ func newAPIServer(eng *engine, secret string) *http.Server {
 	}))
 
 	// ── POST /api/execute ─────────────────────────────────────────────────────
-	mux.HandleFunc("/api/execute", requireAuth(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodPost {
-			writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
-			return
-		}
-		var req executeRequest
-		if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Opportunity == nil {
-			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid request body"})
-			return
-		}
-		o := req.Opportunity
-		opp := &cex.Opportunity{
-			Strategy:     o.Strategy,
-			Symbol:       o.Symbol,
-			BuyExchange:  o.BuyExchange,
-			SellExchange: o.SellExchange,
-			BuyPrice:     o.BuyPrice,
-			SellPrice:    o.SellPrice,
-			GrossPct:     o.GrossPct,
-			NetPct:       o.NetPct,
-			SafetyFactor: o.SafetyFactor,
-			Direction:    o.Direction,
-			IsPerp:       o.IsPerp,
-		}
-		eng.execute(r.Context(), opp)
-		writeJSON(w, http.StatusOK, map[string]bool{"success": true})
-	}))
+	mux.HandleFunc("/api/execute", requireAuth(handleAPIExecute(eng, writeJSON)))
 
 	// ── GET/POST /proxy?target=<url> ─────────────────────────────────────────
 	// Forwards requests through Railway's egress IP (not blocked by exchanges).
-	mux.HandleFunc("/proxy", func(w http.ResponseWriter, r *http.Request) {
-		target := r.URL.Query().Get("target")
-		if target == "" {
-			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "missing ?target="})
-			return
-		}
-		targetURL, err := url.Parse(target)
-		if err != nil || (targetURL.Scheme != "http" && targetURL.Scheme != "https") {
-			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid target URL"})
-			return
-		}
-		allowed := map[string]bool{
-			"api.binance.com": true, "api1.binance.com": true, "api2.binance.com": true, "api3.binance.com": true,
-			"api.bitget.com": true, "capi.bitget.com": true, "api.kucoin.com": true,
-			"api.mexc.com": true, "contract.mexc.com": true, "api.bybit.com": true,
-			"api.htx.com": true, "api-cloud.bitmart.com": true,
-		}
-		if !allowed[targetURL.Host] {
-			writeJSON(w, http.StatusForbidden, map[string]string{"error": "host not allowed: " + targetURL.Host})
-			return
-		}
-		proxyReq, err := http.NewRequestWithContext(r.Context(), r.Method, target, r.Body)
-		if err != nil {
-			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
-			return
-		}
-		copyHeader(proxyReq.Header, r.Header)
-		proxyReq.Header.Set("User-Agent", "UltimateArbitrageHFT-Proxy/1.0")
-		proxyReq.Header.Del("Host")
-		proxyReq.Header.Del("Cf-Connecting-Ip")
-		proxyReq.Header.Del("Cf-Ipcountry")
-		proxyReq.Header.Del("Cf-Ray")
-		proxyReq.Header.Del("X-Forwarded-For")
-		proxyReq.Header.Del("X-Real-Ip")
-		resp, err := http.DefaultClient.Do(proxyReq)
-		if err != nil {
-			writeJSON(w, http.StatusBadGateway, map[string]string{"error": err.Error()})
-			return
-		}
-		defer resp.Body.Close()
-		copyHeader(w.Header(), resp.Header)
-		w.Header().Set("X-Proxy-By", "railway-hft")
-		w.WriteHeader(resp.StatusCode)
-		io.Copy(w, resp.Body)
-	})
+	mux.HandleFunc("/proxy", handleProxy(writeJSON))
 
 	return &http.Server{
 		Addr:         eng.cfg.APIAddr,

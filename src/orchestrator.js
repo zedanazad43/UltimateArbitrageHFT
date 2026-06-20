@@ -38,10 +38,10 @@ const STRATEGY_SPEED_WEIGHTS = {
   scalp_parallel: 1.12,
   triangular: 0.95,
   statistical: 0.92,
-  perps: 1.0,
+  perps: 1,
   funding: 0.88,
   dex: 0.85,
-  cex_dex_bridge: 0.90,
+  cex_dex_bridge: 0.9,
 };
 
 function splitSymbol(symbol) {
@@ -69,7 +69,8 @@ async function getQuoteToUsdRate(env, quoteAsset, openCircuits = new Set()) {
       : null;
     const px = Number(best?.price || 0);
     return Number.isFinite(px) && px > 0 ? px : 0;
-  } catch (_) {
+  } catch (err) {
+    console.warn(`[quote-rate] Failed to get ${quote} rate:`, err.message);
     return 0;
   }
 }
@@ -87,7 +88,8 @@ async function resolveScanSymbolsForState(state) {
   }
   try {
     return await resolveDynamicScanSymbols(state || {});
-  } catch (_) {
+  } catch (err) {
+    console.warn('[resolve-symbols] Dynamic scan symbols failed:', err.message);
     return SUPPORTED_SYMBOLS;
   }
 }
@@ -95,14 +97,15 @@ async function resolveScanSymbolsForState(state) {
 /**
  * Returns true when the opportunity can be executed in live mode.
  */
+const DEX_CHAINS = new Set(['0x', 'ethereum', 'bsc', 'arbitrum', 'polygon', 'optimism']);
+
 export function isLiveExecutableOpportunity(opp) {
   if (!opp) return false;
   if (opp.strategy === 'dex') return false;
   // Statistical arb requires both legs on the same exchange
   if (opp.strategy === 'statistical' && opp.buyExchange !== opp.sellExchange) return false;
-  const DEX_CHAINS = ['0x', 'ethereum', 'bsc', 'arbitrum', 'polygon', 'optimism'];
-  return !DEX_CHAINS.includes(opp.buyExchange)
-    && !DEX_CHAINS.includes(opp.sellExchange);
+  return !DEX_CHAINS.has(opp.buyExchange)
+    && !DEX_CHAINS.has(opp.sellExchange);
 }
 
 /** Returns true when DEX live execution is configured. */
@@ -132,8 +135,7 @@ export function isLiveExecutableOpportunityWithEnv(opp, env) {
 
   const buyExchange = String(opp.buyExchange || '').toLowerCase();
   const sellExchange = String(opp.sellExchange || '').toLowerCase();
-  const DEX_CHAINS = ['0x', 'ethereum', 'bsc', 'arbitrum', 'polygon', 'optimism'];
-  if (DEX_CHAINS.includes(buyExchange) || DEX_CHAINS.includes(sellExchange)) {
+  if (DEX_CHAINS.has(buyExchange) || DEX_CHAINS.has(sellExchange)) {
     return false;
   }
 
@@ -213,20 +215,8 @@ function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-/**
- * Executes a DEX arbitrage opportunity using an external executor service.
- */
-export async function executeDexTrade(env, opp, sizeUsd) {
-  const executorUrl = env.DEX_EXECUTOR_URL;
-  if (!executorUrl) {
-    throw new Error('DEX_EXECUTOR_URL is not configured for live DEX execution');
-  }
-
-  const timeoutMs = Math.max(1000, parseInt(env.DEX_EXECUTION_TIMEOUT_MS || '20000', 10));
-  const maxRetries = Math.max(0, parseInt(env.DEX_EXECUTOR_MAX_RETRIES || '2', 10));
-  const retryBaseMs = Math.max(100, parseInt(env.DEX_EXECUTOR_RETRY_BASE_MS || '500', 10));
-  const slippageBps = Math.max(1, parseInt(env.DEX_MAX_SLIPPAGE_BPS || '80', 10));
-  const payload = {
+function buildDexExecutorPayload(opp, sizeUsd, slippageBps) {
+  return {
     opportunity: {
       strategy: opp.strategy,
       symbol: opp.symbol,
@@ -245,7 +235,42 @@ export async function executeDexTrade(env, opp, sizeUsd) {
       source: 'ultimate-arbitrage-hft'
     }
   };
+}
 
+function shouldRetryDexRequest(attempt, maxRetries, error, statusCode, retryableStatuses) {
+  if (attempt >= maxRetries) return false;
+
+  if (statusCode && retryableStatuses.has(statusCode)) return true;
+
+  const isAbort = error?.name === 'AbortError';
+  const isNetwork = error instanceof TypeError;
+  return isAbort || isNetwork;
+}
+
+async function parseDexResponse(resp) {
+  try {
+    return await resp.json();
+  } catch (err) {
+    console.warn('[dex-exec] Failed to parse response:', err.message);
+    return null;
+  }
+}
+
+/**
+ * Executes a DEX arbitrage opportunity using an external executor service.
+ */
+export async function executeDexTrade(env, opp, sizeUsd) {
+  const executorUrl = env.DEX_EXECUTOR_URL;
+  if (!executorUrl) {
+    throw new Error('DEX_EXECUTOR_URL is not configured for live DEX execution');
+  }
+
+  const timeoutMs = Math.max(1000, Number.parseInt(env.DEX_EXECUTION_TIMEOUT_MS || '20000', 10));
+  const maxRetries = Math.max(0, Number.parseInt(env.DEX_EXECUTOR_MAX_RETRIES || '2', 10));
+  const retryBaseMs = Math.max(100, Number.parseInt(env.DEX_EXECUTOR_RETRY_BASE_MS || '500', 10));
+  const slippageBps = Math.max(1, Number.parseInt(env.DEX_MAX_SLIPPAGE_BPS || '80', 10));
+
+  const payload = buildDexExecutorPayload(opp, sizeUsd, slippageBps);
   const headers = { 'Content-Type': 'application/json' };
   if (env.DEX_EXECUTOR_TOKEN) {
     headers.Authorization = `Bearer ${env.DEX_EXECUTOR_TOKEN}`;
@@ -265,21 +290,20 @@ export async function executeDexTrade(env, opp, sizeUsd) {
         signal: controller.signal
       });
 
-      let data = null;
-      try { data = await resp.json(); } catch (_) { }
+      const data = await parseDexResponse(resp);
 
       if (!resp.ok) {
         const err = new Error(data?.error || data?.message || `DEX executor HTTP ${resp.status}`);
-        if (attempt < maxRetries && retryableStatuses.has(resp.status)) {
+        if (shouldRetryDexRequest(attempt, maxRetries, err, resp.status, retryableStatuses)) {
           await sleep(retryBaseMs * (2 ** attempt));
           continue;
         }
         throw err;
       }
 
-      if (!data || data.success !== true) {
+      if (!data?.success) {
         const err = new Error(data?.error || data?.message || 'DEX executor returned unsuccessful response');
-        if (attempt < maxRetries) {
+        if (shouldRetryDexRequest(attempt, maxRetries, err, null, retryableStatuses)) {
           await sleep(retryBaseMs * (2 ** attempt));
           continue;
         }
@@ -288,9 +312,7 @@ export async function executeDexTrade(env, opp, sizeUsd) {
 
       return data;
     } catch (e) {
-      const isAbort = e?.name === 'AbortError';
-      const isNetwork = e instanceof TypeError;
-      if (attempt < maxRetries && (isAbort || isNetwork)) {
+      if (shouldRetryDexRequest(attempt, maxRetries, e, null, retryableStatuses)) {
         await sleep(retryBaseMs * (2 ** attempt));
         continue;
       }
@@ -442,18 +464,21 @@ async function releaseExecutionLock(env, token) {
 
 async function getCircuitBreaker(env) {
   try { return await env.BOT_STATE.get(CB_KEY, 'json') || {}; }
-  catch (_) { return {}; }
+  catch (err) {
+    console.warn('[CB] Failed to load circuit breaker:', err.message);
+    return {};
+  }
 }
 
 async function saveCircuitBreaker(env, cb) {
   try { await env.BOT_STATE.put(CB_KEY, JSON.stringify(cb), { expirationTtl: 7200 }); }
-  catch (_) { }
+  catch (err) { console.warn('[CB] Failed to save circuit breaker:', err.message); }
 }
 
 async function saveState(env, state) {
   try {
     await env.BOT_STATE.put('trading_state', JSON.stringify(state));
-  } catch (_) { }
+  } catch (err) { console.warn('[state] Failed to save trading state:', err.message); }
 }
 
 function isCircuitOpen(cb, exchange) {
@@ -611,14 +636,16 @@ export async function runScan(env, state, sendAlert, scanContext = {}) {
         JSON.stringify(lockSnapshot),
         { expirationTtl: 3600 }
       );
-    } catch (_) { }
+    } catch (err) {
+      console.warn('[scan] Lock rejection snapshot save failed:', err.message);
+    }
     console.warn('[scan] skipped: execution lock is active');
     incrementMetric('scan.skipped.lock_active');
     return null;
   }
 
   try {
-    const maxSpreadPct = state.max_spread_pct ?? 5.0;
+    const maxSpreadPct = state.max_spread_pct ?? 5;
     const initialCapital = state.initial_capital ?? 1000;
     const equity = initialCapital + (state.total_pnl || 0);
     const paperMode = state.paper_trading !== false;
@@ -629,18 +656,23 @@ export async function runScan(env, state, sendAlert, scanContext = {}) {
     const configuredCexMinSafety = Number.parseFloat(String(env?.CEX_MIN_SAFETY_FACTOR || ''));
     const configuredPerpsMinSafety = Number.parseFloat(String(env?.PERPS_MIN_SAFETY_FACTOR || ''));
     const configuredCexSlippageMultiplier = Number.parseFloat(String(env?.CEX_SLIPPAGE_MULTIPLIER || ''));
+
+    const cexMinSafety = aggressiveScanMode ? 0.12 : 0.25;
+    const cexSlippageMultiplier = aggressiveScanMode ? 0.75 : 1;
+    const perpsMinSafety = aggressiveScanMode ? 0.12 : 0.25;
+
     const cexScanOptions = {
       minSafetyFactor: Number.isFinite(configuredCexMinSafety)
         ? configuredCexMinSafety
-        : (aggressiveScanMode ? 0.12 : 0.25),
+        : cexMinSafety,
       slippageMultiplier: Number.isFinite(configuredCexSlippageMultiplier)
         ? configuredCexSlippageMultiplier
-        : (aggressiveScanMode ? 0.75 : 1),
+        : cexSlippageMultiplier,
     };
     const perpsScanOptions = {
       minSafetyFactor: Number.isFinite(configuredPerpsMinSafety)
         ? configuredPerpsMinSafety
-        : (aggressiveScanMode ? 0.12 : 0.25),
+        : perpsMinSafety,
     };
     const botMemory = await loadBotMemory(env).catch(() => null);
     const strategyWeights = botMemory?.strategyWeights || {};
@@ -883,7 +915,7 @@ export async function runScan(env, state, sendAlert, scanContext = {}) {
               : null;
 
             const scalpingOptions = {
-              minNetPct: Number(state?.scalp_min_net_pct || 0.10),
+              minNetPct: Number(state?.scalp_min_net_pct || 0.1),
             };
 
             const scalpForwardOpp = strategyFlags.scalp_forward
@@ -971,7 +1003,7 @@ export async function runScan(env, state, sendAlert, scanContext = {}) {
           const priceA = sourcesA.length > 0 ? sourcesA.reduce((a, b) => (a.price < b.price ? a : b)).price : 0;
           const priceB = sourcesB.length > 0 ? sourcesB.reduce((a, b) => (a.price < b.price ? a : b)).price : 0;
           if (priceA > 0 && priceB > 0) {
-            const statOpp = await scanStatistical(env, pair, priceA, priceB, sourcesA, sourcesB);
+            const statOpp = scanStatistical(env, pair, priceA, priceB, sourcesA, sourcesB);
             if (statOpp) {
               allOpportunities.push(statOpp);
               if ((paperMode || isLiveExecutableOpportunityWithEnv(statOpp, env)) &&
@@ -1072,7 +1104,7 @@ export async function runScan(env, state, sendAlert, scanContext = {}) {
         }),
         { expirationTtl: 3600 }
       );
-    } catch (_) { }
+    } catch (err) { console.warn('[scan] Failed to save scan summary:', err.message); }
 
     const executableOpportunities = paperMode
       ? allOpportunities
@@ -1113,7 +1145,9 @@ export async function runScan(env, state, sendAlert, scanContext = {}) {
         JSON.stringify(rejectionSnapshot),
         { expirationTtl: 3600 }
       );
-    } catch (_) { }
+    } catch (err) {
+      console.warn('[scan] Rejection snapshot save failed:', err.message);
+    }
 
     if (allOpportunities.length === 0) {
       console.log(`🔍 Nexus: no opportunities across ${symbols.length} symbols (all strategies)`);
@@ -1134,8 +1168,7 @@ export async function runScan(env, state, sendAlert, scanContext = {}) {
         return {
           ...opp,
           liveCapUsd,
-          score: scoreOpportunity(
-            opp,
+          score: scoreOpportunity(opp, {
             strategyWeights,
             strategyOutcomes,
             exchangeRoutingWeights,
@@ -1143,7 +1176,7 @@ export async function runScan(env, state, sendAlert, scanContext = {}) {
             liveMinBalanceUsd,
             venueReadyPriorityMultiplier,
             liveCapUsd,
-          ),
+          }),
         };
       })
     );
@@ -1162,7 +1195,8 @@ export async function runScan(env, state, sendAlert, scanContext = {}) {
       incrementRejection(rejectionBuckets.live_execution, 'insufficient_live_execution_cap');
     }
 
-    const maxTradesPerScan = state.multi_strategy_live !== false
+    const isMultiStrategyLive = state.multi_strategy_live !== false;
+    const maxTradesPerScan = isMultiStrategyLive
       ? clamp(Math.ceil(Number(state.max_live_trades_per_scan || 1) * exposureBoost), 1, 10)
       : 1;
     const selected = [];
@@ -1211,7 +1245,7 @@ export async function runScan(env, state, sendAlert, scanContext = {}) {
       const baseSize = calculatePositionSize(
         liveEquity,
         state.win_rate || 0.55,
-        state.risk_reward_ratio || 2.0
+        state.risk_reward_ratio || 2
       );
       const requestedSizeUsd = Math.min(baseSize * leverage * exposureBoost, liveEquity * MAX_POSITION_EQUITY_FRACTION);
       const capitalRoutingBoost = clamp(
@@ -1402,10 +1436,23 @@ export async function executeCexArbWithHedge(
   const buyResult = await placeOrder(env, buyExch, symbol, 'BUY', amount, requiredQuote);
   console.log(`[CEX Arb] ✅ BUY complete on ${buyExch}:`, JSON.stringify(buyResult).slice(0, 200));
 
-  const sellResult = await placeOrder(env, sellExch, symbol, 'SELL', amount, requiredQuote);
-  console.log(`[CEX Arb] ✅ SELL complete on ${sellExch}:`, JSON.stringify(sellResult).slice(0, 200));
-
-  return { buyResult, sellResult };
+  try {
+    const sellResult = await placeOrder(env, sellExch, symbol, 'SELL', amount, requiredQuote);
+    console.log(`[CEX Arb] ✅ SELL complete on ${sellExch}:`, JSON.stringify(sellResult).slice(0, 200));
+    return { buyResult, sellResult };
+  } catch (_sellErr) {
+    console.error(`[CEX Arb] ❌ SELL failed on ${sellExch}, closing hedge on ${buyExch}`);
+    try {
+      const hedgeResult = await placeOrder(env, buyExch, symbol, 'SELL', amount, requiredQuote);
+      console.log(`[CEX Arb] ✅ hedge closed on ${buyExch}:`, JSON.stringify(hedgeResult).slice(0, 200));
+      throw new Error(`sell leg failed; hedge closed residual exposure on ${buyExch}`, { cause: _sellErr });
+    } catch (hedgeErr) {
+      if (hedgeErr.message.includes('hedge closed')) {
+        throw hedgeErr;
+      }
+      throw new Error(`open exposure on ${buyExch}: ${hedgeErr.message}`, { cause: hedgeErr });
+    }
+  }
 }
 
 // ── Trade execution ──────────────────────────────────────────────────────────
@@ -1516,11 +1563,11 @@ async function executeTrade(env, opp, sizeUsd, leverage) {
     }
     try {
       const { getDEXSwapQuote } = await import('./strategies/dex.js');
-      const chain = opp.buyExchange !== '0x' ? opp.buyExchange : opp.sellExchange;
+      const chain = opp.buyExchange === '0x' ? opp.sellExchange : opp.buyExchange;
       const quote = await getDEXSwapQuote({
         chain: chain === 'ethereum' ? 'ethereum' : chain,
         tokenIn: 'USDT',
-        tokenOut: chain === 'ethereum' ? 'WETH' : 'WETH',
+        tokenOut: 'WETH',
         amount: sizeUsd * 1e6, // USDT has 6 decimals
         slippage: 2,
       });
@@ -1595,7 +1642,7 @@ async function executeTrade(env, opp, sizeUsd, leverage) {
   }
 
   let sellBalance = await getExchangeBalance(env, sellExch, parsed.base);
-  const minSellQty = parseFloat(amount);
+  const minSellQty = Number.parseFloat(amount);
   if (sellBalance < minSellQty) {
     console.warn(
       `⚠️ Insufficient ${parsed.base} on ${sellExch} (has ${sellBalance.toFixed(6)}, need ${minSellQty}). ` +
@@ -1621,25 +1668,52 @@ function incrementRejection(bucket, reason, count = 1) {
   bucket[reason] = Number(bucket[reason] || 0) + Number(count || 0);
 }
 
+function checkDexStrategyRejection(opp, env) {
+  if (opp.strategy === 'dex' && !hasDexExecutionConfigured(env)) {
+    return 'dex_executor_not_configured';
+  }
+  return null;
+}
+
+function checkSpecialStrategyRejection(opp, env) {
+  if (opp.strategy === 'statistical' && opp.buyExchange !== opp.sellExchange) {
+    return 'statistical_cross_exchange_not_supported';
+  }
+  if (opp.strategy === 'triangular' && !hasExchangeCredentials(env, opp.buyExchange)) {
+    return 'triangular_missing_exchange_credentials';
+  }
+  return null;
+}
+
+function checkPerpStrategyRejection(opp, env, buyExchange, sellExchange) {
+  if (!opp.isPerp && opp.strategy !== 'perps' && opp.strategy !== 'funding') {
+    return null;
+  }
+
+  const counterparty = buyExchange.endsWith('_perp') ? sellExchange : buyExchange;
+  if (!hasExchangeCredentials(env, 'mexc')) return 'perps_missing_mexc_credentials';
+  if (!hasExchangeCredentials(env, counterparty)) return 'perps_missing_counterparty_credentials';
+  return 'perps_not_live_executable';
+}
+
 function classifyLiveRejectReason(opp, env) {
   if (!opp) return 'unknown';
-  if (opp.strategy === 'dex' && !hasDexExecutionConfigured(env)) return 'dex_executor_not_configured';
-  if (opp.strategy === 'statistical' && opp.buyExchange !== opp.sellExchange) return 'statistical_cross_exchange_not_supported';
-  if (opp.strategy === 'triangular' && !hasExchangeCredentials(env, opp.buyExchange)) return 'triangular_missing_exchange_credentials';
 
-  const DEX_CHAINS = ['0x', 'ethereum', 'bsc', 'arbitrum', 'polygon', 'optimism'];
+  const dexRejection = checkDexStrategyRejection(opp, env);
+  if (dexRejection) return dexRejection;
+
+  const specialRejection = checkSpecialStrategyRejection(opp, env);
+  if (specialRejection) return specialRejection;
+
   const buyExchange = String(opp.buyExchange || '').toLowerCase();
   const sellExchange = String(opp.sellExchange || '').toLowerCase();
-  if (DEX_CHAINS.includes(buyExchange) || DEX_CHAINS.includes(sellExchange)) {
+
+  if (DEX_CHAINS.has(buyExchange) || DEX_CHAINS.has(sellExchange)) {
     return 'onchain_execution_not_supported';
   }
 
-  if (opp.isPerp || opp.strategy === 'perps' || opp.strategy === 'funding') {
-    const counterparty = buyExchange.endsWith('_perp') ? sellExchange : buyExchange;
-    if (!hasExchangeCredentials(env, 'mexc')) return 'perps_missing_mexc_credentials';
-    if (!hasExchangeCredentials(env, counterparty)) return 'perps_missing_counterparty_credentials';
-    return 'perps_not_live_executable';
-  }
+  const perpRejection = checkPerpStrategyRejection(opp, env, buyExchange, sellExchange);
+  if (perpRejection) return perpRejection;
 
   if (!hasExchangeCredentials(env, buyExchange)) return 'missing_buy_exchange_credentials';
   if (!hasExchangeCredentials(env, sellExchange)) return 'missing_sell_exchange_credentials';
@@ -1679,23 +1753,24 @@ function getRecentWinRate(bucket) {
   return wins / outcomes.length;
 }
 
-function scoreOpportunity(
-  opp,
-  strategyWeights,
-  strategyOutcomes,
-  exchangeRoutingWeights = {},
-  liveExchangeBalanceSnapshot = {},
-  liveMinBalanceUsd = 0,
-  venueReadyPriorityMultiplier = 1.2,
-  liveCapUsd = Number.POSITIVE_INFINITY,
-) {
+function scoreOpportunity(opp, options = {}) {
+  const {
+    strategyWeights = {},
+    strategyOutcomes = {},
+    exchangeRoutingWeights = {},
+    liveExchangeBalanceSnapshot = {},
+    liveMinBalanceUsd = 0,
+    venueReadyPriorityMultiplier = 1.2,
+    liveCapUsd = Number.POSITIVE_INFINITY,
+  } = options;
+
   const strategy = String(opp?.strategy || '').toLowerCase();
   const netPct = Number(opp?.netPct || 0);
   if (!Number.isFinite(netPct) || netPct <= 0) return -1;
 
   const weight = Number(strategyWeights?.[strategy] ?? 1);
   const safety = clamp(Number(opp?.safetyFactor ?? 0.5), 0.1, 1.5);
-  const confidence = clamp(Number(opp?.confidence ?? 0.6), 0.2, 1.0);
+  const confidence = clamp(Number(opp?.confidence ?? 0.6), 0.2, 1);
   const winRate = getRecentWinRate(strategyOutcomes?.[strategy]);
   const winBoost = clamp(0.8 + (winRate * 0.5), 0.8, 1.3);
   const speedBoost = clamp(getStrategySpeedWeight(strategy), 0.75, 1.25);
@@ -1759,7 +1834,8 @@ async function getRoutingBalancesSnapshot(env) {
       try {
         const balance = await getExchangeBalance(env, exchange, 'USDT');
         return { exchange, configured: true, balance: Number(balance || 0) };
-      } catch (_) {
+      } catch (err) {
+        console.warn(`[routing-balance] ${exchange} check failed:`, err.message);
         return { exchange, configured: true, balance: 0, error: true };
       }
     })
