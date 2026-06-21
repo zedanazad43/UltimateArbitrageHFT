@@ -57,6 +57,7 @@ type Config struct {
 	// CloudflareGatewayIPFS is the Cloudflare HTTP gateway for IPFS.
 	CloudflareGatewayIPFS string
 
+	// ── Direct RPC Endpoints ─────────────────────────────────────────────────────
 	// ETHRPCURL is the primary WebSocket/HTTPS endpoint for Ethereum mainnet.
 	// Example: wss://eth-mainnet.g.alchemy.com/v2/<key>
 	// Falls back from Cloudflare gateway if configured.
@@ -69,6 +70,13 @@ type Config struct {
 	// BSCRPCURL is the primary endpoint for Binance Smart Chain.
 	// Falls back from Cloudflare gateway if configured.
 	BSCRPCURL string
+
+	// ── Alchemy Agent Wallets ───────────────────────────────────────────────────
+	// AlchemyEVMWallet is the EVM wallet address managed by Alchemy agent.
+	AlchemyEVMWallet string
+
+	// AlchemySolanaWallet is the Solana wallet address managed by Alchemy agent.
+	AlchemySolanaWallet string
 
 	// FlashbotsRelayURL is the Flashbots relay endpoint.
 	// Default: https://relay.flashbots.net
@@ -164,6 +172,7 @@ func Load() (*Config, error) {
 		CloudflareGatewayArb:  os.Getenv("CLOUDFLARE_GATEWAY_ARB"),
 		CloudflareGatewayBSC:  os.Getenv("CLOUDFLARE_GATEWAY_BSC"),
 		CloudflareGatewayIPFS: os.Getenv("CLOUDFLARE_GATEWAY_IPFS"),
+
 
 		// EVM
 		WalletPrivateKey:    os.Getenv("WALLET_PRIVATE_KEY"),
@@ -262,31 +271,40 @@ func envInt(key string, fallback int) int {
 	return i
 }
 
-// GetEthRPCURL returns the Ethereum RPC URL, preferring Cloudflare gateway if configured.
+// GetEthRPCURL returns the Ethereum RPC URL, preferring Cloudflare → Alchemy → Direct RPC.
 func (c *Config) GetEthRPCURL() string {
 	if c.CloudflareGatewayEth != "" {
 		return c.CloudflareGatewayEth
 	}
+	if c.AlchemyAPIKey != "" {
+		return "https://eth-mainnet.g.alchemy.com/v2/" + c.AlchemyAPIKey
+	}
 	return c.ETHRPCURL
 }
 
-// GetArbitrumRPCURL returns the Arbitrum RPC URL, preferring Cloudflare gateway if configured.
+// GetArbitrumRPCURL returns the Arbitrum RPC URL, preferring Cloudflare → Alchemy → Direct RPC.
 func (c *Config) GetArbitrumRPCURL() string {
 	if c.CloudflareGatewayArb != "" {
 		return c.CloudflareGatewayArb
 	}
+	if c.AlchemyAPIKey != "" {
+		return "https://arb-mainnet.g.alchemy.com/v2/" + c.AlchemyAPIKey
+	}
 	return c.ArbitrumRPCURL
 }
 
-// GetBSCRPCURL returns the BSC RPC URL, preferring Cloudflare gateway if configured.
+// GetBSCRPCURL returns the BSC RPC URL, preferring Cloudflare → Alchemy → Direct RPC.
 func (c *Config) GetBSCRPCURL() string {
 	if c.CloudflareGatewayBSC != "" {
 		return c.CloudflareGatewayBSC
 	}
+	if c.AlchemyAPIKey != "" {
+		return "https://bsc-mainnet.g.alchemy.com/v2/" + c.AlchemyAPIKey
+	}
 	return c.BSCRPCURL
 }
 
-// GetIPFSGatewayURL returns the IPFS gateway URL.
+// GetIPFSGatewayURL returns the IPFS gateway URL, preferring Cloudflare → IPFS.io.
 func (c *Config) GetIPFSGatewayURL() string {
 	if c.CloudflareGatewayIPFS != "" {
 		return c.CloudflareGatewayIPFS
