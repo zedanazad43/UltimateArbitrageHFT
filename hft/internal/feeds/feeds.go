@@ -102,7 +102,7 @@ func (b *Book) BestPerp(symbol, exchange string) *PerpData {
 // ─── Feed runners ─────────────────────────────────────────────────────────────
 
 const (
-	wsReadTimeout  = 30 * time.Second
+	wsReadTimeout  = 60 * time.Second
 	wsReconnectMin = 1 * time.Second
 	wsReconnectMax = 30 * time.Second
 	wsPingInterval = 10 * time.Second
@@ -152,9 +152,9 @@ func RunBinance(ctx context.Context, book *Book, symbols []string) {
 type binanceStreamMsg struct {
 	Stream string `json:"stream"`
 	Data   struct {
-		Symbol   string `json:"s"`
-		BestBid  string `json:"b"`
-		BestAsk  string `json:"a"`
+		Symbol  string `json:"s"`
+		BestBid string `json:"b"`
+		BestAsk string `json:"a"`
 	} `json:"data"`
 }
 
@@ -191,9 +191,15 @@ func RunMEXC(ctx context.Context, book *Book, symbols []string) {
 			if len(symbols) == 0 {
 				return nil
 			}
+			// Per-symbol bookTicker pushes on every top-of-book change,
+			// keeping the socket active even on quiet markets.
+			params := make([]string, 0, len(symbols))
+			for _, sym := range symbols {
+				params = append(params, "spot@public.bookTicker.v3.api@"+strings.ToUpper(sym))
+			}
 			return sc.writeJSON(map[string]any{
 				"method": "SUBSCRIPTION",
-				"params": []string{"spot@public.miniTickers.v3.api@UTC+8"},
+				"params": params,
 			})
 		},
 		handler: func(conn *websocket.Conn, _ *safeConn) error {
@@ -204,14 +210,15 @@ func RunMEXC(ctx context.Context, book *Book, symbols []string) {
 	})
 }
 
-type mexcMiniTicker struct {
-	Symbol string `json:"s"`
-	Close  string `json:"c"`
+type mexcBookTicker struct {
+	BidPrice string `json:"b"`
+	AskPrice string `json:"a"`
 }
 
 type mexcMsg struct {
-	Channel string           `json:"c"`
-	Data    []mexcMiniTicker `json:"d"`
+	Channel string         `json:"c"`
+	Symbol  string         `json:"s"`
+	Data    mexcBookTicker `json:"d"`
 }
 
 func readMEXCFeed(conn *websocket.Conn, book *Book) error {
@@ -227,13 +234,15 @@ func readMEXCFeed(conn *websocket.Conn, book *Book) error {
 		if err := json.Unmarshal(msg, &m); err != nil {
 			continue
 		}
-		for _, ticker := range m.Data {
-			price, err := strconv.ParseFloat(ticker.Close, 64)
-			if err != nil || price <= 0 {
-				continue
-			}
-			book.SetSpot(ticker.Symbol, "mexc", price, 0.0005)
+		if !strings.Contains(m.Channel, "bookTicker") || m.Symbol == "" {
+			continue
 		}
+		bid, err1 := strconv.ParseFloat(m.Data.BidPrice, 64)
+		ask, err2 := strconv.ParseFloat(m.Data.AskPrice, 64)
+		if err1 != nil || err2 != nil || bid <= 0 || ask <= 0 {
+			continue
+		}
+		book.SetSpot(m.Symbol, "mexc", (bid+ask)/2, 0.0005)
 	}
 }
 
@@ -369,7 +378,7 @@ func RunMEXCPerpsREST(ctx context.Context, book *Book, symbols []string, interva
 				resp, err := http.Get(url)
 				if err != nil || resp.StatusCode != 200 {
 					if resp != nil {
-								_ = resp.Body.Close()
+						_ = resp.Body.Close()
 					}
 					return
 				}
@@ -400,7 +409,7 @@ func RunMEXCPerpsREST(ctx context.Context, book *Book, symbols []string, interva
 type feedSpec struct {
 	name        string
 	url         string
-	subscribe   func(c *safeConn) error                    // optional: send subscribe frame
+	subscribe   func(c *safeConn) error                     // optional: send subscribe frame
 	handler     func(c *websocket.Conn, sc *safeConn) error // read loop
 	pingPayload []byte                                      // if non-nil, sent as app-level TextMessage; else protocol ping
 	pingEvery   time.Duration                               // 0 → wsPingInterval
