@@ -108,6 +108,29 @@ const (
 	wsPingInterval = 10 * time.Second
 )
 
+// safeConn wraps *websocket.Conn with a write mutex. gorilla/websocket writes
+// are not safe for concurrent use; the ping goroutine and the handler's
+// subscribe writes would otherwise race.
+type safeConn struct {
+	*websocket.Conn
+	writeMu sync.Mutex
+}
+
+func (s *safeConn) writeJSON(v any) error {
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
+	return s.Conn.WriteJSON(v)
+}
+
+func (s *safeConn) writeMessage(t int, data []byte) error {
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
+	if err := s.Conn.SetWriteDeadline(time.Now().Add(5 * time.Second)); err != nil {
+		return err
+	}
+	return s.Conn.WriteMessage(t, data)
+}
+
 // RunBinance connects to the Binance combined stream for all symbols and keeps
 // the price book updated.  It reconnects automatically on any error.
 func RunBinance(ctx context.Context, book *Book, symbols []string) {
@@ -117,8 +140,12 @@ func RunBinance(ctx context.Context, book *Book, symbols []string) {
 		streams = append(streams, lower+"@bookTicker")
 	}
 	url := "wss://stream.binance.com/stream?streams=" + strings.Join(streams, "/")
-	reconnect(ctx, "binance", url, func(conn *websocket.Conn) error {
-		return readBinanceFeed(conn, book)
+	reconnect(ctx, feedSpec{
+		name: "binance",
+		url:  url,
+		handler: func(conn *websocket.Conn, _ *safeConn) error {
+			return readBinanceFeed(conn, book)
+		},
 	})
 }
 
@@ -157,16 +184,23 @@ func readBinanceFeed(conn *websocket.Conn, book *Book) error {
 // RunMEXC connects to the MEXC WebSocket spot stream.
 func RunMEXC(ctx context.Context, book *Book, symbols []string) {
 	const url = "wss://wbs.mexc.com/ws"
-	reconnect(ctx, "mexc", url, func(conn *websocket.Conn) error {
-		// One subscription covers all symbols via the mini-tickers stream.
-		if len(symbols) > 0 {
-			sub := map[string]any{
+	reconnect(ctx, feedSpec{
+		name: "mexc",
+		url:  url,
+		subscribe: func(sc *safeConn) error {
+			if len(symbols) == 0 {
+				return nil
+			}
+			return sc.writeJSON(map[string]any{
 				"method": "SUBSCRIPTION",
 				"params": []string{"spot@public.miniTickers.v3.api@UTC+8"},
-			}
-			_ = conn.WriteJSON(sub)
-		}
-		return readMEXCFeed(conn, book)
+			})
+		},
+		handler: func(conn *websocket.Conn, _ *safeConn) error {
+			return readMEXCFeed(conn, book)
+		},
+		pingPayload: []byte(`{"method":"PING"}`),
+		pingEvery:   20 * time.Second,
 	})
 }
 
@@ -206,16 +240,21 @@ func readMEXCFeed(conn *websocket.Conn, book *Book) error {
 // RunBybit connects to the Bybit V5 public spot stream.
 func RunBybit(ctx context.Context, book *Book, symbols []string) {
 	const url = "wss://stream.bybit.com/v5/public/spot"
-	reconnect(ctx, "bybit", url, func(conn *websocket.Conn) error {
-		args := make([]string, 0, len(symbols))
-		for _, sym := range symbols {
-			args = append(args, "tickers."+sym)
-		}
-		sub := map[string]any{"op": "subscribe", "args": args}
-		if err := conn.WriteJSON(sub); err != nil {
-			return err
-		}
-		return readBybitFeed(conn, book)
+	reconnect(ctx, feedSpec{
+		name: "bybit",
+		url:  url,
+		subscribe: func(sc *safeConn) error {
+			args := make([]string, 0, len(symbols))
+			for _, sym := range symbols {
+				args = append(args, "tickers."+sym)
+			}
+			return sc.writeJSON(map[string]any{"op": "subscribe", "args": args})
+		},
+		handler: func(conn *websocket.Conn, _ *safeConn) error {
+			return readBybitFeed(conn, book)
+		},
+		pingPayload: []byte(`{"op":"ping"}`),
+		pingEvery:   20 * time.Second,
 	})
 }
 
@@ -257,16 +296,21 @@ func readBybitFeed(conn *websocket.Conn, book *Book) error {
 // data (price + funding rate) updated in the book.
 func RunBybitPerps(ctx context.Context, book *Book, symbols []string) {
 	const url = "wss://stream.bybit.com/v5/public/linear"
-	reconnect(ctx, "bybit_perp", url, func(conn *websocket.Conn) error {
-		args := make([]string, 0, len(symbols))
-		for _, sym := range symbols {
-			args = append(args, "tickers."+sym)
-		}
-		sub := map[string]any{"op": "subscribe", "args": args}
-		if err := conn.WriteJSON(sub); err != nil {
-			return err
-		}
-		return readBybitPerpsFeed(conn, book)
+	reconnect(ctx, feedSpec{
+		name: "bybit_perp",
+		url:  url,
+		subscribe: func(sc *safeConn) error {
+			args := make([]string, 0, len(symbols))
+			for _, sym := range symbols {
+				args = append(args, "tickers."+sym)
+			}
+			return sc.writeJSON(map[string]any{"op": "subscribe", "args": args})
+		},
+		handler: func(conn *websocket.Conn, _ *safeConn) error {
+			return readBybitPerpsFeed(conn, book)
+		},
+		pingPayload: []byte(`{"op":"ping"}`),
+		pingEvery:   20 * time.Second,
 	})
 }
 
@@ -352,12 +396,25 @@ func RunMEXCPerpsREST(ctx context.Context, book *Book, symbols []string, interva
 
 // ─── WebSocket reconnect helper ───────────────────────────────────────────────
 
-// reconnect dials url, runs handler(conn), and reconnects with exponential
-// back-off on any error until ctx is cancelled.
-func reconnect(ctx context.Context, name, url string, handler func(*websocket.Conn) error) {
+// feedSpec configures one ws feed for reconnect.
+type feedSpec struct {
+	name        string
+	url         string
+	subscribe   func(c *safeConn) error                    // optional: send subscribe frame
+	handler     func(c *websocket.Conn, sc *safeConn) error // read loop
+	pingPayload []byte                                      // if non-nil, sent as app-level TextMessage; else protocol ping
+	pingEvery   time.Duration                               // 0 → wsPingInterval
+}
+
+// reconnect dials url, sends subscribe (if any), starts the ping ticker, runs
+// the read handler, and reconnects with exponential back-off on any error
+// until ctx is cancelled.
+func reconnect(ctx context.Context, spec feedSpec) {
 	backoff := wsReconnectMin
-	dialer := websocket.Dialer{
-		HandshakeTimeout: 10 * time.Second,
+	dialer := websocket.Dialer{HandshakeTimeout: 10 * time.Second}
+	interval := spec.pingEvery
+	if interval <= 0 {
+		interval = wsPingInterval
 	}
 	for {
 		select {
@@ -366,39 +423,56 @@ func reconnect(ctx context.Context, name, url string, handler func(*websocket.Co
 		default:
 		}
 
-		conn, _, err := dialer.DialContext(ctx, url, nil)
+		rawConn, _, err := dialer.DialContext(ctx, spec.url, nil)
 		if err != nil {
-			slog.Error("ws dial failed", "feed", name, "err", err)
+			slog.Error("ws dial failed", "feed", spec.name, "err", err)
 			sleep(ctx, backoff)
 			backoff = min(backoff*2, wsReconnectMax)
 			continue
 		}
-		slog.Info("ws connected", "feed", name)
+		sc := &safeConn{Conn: rawConn}
+		slog.Info("ws connected", "feed", spec.name)
 		backoff = wsReconnectMin
 
-		// Send periodic pings to keep the connection alive.
+		if spec.subscribe != nil {
+			if err := spec.subscribe(sc); err != nil {
+				slog.Warn("ws subscribe failed", "feed", spec.name, "err", err)
+				_ = rawConn.Close()
+				sleep(ctx, backoff)
+				backoff = min(backoff*2, wsReconnectMax)
+				continue
+			}
+		}
+
+		pingDone := make(chan struct{})
 		go func() {
-			ticker := time.NewTicker(wsPingInterval)
+			ticker := time.NewTicker(interval)
 			defer ticker.Stop()
 			for {
 				select {
 				case <-ctx.Done():
 					return
+				case <-pingDone:
+					return
 				case <-ticker.C:
-					if err := conn.SetWriteDeadline(time.Now().Add(5 * time.Second)); err != nil {
-						return
+					var werr error
+					if spec.pingPayload != nil {
+						werr = sc.writeMessage(websocket.TextMessage, spec.pingPayload)
+					} else {
+						werr = sc.writeMessage(websocket.PingMessage, nil)
 					}
-					if err := conn.WriteMessage(websocket.PingMessage, nil); err != nil {
+					if werr != nil {
 						return
 					}
 				}
 			}
 		}()
 
-		if err := handler(conn); err != nil {
-			slog.Warn("ws feed error, reconnecting", "feed", name, "err", err)
+		if err := spec.handler(rawConn, sc); err != nil {
+			slog.Warn("ws feed error, reconnecting", "feed", spec.name, "err", err)
 		}
-		_ = conn.Close()
+		close(pingDone)
+		_ = rawConn.Close()
 		sleep(ctx, backoff)
 		backoff = min(backoff*2, wsReconnectMax)
 	}
