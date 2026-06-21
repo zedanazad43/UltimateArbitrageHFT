@@ -354,6 +354,16 @@ func (e *engine) executeLive(ctx context.Context, opp *cex.Opportunity, sizeUSD,
 			return
 		}
 		e.cb.recordSuccess("coinbase")
+	case "kucoin":
+		if _, err := executor.PlaceKuCoinSpotOrder(
+			e.cfg.KuCoinAPIKey, e.cfg.KuCoinSecretKey, e.cfg.KuCoinPassphrase,
+			opp.Symbol, "BUY", qty, sizeUSD,
+		); err != nil {
+			slog.Error("kucoin buy order failed", "err", err)
+			e.cb.recordFailure("kucoin")
+			return
+		}
+		e.cb.recordSuccess("kucoin")
 	default:
 		slog.Warn("buy exchange not supported for live execution", "exchange", opp.BuyExchange)
 		return
@@ -402,6 +412,13 @@ func (e *engine) executeLive(ctx context.Context, opp *cex.Opportunity, sizeUSD,
 			opp.Symbol, "SELL", sellQty, notionalUSD,
 		); err != nil {
 			slog.Error("coinbase sell order failed", "err", err)
+		}
+	case "kucoin":
+		if _, err := executor.PlaceKuCoinSpotOrder(
+			e.cfg.KuCoinAPIKey, e.cfg.KuCoinSecretKey, e.cfg.KuCoinPassphrase,
+			opp.Symbol, "SELL", sellQty, notionalUSD,
+		); err != nil {
+			slog.Error("kucoin sell order failed", "err", err)
 		}
 	default:
 		slog.Warn("sell exchange not supported for live execution", "exchange", opp.SellExchange)
