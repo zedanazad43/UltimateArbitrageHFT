@@ -119,16 +119,16 @@ type safeConn struct {
 func (s *safeConn) writeJSON(v any) error {
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
-	return s.Conn.WriteJSON(v)
+	return s.WriteJSON(v)
 }
 
 func (s *safeConn) writeMessage(t int, data []byte) error {
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
-	if err := s.Conn.SetWriteDeadline(time.Now().Add(5 * time.Second)); err != nil {
+	if err := s.SetWriteDeadline(time.Now().Add(5 * time.Second)); err != nil {
 		return err
 	}
-	return s.Conn.WriteMessage(t, data)
+	return s.WriteMessage(t, data)
 }
 
 // RunBinance connects to the Binance combined stream for all symbols and keeps
