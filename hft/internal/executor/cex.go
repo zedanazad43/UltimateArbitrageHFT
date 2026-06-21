@@ -18,7 +18,7 @@ import (
 	"time"
 )
 
-var httpClient = &http.Client{Timeout: 10 * time.Second}
+var httpClient = OptimizedHTTPClient()
 
 // OrderResult holds the exchange's response to an order placement.
 type OrderResult struct {

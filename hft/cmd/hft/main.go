@@ -364,6 +364,26 @@ func (e *engine) executeLive(ctx context.Context, opp *cex.Opportunity, sizeUSD,
 			return
 		}
 		e.cb.recordSuccess("kucoin")
+	case "gateio":
+		if _, err := executor.PlaceGateioSpotOrder(
+			e.cfg.GateioAPIKey, e.cfg.GateioAPISecret, "",
+			opp.Symbol, "buy", qty,
+		); err != nil {
+			slog.Error("gateio buy order failed", "err", err)
+			e.cb.recordFailure("gateio")
+			return
+		}
+		e.cb.recordSuccess("gateio")
+	case "okx":
+		if _, err := executor.PlaceOKXSpotOrder(
+			e.cfg.OKXAPIKEY, e.cfg.OKXAPISecret, e.cfg.OKXPassphrase,
+			opp.Symbol, "buy", qty,
+		); err != nil {
+			slog.Error("okx buy order failed", "err", err)
+			e.cb.recordFailure("okx")
+			return
+		}
+		e.cb.recordSuccess("okx")
 	default:
 		slog.Warn("buy exchange not supported for live execution", "exchange", opp.BuyExchange)
 		return
@@ -419,6 +439,20 @@ func (e *engine) executeLive(ctx context.Context, opp *cex.Opportunity, sizeUSD,
 			opp.Symbol, "SELL", sellQty, notionalUSD,
 		); err != nil {
 			slog.Error("kucoin sell order failed", "err", err)
+		}
+	case "gateio":
+		if _, err := executor.PlaceGateioSpotOrder(
+			e.cfg.GateioAPIKey, e.cfg.GateioAPISecret, "",
+			opp.Symbol, "sell", sellQty,
+		); err != nil {
+			slog.Error("gateio sell order failed", "err", err)
+		}
+	case "okx":
+		if _, err := executor.PlaceOKXSpotOrder(
+			e.cfg.OKXAPIKEY, e.cfg.OKXAPISecret, e.cfg.OKXPassphrase,
+			opp.Symbol, "sell", sellQty,
+		); err != nil {
+			slog.Error("okx sell order failed", "err", err)
 		}
 	default:
 		slog.Warn("sell exchange not supported for live execution", "exchange", opp.SellExchange)

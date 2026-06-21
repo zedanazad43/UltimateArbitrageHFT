@@ -38,6 +38,13 @@ type Config struct {
 	CoinbaseAPIKey    string
 	CoinbaseAPISecret string
 
+	GateioAPIKey    string
+	GateioAPISecret string
+
+	OKXAPIKEY      string
+	OKXAPISecret   string
+	OKXPassphrase  string
+
 	// ── EVM / on-chain ───────────────────────────────────────────────────────
 	// WalletPrivateKey is the hex-encoded private key (no 0x prefix) used to
 	// sign on-chain transactions.
@@ -166,6 +173,13 @@ func Load() (*Config, error) {
 
 		CoinbaseAPIKey:    os.Getenv("COINBASE_API_KEY"),
 		CoinbaseAPISecret: os.Getenv("COINBASE_API_SECRET"),
+
+		GateioAPIKey:    os.Getenv("GATEIO_API_KEY"),
+		GateioAPISecret: os.Getenv("GATEIO_API_SECRET"),
+
+		OKXAPIKEY:     os.Getenv("OKX_API_KEY"),
+		OKXAPISecret:  os.Getenv("OKX_API_SECRET"),
+		OKXPassphrase: os.Getenv("OKX_PASSPHRASE"),
 
 		// Cloudflare Web3 Gateways (optional)
 		CloudflareGatewayEth:  os.Getenv("CLOUDFLARE_GATEWAY_ETH"),
