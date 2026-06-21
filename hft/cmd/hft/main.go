@@ -490,22 +490,6 @@ var allowedProxyHosts = map[string]bool{
 	"api.htx.com": true, "api-cloud.bitmart.com": true,
 }
 
-func toAPIOpportunity(o *cex.Opportunity) apiOpportunity {
-	return apiOpportunity{
-		Strategy:     o.Strategy,
-		Symbol:       o.Symbol,
-		BuyExchange:  o.BuyExchange,
-		SellExchange: o.SellExchange,
-		BuyPrice:     o.BuyPrice,
-		SellPrice:    o.SellPrice,
-		GrossPct:     o.GrossPct,
-		NetPct:       o.NetPct,
-		SafetyFactor: o.SafetyFactor,
-		Direction:    o.Direction,
-		IsPerp:       o.IsPerp,
-	}
-}
-
 func toCEXOpportunity(o *apiOpportunity) *cex.Opportunity {
 	return &cex.Opportunity{
 		Strategy:     o.Strategy,
@@ -519,22 +503,6 @@ func toCEXOpportunity(o *apiOpportunity) *cex.Opportunity {
 		SafetyFactor: o.SafetyFactor,
 		Direction:    o.Direction,
 		IsPerp:       o.IsPerp,
-	}
-}
-
-func handleAPIScan(eng *engine, writeJSON func(http.ResponseWriter, int, any)) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodGet {
-			writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
-			return
-		}
-		oops := eng.scan()
-		b := best(oops)
-		if b == nil {
-			writeJSON(w, http.StatusOK, map[string]any{"opportunity": nil})
-			return
-		}
-		writeJSON(w, http.StatusOK, map[string]any{"opportunity": toAPIOpportunity(b)})
 	}
 }
 
@@ -589,12 +557,12 @@ func handleProxy(writeJSON func(http.ResponseWriter, int, any)) http.HandlerFunc
 			writeJSON(w, http.StatusBadGateway, map[string]string{"error": err.Error()})
 			return
 		}
-		defer resp.Body.Close()
+		defer func() { _ = resp.Body.Close() }()
 
 		copyHeader(w.Header(), resp.Header)
 		w.Header().Set("X-Proxy-By", "railway-hft")
 		w.WriteHeader(resp.StatusCode)
-		io.Copy(w, resp.Body)
+		_, _ = io.Copy(w, resp.Body)
 	}
 }
 
