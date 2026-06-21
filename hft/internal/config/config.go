@@ -43,15 +43,36 @@ type Config struct {
 	// sign on-chain transactions.
 	WalletPrivateKey string
 
+	// ── Cloudflare Web3 Gateways ────────────────────────────────────────────────
+	// CloudflareGatewayEth is the Cloudflare HTTP gateway for Ethereum mainnet.
+	// Example: https://eth-rpc.ecostamp.net
+	CloudflareGatewayEth string
+
+	// CloudflareGatewayArb is the Cloudflare HTTP gateway for Arbitrum.
+	CloudflareGatewayArb string
+
+	// CloudflareGatewayBSC is the Cloudflare HTTP gateway for BSC.
+	CloudflareGatewayBSC string
+
+	// CloudflareGatewayIPFS is the Cloudflare HTTP gateway for IPFS.
+	CloudflareGatewayIPFS string
+
 	// ETHRPCURL is the primary WebSocket/HTTPS endpoint for Ethereum mainnet.
 	// Example: wss://eth-mainnet.g.alchemy.com/v2/<key>
+	// Falls back from Cloudflare gateway if configured.
 	ETHRPCURL string
 
 	// ArbitrumRPCURL is the primary endpoint for Arbitrum One (L2).
+	// Falls back from Cloudflare gateway if configured.
 	ArbitrumRPCURL string
+
+	// BSCRPCURL is the primary endpoint for Binance Smart Chain.
+	// Falls back from Cloudflare gateway if configured.
+	BSCRPCURL string
 
 	// FlashbotsRelayURL is the Flashbots relay endpoint.
 	// Default: https://relay.flashbots.net
+	// NOTE: NOT routed through Cloudflare gateway to preserve MEV protection.
 	FlashbotsRelayURL string
 
 	// FlashbotsSigningKey is a SEPARATE key used only to sign bundle submission
@@ -138,10 +159,17 @@ func Load() (*Config, error) {
 		CoinbaseAPIKey:    os.Getenv("COINBASE_API_KEY"),
 		CoinbaseAPISecret: os.Getenv("COINBASE_API_SECRET"),
 
+		// Cloudflare Web3 Gateways (optional)
+		CloudflareGatewayEth:  os.Getenv("CLOUDFLARE_GATEWAY_ETH"),
+		CloudflareGatewayArb:  os.Getenv("CLOUDFLARE_GATEWAY_ARB"),
+		CloudflareGatewayBSC:  os.Getenv("CLOUDFLARE_GATEWAY_BSC"),
+		CloudflareGatewayIPFS: os.Getenv("CLOUDFLARE_GATEWAY_IPFS"),
+
 		// EVM
 		WalletPrivateKey:    os.Getenv("WALLET_PRIVATE_KEY"),
 		ETHRPCURL:           envOr("ETH_RPC_URL", "https://rpc.flashbots.net"),
 		ArbitrumRPCURL:      envOr("ARBITRUM_RPC_URL", "https://arb1.arbitrum.io/rpc"),
+		BSCRPCURL:           envOr("BSC_RPC_URL", "https://bsc-dataseed.binance.org/rpc"),
 		FlashbotsRelayURL:   envOr("FLASHBOTS_RELAY_URL", "https://relay.flashbots.net"),
 		FlashbotsSigningKey: os.Getenv("FLASHBOTS_SIGNING_KEY"),
 
@@ -232,4 +260,36 @@ func envInt(key string, fallback int) int {
 		return fallback
 	}
 	return i
+}
+
+// GetEthRPCURL returns the Ethereum RPC URL, preferring Cloudflare gateway if configured.
+func (c *Config) GetEthRPCURL() string {
+	if c.CloudflareGatewayEth != "" {
+		return c.CloudflareGatewayEth
+	}
+	return c.ETHRPCURL
+}
+
+// GetArbitrumRPCURL returns the Arbitrum RPC URL, preferring Cloudflare gateway if configured.
+func (c *Config) GetArbitrumRPCURL() string {
+	if c.CloudflareGatewayArb != "" {
+		return c.CloudflareGatewayArb
+	}
+	return c.ArbitrumRPCURL
+}
+
+// GetBSCRPCURL returns the BSC RPC URL, preferring Cloudflare gateway if configured.
+func (c *Config) GetBSCRPCURL() string {
+	if c.CloudflareGatewayBSC != "" {
+		return c.CloudflareGatewayBSC
+	}
+	return c.BSCRPCURL
+}
+
+// GetIPFSGatewayURL returns the IPFS gateway URL.
+func (c *Config) GetIPFSGatewayURL() string {
+	if c.CloudflareGatewayIPFS != "" {
+		return c.CloudflareGatewayIPFS
+	}
+	return "https://ipfs.io"
 }

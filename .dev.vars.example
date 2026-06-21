@@ -86,6 +86,20 @@ DEX_EXECUTION_TIMEOUT_MS=20000
 DEX_EXECUTOR_MAX_RETRIES=2
 DEX_MAX_SLIPPAGE_BPS=80
 
+# ── Cloudflare Web3 Gateways ────────────────────────────────────────────────────
+# Optional: HTTP-accessible Web3 gateways via Cloudflare (no RPC node required)
+# If set, these will be used instead of direct RPC endpoints.
+# Create gateways at: https://dash.cloudflare.com/?to=/:account/web3/gateways
+CLOUDFLARE_GATEWAY_ETH=https://eth-rpc.ecostamp.net
+CLOUDFLARE_GATEWAY_ARB=https://arb-rpc.ecostamp.net
+CLOUDFLARE_GATEWAY_BSC=https://bsc-rpc.ecostamp.net
+CLOUDFLARE_GATEWAY_IPFS=https://ipfs-gateway.ecostamp.net
+
+# Fallback: Direct RPC endpoints (used if Cloudflare gateways not configured)
+ETH_RPC_URL=https://rpc.flashbots.net
+ARBITRUM_RPC_URL=https://arb1.arbitrum.io/rpc
+BSC_RPC_URL=https://bsc-dataseed.binance.org/rpc
+
 # ── External Proxy ──────────────────────────────────────────────────────────────
 PROXY_MODE=auto
 PROXY_URL=
