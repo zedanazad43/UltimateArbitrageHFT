@@ -182,6 +182,10 @@ func Load() (*Config, error) {
 		FlashbotsRelayURL:   envOr("FLASHBOTS_RELAY_URL", "https://relay.flashbots.net"),
 		FlashbotsSigningKey: os.Getenv("FLASHBOTS_SIGNING_KEY"),
 
+		// Alchemy Agent Wallets
+		AlchemyEVMWallet:    os.Getenv("ALCHEMY_EVM_WALLET"),
+		AlchemySolanaWallet: os.Getenv("ALCHEMY_SOLANA_WALLET"),
+
 		// Price APIs
 		AlchemyAPIKey: os.Getenv("ALCHEMY_API_KEY"),
 		ZeroXAPIKey:   os.Getenv("ZEROX_API_KEY"),

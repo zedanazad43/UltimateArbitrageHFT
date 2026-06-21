@@ -127,3 +127,14 @@ LIVE_EXECUTION_MIN_BALANCE_USD = "0"
 BACKTEST_AUTO_ENABLED = "true"
 BACKTEST_AUTO_INTERVAL_HOURS = "24"
 
+# ── Cloudflare Web3 Gateways ────────────────────────────────────────────────────
+CLOUDFLARE_GATEWAY_ETH = "https://eth-rpc.ecostamp.net"
+CLOUDFLARE_GATEWAY_ARB = "https://arb-rpc.ecostamp.net"
+CLOUDFLARE_GATEWAY_BSC = "https://bsc-rpc.ecostamp.net"
+CLOUDFLARE_GATEWAY_IPFS = "https://ipfs-gateway.ecostamp.net"
+
+# ── Alchemy API & Agent Wallets ──────────────────────────────────────────────────
+ALCHEMY_API_KEY = "MNCbr_EW1ZrVjFXSUmVO_="
+ALCHEMY_EVM_WALLET = "0x2d680d0b87e91d64e7b4d0c8b56611b47f8d7e59"
+ALCHEMY_SOLANA_WALLET = "Dp2KqwZcin85pSJ4hH1VFrEkJTgNBhiMnTm7Pk86UPTJ"
+
