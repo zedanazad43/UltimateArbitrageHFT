@@ -324,6 +324,29 @@ func (e *engine) executeLive(ctx context.Context, opp *cex.Opportunity, sizeUSD,
 			return
 		}
 		e.cb.recordSuccess("bybit")
+	case "bitget":
+		if _, err := executor.PlaceBitgetSpotOrder(
+			e.cfg.BitgetAPIKey, e.cfg.BitgetAPISecret, e.cfg.BitgetAPIPassword,
+			opp.Symbol, "BUY", qty, sizeUSD,
+		); err != nil {
+			slog.Error("bitget buy order failed", "err", err)
+			e.cb.recordFailure("bitget")
+			return
+		}
+		e.cb.recordSuccess("bitget")
+	case "htx":
+		if _, err := executor.PlaceHTXSpotOrder(
+			e.cfg.HTXAPIKey, e.cfg.HTXAPISecret, e.cfg.HTXAccountID,
+			opp.Symbol, "BUY", qty, sizeUSD,
+		); err != nil {
+			slog.Error("htx buy order failed", "err", err)
+			e.cb.recordFailure("htx")
+			return
+		}
+		e.cb.recordSuccess("htx")
+	default:
+		slog.Warn("buy exchange not supported for live execution", "exchange", opp.BuyExchange)
+		return
 	}
 
 	sellQty := notionalUSD / opp.SellPrice
@@ -349,6 +372,22 @@ func (e *engine) executeLive(ctx context.Context, opp *cex.Opportunity, sizeUSD,
 		); err != nil {
 			slog.Error("bybit sell order failed", "err", err)
 		}
+	case "bitget":
+		if _, err := executor.PlaceBitgetSpotOrder(
+			e.cfg.BitgetAPIKey, e.cfg.BitgetAPISecret, e.cfg.BitgetAPIPassword,
+			opp.Symbol, "SELL", sellQty, notionalUSD,
+		); err != nil {
+			slog.Error("bitget sell order failed", "err", err)
+		}
+	case "htx":
+		if _, err := executor.PlaceHTXSpotOrder(
+			e.cfg.HTXAPIKey, e.cfg.HTXAPISecret, e.cfg.HTXAccountID,
+			opp.Symbol, "SELL", sellQty, notionalUSD,
+		); err != nil {
+			slog.Error("htx sell order failed", "err", err)
+		}
+	default:
+		slog.Warn("sell exchange not supported for live execution", "exchange", opp.SellExchange)
 	}
 }
 

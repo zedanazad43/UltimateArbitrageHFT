@@ -27,6 +27,14 @@ type Config struct {
 	KuCoinSecretKey  string
 	KuCoinPassphrase string
 
+	BitgetAPIKey      string
+	BitgetAPISecret   string
+	BitgetAPIPassword string
+
+	HTXAPIKey     string
+	HTXAPISecret  string
+	HTXAccountID  string
+
 	// ── EVM / on-chain ───────────────────────────────────────────────────────
 	// WalletPrivateKey is the hex-encoded private key (no 0x prefix) used to
 	// sign on-chain transactions.
@@ -115,6 +123,14 @@ func Load() (*Config, error) {
 		KuCoinAPIKey:     os.Getenv("KUCOIN_API_KEY"),
 		KuCoinSecretKey:  os.Getenv("KUCOIN_SECRET_KEY"),
 		KuCoinPassphrase: os.Getenv("KUCOIN_PASSPHRASE"),
+
+		BitgetAPIKey:      os.Getenv("BITGET_API_KEY"),
+		BitgetAPISecret:   os.Getenv("BITGET_API_SECRET"),
+		BitgetAPIPassword: os.Getenv("BITGET_API_PASSWORD"),
+
+		HTXAPIKey:    os.Getenv("HTX_API_KEY"),
+		HTXAPISecret: os.Getenv("HTX_API_SECRET"),
+		HTXAccountID: os.Getenv("HTX_ACCOUNT_ID"),
 
 		// EVM
 		WalletPrivateKey:    os.Getenv("WALLET_PRIVATE_KEY"),
