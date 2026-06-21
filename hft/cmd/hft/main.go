@@ -344,6 +344,16 @@ func (e *engine) executeLive(ctx context.Context, opp *cex.Opportunity, sizeUSD,
 			return
 		}
 		e.cb.recordSuccess("htx")
+	case "coinbase":
+		if _, err := executor.PlaceCoinbaseSpotOrder(
+			e.cfg.CoinbaseAPIKey, e.cfg.CoinbaseAPISecret,
+			opp.Symbol, "BUY", qty, sizeUSD,
+		); err != nil {
+			slog.Error("coinbase buy order failed", "err", err)
+			e.cb.recordFailure("coinbase")
+			return
+		}
+		e.cb.recordSuccess("coinbase")
 	default:
 		slog.Warn("buy exchange not supported for live execution", "exchange", opp.BuyExchange)
 		return
@@ -385,6 +395,13 @@ func (e *engine) executeLive(ctx context.Context, opp *cex.Opportunity, sizeUSD,
 			opp.Symbol, "SELL", sellQty, notionalUSD,
 		); err != nil {
 			slog.Error("htx sell order failed", "err", err)
+		}
+	case "coinbase":
+		if _, err := executor.PlaceCoinbaseSpotOrder(
+			e.cfg.CoinbaseAPIKey, e.cfg.CoinbaseAPISecret,
+			opp.Symbol, "SELL", sellQty, notionalUSD,
+		); err != nil {
+			slog.Error("coinbase sell order failed", "err", err)
 		}
 	default:
 		slog.Warn("sell exchange not supported for live execution", "exchange", opp.SellExchange)

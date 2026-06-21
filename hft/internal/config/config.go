@@ -31,9 +31,12 @@ type Config struct {
 	BitgetAPISecret   string
 	BitgetAPIPassword string
 
-	HTXAPIKey     string
-	HTXAPISecret  string
-	HTXAccountID  string
+	HTXAPIKey    string
+	HTXAPISecret string
+	HTXAccountID string
+
+	CoinbaseAPIKey    string
+	CoinbaseAPISecret string
 
 	// ── EVM / on-chain ───────────────────────────────────────────────────────
 	// WalletPrivateKey is the hex-encoded private key (no 0x prefix) used to
@@ -131,6 +134,9 @@ func Load() (*Config, error) {
 		HTXAPIKey:    os.Getenv("HTX_API_KEY"),
 		HTXAPISecret: os.Getenv("HTX_API_SECRET"),
 		HTXAccountID: os.Getenv("HTX_ACCOUNT_ID"),
+
+		CoinbaseAPIKey:    os.Getenv("COINBASE_API_KEY"),
+		CoinbaseAPISecret: os.Getenv("COINBASE_API_SECRET"),
 
 		// EVM
 		WalletPrivateKey:    os.Getenv("WALLET_PRIVATE_KEY"),
