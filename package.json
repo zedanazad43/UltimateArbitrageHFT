@@ -87,10 +87,10 @@
     "verify:infra": "node scripts/verify-production-infrastructure.js",
     "hummingbot:setup": "cat HUMMINGBOT_SETUP.md",
     "hummingbot:start": "node hummingbot-connector.js",
-    "hummingbot:start:paper": "TRADING_MODE=paper node hummingbot-connector.js",
+    "hummingbot:start:paper": "node -e \"process.env.TRADING_MODE='paper'; require('./hummingbot-connector.js')\"",
     "hummingbot:status": "curl -s http://localhost:8000/status | jq .",
-    "hummingbot:connect": "hummingbot",
-    "hummingbot:monitor": "tail -f connector.log"
+    "hummingbot:connect": "docker run -it hummingbot/hummingbot:latest",
+    "hummingbot:monitor": "Get-Content connector.log -Wait"
   },
   "dependencies": {
     "@langchain/community": "^1.1.28",
