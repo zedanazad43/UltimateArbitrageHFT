@@ -49,7 +49,7 @@ func main() {
 		fmt.Println("error:", err)
 		os.Exit(1)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	body, _ := io.ReadAll(resp.Body)
 	fmt.Println(string(body))
 }
