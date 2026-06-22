@@ -79,7 +79,11 @@
     "profile:direct": "bash scripts/switch-profile.sh direct",
     "profile:mixed": "bash scripts/switch-profile.sh mixed",
     "profile:strict": "bash scripts/switch-profile.sh strict",
-    "profile:dry": "bash scripts/switch-profile.sh"
+    "profile:dry": "bash scripts/switch-profile.sh",
+    "setup:tunnel": "node scripts/setup-cloudflare-tunnel.js",
+    "setup:proxy": "node scripts/configure-proxy-solutions.js",
+    "deploy:geo-bypass": "node scripts/deploy-geo-bypass.js",
+    "verify:infra": "node scripts/verify-production-infrastructure.js"
   },
   "dependencies": {
     "@langchain/community": "^1.1.28",
@@ -101,9 +105,6 @@
   },
   "overrides": {
     "jsonwebtoken": "^9.0.3",
-    "ws": ">=8.20.2"
-  },
-  "overrides": {
     "protobufjs": "^7.5.6",
     "ws": "8.20.1",
     "brace-expansion": "5.0.6"

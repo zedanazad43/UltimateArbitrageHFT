@@ -103,6 +103,13 @@ jobs:
             "EXTERNAL_PROXY_USERNAME",
             "EXTERNAL_PROXY_PASSWORD",
             "EXTERNAL_PROXY_AUTH_HEADER",
+            "BRIGHT_DATA_USER",
+            "BRIGHT_DATA_PASSWORD",
+            "CF_TUNNEL_US_BYPASS_URL",
+            "CF_TUNNEL_EU_URL",
+            "CF_TUNNEL_ASIA_URL",
+            "OXYLABS_USER",
+            "OXYLABS_PASSWORD",
           ]
           secrets = {k: os.environ[k] for k in keys if os.environ.get(k)}
           fd = os.open("/tmp/cf_secrets.json", os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
@@ -146,6 +153,13 @@ jobs:
           EXTERNAL_PROXY_USERNAME: ${{ secrets.EXTERNAL_PROXY_USERNAME }}
           EXTERNAL_PROXY_PASSWORD: ${{ secrets.EXTERNAL_PROXY_PASSWORD }}
           EXTERNAL_PROXY_AUTH_HEADER: ${{ secrets.EXTERNAL_PROXY_AUTH_HEADER }}
+          BRIGHT_DATA_USER: ${{ secrets.BRIGHT_DATA_USER }}
+          BRIGHT_DATA_PASSWORD: ${{ secrets.BRIGHT_DATA_PASSWORD }}
+          CF_TUNNEL_US_BYPASS_URL: ${{ secrets.CF_TUNNEL_US_BYPASS_URL }}
+          CF_TUNNEL_EU_URL: ${{ secrets.CF_TUNNEL_EU_URL }}
+          CF_TUNNEL_ASIA_URL: ${{ secrets.CF_TUNNEL_ASIA_URL }}
+          OXYLABS_USER: ${{ secrets.OXYLABS_USER }}
+          OXYLABS_PASSWORD: ${{ secrets.OXYLABS_PASSWORD }}
 
       - name: Post-deploy endpoint smoke test
         id: smoke_test

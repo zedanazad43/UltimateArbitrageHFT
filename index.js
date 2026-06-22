@@ -45,6 +45,13 @@ import { runLiveMonitor } from './src/monitor-live.js';
 import { registerAIMasterRoutes } from './src/routes/aimaster-routes.js';
 import { registerTemporalRoutes } from './src/routes/temporal-routes.js';
 
+// ═══ HFT Resilience Improvements ═══
+import { HFTBackup } from './src/durable-objects/hft-backup.js';
+import { registerResilienceRoutes as _registerResilienceRoutes } from './src/routes/resilience-routes.js';
+
+// ═══ Geo-bypass & Diagnostics ═══
+import { registerGeoBypassRoutes as _registerGeoBypassRoutes } from './src/routes/geo-bypass-routes.js';
+
 
 // ─── Telegram notification helper ────────────────────────────────────────────
 async function sendTelegramAlert(env, message) {
@@ -3764,3 +3771,76 @@ app.get('/api/ultra-fast/ws-status', async (c) => {
   const ws = getWebSocketPriceManager(c.env);
   return c.json({ success: true, ...ws.getStats() });
 });
+
+// ─── Register Resilience Routes ───────────────────────────────────────────
+// These routes provide monitoring and failover capabilities
+app.get('/resilience/health', async (c) => {
+  const { getHFTResilienceManager } = await import('./src/infrastructure/hft-resilience-integration.js');
+  const resilience = getHFTResilienceManager(c.env, {
+    BOT_STATE: c.env.BOT_STATE,
+    DB: c.env.DB,
+    HFT_BACKUP: c.env.HFT_BACKUP,
+    ANALYTICS: c.env.ANALYTICS,
+  });
+  const health = await resilience.getHealthStatus();
+  return c.json(health);
+});
+
+app.get('/resilience/circuit-breaker', async (c) => {
+  const { getHFTResilienceManager } = await import('./src/infrastructure/hft-resilience-integration.js');
+  const resilience = getHFTResilienceManager(c.env, {
+    BOT_STATE: c.env.BOT_STATE,
+    DB: c.env.DB,
+    HFT_BACKUP: c.env.HFT_BACKUP,
+    ANALYTICS: c.env.ANALYTICS,
+  });
+  const status = await resilience.circuitBreaker.getStatus();
+  return c.json(status);
+});
+
+// ─── Register Geo-Bypass Routes ───────────────────────────────────────────
+// Routes for diagnostics and geo-bypass management
+app.get('/geo-bypass/diagnose', async (c) => {
+  const { getStrategyAnalyzer } = await import('./src/infrastructure/strategy-analyzer.js');
+  const analyzer = getStrategyAnalyzer(c.env.DB, c.env);
+  const diagnosis = await analyzer.diagnoseEmptyStreak(10);
+  const performance = await analyzer.getStrategyPerformance(24);
+  const recommendations = await analyzer.recommendTunables();
+  return c.json({ diagnosis, performance, recommendations, timestamp: Date.now() });
+});
+
+app.post('/geo-bypass/spotlock-recover', async (c) => {
+  const { getSpotLockRecovery } = await import('./src/infrastructure/spotlock-recovery.js');
+  const recovery = getSpotLockRecovery(c.env.DB, c.env.BOT_STATE);
+  const result = await recovery.autoRecover();
+  return c.json({ recovery: result, health: await recovery.getHealth(), timestamp: Date.now() });
+});
+
+app.get('/geo-bypass/report', async (c) => {
+  const cfCountry = c.req.header('CF-IPCountry') || 'unknown';
+  const { getStrategyAnalyzer } = await import('./src/infrastructure/strategy-analyzer.js');
+  const { getAdvancedProxyManager } = await import('./src/infrastructure/advanced-proxy-manager.js');
+  const { getCloudFlareTunnelRouter } = await import('./src/infrastructure/cloudflare-tunnel-router.js');
+
+  const analyzer = getStrategyAnalyzer(c.env.DB, c.env);
+  const proxy = getAdvancedProxyManager(c.env);
+  const router = getCloudFlareTunnelRouter(c.env);
+
+  const diagnosis = await analyzer.diagnoseEmptyStreak(10);
+  const proxyStats = proxy.getStats();
+  const tunnelHealth = await router.checkTunnelHealth();
+
+  return c.json({
+    timestamp: Date.now(),
+    userCountry: cfCountry,
+    diagnosis,
+    infrastructure: { proxy: proxyStats, tunnels: tunnelHealth },
+    recommendations: {
+      primary: cfCountry === 'US' ? '🌍 Geo-blocking detected. Enable proxy or tunnel.' : '✅ No geo-blocking detected.',
+      actionItems: diagnosis.recommendations,
+    },
+  });
+});
+
+// ─── Export Durable Objects ───────────────────────────────────────────────
+export { HFTBackup };

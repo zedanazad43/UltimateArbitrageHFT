@@ -18,9 +18,22 @@ database_id = "cd726538-9c41-456c-b172-15fcc3a63a0c"
 name = "MARKET_STREAMER"
 class_name = "MarketStreamer"
 
+[[durable_objects.bindings]]
+name = "HFT_BACKUP"
+class_name = "HFTBackup"
+
 [[migrations]]
 tag = "v1"
 new_classes = ["MarketStreamer"]
+
+[[migrations]]
+tag = "v2"
+new_classes = ["HFTBackup"]
+
+# D1 resilience backup tables
+[[migrations]]
+tag = "v3"
+new_tables = ["backup_positions", "backup_prices", "backup_opportunities", "hft_state_sync", "failover_events", "railway_metrics"]
 
 [[analytics_engine_datasets]]
 binding = "ANALYTICS"
@@ -140,3 +153,11 @@ ALCHEMY_API_KEY = ""
 ALCHEMY_EVM_WALLET = "0x2d680d0b87e91d64e7b4d0c8b56611b47f8d7e59"
 ALCHEMY_SOLANA_WALLET = "Dp2KqwZcin85pSJ4hH1VFrEkJTgNBhiMnTm7Pk86UPTJ"
 
+# ── Geo-Bypass Proxy Configuration (populated at deploy time) ──────────────────
+BRIGHT_DATA_USER = ""
+BRIGHT_DATA_PASSWORD = ""
+CF_TUNNEL_US_BYPASS_URL = ""
+CF_TUNNEL_EU_URL = ""
+CF_TUNNEL_ASIA_URL = ""
+OXYLABS_USER = ""
+OXYLABS_PASSWORD = ""

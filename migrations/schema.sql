@@ -98,6 +98,79 @@ CREATE INDEX IF NOT EXISTS idx_admin_events_created_at
   ON admin_events(created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_bot_events_created_at
   ON bot_events(created_at DESC);
+
+-- ═══ HFT RESILIENCE BACKUP TABLES ═══
+-- These tables provide state persistence for failover scenarios
+CREATE TABLE IF NOT EXISTS backup_positions (
+  id TEXT PRIMARY KEY,
+  strategy TEXT,
+  symbol TEXT,
+  buy_exchange TEXT,
+  sell_exchange TEXT,
+  entry_price REAL,
+  current_price REAL,
+  size_usd REAL,
+  pnl REAL,
+  status TEXT,
+  created_at INTEGER,
+  updated_at INTEGER
+);
+
+CREATE TABLE IF NOT EXISTS backup_prices (
+  symbol TEXT,
+  exchange TEXT,
+  price REAL,
+  timestamp INTEGER,
+  PRIMARY KEY (symbol, exchange)
+);
+
+CREATE TABLE IF NOT EXISTS backup_opportunities (
+  id TEXT PRIMARY KEY,
+  strategy TEXT,
+  symbol TEXT,
+  spread_pct REAL,
+  net_pct REAL,
+  size_usd REAL,
+  confidence REAL,
+  recorded_at INTEGER,
+  status TEXT
+);
+
+CREATE TABLE IF NOT EXISTS hft_state_sync (
+  key TEXT PRIMARY KEY,
+  value TEXT,
+  last_updated INTEGER
+);
+
+CREATE TABLE IF NOT EXISTS failover_events (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  timestamp INTEGER,
+  reason TEXT,
+  from_service TEXT,
+  to_service TEXT,
+  severity TEXT
+);
+
+CREATE TABLE IF NOT EXISTS railway_metrics (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  timestamp INTEGER,
+  endpoint TEXT,
+  latency_ms INTEGER,
+  success BOOLEAN,
+  data_center TEXT
+);
+
+-- Indices for resilience tables
+CREATE INDEX IF NOT EXISTS idx_backup_positions_status
+  ON backup_positions(status);
+CREATE INDEX IF NOT EXISTS idx_backup_prices_timestamp
+  ON backup_prices(timestamp);
+CREATE INDEX IF NOT EXISTS idx_backup_opportunities_recorded_at
+  ON backup_opportunities(recorded_at);
+CREATE INDEX IF NOT EXISTS idx_failover_events_timestamp
+  ON failover_events(timestamp);
+CREATE INDEX IF NOT EXISTS idx_railway_metrics_timestamp
+  ON railway_metrics(timestamp);
 CREATE INDEX IF NOT EXISTS idx_paper_positions_opened_at
   ON paper_positions(opened_at DESC);
 CREATE INDEX IF NOT EXISTS idx_paper_positions_closed_at
