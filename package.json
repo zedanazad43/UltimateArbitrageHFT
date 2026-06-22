@@ -82,8 +82,15 @@
     "profile:dry": "bash scripts/switch-profile.sh",
     "setup:tunnel": "node scripts/setup-cloudflare-tunnel.js",
     "setup:proxy": "node scripts/configure-proxy-solutions.js",
+    "setup:all": "node scripts/setup-all-proxies.js",
     "deploy:geo-bypass": "node scripts/deploy-geo-bypass.js",
-    "verify:infra": "node scripts/verify-production-infrastructure.js"
+    "verify:infra": "node scripts/verify-production-infrastructure.js",
+    "hummingbot:setup": "cat HUMMINGBOT_SETUP.md",
+    "hummingbot:start": "node hummingbot-connector.js",
+    "hummingbot:start:paper": "TRADING_MODE=paper node hummingbot-connector.js",
+    "hummingbot:status": "curl -s http://localhost:8000/status | jq .",
+    "hummingbot:connect": "hummingbot",
+    "hummingbot:monitor": "tail -f connector.log"
   },
   "dependencies": {
     "@langchain/community": "^1.1.28",
