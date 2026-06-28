@@ -605,6 +605,7 @@ async def lifespan(app: FastAPI):
     _tasks.append(asyncio.create_task(background_tick()))
     _tasks.append(asyncio.create_task(worker_probe_loop()))
     _tasks.append(asyncio.create_task(state_persistence_loop()))
+    _tasks.append(asyncio.create_task(autopilot_loop()))
 
     yield
 
@@ -744,6 +745,12 @@ async def set_mode(payload: dict, user: dict = Depends(require_admin)):
         raise HTTPException(400, "mode must be paper or live")
     if mode == "live" and not await _trade_keys_present():
         raise HTTPException(409, "Cannot switch to LIVE: no enabled exchange has an API key with 'trade' permission")
+    # Stronger gate: full readiness check
+    if mode == "live":
+        readiness = await live_readiness(user)
+        if not readiness["ready"]:
+            blocking = [c["label"] for c in readiness["checks"] if c["required"] and not c["ok"]]
+            raise HTTPException(409, f"LIVE mode blocked. {readiness['blocking_count']} prerequisite(s) failing: {blocking}")
     if worker_health_cache.get("ok"):
         await worker_client.post("/control/mode", {"mode": mode})
     bot_state["mode"] = mode
@@ -1384,6 +1391,201 @@ async def ab_reset(user: dict = Depends(require_admin)):
     await db.ab_lanes.delete_one({"_id": "singleton"})
     await _audit(user, "ab.reset", {})
     return {"ok": True}
+
+
+# ---------- Autopilot ----------
+# Two automations:
+#   1) Periodic A/B promotion — every N hours, promote the leading lane's preset
+#      into bot_config (paper-tested winner becomes the active strategy).
+#   2) Circuit breaker — if N alert events fire within a sliding window,
+#      auto-pause the bot (status = stopped) until a human resumes it.
+DEFAULT_AUTOPILOT = {
+    "enabled": False,
+    "promote_interval_hours": 6,
+    "min_winner_lead_pct": 5.0,         # Lane must lead by ≥5% pnl to promote
+    "min_lane_trades": 10,               # both lanes must have ≥10 trades
+    "circuit_breaker_enabled": True,
+    "breaker_events": 3,                 # 3 events in window → pause
+    "breaker_window_minutes": 10,
+    "last_promoted_at": None,
+    "last_promoted_preset": None,
+    "last_pause_at": None,
+}
+
+
+class AutopilotConfigIn(BaseModel):
+    enabled: Optional[bool] = None
+    promote_interval_hours: Optional[int] = None
+    min_winner_lead_pct: Optional[float] = None
+    min_lane_trades: Optional[int] = None
+    circuit_breaker_enabled: Optional[bool] = None
+    breaker_events: Optional[int] = None
+    breaker_window_minutes: Optional[int] = None
+
+
+async def _autopilot_get():
+    doc = await db.autopilot.find_one({"_id": "singleton"})
+    return doc or {**DEFAULT_AUTOPILOT, "_id": "singleton"}
+
+
+async def _maybe_promote_winner(ap: dict) -> Optional[str]:
+    """Returns name of promoted preset, or None."""
+    ab = await _ab_get()
+    if not ab.get("enabled"):
+        return None
+    a, b = ab.get("lane_a") or {}, ab.get("lane_b") or {}
+    if (a.get("trades") or 0) < ap["min_lane_trades"] or (b.get("trades") or 0) < ap["min_lane_trades"]:
+        return None
+    pnl_a, pnl_b = float(a.get("pnl") or 0), float(b.get("pnl") or 0)
+    if pnl_a <= 0 and pnl_b <= 0:
+        return None  # nothing worth promoting if both negative
+    leader = a if pnl_a > pnl_b else b
+    loser = b if leader is a else a
+    if (loser.get("pnl") or 0) <= 0:
+        spread_ok = True  # any positive lane beats a losing one
+    else:
+        lead = (pnl_a - pnl_b) if leader is a else (pnl_b - pnl_a)
+        loser_abs = abs(float(loser.get("pnl") or 1) or 1)
+        lead_pct = (lead / loser_abs) * 100
+        spread_ok = lead_pct >= ap["min_winner_lead_pct"]
+    if not spread_ok:
+        return None
+    preset_name = leader.get("preset")
+    if preset_name not in STRATEGY_PRESETS:
+        return None
+    bot_config.update(STRATEGY_PRESETS[preset_name])
+    return preset_name
+
+
+async def _circuit_breaker_check(ap: dict) -> bool:
+    """Returns True if the bot was just paused by the breaker."""
+    if not ap.get("circuit_breaker_enabled"):
+        return False
+    if bot_state["status"] != "running":
+        return False
+    window = datetime.now(timezone.utc) - timedelta(minutes=int(ap["breaker_window_minutes"]))
+    count = await db.alert_events.count_documents({"ts": {"$gte": window}})
+    if count >= int(ap["breaker_events"]):
+        bot_state["status"] = "stopped"
+        await db.autopilot.update_one(
+            {"_id": "singleton"},
+            {"$set": {"last_pause_at": datetime.now(timezone.utc), "last_pause_reason": f"{count} alert events in {ap['breaker_window_minutes']}m"}},
+            upsert=True,
+        )
+        return True
+    return False
+
+
+async def autopilot_loop():
+    while True:
+        try:
+            await asyncio.sleep(60)
+            ap = await _autopilot_get()
+            if not ap.get("enabled"):
+                continue
+            # circuit breaker
+            paused = await _circuit_breaker_check(ap)
+            if paused:
+                add_log("WARN", "AUTOPILOT circuit-breaker tripped — bot paused")
+                await _audit({"id": "autopilot", "email": "system@autopilot", "role": "system"}, "autopilot.pause", {"reason": "alert storm"})
+            # periodic promotion
+            last = ap.get("last_promoted_at")
+            if isinstance(last, datetime) and last.tzinfo is None:
+                last = last.replace(tzinfo=timezone.utc)
+            interval = timedelta(hours=int(ap["promote_interval_hours"]))
+            if last is None or (datetime.now(timezone.utc) - last) >= interval:
+                promoted = await _maybe_promote_winner(ap)
+                if promoted:
+                    now = datetime.now(timezone.utc)
+                    await db.autopilot.update_one(
+                        {"_id": "singleton"},
+                        {"$set": {"last_promoted_at": now, "last_promoted_preset": promoted}},
+                        upsert=True,
+                    )
+                    add_log("INFO", f"AUTOPILOT promoted '{promoted}' preset based on A/B leader")
+                    await _audit({"id": "autopilot", "email": "system@autopilot", "role": "system"}, "autopilot.promote", {"preset": promoted})
+        except asyncio.CancelledError:
+            raise
+        except Exception as e:
+            add_log("ERROR", f"autopilot loop error: {e}")
+            await asyncio.sleep(30)
+
+
+@api.get("/autopilot/status")
+async def autopilot_status(user: dict = Depends(get_current_user)):
+    doc = await _autopilot_get()
+    doc.pop("_id", None)
+    for k in ("last_promoted_at", "last_pause_at"):
+        if isinstance(doc.get(k), datetime):
+            doc[k] = doc[k].isoformat()
+    return doc
+
+
+@api.put("/autopilot/config")
+async def autopilot_config(payload: AutopilotConfigIn, user: dict = Depends(require_admin)):
+    data = payload.model_dump(exclude_none=True)
+    if "promote_interval_hours" in data and not (1 <= data["promote_interval_hours"] <= 168):
+        raise HTTPException(400, "promote_interval_hours must be 1..168")
+    if "breaker_events" in data and not (1 <= data["breaker_events"] <= 50):
+        raise HTTPException(400, "breaker_events must be 1..50")
+    if "breaker_window_minutes" in data and not (1 <= data["breaker_window_minutes"] <= 720):
+        raise HTTPException(400, "breaker_window_minutes must be 1..720")
+    await db.autopilot.update_one({"_id": "singleton"}, {"$set": data}, upsert=True)
+    await _audit(user, "autopilot.config", data)
+    add_log("INFO", f"Autopilot config updated by {user['email']}: {list(data.keys())}")
+    return await _autopilot_get()
+
+
+@api.post("/autopilot/resume")
+async def autopilot_resume(user: dict = Depends(require_admin)):
+    """Manual resume after a circuit breaker pause."""
+    bot_state["status"] = "running"
+    bot_state["started_at"] = datetime.now(timezone.utc).isoformat()
+    bot_state["uptime_seconds"] = 0
+    await _audit(user, "autopilot.resume", {})
+    add_log("INFO", f"Bot resumed after autopilot pause by {user['email']}")
+    return bot_state
+
+
+# ---------- Live-mode readiness check ----------
+@api.get("/safety/live-readiness")
+async def live_readiness(user: dict = Depends(get_current_user)):
+    """Returns a checklist of prerequisites before flipping to live mode.
+    UI gates the Live toggle on this passing."""
+    # 1. At least one trade-permission key on an enabled exchange
+    has_trade_key = await _trade_keys_present()
+    # 2. Telegram configured
+    telegram_ok = bool(telegram_config.get("bot_token")) and bool(telegram_config.get("chat_id"))
+    # 3. At least one enabled alert rule with cooldown <= 60s
+    fast_alerts = await db.alert_rules.count_documents({"enabled": True, "cooldown_seconds": {"$lte": 60}})
+    has_fast_alert = fast_alerts > 0
+    # 4. Paper-mode track record: ≥10 paper trades in last 24h with positive total PnL
+    since = datetime.now(timezone.utc) - timedelta(hours=24)
+    pipeline = [
+        {"$match": {"mode": "paper", "created_at": {"$gte": since}}},
+        {"$group": {"_id": None, "n": {"$sum": 1}, "pnl": {"$sum": "$pnl_usd"}}},
+    ]
+    agg = await db.trades.aggregate(pipeline).to_list(1)
+    paper_trades = (agg[0]["n"] if agg else 0)
+    paper_pnl = float(agg[0]["pnl"]) if agg else 0.0
+    paper_ok = paper_trades >= 10 and paper_pnl > 0
+    # 5. Worker reachable (real upstream data)
+    worker_ok = bool(worker_health_cache.get("ok"))
+
+    checks = [
+        {"id": "trade_key", "label": "Exchange key with 'trade' permission", "ok": has_trade_key, "required": True},
+        {"id": "telegram", "label": "Telegram alerts configured (token + chat id)", "ok": telegram_ok, "required": True},
+        {"id": "fast_alert", "label": "At least 1 enabled alert rule with cooldown ≤ 60s", "ok": has_fast_alert, "required": True},
+        {"id": "paper_track", "label": f"Paper mode: ≥10 trades & positive PnL in last 24h (now: {paper_trades} trades, ${paper_pnl:.2f})", "ok": paper_ok, "required": True},
+        {"id": "worker", "label": "Cloudflare Worker reachable (live market data, not mock)", "ok": worker_ok, "required": True},
+    ]
+    blocking = [c for c in checks if c["required"] and not c["ok"]]
+    return {
+        "ready": len(blocking) == 0,
+        "blocking_count": len(blocking),
+        "checks": checks,
+        "ts": datetime.now(timezone.utc).isoformat(),
+    }
 
 
 # ---------- Health ----------

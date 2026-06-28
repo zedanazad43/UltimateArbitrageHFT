@@ -1,7 +1,7 @@
 import React from "react";
 import { NavLink, useLocation } from "react-router-dom";
 import { useAuth } from "../contexts/AuthContext";
-import { LayoutDashboard, LineChart, History, Wallet, Settings, Terminal, Send, LogOut, Activity, KeyRound, Users as UsersIcon, Share2, Bell, GitCompareArrows, ScrollText } from "lucide-react";
+import { LayoutDashboard, LineChart, History, Wallet, Settings, Terminal, Send, LogOut, Activity, KeyRound, Users as UsersIcon, Share2, Bell, GitCompareArrows, ScrollText, Bot } from "lucide-react";
 import { useEffect, useState } from "react";
 import api from "../lib/api";
 
@@ -13,6 +13,7 @@ const NAV = [
   { to: "/keys", label: "API Keys", icon: KeyRound, testid: "nav-keys", adminOnly: true },
   { to: "/config", label: "Bot Config", icon: Settings, testid: "nav-config", adminOnly: true },
   { to: "/ab", label: "A/B Test", icon: GitCompareArrows, testid: "nav-ab", adminOnly: true },
+  { to: "/autopilot", label: "Autopilot", icon: Bot, testid: "nav-autopilot", adminOnly: true },
   { to: "/alerts", label: "Alerts", icon: Bell, testid: "nav-alerts", adminOnly: true },
   { to: "/users", label: "Users", icon: UsersIcon, testid: "nav-users", adminOnly: true },
   { to: "/audit", label: "Audit Log", icon: ScrollText, testid: "nav-audit", adminOnly: true },

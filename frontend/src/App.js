@@ -15,6 +15,7 @@ import Users from "./pages/Users";
 import Alerts from "./pages/Alerts";
 import ABTest from "./pages/ABTest";
 import Audit from "./pages/Audit";
+import Autopilot from "./pages/Autopilot";
 import Share from "./pages/Share";
 
 function Shell() {
@@ -45,6 +46,7 @@ function Shell() {
         {isAdmin && <Route path="/users" element={<Users />} />}
         {isAdmin && <Route path="/alerts" element={<Alerts />} />}
         {isAdmin && <Route path="/ab" element={<ABTest />} />}
+        {isAdmin && <Route path="/autopilot" element={<Autopilot />} />}
         {isAdmin && <Route path="/audit" element={<Audit />} />}
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
