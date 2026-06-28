@@ -11,6 +11,8 @@ import Config from "./pages/Config";
 import Logs from "./pages/Logs";
 import Telegram from "./pages/Telegram";
 import ApiKeys from "./pages/ApiKeys";
+import Users from "./pages/Users";
+import Share from "./pages/Share";
 
 function Shell() {
   const { user } = useAuth();
@@ -24,6 +26,7 @@ function Shell() {
     );
   }
   if (user === false) return <Login />;
+  const isAdmin = user.role === "admin";
   return (
     <Layout>
       <Routes>
@@ -35,6 +38,8 @@ function Shell() {
         <Route path="/logs" element={<Logs />} />
         <Route path="/telegram" element={<Telegram />} />
         <Route path="/keys" element={<ApiKeys />} />
+        <Route path="/api-keys" element={<ApiKeys />} />
+        {isAdmin && <Route path="/users" element={<Users />} />}
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </Layout>
@@ -43,8 +48,20 @@ function Shell() {
 
 export default function App() {
   return (
-    <AuthProvider>
-      <Shell />
-    </AuthProvider>
+    <Routes>
+      {/* Public share — no auth, outside the AuthProvider shell isn't necessary but we keep it simple */}
+      <Route
+        path="/share"
+        element={<Share />}
+      />
+      <Route
+        path="/*"
+        element={
+          <AuthProvider>
+            <Shell />
+          </AuthProvider>
+        }
+      />
+    </Routes>
   );
 }

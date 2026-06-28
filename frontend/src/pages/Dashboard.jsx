@@ -3,6 +3,8 @@ import api from "../lib/api";
 import { Card, CardHeader, Metric, Pill } from "../components/ui/Primitives";
 import { motion } from "framer-motion";
 import { Play, Square, RotateCcw, Zap, ShieldAlert, ArrowRight } from "lucide-react";
+import { useAuth } from "../contexts/AuthContext";
+import PnlChart from "../components/PnlChart";
 
 function uptime(sec) {
   const h = Math.floor(sec / 3600);
@@ -12,10 +14,13 @@ function uptime(sec) {
 }
 
 export default function Dashboard() {
+  const { user } = useAuth();
+  const isAdmin = user?.role === "admin";
   const [status, setStatus] = useState(null);
   const [pnl, setPnl] = useState(null);
   const [opps, setOpps] = useState([]);
   const [trades, setTrades] = useState([]);
+  const [actionError, setActionError] = useState("");
 
   const refresh = useCallback(async () => {
     try {
@@ -41,12 +46,24 @@ export default function Dashboard() {
   }, [refresh]);
 
   const action = async (a) => {
-    await api.post("/bot/action", { action: a });
-    refresh();
+    setActionError("");
+    try {
+      await api.post("/bot/action", { action: a });
+      refresh();
+    } catch (err) {
+      setActionError(err.response?.data?.detail || "Action failed");
+      setTimeout(() => setActionError(""), 4500);
+    }
   };
   const setMode = async (mode) => {
-    await api.post("/bot/mode", { mode });
-    refresh();
+    setActionError("");
+    try {
+      await api.post("/bot/mode", { mode });
+      refresh();
+    } catch (err) {
+      setActionError(err.response?.data?.detail || "Mode change failed");
+      setTimeout(() => setActionError(""), 4500);
+    }
   };
 
   const running = status?.status === "running";
@@ -87,8 +104,9 @@ export default function Dashboard() {
             <div className="flex items-center gap-2 border border-border rounded-sm p-1 bg-elevated/50" data-testid="mode-switch">
               <button
                 onClick={() => setMode("paper")}
+                disabled={!isAdmin}
                 data-testid="mode-paper-button"
-                className={`px-3 py-1.5 text-xs uppercase tracking-wider rounded-sm transition-colors ${
+                className={`px-3 py-1.5 text-xs uppercase tracking-wider rounded-sm transition-colors disabled:opacity-40 disabled:cursor-not-allowed ${
                   !live ? "bg-accent text-white" : "text-muted hover:text-white"
                 }`}
               >
@@ -96,8 +114,9 @@ export default function Dashboard() {
               </button>
               <button
                 onClick={() => setMode("live")}
+                disabled={!isAdmin}
                 data-testid="mode-live-button"
-                className={`px-3 py-1.5 text-xs uppercase tracking-wider rounded-sm transition-colors flex items-center gap-1 ${
+                className={`px-3 py-1.5 text-xs uppercase tracking-wider rounded-sm transition-colors flex items-center gap-1 disabled:opacity-40 disabled:cursor-not-allowed ${
                   live ? "bg-destructive text-white" : "text-muted hover:text-white"
                 }`}
               >
@@ -107,7 +126,7 @@ export default function Dashboard() {
 
             <button
               onClick={() => action("start")}
-              disabled={running}
+              disabled={running || !isAdmin}
               data-testid="bot-start-button"
               className="flex items-center gap-1.5 text-sm bg-primary text-black hover:bg-primary-hover disabled:opacity-30 disabled:cursor-not-allowed px-4 py-2 rounded-sm transition-colors"
             >
@@ -115,7 +134,7 @@ export default function Dashboard() {
             </button>
             <button
               onClick={() => action("stop")}
-              disabled={!running}
+              disabled={!running || !isAdmin}
               data-testid="bot-stop-button"
               className="flex items-center gap-1.5 text-sm border border-destructive/60 text-destructive hover:bg-destructive/10 disabled:opacity-30 disabled:cursor-not-allowed px-4 py-2 rounded-sm transition-colors"
             >
@@ -123,14 +142,26 @@ export default function Dashboard() {
             </button>
             <button
               onClick={() => action("restart")}
+              disabled={!isAdmin}
               data-testid="bot-restart-button"
-              className="flex items-center gap-1.5 text-sm border border-border hover:border-white px-4 py-2 rounded-sm transition-colors"
+              className="flex items-center gap-1.5 text-sm border border-border hover:border-white disabled:opacity-30 disabled:cursor-not-allowed px-4 py-2 rounded-sm transition-colors"
             >
               <RotateCcw size={14} /> Restart
             </button>
           </div>
         </div>
+        {actionError && (
+          <div
+            data-testid="dashboard-action-error"
+            className="mx-5 mb-4 border border-destructive/50 bg-destructive/10 text-destructive text-xs px-3 py-2 rounded-sm"
+          >
+            {actionError}
+          </div>
+        )}
       </Card>
+
+      {/* PnL chart */}
+      <PnlChart />
 
       {/* PnL row */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">

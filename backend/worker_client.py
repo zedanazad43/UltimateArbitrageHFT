@@ -29,6 +29,15 @@ def get_client() -> httpx.AsyncClient:
     return _client
 
 
+async def aclose() -> None:
+    global _client
+    if _client is not None:
+        try:
+            await _client.aclose()
+        finally:
+            _client = None
+
+
 def is_configured() -> bool:
     return bool(WORKER_URL)
 
@@ -39,7 +48,7 @@ async def get(path: str, params: Optional[dict] = None) -> Optional[Any]:
     url = f"{WORKER_URL}{path}"
     try:
         r = await get_client().get(url, params=params, headers=_headers())
-        if r.status_code >= 200 and r.status_code < 300:
+        if 200 <= r.status_code < 300:
             ct = r.headers.get("content-type", "")
             return r.json() if "application/json" in ct else r.text
         return None
@@ -53,7 +62,7 @@ async def post(path: str, json: Optional[dict] = None) -> Optional[Any]:
     url = f"{WORKER_URL}{path}"
     try:
         r = await get_client().post(url, json=json or {}, headers=_headers())
-        if r.status_code >= 200 and r.status_code < 300:
+        if 200 <= r.status_code < 300:
             ct = r.headers.get("content-type", "")
             return r.json() if "application/json" in ct else r.text
         return None

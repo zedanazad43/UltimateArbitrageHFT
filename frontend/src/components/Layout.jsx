@@ -1,7 +1,7 @@
 import React from "react";
 import { NavLink, useLocation } from "react-router-dom";
 import { useAuth } from "../contexts/AuthContext";
-import { LayoutDashboard, LineChart, History, Wallet, Settings, Terminal, Send, LogOut, Activity, KeyRound } from "lucide-react";
+import { LayoutDashboard, LineChart, History, Wallet, Settings, Terminal, Send, LogOut, Activity, KeyRound, Users as UsersIcon, Share2 } from "lucide-react";
 import { useEffect, useState } from "react";
 import api from "../lib/api";
 
@@ -10,16 +10,19 @@ const NAV = [
   { to: "/spreads", label: "Spreads", icon: LineChart, testid: "nav-spreads" },
   { to: "/trades", label: "Trades", icon: History, testid: "nav-trades" },
   { to: "/wallet", label: "Wallet", icon: Wallet, testid: "nav-wallet" },
-  { to: "/keys", label: "API Keys", icon: KeyRound, testid: "nav-keys" },
-  { to: "/config", label: "Bot Config", icon: Settings, testid: "nav-config" },
+  { to: "/keys", label: "API Keys", icon: KeyRound, testid: "nav-keys", adminOnly: true },
+  { to: "/config", label: "Bot Config", icon: Settings, testid: "nav-config", adminOnly: true },
+  { to: "/users", label: "Users", icon: UsersIcon, testid: "nav-users", adminOnly: true },
   { to: "/logs", label: "Logs", icon: Terminal, testid: "nav-logs" },
-  { to: "/telegram", label: "Telegram", icon: Send, testid: "nav-telegram" },
+  { to: "/telegram", label: "Telegram", icon: Send, testid: "nav-telegram", adminOnly: true },
 ];
 
 export default function Layout({ children }) {
   const { user, logout } = useAuth();
   const loc = useLocation();
-  const current = NAV.find((n) => n.to === loc.pathname) || NAV[0];
+  const isAdmin = user?.role === "admin";
+  const visibleNav = NAV.filter((n) => !n.adminOnly || isAdmin);
+  const current = visibleNav.find((n) => n.to === loc.pathname) || NAV.find((n) => n.to === loc.pathname) || NAV[0];
   const [worker, setWorker] = useState(null);
 
   useEffect(() => {
@@ -60,7 +63,7 @@ export default function Layout({ children }) {
         </div>
 
         <nav className="flex-1 px-3 py-4 space-y-0.5">
-          {NAV.map(({ to, label, icon: Icon, testid }) => (
+          {visibleNav.map(({ to, label, icon: Icon, testid }) => (
             <NavLink
               key={to}
               to={to}
@@ -80,14 +83,33 @@ export default function Layout({ children }) {
           ))}
         </nav>
 
-        <div className="px-4 py-4 border-t border-border/60">
-          <div className="text-[10px] uppercase tracking-[0.22em] text-muted mb-2">Operator</div>
-          <div className="flex items-center justify-between mb-3">
-            <div>
-              <div className="text-sm font-medium">{user?.name || "Admin"}</div>
-              <div className="text-[11px] text-muted font-mono">{user?.email}</div>
+        <div className="px-4 py-4 border-t border-border/60 space-y-3">
+          <div>
+            <div className="text-[10px] uppercase tracking-[0.22em] text-muted mb-2">Operator</div>
+            <div className="flex items-center justify-between">
+              <div className="min-w-0">
+                <div className="text-sm font-medium truncate">{user?.name || "Admin"}</div>
+                <div className="text-[11px] text-muted font-mono truncate">{user?.email}</div>
+              </div>
+              <span
+                data-testid="user-role-pill"
+                className={`text-[10px] uppercase tracking-wider px-1.5 py-0.5 rounded-sm border ${
+                  isAdmin ? "border-primary text-primary bg-primary/10" : "border-accent text-accent bg-accent/10"
+                }`}
+              >
+                {user?.role || "viewer"}
+              </span>
             </div>
           </div>
+          <a
+            href="/share"
+            target="_blank"
+            rel="noopener noreferrer"
+            data-testid="open-share-link"
+            className="w-full flex items-center justify-center gap-2 text-[11px] py-1.5 border border-border/60 hover:border-accent/60 hover:text-accent rounded-sm transition-colors text-muted"
+          >
+            <Share2 size={11} /> Open Public Share
+          </a>
           <button
             onClick={logout}
             data-testid="logout-button"

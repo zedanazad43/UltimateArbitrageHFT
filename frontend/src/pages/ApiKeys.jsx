@@ -8,7 +8,7 @@ const EXCHANGES = ["Binance", "KuCoin", "MEXC", "Bybit", "OKX", "Coinbase", "Bit
 export default function ApiKeys() {
   const [data, setData] = useState({ items: [], supported: EXCHANGES, configured: [] });
   const [editing, setEditing] = useState(null); // exchange or null
-  const [form, setForm] = useState({ api_key: "", api_secret: "", passphrase: "", label: "" });
+  const [form, setForm] = useState({ api_key: "", api_secret: "", passphrase: "", label: "", permissions: ["read"] });
   const [status, setStatus] = useState(null);
 
   const load = async () => {
@@ -22,7 +22,8 @@ export default function ApiKeys() {
 
   const open = (ex) => {
     setEditing(ex);
-    setForm({ api_key: "", api_secret: "", passphrase: "", label: "" });
+    const existing = data.items.find((i) => i.exchange === ex);
+    setForm({ api_key: "", api_secret: "", passphrase: "", label: existing?.label || "", permissions: existing?.permissions || ["read"] });
     setStatus(null);
   };
   const close = () => {
@@ -38,6 +39,7 @@ export default function ApiKeys() {
         api_secret: form.api_secret,
         passphrase: form.passphrase || undefined,
         label: form.label || undefined,
+        permissions: form.permissions,
       });
       setStatus({ ok: true, msg: "Saved (encrypted)" });
       await load();
@@ -51,6 +53,17 @@ export default function ApiKeys() {
     if (!window.confirm(`Remove API keys for ${ex}? This cannot be undone.`)) return;
     await api.delete(`/exchange-keys/${ex}`);
     await load();
+  };
+
+  const togglePermission = async (ex, item, perm) => {
+    const cur = item.permissions || [];
+    const next = cur.includes(perm) ? cur.filter((p) => p !== perm) : [...cur, perm];
+    try {
+      await api.patch(`/exchange-keys/${ex}/permissions`, { permissions: next });
+      await load();
+    } catch (err) {
+      console.error("permissions update failed", err);
+    }
   };
 
   const byExchange = Object.fromEntries(data.items.map((i) => [i.exchange, i]));
@@ -107,6 +120,27 @@ export default function ApiKeys() {
                         <span className="text-white">{item.passphrase_masked}</span>
                       </div>
                     )}
+                    <div className="pt-2 border-t border-border/40 mt-2 flex flex-wrap gap-1">
+                      {["read", "trade", "withdraw"].map((p) => {
+                        const on = (item.permissions || []).includes(p);
+                        return (
+                          <button
+                            key={p}
+                            data-testid={`apikey-perm-${ex.toLowerCase()}-${p}`}
+                            onClick={() => togglePermission(ex, item, p)}
+                            className={`text-[10px] uppercase tracking-wider px-1.5 py-0.5 rounded-sm border transition-colors ${
+                              on
+                                ? p === "withdraw"
+                                  ? "border-destructive text-destructive bg-destructive/10"
+                                  : "border-primary text-primary bg-primary/10"
+                                : "border-border text-muted hover:text-white"
+                            }`}
+                          >
+                            {p}
+                          </button>
+                        );
+                      })}
+                    </div>
                   </div>
                 )}
 
@@ -190,6 +224,34 @@ export default function ApiKeys() {
                   />
                 </Field>
               )}
+
+              <Field label="Permissions">
+                <div className="flex flex-wrap gap-1.5" data-testid="apikey-form-permissions">
+                  {["read", "trade", "withdraw"].map((p) => {
+                    const on = (form.permissions || []).includes(p);
+                    return (
+                      <button
+                        type="button"
+                        key={p}
+                        data-testid={`apikey-form-perm-${p}`}
+                        onClick={() => {
+                          const cur = form.permissions || [];
+                          setForm({ ...form, permissions: cur.includes(p) ? cur.filter((x) => x !== p) : [...cur, p] });
+                        }}
+                        className={`text-[10px] uppercase tracking-wider px-2.5 py-1 rounded-sm border ${
+                          on
+                            ? p === "withdraw"
+                              ? "border-destructive text-destructive bg-destructive/10"
+                              : "border-primary text-primary bg-primary/10"
+                            : "border-border text-muted"
+                        }`}
+                      >
+                        {p}
+                      </button>
+                    );
+                  })}
+                </div>
+              </Field>
 
               {status && (
                 <div
