@@ -1,6 +1,9 @@
 # .dev.vars — Cloudflare Workers Local Development Variables
 # Copy this file to .dev.vars and fill in your values.
 # WARNING: .dev.vars MUST be in .gitignore — never commit secrets!
+#
+# For the full variable reference (owner, canonical names, aliases, required/optional)
+# see: docs/env-reference.md
 
 # ── Admin & Security ────────────────────────────────────────────────────────────
 ADMIN_TOKEN=your-admin-token-here
@@ -55,9 +58,28 @@ AGGRESSIVE_SCAN_MODE=on
 CEX_MIN_SAFETY_FACTOR=0.10
 PERPS_MIN_SAFETY_FACTOR=0.10
 CEX_SLIPPAGE_MULTIPLIER=0.40
+EXPOSURE_BOOST_MULTIPLIER=1.50
+VENUE_READY_PRIORITY_MULTIPLIER=1.45
+SPOT_ONLY_LOCK_FORCE=false
+MANUAL_RISK_LOCK_FORCE=false
+SKIP_BALANCE_CHECK=true
+MAX_DAILY_LOSS_USD=25
+LIVE_EXECUTION_MIN_BALANCE_USD=0
+
+# ── Forced aggressive execution overrides (set AGGRESSIVE_EXECUTION_FORCE=on to activate) ─
+AGGRESSIVE_EXECUTION_FORCE=off
+AGGRESSIVE_FORCED_POSITION_SIZE_USD=15
+AGGRESSIVE_FORCED_MAX_LIVE_TRADES_PER_SCAN=10
+AGGRESSIVE_FORCED_SCALP_MIN_NET_PCT=0.05
+AGGRESSIVE_FORCED_MIN_SECONDS_BETWEEN_TRADES=10
+AGGRESSIVE_FORCED_SUPPORTED_SYMBOLS=BTCUSDT,ETHUSDT,SOLUSDT,XRPUSDT,BNBUSDT,ADAUSDT,DOGEUSDT,LTCUSDT,TRXUSDT,LINKUSDT,AVAXUSDT,DOTUSDT
 
 # ── Execution Exchange Allowlist ────────────────────────────────────────────────
 EXECUTION_EXCHANGES_ALLOWLIST=mexc,binance
+
+# ── Backtesting ─────────────────────────────────────────────────────────────────
+BACKTEST_AUTO_ENABLED=true
+BACKTEST_AUTO_INTERVAL_HOURS=24
 
 # ── D1 Database ─────────────────────────────────────────────────────────────────
 # Local D1 is created automatically with: npx wrangler d1 execute ultimate-arbitrage-db --local --file=./migrations/schema.sql
@@ -73,6 +95,8 @@ LLM_MODEL=@cf/meta/llama-3.1-8b-instruct
 AI_GATEWAY_ID=
 AI_GATEWAY_URL=
 AI_GATEWAY_TOKEN=
+AI_FILTER_ENABLED=true
+AI_FILTER_MIN_CONFIDENCE=0.7
 
 # ── HFT Engine (Go) ─────────────────────────────────────────────────────────────
 HFT_ENGINE_URL=
@@ -80,44 +104,49 @@ HFT_ENGINE_SECRET=
 
 # ── DEX / On-chain ──────────────────────────────────────────────────────────────
 ALCHEMY_API_KEY=
+ALCHEMY_EVM_WALLET=
+ALCHEMY_SOLANA_WALLET=
 DEX_EXECUTOR_URL=
 DEX_EXECUTOR_TOKEN=
 DEX_EXECUTION_TIMEOUT_MS=20000
 DEX_EXECUTOR_MAX_RETRIES=2
 DEX_MAX_SLIPPAGE_BPS=80
+DEX_MULTI_CHAIN_ENABLED=true
+DEX_CHAINS=ethereum,polygon,arbitrum,optimism,bsc
+ONEINCH_API_KEY=
+ONEINCH_API=
 
 # ── Cloudflare Web3 Gateways ────────────────────────────────────────────────────
 # Optional: HTTP-accessible Web3 gateways via Cloudflare (no RPC node required)
-# If set, these will be used instead of direct RPC endpoints.
-# Create gateways at: https://dash.cloudflare.com/?to=/:account/web3/gateways
-CLOUDFLARE_GATEWAY_ETH=https://eth-rpc.ecostamp.net
-CLOUDFLARE_GATEWAY_ARB=https://arb-rpc.ecostamp.net
-CLOUDFLARE_GATEWAY_BSC=https://bsc-rpc.ecostamp.net
-CLOUDFLARE_GATEWAY_IPFS=https://ipfs-gateway.ecostamp.net
-
-# ── Alchemy Web3 Gateways ───────────────────────────────────────────────────────
-# Optional: Alchemy provides managed Web3 gateways (fallback if Cloudflare unavailable)
 # RPC preference chain: Cloudflare → Alchemy → Direct RPC
-# When ALCHEMY_API_KEY is set:
-#   - Ethereum: https://eth-mainnet.g.alchemy.com/v2/{ALCHEMY_API_KEY}
-#   - Arbitrum: https://arb-mainnet.g.alchemy.com/v2/{ALCHEMY_API_KEY}
-#   - BSC: https://bsc-mainnet.g.alchemy.com/v2/{ALCHEMY_API_KEY}
+# Create gateways at: https://dash.cloudflare.com/?to=/:account/web3/gateways
+CLOUDFLARE_GATEWAY_ETH=
+CLOUDFLARE_GATEWAY_ARB=
+CLOUDFLARE_GATEWAY_BSC=
+CLOUDFLARE_GATEWAY_IPFS=
 
-# ── Alchemy Agent Wallets (Autonomous Onchain Execution) ────────────────────────
-# Managed agent wallets for autonomous DEX trades + cross-chain transactions
-# Create at: https://www.alchemy.com/docs/alchemy-cli
-ALCHEMY_EVM_WALLET=0x2d680d0b87e91d64e7b4d0c8b56611b47f8d7e59
-ALCHEMY_SOLANA_WALLET=Dp2KqwZcin85pSJ4hH1VFrEkJTgNBhiMnTm7Pk86UPTJ
-
-# Fallback: Direct RPC endpoints (used if Cloudflare & Alchemy gateways not configured)
+# Fallback: Direct RPC endpoints (used if gateways are not configured)
 ETH_RPC_URL=https://rpc.flashbots.net
 ARBITRUM_RPC_URL=https://arb1.arbitrum.io/rpc
 BSC_RPC_URL=https://bsc-dataseed.binance.org/rpc
 
-# ── External Proxy ──────────────────────────────────────────────────────────────
+# ── Proxy routing ───────────────────────────────────────────────────────────────
+# Canonical names: PROXY_FALLBACK_URL, PROXY_FALLBACK_AUTH_HEADER
+# (PROXY_URL is a legacy alias still accepted by the runtime)
 PROXY_MODE=auto
-PROXY_URL=
+PROXY_FALLBACK_URL=
+PROXY_FALLBACK_AUTH_HEADER=
+DIRECT_EXCHANGES=
+# JSON array of proxy objects: [{"url":"...","type":"http","priority":0,"region":"eu"}]
 PROXY_LIST=
+
+# ── External proxy (Bright Data / Oxylabs / custom gateway) ─────────────────────
+# Canonical names: EXTERNAL_PROXY_FALLBACK_* (legacy aliases: EXTERNAL_PROXY_*)
+EXTERNAL_PROXY_FALLBACK_URL=
+EXTERNAL_PROXY_FALLBACK_PROVIDER=none
+EXTERNAL_PROXY_FALLBACK_USERNAME=
+EXTERNAL_PROXY_FALLBACK_PASSWORD=
+EXTERNAL_PROXY_FALLBACK_AUTH_HEADER=
 
 # ── Temporal Cloud ──────────────────────────────────────────────────────────────
 TEMPORAL_NAMESPACE=default
@@ -127,13 +156,18 @@ TEMPORAL_API_KEY=
 
 # ── Ecosystem Integrations ──────────────────────────────────────────────────────
 HUMMINGBOT_EXECUTE_URL=
+HUMMINGBOT_STATUS_URL=
 HUMMINGBOT_API_TOKEN=
 FREQTRADE_EXECUTE_URL=
+FREQTRADE_STATUS_URL=
 FREQTRADE_API_TOKEN=
 CREWAI_EXECUTE_URL=
+CREWAI_STATUS_URL=
 CREWAI_API_TOKEN=
 AUTOGPT_EXECUTE_URL=
+AUTOGPT_STATUS_URL=
 AUTOGPT_API_TOKEN=
+EXECUTIVE_LOCAL_ADAPTERS=true
 
 # ── Free Data Providers (optional) ──────────────────────────────────────────────
 ALPHA_VANTAGE_API_KEY=
