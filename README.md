@@ -19,6 +19,14 @@ For local/global VS Code Copilot sessions across all projects, user-level instru
 
 ---
 
+## Environment Setup
+
+> **Canonical variable reference**: [`docs/env-reference.md`](docs/env-reference.md)
+> covers every variable for all four runtime surfaces (Cloudflare Worker, Go HFT engine,
+> local AI dev, proxy gateway) with canonical names, legacy aliases, owner, and required/optional status.
+
+---
+
 ## Prerequisites — do these ONCE before first deploy
 
 ### 1. Cloudflare API Token

@@ -100,7 +100,8 @@ Copy `.dev.vars.example` to a temporary file, fill in real values, then upload:
 npx wrangler secret bulk /path/to/your/secrets.json
 ```
 
-The expected keys are listed in `.dev.vars.example`.  The **minimum** required set to
+The full list of expected keys with descriptions is in [`docs/env-reference.md`](docs/env-reference.md)
+(sections 2.1–2.9 cover all Worker secrets). The **minimum** required set to
 have a working bot in paper-trading mode:
 
 | Secret | Purpose |
