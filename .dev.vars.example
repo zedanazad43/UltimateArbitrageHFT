@@ -155,9 +155,9 @@ TEMPORAL_WORKER_URL=http://localhost:8787
 TEMPORAL_API_KEY=
 
 # ── Ecosystem Integrations ──────────────────────────────────────────────────────
-HUMMINGBOT_EXECUTE_URL=
-HUMMINGBOT_STATUS_URL=
+HUMMINGBOT_EXECUTE_URL=http://localhost:8080/api/v1/start
 HUMMINGBOT_API_TOKEN=
+HUMMINGBOT_STATUS_URL=http://localhost:8080/api/v1/status
 FREQTRADE_EXECUTE_URL=
 FREQTRADE_STATUS_URL=
 FREQTRADE_API_TOKEN=

@@ -278,6 +278,34 @@ npm run dev:local-ai
 
 Default behavior remains unchanged: `npm run dev` uses the current default AI backend settings.
 
+### Local Hummingbot (Docker)
+
+Run Hummingbot alongside the Worker in three terminals:
+
+```powershell
+# Terminal 1 — start Hummingbot container (Gateway API on port 8080)
+docker run -it -p 8080:8080 -v hummingbot_data:/root/hummingbot hummingbot/hummingbot:latest
+
+# Terminal 2 — trigger strategy execution via the connector script
+npm run hummingbot:start
+
+# Terminal 3 — watch live connector activity (connector.log is in the repo root)
+Get-Content connector.log -Wait
+```
+
+All activity is appended to **`connector.log`** in the repo root.
+
+Configure the Hummingbot API endpoint and optional auth token in `.dev.vars`:
+
+```ini
+HUMMINGBOT_EXECUTE_URL=http://localhost:8080/api/v1/start
+HUMMINGBOT_API_TOKEN=          # leave empty if Hummingbot auth is disabled
+HUMMINGBOT_STATUS_URL=http://localhost:8080/api/v1/status
+```
+
+The defaults match a standard Hummingbot Gateway Docker image (`-p 8080:8080`).
+Adjust the port and path if your image differs.
+
 ## Monitoring
 
 - **Telegram**: send `/status` or `/scan` to your bot

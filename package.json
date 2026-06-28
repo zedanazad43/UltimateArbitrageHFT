@@ -72,6 +72,7 @@
     "secret:all": "pwsh -NoProfile -File ./scripts/upload-secrets.ps1",
     "secret:dry": "pwsh -NoProfile -File ./scripts/upload-secrets.ps1 -DryRun",
     "secret:postcheck": "node scripts/post-secret-sync-check.js",
+    "hummingbot:start": "node scripts/hummingbot-start.js",
     "temporal:worker": "node temporal-worker.js",
     "temporal:dev": "TEMPORAL_ADDRESS=localhost:7233 node temporal-worker.js",
     "setup": "npm install && npm run secret:all && npm run db:migrate && npm run deploy",
