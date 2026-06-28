@@ -18,7 +18,7 @@
   - Mongo collections: `users`, `trades`, `engine_logs`, `exchange_keys`, `alert_rules`, `alert_events`, `runtime_state`, `ab_lanes`, `audit_log`, `autopilot`
 
 - **Frontend** `/app/frontend/src/` — React 18 + Tailwind + Framer Motion + lucide-react + recharts
-  - Pages: Dashboard (PnL chart), Spreads, Trades, Wallet, API Keys (vault + permissions + connectivity test), Bot Config (presets + risk), A/B Test, **Autopilot** (master toggle + periodic promotion + circuit breaker + safety checklist), Alerts (CRUD + event feed), Users (admin team management), Audit Log, Logs, Telegram, Share (public, no auth)
+  - Pages: Dashboard (PnL chart), Spreads, Trades, Wallet, API Keys (vault + permissions + connectivity test), Bot Config (presets + risk), A/B Test, **Autopilot** (master toggle + periodic promotion + circuit breaker + safety checklist), **Worker Deploy** (runbook + force-probe + troubleshooting guide), Alerts (CRUD + event feed), Users (admin team management + change-password), Audit Log, Logs, Telegram, Share (public, no auth)
   - Cookie-only JWT, CSRF auto-attached, admin-gated nav, viewer role disables controls
 
 - **Cloudflare Worker** `/app/ArbitrageBots/ultimate-arbitrage-hft/index.js`
@@ -35,6 +35,7 @@
 - iter_5: 30/30 + e2e (alerts + presets + key test + runtime persistence)
 - iter_6: 40/40 + e2e (worker speedup + JWT revocation + audit + cooldown persistence + A/B)
 - iter_7: 11/11 iter7 + 12/12 iter4 + 13/13 iter5 + 10/10 iter6 = **68/68 backend tests passing** + 100% frontend e2e (Autopilot + safety checklist)
+- iter_8 (2026-02-28): Worker Deploy Helper page added (self-tested via screenshot — runbook renders, force-probe button returns fresh worker status 403 from ecostamp.net as expected). Lint warning in `Users.jsx` (unescaped apostrophe) fixed.
 
 ## What "Real Money" Requires (User-Side)
 The control center and worker are READY but I (the AI) cannot deploy or auth as the user. To trade real money the user must:

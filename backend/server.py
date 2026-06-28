@@ -702,6 +702,15 @@ async def worker_health_view(user: dict = Depends(get_current_user)):
     return worker_health_cache
 
 
+@api.post("/worker/probe")
+async def worker_probe_now(user: dict = Depends(get_current_user)):
+    """Force a fresh worker health check (bypasses 20s background interval)."""
+    h = await worker_client.health()
+    worker_health_cache.update(h)
+    worker_health_cache["last_check"] = datetime.now(timezone.utc).isoformat()
+    return worker_health_cache
+
+
 # ---------- Bot status / control ----------
 @api.get("/bot/status")
 async def get_status(user: dict = Depends(get_current_user)):
@@ -739,22 +748,22 @@ async def bot_action(payload: BotActionIn, user: dict = Depends(require_admin)):
 
 
 @api.post("/bot/mode")
-async def set_mode(payload: dict, force: bool = False, user: dict = Depends(require_admin)):
+async def set_mode(payload: dict, user: dict = Depends(require_admin)):
     mode = payload.get("mode")
     if mode not in ("paper", "live"):
         raise HTTPException(400, "mode must be paper or live")
-    if mode == "live" and not force:
+    if mode == "live":
         if not await _trade_keys_present():
             raise HTTPException(409, "Cannot switch to LIVE: no enabled exchange has an API key with 'trade' permission")
         readiness = await live_readiness(user)
         if not readiness["ready"]:
             blocking = [c["label"] for c in readiness["checks"] if c["required"] and not c["ok"]]
-            raise HTTPException(409, f"LIVE mode blocked. {readiness['blocking_count']} prerequisite(s) failing: {blocking}. Pass ?force=true to override (NOT recommended).")
+            raise HTTPException(409, f"LIVE mode blocked. {readiness['blocking_count']} prerequisite(s) failing: {blocking}")
     if worker_health_cache.get("ok"):
         await worker_client.post("/control/mode", {"mode": mode})
     bot_state["mode"] = mode
-    add_log("WARN" if mode == "live" else "INFO", f"Mode switched to {mode.upper()}{' (FORCE)' if force else ''} by {user['email']}")
-    await _audit(user, "bot.mode", {"mode": mode, "force": bool(force)})
+    add_log("WARN" if mode == "live" else "INFO", f"Mode switched to {mode.upper()} by {user['email']}")
+    await _audit(user, "bot.mode", {"mode": mode})
     return bot_state
     if worker_health_cache.get("ok"):
         await worker_client.post("/control/mode", {"mode": mode})

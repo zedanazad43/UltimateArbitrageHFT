@@ -1,18 +1,21 @@
 import React, { useEffect, useState } from "react";
 import api from "../lib/api";
 import { Card, CardHeader, Pill } from "../components/ui/Primitives";
-import { Plus, Trash2, ShieldCheck, X } from "lucide-react";
+import { Plus, Trash2, ShieldCheck, X, Check, KeyRound } from "lucide-react";
 import { useAuth } from "../contexts/AuthContext";
 
 const ROLES = ["admin", "viewer"];
 const empty = { email: "", password: "", name: "", role: "viewer" };
 
 export default function Users() {
-  const { user } = useAuth();
+  const { user, logout } = useAuth();
   const [items, setItems] = useState([]);
   const [adding, setAdding] = useState(false);
   const [form, setForm] = useState(empty);
   const [error, setError] = useState("");
+  const [pw, setPw] = useState({ new: "", confirm: "" });
+  const [pwBusy, setPwBusy] = useState(false);
+  const [pwMsg, setPwMsg] = useState(null);
 
   const load = async () => {
     try {
@@ -60,8 +63,88 @@ export default function Users() {
     }
   };
 
+  const changeMyPassword = async (e) => {
+    e.preventDefault();
+    setPwMsg(null);
+    if (pw.new.length < 8) {
+      setPwMsg({ ok: false, text: "Password must be at least 8 characters." });
+      return;
+    }
+    if (pw.new !== pw.confirm) {
+      setPwMsg({ ok: false, text: "Passwords do not match." });
+      return;
+    }
+    setPwBusy(true);
+    try {
+      await api.patch(`/users/${user.id}`, { password: pw.new });
+      setPwMsg({ ok: true, text: "Password updated. Signing you out — log back in with the new password." });
+      setPw({ new: "", confirm: "" });
+      setTimeout(() => { logout(); }, 1800);  // token was just revoked server-side
+    } catch (err) {
+      setPwMsg({ ok: false, text: err.response?.data?.detail || "Failed to update password" });
+    } finally {
+      setPwBusy(false);
+    }
+  };
+
   return (
     <div className="space-y-4 max-w-4xl" data-testid="users-page">
+      {/* Change-my-password card — admin can rotate their own password without touching .env */}
+      <Card testid="change-my-password-card">
+        <CardHeader
+          subtitle="[ Self-service ]"
+          title="Change My Password"
+          right={<Pill tone="accent"><KeyRound size={10} /> {user?.email}</Pill>}
+        />
+        <form onSubmit={changeMyPassword} className="p-4 grid grid-cols-1 md:grid-cols-3 gap-3 items-end" data-testid="change-my-password-form">
+          <div>
+            <div className="text-[10px] uppercase tracking-[0.22em] text-muted mb-1.5">New password</div>
+            <input
+              type="password"
+              value={pw.new}
+              onChange={(e) => setPw({ ...pw, new: e.target.value })}
+              minLength={8}
+              required
+              data-testid="cmp-new-input"
+              className="w-full bg-elevated border border-border rounded-sm px-3 py-2 text-sm font-mono focus:border-primary focus:outline-none"
+            />
+          </div>
+          <div>
+            <div className="text-[10px] uppercase tracking-[0.22em] text-muted mb-1.5">Confirm new password</div>
+            <input
+              type="password"
+              value={pw.confirm}
+              onChange={(e) => setPw({ ...pw, confirm: e.target.value })}
+              minLength={8}
+              required
+              data-testid="cmp-confirm-input"
+              className="w-full bg-elevated border border-border rounded-sm px-3 py-2 text-sm font-mono focus:border-primary focus:outline-none"
+            />
+          </div>
+          <button
+            type="submit"
+            disabled={pwBusy}
+            data-testid="cmp-save-button"
+            className="text-xs bg-primary text-black hover:bg-primary-hover disabled:opacity-40 px-4 py-2 rounded-sm flex items-center justify-center gap-1.5"
+          >
+            <ShieldCheck size={12} /> {pwBusy ? "saving..." : "Update Password"}
+          </button>
+          {pwMsg && (
+            <div
+              data-testid="cmp-status"
+              className={`md:col-span-3 text-xs px-3 py-2 rounded-sm border flex items-center gap-1.5 ${
+                pwMsg.ok ? "border-primary/50 text-primary bg-primary/5" : "border-destructive/50 text-destructive bg-destructive/5"
+              }`}
+            >
+              {pwMsg.ok ? <Check size={12} /> : <X size={12} />} {pwMsg.text}
+            </div>
+          )}
+          <div className="md:col-span-3 text-[11px] text-muted font-mono">
+            After saving, all existing sessions for your account are revoked. You&apos;ll be signed out automatically.
+          </div>
+        </form>
+      </Card>
+
       <Card>
         <CardHeader
           subtitle="[ Identity ]"
