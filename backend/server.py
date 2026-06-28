@@ -1513,7 +1513,9 @@ async def autopilot_loop():
 
 @api.get("/autopilot/status")
 async def autopilot_status(user: dict = Depends(get_current_user)):
-    doc = await _autopilot_get()
+    persisted = await _autopilot_get()
+    # Ensure full schema is always returned, even before any field has been persisted
+    doc = {**DEFAULT_AUTOPILOT, **{k: v for k, v in persisted.items() if k != "_id"}}
     doc.pop("_id", None)
     for k in ("last_promoted_at", "last_pause_at"):
         if isinstance(doc.get(k), datetime):
