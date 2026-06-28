@@ -1,18 +1,22 @@
 import React, { useEffect, useState } from "react";
 import api from "../lib/api";
 import { Card, CardHeader, Pill } from "../components/ui/Primitives";
-import { Check } from "lucide-react";
+import { Check, Zap } from "lucide-react";
 
 const ALL_EX = ["Binance", "KuCoin", "MEXC", "Bybit", "OKX", "Coinbase", "Bitget"];
 const ALL_SYM = ["BTC/USDT", "ETH/USDT", "SOL/USDT", "XRP/USDT", "BNB/USDT", "ADA/USDT", "DOGE/USDT", "AVAX/USDT", "LINK/USDT", "MATIC/USDT"];
+const PRESETS = ["conservative", "balanced", "aggressive"];
 
 export default function Config() {
   const [cfg, setCfg] = useState(null);
   const [dirty, setDirty] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [presetApplied, setPresetApplied] = useState(null);
+
+  const load = () => api.get("/bot/config").then(({ data }) => setCfg(data));
 
   useEffect(() => {
-    api.get("/bot/config").then(({ data }) => setCfg(data));
+    load();
   }, []);
 
   if (!cfg) return <div className="text-muted font-mono text-sm">[ loading config... ]</div>;
@@ -31,8 +35,55 @@ export default function Config() {
     setTimeout(() => setSaved(false), 1800);
   };
 
+  const applyPreset = async (name) => {
+    try {
+      const { data } = await api.post(`/bot/preset/${name}`);
+      setCfg(data.config);
+      setPresetApplied(name);
+      setDirty(false);
+      setTimeout(() => setPresetApplied(null), 1800);
+    } catch (err) {
+      console.error("preset apply failed", err);
+    }
+  };
+
   return (
     <div className="space-y-4 max-w-5xl" data-testid="config-page">
+      <Card testid="strategy-presets-card">
+        <CardHeader
+          subtitle="[ One-Click ]"
+          title="Strategy Presets"
+          right={presetApplied && <Pill tone="success"><Check size={10} /> {presetApplied} applied</Pill>}
+        />
+        <div className="p-4 grid grid-cols-1 md:grid-cols-3 gap-3">
+          {PRESETS.map((name) => {
+            const colors = {
+              conservative: "border-accent text-accent",
+              balanced: "border-primary text-primary",
+              aggressive: "border-destructive text-destructive",
+            }[name];
+            const blurbs = {
+              conservative: "tighter spreads, smaller size — fewer trades, lower risk",
+              balanced: "default profile — middle of the road",
+              aggressive: "low spread floor, larger size, fast cadence — more trades, more risk",
+            }[name];
+            return (
+              <button
+                key={name}
+                onClick={() => applyPreset(name)}
+                data-testid={`preset-${name}`}
+                className={`text-left p-4 rounded-sm border bg-elevated/40 hover:bg-elevated/80 transition-colors ${colors}`}
+              >
+                <div className="flex items-center gap-1.5 text-[10px] uppercase tracking-[0.22em] mb-1">
+                  <Zap size={10} /> {name}
+                </div>
+                <div className="text-xs text-white/85">{blurbs}</div>
+              </button>
+            );
+          })}
+        </div>
+      </Card>
+
       <Card>
         <CardHeader
           subtitle="[ Strategy ]"

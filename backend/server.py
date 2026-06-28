@@ -156,6 +156,64 @@ class UserUpdateIn(BaseModel):
     role: Optional[str] = None
 
 
+# --- Alert rules ---
+ALERT_METRICS = {
+    "pnl_total", "pnl_today", "pnl_h24",
+    "uptime_seconds", "win_rate", "trades_total",
+    "max_spread_pct",  # current best spread on the board
+    "no_trade_minutes",  # minutes since last fill
+}
+ALERT_OPS = {">", ">=", "<", "<=", "=="}
+
+
+class AlertRuleIn(BaseModel):
+    name: str
+    metric: str
+    op: str
+    threshold: float
+    enabled: bool = True
+    cooldown_seconds: int = 600  # avoid alert spam
+    channels: Optional[List[str]] = None  # ["telegram"] (default)
+    notes: Optional[str] = None
+
+
+class AlertRuleUpdate(BaseModel):
+    name: Optional[str] = None
+    metric: Optional[str] = None
+    op: Optional[str] = None
+    threshold: Optional[float] = None
+    enabled: Optional[bool] = None
+    cooldown_seconds: Optional[int] = None
+    channels: Optional[List[str]] = None
+    notes: Optional[str] = None
+
+
+# --- Strategy presets ---
+STRATEGY_PRESETS = {
+    "conservative": {
+        "min_spread_pct": 0.55,
+        "max_position_usd": 1000.0,
+        "max_slippage_pct": 0.08,
+        "trade_cooldown_ms": 1500,
+        "auto_restart": True,
+    },
+    "balanced": {
+        "min_spread_pct": 0.35,
+        "max_position_usd": 2500.0,
+        "max_slippage_pct": 0.15,
+        "trade_cooldown_ms": 750,
+        "auto_restart": True,
+    },
+    "aggressive": {
+        "min_spread_pct": 0.18,
+        "max_position_usd": 5000.0,
+        "max_slippage_pct": 0.25,
+        "trade_cooldown_ms": 300,
+        "auto_restart": True,
+    },
+}
+
+
 # ---------- Mock state seed ----------
 EXCHANGES = ["Binance", "KuCoin", "MEXC", "Bybit", "OKX", "Coinbase", "Bitget"]
 SYMBOLS = ["BTC/USDT", "ETH/USDT", "SOL/USDT", "XRP/USDT", "BNB/USDT", "ADA/USDT", "DOGE/USDT", "AVAX/USDT", "LINK/USDT", "MATIC/USDT"]
@@ -286,6 +344,8 @@ async def background_tick():
                     pnl_state["today"] = round(pnl_state["today"] + pnl, 2)
                     pnl_state["h24"] = round(pnl_state["h24"] + pnl, 2)
                     pnl_state["trades_total"] += 1
+                    global _last_trade_ts
+                    _last_trade_ts = datetime.now(timezone.utc)
                     add_log("INFO", f"TRADE filled {op['symbol']} {op['buy_exchange']}->{op['sell_exchange']} pnl={pnl:.2f} USDT")
                     await _persist_trade(trade)
                 if random.random() < 0.04:
@@ -295,6 +355,11 @@ async def background_tick():
                         "Rate limit nearing on Bybit public feed",
                     ]))
                 bot_state["uptime_seconds"] += 2
+                # alert rules evaluation (cheap; cooldown enforced)
+                try:
+                    await _evaluate_alerts(spreads)
+                except Exception as e:
+                    add_log("ERROR", f"alert eval error: {e}")
             await asyncio.sleep(2)
         except asyncio.CancelledError:
             raise
@@ -327,6 +392,133 @@ async def _trade_keys_present() -> bool:
     return False
 
 
+# ---------- State persistence (bot_state, bot_config, pnl_state) ----------
+async def _persist_runtime_state():
+    """Snapshot mutable runtime dicts to Mongo so they survive restarts."""
+    try:
+        await db.runtime_state.update_one(
+            {"_id": "singleton"},
+            {"$set": {
+                "bot_state": bot_state,
+                "bot_config": bot_config,
+                "pnl_state": pnl_state,
+                "telegram_config": {**telegram_config, "bot_token_enc": encrypt(telegram_config.get("bot_token") or "")},
+                "saved_at": datetime.now(timezone.utc),
+            }},
+            upsert=True,
+        )
+    except Exception:
+        pass
+
+
+async def _restore_runtime_state():
+    doc = await db.runtime_state.find_one({"_id": "singleton"})
+    if not doc:
+        return
+    for src_key, target in [("bot_state", bot_state), ("bot_config", bot_config), ("pnl_state", pnl_state)]:
+        src = doc.get(src_key) or {}
+        for k, v in src.items():
+            if k in target:
+                target[k] = v
+    # Telegram: decrypt token if we persisted an encrypted variant
+    tg = doc.get("telegram_config") or {}
+    enc = tg.get("bot_token_enc")
+    if enc:
+        plain = decrypt(enc)
+        if plain:
+            telegram_config["bot_token"] = plain
+    for k in ("chat_id", "alerts_enabled"):
+        if k in tg:
+            telegram_config[k] = tg[k]
+
+
+# ---------- Alert evaluator ----------
+_last_trade_ts: Optional[datetime] = None
+_alert_last_fired: dict = {}  # rule_id -> ts
+
+
+async def _send_telegram_alert(rule: dict, value: float, msg: str) -> bool:
+    """Mocked Telegram dispatch: logs + persists. Replace with real worker/Telegram API later."""
+    add_log("WARN", f"ALERT[{rule.get('name')}]: {msg}")
+    try:
+        await db.alert_events.insert_one({
+            "rule_id": str(rule.get("_id")),
+            "rule_name": rule.get("name"),
+            "metric": rule.get("metric"),
+            "op": rule.get("op"),
+            "threshold": rule.get("threshold"),
+            "value": value,
+            "msg": msg,
+            "delivered": True,
+            "channel": "telegram",
+            "ts": datetime.now(timezone.utc),
+        })
+    except Exception:
+        pass
+    return True
+
+
+def _eval_op(value: float, op: str, threshold: float) -> bool:
+    if op == ">":
+        return value > threshold
+    if op == ">=":
+        return value >= threshold
+    if op == "<":
+        return value < threshold
+    if op == "<=":
+        return value <= threshold
+    if op == "==":
+        return value == threshold
+    return False
+
+
+async def _current_metric_value(metric: str, spreads: list) -> Optional[float]:
+    if metric in pnl_state and isinstance(pnl_state[metric], (int, float)):
+        return float(pnl_state[metric])
+    if metric == "uptime_seconds":
+        return float(bot_state.get("uptime_seconds") or 0)
+    if metric == "max_spread_pct":
+        return float(spreads[0]["spread_pct"]) if spreads else 0.0
+    if metric == "no_trade_minutes":
+        if _last_trade_ts is None:
+            return 0.0
+        delta = (datetime.now(timezone.utc) - _last_trade_ts).total_seconds() / 60.0
+        return float(delta)
+    return None
+
+
+async def _evaluate_alerts(spreads: list):
+    cur = db.alert_rules.find({"enabled": True})
+    now = datetime.now(timezone.utc)
+    async for rule in cur:
+        rule_id = str(rule["_id"])
+        last = _alert_last_fired.get(rule_id)
+        cooldown = int(rule.get("cooldown_seconds") or 600)
+        if last and (now - last).total_seconds() < cooldown:
+            continue
+        try:
+            v = await _current_metric_value(rule["metric"], spreads)
+        except Exception:
+            continue
+        if v is None:
+            continue
+        if _eval_op(v, rule["op"], float(rule["threshold"])):
+            msg = f"{rule['metric']} {rule['op']} {rule['threshold']} (actual={v:.4f})"
+            await _send_telegram_alert(rule, v, msg)
+            _alert_last_fired[rule_id] = now
+
+
+async def state_persistence_loop():
+    while True:
+        try:
+            await asyncio.sleep(15)
+            await _persist_runtime_state()
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            await asyncio.sleep(5)
+
+
 # ---------- Lifespan ----------
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -335,6 +527,11 @@ async def lifespan(app: FastAPI):
     await db.exchange_keys.create_index("exchange", unique=True)
     await db.trades.create_index("ts")
     await db.engine_logs.create_index("ts")
+    await db.alert_rules.create_index("name")
+    await db.alert_events.create_index([("ts", -1)])
+
+    # restore runtime state from previous run (best-effort)
+    await _restore_runtime_state()
 
     admin_email = os.environ["ADMIN_EMAIL"].lower()
     admin_password = os.environ["ADMIN_PASSWORD"]
@@ -363,10 +560,12 @@ async def lifespan(app: FastAPI):
 
     _tasks.append(asyncio.create_task(background_tick()))
     _tasks.append(asyncio.create_task(worker_probe_loop()))
+    _tasks.append(asyncio.create_task(state_persistence_loop()))
 
     yield
 
     # shutdown
+    await _persist_runtime_state()
     for t in _tasks:
         t.cancel()
     for t in _tasks:
@@ -871,6 +1070,153 @@ async def public_stats():
         "series_24h": series,
         "ts": now.isoformat(),
     }
+
+
+# ---------- Strategy presets ----------
+@api.get("/bot/presets")
+async def list_presets(user: dict = Depends(get_current_user)):
+    return {"presets": STRATEGY_PRESETS}
+
+
+@api.post("/bot/preset/{name}")
+async def apply_preset(name: str, user: dict = Depends(require_admin)):
+    if name not in STRATEGY_PRESETS:
+        raise HTTPException(400, f"Unknown preset. Valid: {list(STRATEGY_PRESETS.keys())}")
+    bot_config.update(STRATEGY_PRESETS[name])
+    add_log("INFO", f"Strategy preset '{name}' applied by {user['email']}")
+    return {"ok": True, "preset": name, "config": bot_config}
+
+
+# ---------- Exchange-key connectivity test ----------
+@api.post("/exchange-keys/{exchange}/test")
+async def test_exchange_key(exchange: str, user: dict = Depends(require_admin)):
+    """Probe the key by calling the worker's /exchange/{ex}/account endpoint.
+    Falls back to a mock OK if worker is not reachable (so the UI flow still works)."""
+    doc = await db.exchange_keys.find_one({"exchange": exchange})
+    if not doc:
+        raise HTTPException(404, "No key stored for this exchange")
+    if worker_health_cache.get("ok"):
+        upstream = await worker_client.get(f"/exchange/{exchange}/account")
+        if isinstance(upstream, dict):
+            add_log("INFO", f"Key test for {exchange} via worker by {user['email']}: ok")
+            return {"ok": True, "source": "worker", "latency_ms": upstream.get("latency_ms"), "balances": upstream.get("balances")}
+    # mock fallback
+    latency = random.randint(45, 320)
+    fake_balance = {"USDT": round(random.uniform(500, 4000), 2)}
+    add_log("INFO", f"Key test for {exchange} (mock) by {user['email']}: ok")
+    return {"ok": True, "source": "mock", "latency_ms": latency, "balances": fake_balance, "note": "worker unreachable — synthetic result"}
+
+
+# ---------- Alert rules ----------
+def _rule_public(d: dict) -> dict:
+    return {
+        "id": str(d["_id"]),
+        "name": d.get("name"),
+        "metric": d.get("metric"),
+        "op": d.get("op"),
+        "threshold": d.get("threshold"),
+        "enabled": d.get("enabled", True),
+        "cooldown_seconds": d.get("cooldown_seconds", 600),
+        "channels": d.get("channels") or ["telegram"],
+        "notes": d.get("notes") or "",
+        "created_at": d.get("created_at").isoformat() if d.get("created_at") else None,
+        "last_fired_at": d.get("last_fired_at").isoformat() if d.get("last_fired_at") else None,
+    }
+
+
+@api.get("/alerts/metrics")
+async def alert_metrics(user: dict = Depends(get_current_user)):
+    return {"metrics": sorted(ALERT_METRICS), "ops": sorted(ALERT_OPS)}
+
+
+@api.get("/alerts/rules")
+async def list_alert_rules(user: dict = Depends(get_current_user)):
+    cur = db.alert_rules.find({}).sort("created_at", 1)
+    out = []
+    async for d in cur:
+        out.append(_rule_public(d))
+    return out
+
+
+@api.post("/alerts/rules")
+async def create_alert_rule(payload: AlertRuleIn, user: dict = Depends(require_admin)):
+    if payload.metric not in ALERT_METRICS:
+        raise HTTPException(400, f"Invalid metric. Allowed: {sorted(ALERT_METRICS)}")
+    if payload.op not in ALERT_OPS:
+        raise HTTPException(400, f"Invalid op. Allowed: {sorted(ALERT_OPS)}")
+    doc = {
+        "name": payload.name,
+        "metric": payload.metric,
+        "op": payload.op,
+        "threshold": float(payload.threshold),
+        "enabled": payload.enabled,
+        "cooldown_seconds": int(payload.cooldown_seconds),
+        "channels": payload.channels or ["telegram"],
+        "notes": payload.notes or "",
+        "created_at": datetime.now(timezone.utc),
+        "created_by": user["email"],
+    }
+    res = await db.alert_rules.insert_one(doc)
+    doc["_id"] = res.inserted_id
+    add_log("INFO", f"Alert rule '{payload.name}' created by {user['email']}")
+    return _rule_public(doc)
+
+
+@api.patch("/alerts/rules/{rule_id}")
+async def update_alert_rule(rule_id: str, payload: AlertRuleUpdate, user: dict = Depends(require_admin)):
+    try:
+        oid = ObjectId(rule_id)
+    except Exception:
+        raise HTTPException(400, "Invalid rule id")
+    target = await db.alert_rules.find_one({"_id": oid})
+    if not target:
+        raise HTTPException(404, "Rule not found")
+    data = payload.model_dump(exclude_none=True)
+    if "metric" in data and data["metric"] not in ALERT_METRICS:
+        raise HTTPException(400, f"Invalid metric. Allowed: {sorted(ALERT_METRICS)}")
+    if "op" in data and data["op"] not in ALERT_OPS:
+        raise HTTPException(400, f"Invalid op. Allowed: {sorted(ALERT_OPS)}")
+    if data:
+        await db.alert_rules.update_one({"_id": oid}, {"$set": data})
+    fresh = await db.alert_rules.find_one({"_id": oid})
+    add_log("INFO", f"Alert rule {rule_id} updated by {user['email']}")
+    return _rule_public(fresh)
+
+
+@api.delete("/alerts/rules/{rule_id}")
+async def delete_alert_rule(rule_id: str, user: dict = Depends(require_admin)):
+    try:
+        oid = ObjectId(rule_id)
+    except Exception:
+        raise HTTPException(400, "Invalid rule id")
+    res = await db.alert_rules.delete_one({"_id": oid})
+    if res.deleted_count:
+        add_log("WARN", f"Alert rule {rule_id} deleted by {user['email']}")
+        _alert_last_fired.pop(rule_id, None)
+    return {"ok": True, "removed": res.deleted_count}
+
+
+@api.post("/alerts/rules/{rule_id}/test")
+async def fire_alert_test(rule_id: str, user: dict = Depends(require_admin)):
+    try:
+        oid = ObjectId(rule_id)
+    except Exception:
+        raise HTTPException(400, "Invalid rule id")
+    rule = await db.alert_rules.find_one({"_id": oid})
+    if not rule:
+        raise HTTPException(404, "Rule not found")
+    msg = f"TEST FIRE: {rule['name']} ({rule['metric']} {rule['op']} {rule['threshold']})"
+    await _send_telegram_alert(rule, 0.0, msg)
+    return {"ok": True, "delivered": True}
+
+
+@api.get("/alerts/events")
+async def alert_events(limit: int = 100, user: dict = Depends(get_current_user)):
+    docs = await db.alert_events.find({}, {"_id": 0}).sort("ts", -1).limit(min(limit, 500)).to_list(min(limit, 500))
+    for d in docs:
+        if isinstance(d.get("ts"), datetime):
+            d["ts"] = d["ts"].isoformat()
+    return docs
 
 
 # ---------- Health ----------

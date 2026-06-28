@@ -10,6 +10,7 @@ export default function ApiKeys() {
   const [editing, setEditing] = useState(null); // exchange or null
   const [form, setForm] = useState({ api_key: "", api_secret: "", passphrase: "", label: "", permissions: ["read"] });
   const [status, setStatus] = useState(null);
+  const [tests, setTests] = useState({}); // exchange -> {loading, ok, ms, balances}
 
   const load = async () => {
     const { data } = await api.get("/exchange-keys");
@@ -64,6 +65,17 @@ export default function ApiKeys() {
     } catch (err) {
       console.error("permissions update failed", err);
     }
+  };
+
+  const testKey = async (ex) => {
+    setTests((p) => ({ ...p, [ex]: { loading: true } }));
+    try {
+      const { data } = await api.post(`/exchange-keys/${ex}/test`);
+      setTests((p) => ({ ...p, [ex]: { ok: true, ms: data.latency_ms, source: data.source, balances: data.balances } }));
+    } catch (err) {
+      setTests((p) => ({ ...p, [ex]: { ok: false, msg: err.response?.data?.detail || "fail" } }));
+    }
+    setTimeout(() => setTests((p) => ({ ...p, [ex]: null })), 6000);
   };
 
   const byExchange = Object.fromEntries(data.items.map((i) => [i.exchange, i]));
