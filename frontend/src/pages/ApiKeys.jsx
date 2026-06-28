@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from "react";
 import api from "../lib/api";
 import { Card, CardHeader, Pill } from "../components/ui/Primitives";
-import { KeyRound, Check, Trash2, Plus, X } from "lucide-react";
+import { KeyRound, Check, Trash2, Plus, X, Activity } from "lucide-react";
 
 const EXCHANGES = ["Binance", "KuCoin", "MEXC", "Bybit", "OKX", "Coinbase", "Bitget"];
 
@@ -166,6 +166,16 @@ export default function ApiKeys() {
                   </button>
                   {configured && (
                     <button
+                      onClick={() => testKey(ex)}
+                      data-testid={`apikey-test-${ex.toLowerCase()}`}
+                      className="text-xs px-3 py-1.5 border border-accent/40 text-accent hover:bg-accent/10 rounded-sm flex items-center gap-1.5"
+                      title="Test connectivity"
+                    >
+                      <Activity size={11} />
+                    </button>
+                  )}
+                  {configured && (
+                    <button
                       onClick={() => remove(ex)}
                       data-testid={`apikey-delete-${ex.toLowerCase()}`}
                       className="text-xs px-3 py-1.5 border border-destructive/40 text-destructive hover:bg-destructive/10 rounded-sm flex items-center gap-1.5"
@@ -174,6 +184,24 @@ export default function ApiKeys() {
                     </button>
                   )}
                 </div>
+                {configured && tests[ex] && (
+                  <div
+                    data-testid={`apikey-test-result-${ex.toLowerCase()}`}
+                    className={`mt-2 text-[11px] font-mono px-2 py-1 rounded-sm border ${
+                      tests[ex].loading
+                        ? "border-border text-muted"
+                        : tests[ex].ok
+                        ? "border-primary/40 text-primary bg-primary/5"
+                        : "border-destructive/40 text-destructive bg-destructive/5"
+                    }`}
+                  >
+                    {tests[ex].loading
+                      ? "testing..."
+                      : tests[ex].ok
+                      ? `OK · ${tests[ex].ms}ms · ${tests[ex].source}`
+                      : tests[ex].msg || "fail"}
+                  </div>
+                )}
               </div>
             );
           })}
