@@ -11,6 +11,8 @@ import {
   Copy,
   AlertTriangle,
   Globe,
+  Activity,
+  Beaker,
 } from "lucide-react";
 
 const RUNBOOK = [
@@ -173,6 +175,8 @@ export default function WorkerDeploy() {
   const [worker, setWorker] = useState(null);
   const [probing, setProbing] = useState(false);
   const [copied, setCopied] = useState(null);
+  const [smoke, setSmoke] = useState(null);
+  const [smoking, setSmoking] = useState(false);
 
   const load = async (force = false) => {
     try {
@@ -188,6 +192,18 @@ export default function WorkerDeploy() {
       console.error("worker probe failed", err);
     } finally {
       setProbing(false);
+    }
+  };
+
+  const runSmoke = async () => {
+    setSmoking(true);
+    try {
+      const { data } = await api.get("/worker/smoke");
+      setSmoke(data);
+    } catch (err) {
+      console.error("worker smoke failed", err);
+    } finally {
+      setSmoking(false);
     }
   };
 
@@ -210,6 +226,8 @@ export default function WorkerDeploy() {
   return (
     <div className="space-y-4 max-w-5xl" data-testid="worker-deploy-page">
       <StatusBlock worker={worker} probing={probing} onProbe={() => load(true)} />
+
+      <SmokePanel smoke={smoke} smoking={smoking} onRun={runSmoke} />
 
       <Card>
         <CardHeader
@@ -286,6 +304,111 @@ function Trouble({ code, desc }) {
     <div className="flex items-start gap-3 border border-border/60 rounded-sm px-3 py-2.5" data-testid={`worker-deploy-trouble-${code.replace(/\s+/g, "-").toLowerCase()}`}>
       <Pill tone="warn">{code}</Pill>
       <div className="text-[12px] text-muted leading-relaxed">{desc}</div>
+    </div>
+  );
+}
+
+function SmokePanel({ smoke, smoking, onRun }) {
+  const allOk = smoke?.all_ok;
+  return (
+    <Card testid="worker-smoke-card" className={smoke && allOk ? "glow-primary" : ""}>
+      <CardHeader
+        subtitle="[ Shape diff ]"
+        title="Smoke-test Worker Endpoints"
+        right={
+          <div className="flex items-center gap-2">
+            {smoke && (
+              <Pill tone={allOk ? "success" : "danger"} testid="worker-smoke-overall-pill">
+                {allOk ? "all green" : "issues"}
+              </Pill>
+            )}
+            <button
+              data-testid="worker-smoke-run-button"
+              onClick={onRun}
+              disabled={smoking}
+              className="flex items-center gap-1.5 text-xs border border-primary/60 text-primary hover:bg-primary/10 px-3 py-2 rounded-sm disabled:opacity-50"
+            >
+              <Beaker size={12} className={smoking ? "animate-pulse" : ""} />
+              {smoking ? "Running..." : "Run smoke test"}
+            </button>
+          </div>
+        }
+      />
+      <div className="text-[11px] font-mono text-muted px-4 py-3 border-b border-border/40 flex items-start gap-2">
+        <Activity size={12} className="mt-0.5 shrink-0 text-primary" />
+        <span>
+          Probes <span className="text-white">/health</span>, <span className="text-white">/status</span>, <span className="text-white">/spreads</span>, <span className="text-white">/opportunities</span>, <span className="text-white">/balances</span> on your worker and verifies each response matches the shape the backend expects. Run this after every <span className="text-white">wrangler deploy</span> — before flipping LIVE.
+        </span>
+      </div>
+      {!smoke && (
+        <div className="px-4 py-6 text-center text-[12px] font-mono text-muted">
+          No smoke test run yet. Click &quot;Run smoke test&quot; to probe all endpoints.
+        </div>
+      )}
+      {smoke && !smoke.configured && (
+        <div className="px-4 py-4 text-[12px] font-mono text-destructive">
+          WORKER_URL is not configured in /app/backend/.env — set it first.
+        </div>
+      )}
+      {smoke && smoke.configured && (
+        <div className="divide-y divide-border/40">
+          {smoke.results.map((r) => (
+            <SmokeRow key={r.path} row={r} />
+          ))}
+        </div>
+      )}
+    </Card>
+  );
+}
+
+function SmokeRow({ row }) {
+  const greenHttp = row.ok;
+  const greenShape = row.shape_ok;
+  const fullyGreen = greenHttp && greenShape;
+  const Icon = fullyGreen ? CheckCircle2 : XCircle;
+  return (
+    <div className="px-4 py-3" data-testid={`worker-smoke-row-${row.path.replace("/", "")}`}>
+      <div className="flex items-start gap-3">
+        <Icon
+          size={16}
+          className={`mt-0.5 shrink-0 ${fullyGreen ? "text-primary" : "text-destructive"}`}
+        />
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2 flex-wrap">
+            <code className="font-mono text-sm text-white">{row.path}</code>
+            <Pill tone={greenHttp ? "success" : "danger"}>
+              {row.status_code ? `http ${row.status_code}` : "unreachable"}
+            </Pill>
+            <Pill tone={greenShape ? "success" : greenHttp ? "warn" : "neutral"}>
+              shape {greenShape ? "ok" : "mismatch"}
+            </Pill>
+            <span className="text-[11px] font-mono text-muted">
+              expects <span className="text-white">{row.expected_type}</span>
+              {row.expected_keys && (
+                <> with <span className="text-white">{row.expected_keys.join(", ")}</span></>
+              )}
+            </span>
+          </div>
+          {row.error && (
+            <div className="text-[11px] font-mono text-destructive mt-1">err: {row.error}</div>
+          )}
+          {row.missing_keys && row.missing_keys.length > 0 && (
+            <div className="text-[11px] font-mono text-yellow-400 mt-1">
+              missing keys: {row.missing_keys.join(", ")}
+            </div>
+          )}
+          {row.sample != null && (
+            <details className="mt-2">
+              <summary className="text-[10px] uppercase tracking-wider text-muted cursor-pointer hover:text-primary">
+                sample payload
+              </summary>
+              <pre className="mt-2 bg-elevated border border-border rounded-sm px-3 py-2 text-[11px] font-mono text-white overflow-x-auto max-h-48">
+                {JSON.stringify(row.sample, null, 2)}
+              </pre>
+            </details>
+          )}
+        </div>
+      </div>
     </div>
   );
 }

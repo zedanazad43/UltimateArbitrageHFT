@@ -711,6 +711,85 @@ async def worker_probe_now(user: dict = Depends(get_current_user)):
     return worker_health_cache
 
 
+# Each entry: (path, expected_type, expected_keys_or_none)
+# expected_type: "dict" | "list"
+# expected_keys: optional iterable of dict keys that must be present (top-level), or
+#                for list, keys that the first element should contain
+_SMOKE_ENDPOINTS = [
+    ("/health", "dict", None),
+    ("/status", "dict", None),
+    ("/spreads", "dict", ["rows"]),
+    ("/opportunities", "list", ["pair", "spread_pct"]),
+    ("/balances", "list", ["exchange"]),
+]
+
+
+@api.get("/worker/smoke")
+async def worker_smoke(user: dict = Depends(require_admin)):
+    """Hit each expected worker endpoint and report reachability + shape match."""
+    if not worker_client.is_configured():
+        return {"configured": False, "results": [], "url": None}
+
+    results = []
+    for path, expected_type, expected_keys in _SMOKE_ENDPOINTS:
+        entry = {
+            "path": path,
+            "expected_type": expected_type,
+            "expected_keys": expected_keys,
+            "ok": False,
+            "shape_ok": False,
+            "status_code": None,
+            "actual_type": None,
+            "missing_keys": [],
+            "error": None,
+            "sample": None,
+        }
+        try:
+            url = f"{worker_client.WORKER_URL}{path}"
+            r = await worker_client.get_client().get(url, headers=worker_client._headers())
+            entry["status_code"] = r.status_code
+            if 200 <= r.status_code < 300:
+                entry["ok"] = True
+                try:
+                    body = r.json()
+                except Exception as je:
+                    entry["error"] = f"non-json body: {str(je)[:80]}"
+                    body = None
+                if body is not None:
+                    actual = "list" if isinstance(body, list) else ("dict" if isinstance(body, dict) else type(body).__name__)
+                    entry["actual_type"] = actual
+                    if actual == expected_type:
+                        if expected_keys:
+                            if expected_type == "dict":
+                                missing = [k for k in expected_keys if k not in body]
+                            else:
+                                first = body[0] if body else {}
+                                missing = [k for k in expected_keys if not isinstance(first, dict) or k not in first]
+                            entry["missing_keys"] = missing
+                            entry["shape_ok"] = len(missing) == 0
+                        else:
+                            entry["shape_ok"] = True
+                    # Stash a small sample for the UI
+                    if isinstance(body, dict):
+                        entry["sample"] = {k: body[k] for k in list(body.keys())[:5]}
+                    elif isinstance(body, list):
+                        entry["sample"] = body[:2]
+            else:
+                entry["error"] = f"http {r.status_code}"
+        except Exception as e:
+            entry["error"] = str(e)[:160]
+        results.append(entry)
+
+    all_ok = all(e["ok"] and e["shape_ok"] for e in results)
+    return {
+        "configured": True,
+        "url": worker_client.WORKER_URL,
+        "ts": datetime.now(timezone.utc).isoformat(),
+        "all_ok": all_ok,
+        "results": results,
+    }
+
+
 # ---------- Bot status / control ----------
 @api.get("/bot/status")
 async def get_status(user: dict = Depends(get_current_user)):
