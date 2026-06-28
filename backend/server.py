@@ -739,18 +739,23 @@ async def bot_action(payload: BotActionIn, user: dict = Depends(require_admin)):
 
 
 @api.post("/bot/mode")
-async def set_mode(payload: dict, user: dict = Depends(require_admin)):
+async def set_mode(payload: dict, force: bool = False, user: dict = Depends(require_admin)):
     mode = payload.get("mode")
     if mode not in ("paper", "live"):
         raise HTTPException(400, "mode must be paper or live")
-    if mode == "live" and not await _trade_keys_present():
-        raise HTTPException(409, "Cannot switch to LIVE: no enabled exchange has an API key with 'trade' permission")
-    # Stronger gate: full readiness check
-    if mode == "live":
+    if mode == "live" and not force:
+        if not await _trade_keys_present():
+            raise HTTPException(409, "Cannot switch to LIVE: no enabled exchange has an API key with 'trade' permission")
         readiness = await live_readiness(user)
         if not readiness["ready"]:
             blocking = [c["label"] for c in readiness["checks"] if c["required"] and not c["ok"]]
-            raise HTTPException(409, f"LIVE mode blocked. {readiness['blocking_count']} prerequisite(s) failing: {blocking}")
+            raise HTTPException(409, f"LIVE mode blocked. {readiness['blocking_count']} prerequisite(s) failing: {blocking}. Pass ?force=true to override (NOT recommended).")
+    if worker_health_cache.get("ok"):
+        await worker_client.post("/control/mode", {"mode": mode})
+    bot_state["mode"] = mode
+    add_log("WARN" if mode == "live" else "INFO", f"Mode switched to {mode.upper()}{' (FORCE)' if force else ''} by {user['email']}")
+    await _audit(user, "bot.mode", {"mode": mode, "force": bool(force)})
+    return bot_state
     if worker_health_cache.get("ok"):
         await worker_client.post("/control/mode", {"mode": mode})
     bot_state["mode"] = mode

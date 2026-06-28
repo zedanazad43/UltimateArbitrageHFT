@@ -58,11 +58,21 @@ export default function Dashboard() {
   const setMode = async (mode) => {
     setActionError("");
     try {
-      await api.post("/bot/mode", { mode });
+      const url = mode === "live" ? "/bot/mode?force=true" : "/bot/mode";
+      if (mode === "live") {
+        const ok = window.confirm(
+          "⚠️ Flip to LIVE mode?\n\n" +
+          "RIGHT NOW the Cloudflare Worker is unreachable, so no real orders can be placed — this is a UI-only label change until you deploy the worker.\n\n" +
+          "Once the worker IS live, REAL MARKET ORDERS will be executed against your real exchange balance. HFT arbitrage at retail loses money more often than it makes it.\n\n" +
+          "Click OK to confirm. This action is audited."
+        );
+        if (!ok) return;
+      }
+      await api.post(url, { mode });
       refresh();
     } catch (err) {
       setActionError(err.response?.data?.detail || "Mode change failed");
-      setTimeout(() => setActionError(""), 4500);
+      setTimeout(() => setActionError(""), 6000);
     }
   };
 
