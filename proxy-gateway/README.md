@@ -1,5 +1,7 @@
 # Proxy Gateway (Node)
 
+> **Variable reference**: for how the Worker consumes this gateway, see [`docs/env-reference.md`](../docs/env-reference.md) (section 5).
+
 This gateway is compatible with the app's expected format:
 
 - `GET /proxy?target=<https-url>`
