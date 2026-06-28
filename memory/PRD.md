@@ -36,6 +36,8 @@
 - iter_6: 40/40 + e2e (worker speedup + JWT revocation + audit + cooldown persistence + A/B)
 - iter_7: 11/11 iter7 + 12/12 iter4 + 13/13 iter5 + 10/10 iter6 = **68/68 backend tests passing** + 100% frontend e2e (Autopilot + safety checklist)
 - iter_8 (2026-02-28): Worker Deploy Helper page added (self-tested via screenshot — runbook renders, force-probe button returns fresh worker status 403 from ecostamp.net as expected). Lint warning in `Users.jsx` (unescaped apostrophe) fixed. **Smoke-test endpoint panel** added (`GET /api/worker/smoke`) — probes `/health`, `/status`, `/spreads`, `/opportunities`, `/balances` in parallel via `asyncio.gather` (~1s worst-case) and reports HTTP + shape match per endpoint. Testing agent: 14/14 backend + 100% frontend e2e.
+- iter_9 (2026-02-28): **Go-Live Roadmap card** on Dashboard — pulls `/api/safety/live-readiness`, shows progress pill (0-100%), 5 prerequisite rows with check/X icons, and deep-link CTAs (worker→/worker, telegram→/telegram, trade_key→/keys, fast_alert→/alerts, paper_track→/autopilot). Hidden for viewers. Auto-smoke-on-online behavior added to WorkerDeploy page. Testing agent: 17/17 backend + 100% frontend.
+- iter_10 (2026-02-28): Hardened `/api/safety/live-readiness` to `require_admin` (was leaking prereq state to viewers). 17/17 backend + 100% frontend, viewer→403, admin→200 unchanged.
 
 ## What "Real Money" Requires (User-Side)
 The control center and worker are READY but I (the AI) cannot deploy or auth as the user. To trade real money the user must:
