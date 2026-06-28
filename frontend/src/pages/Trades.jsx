@@ -11,7 +11,9 @@ export default function Trades() {
       try {
         const { data } = await api.get("/trades?limit=100");
         if (m) setItems(data);
-      } catch {}
+      } catch (err) {
+        console.error("trades load failed", err);
+      }
     };
     tick();
     const id = setInterval(tick, 2500);

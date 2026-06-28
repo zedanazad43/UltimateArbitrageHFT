@@ -15,8 +15,22 @@ if not BASE_URL:
     except Exception:
         pass
 
-ADMIN_EMAIL = "admin@arbhft.io"
-ADMIN_PASSWORD = "Admin@123"
+ADMIN_EMAIL = os.environ.get("TEST_ADMIN_EMAIL") or os.environ.get("ADMIN_EMAIL") or "admin@arbhft.io"
+ADMIN_PASSWORD = os.environ.get("TEST_ADMIN_PASSWORD") or os.environ.get("ADMIN_PASSWORD") or "Admin@123"
+
+# Allow loading creds from backend/.env if env vars are not set explicitly
+if "TEST_ADMIN_EMAIL" not in os.environ and "ADMIN_EMAIL" not in os.environ:
+    try:
+        with open("/app/backend/.env") as f:
+            for line in f:
+                k, _, v = line.partition("=")
+                v = v.strip().strip('"').strip("'")
+                if k.strip() == "ADMIN_EMAIL" and v:
+                    ADMIN_EMAIL = v
+                elif k.strip() == "ADMIN_PASSWORD" and v:
+                    ADMIN_PASSWORD = v
+    except Exception:
+        pass
 
 
 @pytest.fixture(scope="session")

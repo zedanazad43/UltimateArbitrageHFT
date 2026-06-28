@@ -11,7 +11,11 @@ export const AuthProvider = ({ children }) => {
     try {
       const { data } = await api.get("/auth/me");
       setUser(data);
-    } catch {
+    } catch (err) {
+      if (err.response?.status !== 401) {
+        // 401 = expected "no session yet"; anything else worth logging
+        console.error("auth/me failed", err);
+      }
       setUser(false);
     }
   }, []);
@@ -24,7 +28,6 @@ export const AuthProvider = ({ children }) => {
     setError("");
     try {
       const { data } = await api.post("/auth/login", { email, password });
-      if (data.token) localStorage.setItem("auth_token", data.token);
       setUser(data.user);
       return true;
     } catch (e) {
@@ -37,10 +40,9 @@ export const AuthProvider = ({ children }) => {
   const logout = async () => {
     try {
       await api.post("/auth/logout");
-    } catch {
-      /* ignore */
+    } catch (err) {
+      console.error("logout failed", err);
     }
-    localStorage.removeItem("auth_token");
     setUser(false);
   };
 

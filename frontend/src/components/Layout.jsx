@@ -28,7 +28,9 @@ export default function Layout({ children }) {
       try {
         const { data } = await api.get("/worker/health");
         if (m) setWorker(data);
-      } catch {}
+      } catch (err) {
+        console.error("worker health check failed", err);
+      }
     };
     tick();
     const id = setInterval(tick, 8000);

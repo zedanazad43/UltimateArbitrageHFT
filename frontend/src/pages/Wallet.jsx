@@ -11,7 +11,9 @@ export default function Wallet() {
       try {
         const { data } = await api.get("/wallet/balances");
         if (m) setItems(data);
-      } catch {}
+      } catch (err) {
+        console.error("wallet load failed", err);
+      }
     };
     load();
     const id = setInterval(load, 4000);

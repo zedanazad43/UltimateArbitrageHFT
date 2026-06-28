@@ -28,8 +28,8 @@ export default function Spreads() {
         prevRef.current = next;
         setFlashKeys(f);
         setRows(data.rows);
-      } catch {
-        /* */
+      } catch (err) {
+        console.error("spreads load failed", err);
       }
     };
     tick();

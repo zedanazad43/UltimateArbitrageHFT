@@ -30,7 +30,7 @@ export default function Dashboard() {
       setOpps(o.data);
       setTrades(t.data);
     } catch (e) {
-      // ignore transient
+      console.error("dashboard refresh failed", e);
     }
   }, []);
 

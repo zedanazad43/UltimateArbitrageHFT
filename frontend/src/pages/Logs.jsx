@@ -20,7 +20,9 @@ export default function Logs() {
       try {
         const { data } = await api.get("/logs?limit=200");
         if (m) setLines(data);
-      } catch {}
+      } catch (err) {
+        console.error("logs load failed", err);
+      }
     };
     tick();
     const id = setInterval(tick, 1500);
