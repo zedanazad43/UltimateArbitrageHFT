@@ -9,49 +9,44 @@
 - Exchanges: All (Binance, KuCoin, MEXC, Bybit, OKX, Coinbase, Bitget)
 - Symbols: BTC, ETH, SOL, XRP, BNB, ADA, DOGE, AVAX, LINK, MATIC (against USDT)
 - Data: MOCK first, real Cloudflare Worker integration with graceful fallback
-- Auth: Simple admin JWT login
-- Worker URL: `https://ecostamp.net` (currently returns Cloudflare error 1014 / 403 — fallback to mock is active)
+- Auth: JWT admin login + multi-user roles + CSRF protection
+- Worker URL: `https://ecostamp.net` (Cloudflare 1014/403 — fallback to mock active)
 
 ## Architecture
 - **Backend (FastAPI)** `/app/backend/`
-  - `server.py` — all routes (auth, bot, market, trades, pnl, wallet, logs, telegram, exchange-keys, worker health)
-  - `worker_client.py` — HTTPX adapter, auto-fallback to mock on non-2xx/timeout
-  - `crypto_util.py` — Fernet (AES-128-CBC + HMAC) encrypt/decrypt/mask helpers
-  - Mongo collections: `users`, `trades`, `engine_logs`, `exchange_keys`
-  - Background loops: `background_tick()` (price scan / trade gen / log persist every 2s) and worker health probe
-- **Frontend (React 18 + Tailwind + Framer Motion + lucide-react + react-icons)** `/app/frontend/src/`
-  - Pages: Dashboard, Spreads, Trades, Wallet, **API Keys (encrypted vault)**, Bot Config, Logs, Telegram
-  - Worker connectivity badge in header (`worker · live | 403 | off`)
-  - Feed source indicator on Dashboard (`feed mock | live`)
+  - `server.py` — all routes, FastAPI **lifespan** context (clean startup/shutdown, task cancellation, `worker_client.aclose()`)
+  - `worker_client.py` — HTTPX adapter, auto-fallback to mock, `aclose()` for shutdown
+  - `crypto_util.py` — Fernet (AES-128 + HMAC-SHA256) encrypt/decrypt/mask
+  - Mongo collections: `users` (with `role: admin|viewer`), `trades`, `engine_logs`, `exchange_keys`
+  - Background tasks: `background_tick()` (price/trade/log gen every 2s) and `worker_probe_loop()` (20s)
+  - **CSRF middleware** — double-submit pattern: non-httpOnly `csrf_token` cookie + `X-CSRF-Token` header check on all state-changing `/api/*` calls. Pure-bearer (no cookies) CLI requests bypass automatically.
+  - **Multi-user**: `admin` and `viewer` roles. `require_admin` dependency on all write/admin endpoints.
+  - **Per-key permissions enforcement**: switching to LIVE mode or starting the bot in LIVE mode requires at least one enabled exchange with a stored API key that has `trade` permission. Returns 409 otherwise.
+  - **Public stats endpoint** `/api/public/stats` — no auth, no CSRF; safe to share publicly.
+- **Frontend (React 18 + Tailwind + Framer Motion + lucide-react + react-icons + recharts)** `/app/frontend/src/`
+  - **Auth**: cookie-only (httpOnly + Secure `access_token`); NO localStorage. CSRF token auto-attached via axios interceptor (reads `csrf_token` cookie, sets `X-CSRF-Token` header).
+  - **Pages**: Dashboard (with **PnL historical chart** 6h/24h/72h/168h), Spreads, Trades, Wallet, API Keys (encrypted vault + per-key permission badges & editor), Bot Config, Logs, Telegram, **Users** (admin-only), **Share** (public, no auth).
+  - **Layout**: worker connectivity badge, feed source indicator, **admin-gated sidebar items**, role pill in operator card, Open Public Share link.
+  - Viewer role: controls/buttons disabled at HTML level + sidebar items hidden.
 
 ## Implemented (Dates)
-- **2026-06-28 — MVP**: Auth, Dashboard (master control, PnL, opportunities, recent trades), Spreads, Trades, Wallet, Bot Config, Logs, Telegram. Tested 19/19 backend + 23/23 frontend (iteration_1).
-- **2026-06-28 — Phase 2**: Cloudflare Worker HTTPX bridge with mock fallback, MongoDB persistence for trades & logs (with `/trades/history` and `/logs/history`), encrypted per-exchange API-key manager (Fernet-encrypted, masked-only output). Tested 17/17 backend + full frontend regression (iteration_2).
+- **2026-06-28 MVP** — 19/19 backend + 23/23 frontend (iteration_1)
+- **2026-06-28 Phase 2** — Worker bridge + Mongo persistence + encrypted key vault — 17/17 + full e2e (iteration_2)
+- **2026-06-28 Code review fixes** — XSS-hardened (no localStorage), env-driven test creds, console.error in catch blocks — 17/17 + full regression (iteration_3)
+- **2026-06-28 Phase 3** — CSRF, multi-user roles, per-key trade-permission enforcement, PnL chart, public share page, FastAPI lifespan + graceful worker shutdown — 17/17 backend + full frontend (iteration_4)
 
-## Worker Integration
-- Reads `WORKER_URL`, `WORKER_ADMIN_TOKEN`, `WORKER_AUTH_SCHEME` from `backend/.env`
-- Tries worker endpoints first: `/spreads`, `/balances`, `/control/{start|stop|restart}`, `/control/mode`, `/config`, `/health`
-- On any non-2xx, timeout, or DNS error → silently falls back to local mock generator
-- Source labeling: `bot_state["source"] = "worker" | "mock"` exposed via `/api/bot/status` and `/api/market/spreads`
-
-## Encrypted API-Key Manager
-- Frontend: 7-card grid (one per exchange), Add/Replace/Remove inline forms, passphrase field auto-shown for OKX/KuCoin/Coinbase
-- Backend: Fernet ciphertext stored in `db.exchange_keys`, plaintext never returned (only `api_key_masked`, `api_secret_masked`, `has_passphrase` boolean)
-- Validated by Mongo direct inspection in test — no plaintext leakage
-
-## Testing
-- iteration_1: 19/19 backend + 23/23 frontend (MVP)
-- iteration_2: 17/17 backend + full frontend regression (worker bridge + persistence + key vault)
-
-## Backlog
-- **P1**: Use Worker for `/control/*` writes (already wired; awaiting reachable worker)
-- **P1**: Per-key permissions (`read|trade|withdraw`) UI + enforcement
-- **P1**: Historical PnL chart on Dashboard (recharts is installed)
-- **P2**: WebSocket push from backend for sub-second updates
-- **P2**: Multi-user roles + session list
-- **P2**: Public read-only "profit share" page (no auth)
-- **P2**: FastAPI lifespan + task cancellation; modularise server.py into routers as it grows
-- **P2**: `aclose()` worker_client on shutdown
+## Backlog (P1/P2)
+- **P1** Wire Cloudflare Worker once `ecostamp.net` DNS/route binding is fixed and a real `WORKER_ADMIN_TOKEN` is provided
+- **P1** Live exchange connectivity test endpoint (call exchange `/account` via worker) — show real-time green/red on API Keys cards
+- **P2** Split `server.py` into per-feature routers (auth, bot, market, users, keys, public)
+- **P2** Token revocation list (invalidate JWT on password change / role change)
+- **P2** WebSocket push for sub-second updates
+- **P2** Strategy presets (Conservative / Balanced / Aggressive)
+- **P2** Hoist `bot_state` / `pnl_state` to Mongo for multi-node scale-out
 
 ## Next Actions
-- Fix `ecostamp.net` DNS/route binding on Cloudflare so the worker becomes reachable, then set `WORKER_ADMIN_TOKEN`; backend will switch source to `worker` automatically.
+- Fix `ecostamp.net` Cloudflare routing to make worker reachable and supply `WORKER_ADMIN_TOKEN` — backend auto-switches to live data.
+
+## Test Reports
+- `/app/test_reports/iteration_{1,2,3,4}.json`
+- `/app/backend/tests/test_iteration{2,4}.py` (regression suites; rerunnable + self-cleaning)

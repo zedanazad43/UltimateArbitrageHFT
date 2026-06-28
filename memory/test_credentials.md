@@ -1,22 +1,31 @@
 # Test Credentials — UltimateArbitrageHFT Control Center
 
-## Admin Account
+## Bootstrap Admin (always present)
 - Email: `admin@arbhft.io`
 - Password: `Admin@123`
 - Role: `admin`
+- Auto-seeded from `backend/.env` at startup; cannot be demoted or deleted via the API.
 
-## Auth Endpoints
-- POST `/api/auth/login` — body: `{email, password}` — returns `{token, user}` and sets `access_token` cookie
-- POST `/api/auth/logout` — clears `access_token` cookie
-- GET `/api/auth/me` — returns current user (auth required)
+## Roles
+- `admin` — full control (bot/action, bot/mode, bot/config PUT, telegram, exchange-keys CRUD, users CRUD)
+- `viewer` — read-only (all GET endpoints + login/logout); write attempts return 403
 
 ## Auth Mechanism
-- Backend stores admin in MongoDB (`users` collection), bcrypt hashed.
-- Frontend uses **cookie-only authentication**: `access_token` is an httpOnly + Secure cookie set by `/api/auth/login`. The frontend axios client uses `withCredentials: true`. JWT is **NOT** stored in `localStorage` (XSS-hardened).
-- Pytest test file `/app/backend/tests/test_iteration2.py` reads credentials from `TEST_ADMIN_EMAIL` / `TEST_ADMIN_PASSWORD` or `ADMIN_EMAIL` / `ADMIN_PASSWORD` env vars, falling back to parsing `/app/backend/.env`.
+- **Cookie-only JWT**: `access_token` is an httpOnly + Secure + SameSite=None cookie set by `POST /api/auth/login`.
+- **CSRF (double-submit)**: a non-httpOnly companion cookie `csrf_token` is set on login; frontend axios reads it and echoes it as `X-CSRF-Token` header on every state-changing request. Backend rejects mismatched / missing headers with 403.
+- **CLI/pytest**: send `Authorization: Bearer <token>` only (no cookies) — CSRF middleware bypasses pure-bearer requests.
+- **Refresh CSRF**: `GET /api/auth/csrf` (authenticated) issues a fresh token and updates the cookie.
 
-## Notes
-- Mock data engine (`background_tick`) runs server-side and generates spreads / trades / logs every ~2s while bot is "running".
-- Trades and logs are persisted to MongoDB (`trades`, `engine_logs`) and survive restarts.
-- Exchange API keys are stored Fernet-encrypted in `exchange_keys` collection.
-- Worker URL: `https://ecostamp.net` (currently returns Cloudflare 1014/403 — backend gracefully falls back to mock).
+## Endpoints
+- `POST /api/auth/login` — `{email, password}` → `{token, csrf_token, user}` + cookies
+- `POST /api/auth/logout` — clears both cookies
+- `GET /api/auth/me` — current user
+- `GET /api/auth/csrf` — refreshes the CSRF token
+
+## Test File
+- `/app/backend/tests/test_iteration2.py` (phase-2 regression)
+- `/app/backend/tests/test_iteration4.py` (CSRF + roles + permissions + PnL series + public stats)
+- Both read creds from `TEST_ADMIN_EMAIL`/`TEST_ADMIN_PASSWORD` or `ADMIN_EMAIL`/`ADMIN_PASSWORD` env vars, falling back to parsing `/app/backend/.env`.
+
+## Public Page (no auth required)
+- `GET /share` (frontend) and `GET /api/public/stats` (backend) — share-safe stats, no secrets.
