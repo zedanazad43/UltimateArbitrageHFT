@@ -14,7 +14,10 @@ from bson import ObjectId
 from fastapi import FastAPI, APIRouter, HTTPException, Depends, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
-from pydantic import BaseModel, EmailStr, Field
+from pydantic import BaseModel, EmailStr
+
+import worker_client
+from crypto_util import encrypt, decrypt, mask
 
 # ---------- Mongo ----------
 MONGO_URL = os.environ["MONGO_URL"]
@@ -78,22 +81,32 @@ class LoginIn(BaseModel):
 
 
 class BotConfigIn(BaseModel):
-    mode: Optional[str] = None  # "paper" | "live"
+    mode: Optional[str] = None
     min_spread_pct: Optional[float] = None
     max_position_usd: Optional[float] = None
     allowed_symbols: Optional[List[str]] = None
     enabled_exchanges: Optional[List[str]] = None
     auto_restart: Optional[bool] = None
+    max_slippage_pct: Optional[float] = None
+    trade_cooldown_ms: Optional[int] = None
 
 
 class BotActionIn(BaseModel):
-    action: str  # "start" | "stop" | "restart"
+    action: str
 
 
 class TelegramConfigIn(BaseModel):
     bot_token: Optional[str] = None
     chat_id: Optional[str] = None
     alerts_enabled: Optional[bool] = None
+
+
+class ApiKeyIn(BaseModel):
+    exchange: str
+    api_key: str
+    api_secret: str
+    passphrase: Optional[str] = None
+    label: Optional[str] = None
 
 
 # ---------- Mock state seed ----------
@@ -106,8 +119,8 @@ BASE_PRICES = {
 }
 
 bot_state = {
-    "status": "running",          # "running" | "stopped"
-    "mode": "paper",                # "paper" | "live"
+    "status": "running",
+    "mode": "paper",
     "started_at": datetime.now(timezone.utc).isoformat(),
     "uptime_seconds": 0,
     "health": "healthy",
@@ -135,25 +148,42 @@ logs_buffer: List[dict] = []
 trades_buffer: List[dict] = []
 pnl_state = {"total": 1284.55, "today": 142.18, "h24": 218.44, "d7": 612.30, "win_rate": 0.684, "trades_total": 487}
 
+worker_health_cache = {"configured": worker_client.is_configured(), "reachable": False, "ok": False, "url": worker_client.WORKER_URL or None, "last_check": None}
+
 
 def add_log(level: str, msg: str):
-    logs_buffer.append({
+    entry = {
         "ts": datetime.now(timezone.utc).isoformat(),
         "level": level,
         "msg": msg,
-    })
+    }
+    logs_buffer.append(entry)
     if len(logs_buffer) > 500:
         del logs_buffer[:-500]
+    # async persist (fire-and-forget)
+    asyncio.create_task(_persist_log(entry))
+
+
+async def _persist_log(entry: dict):
+    try:
+        await db.engine_logs.insert_one({**entry, "created_at": datetime.now(timezone.utc)})
+    except Exception:
+        pass
+
+
+async def _persist_trade(trade: dict):
+    try:
+        await db.trades.insert_one({**trade, "created_at": datetime.now(timezone.utc)})
+    except Exception:
+        pass
 
 
 def gen_price_snapshot():
-    """Generate per-exchange prices for each symbol with small variations."""
     snap = {}
     for sym in SYMBOLS:
         base = BASE_PRICES[sym]
         per_ex = {}
         for ex in EXCHANGES:
-            # exchange offset 0..0.6% with some noise
             drift = random.uniform(-0.004, 0.004) * base
             spread_jitter = random.uniform(-0.0015, 0.0015) * base
             bid = base + drift + spread_jitter
@@ -183,18 +213,15 @@ def compute_spreads(snap):
 
 
 async def background_tick():
-    """Background loop: refresh prices, add logs, occasionally generate trades."""
-    add_log("INFO", "Bot engine started in paper mode")
+    add_log("INFO", f"Bot engine started ({bot_state['mode']} mode)")
     while True:
         try:
             if bot_state["status"] == "running":
                 snap = gen_price_snapshot()
                 spreads = compute_spreads(snap)
-                # occasional info logs
                 if random.random() < 0.25:
                     top = spreads[0]
                     add_log("INFO", f"Scan complete | top {top['symbol']} {top['spread_pct']:.3f}% {top['buy_exchange']}->{top['sell_exchange']}")
-                # generate a trade if any spread > min_spread_pct
                 viable = [s for s in spreads if s["spread_pct"] >= bot_config["min_spread_pct"] and s["symbol"] in bot_config["allowed_symbols"]]
                 if viable and random.random() < 0.55:
                     op = viable[0]
@@ -219,7 +246,7 @@ async def background_tick():
                     pnl_state["h24"] = round(pnl_state["h24"] + pnl, 2)
                     pnl_state["trades_total"] += 1
                     add_log("INFO", f"TRADE filled {op['symbol']} {op['buy_exchange']}->{op['sell_exchange']} pnl={pnl:.2f} USDT")
-                # rarely an error log
+                    await _persist_trade(trade)
                 if random.random() < 0.04:
                     add_log("WARN", random.choice([
                         "Latency spike on KuCoin websocket (212ms)",
@@ -233,6 +260,19 @@ async def background_tick():
             await asyncio.sleep(2)
 
 
+async def worker_probe_loop():
+    """Periodically refresh worker reachability cache."""
+    while True:
+        try:
+            h = await worker_client.health()
+            worker_health_cache.update(h)
+            worker_health_cache["last_check"] = datetime.now(timezone.utc).isoformat()
+        except Exception as e:  # noqa
+            worker_health_cache["last_check"] = datetime.now(timezone.utc).isoformat()
+            worker_health_cache["error"] = str(e)[:120]
+        await asyncio.sleep(20)
+
+
 # ---------- App ----------
 app = FastAPI(title="UltimateArbitrageHFT Control API")
 api = APIRouter(prefix="/api")
@@ -240,9 +280,11 @@ api = APIRouter(prefix="/api")
 
 @app.on_event("startup")
 async def startup():
-    # indexes
     await db.users.create_index("email", unique=True)
-    # seed admin
+    await db.exchange_keys.create_index("exchange", unique=True)
+    await db.trades.create_index("ts")
+    await db.engine_logs.create_index("ts")
+
     admin_email = os.environ["ADMIN_EMAIL"].lower()
     admin_password = os.environ["ADMIN_PASSWORD"]
     existing = await db.users.find_one({"email": admin_email})
@@ -257,10 +299,12 @@ async def startup():
     elif not verify_password(admin_password, existing["password_hash"]):
         await db.users.update_one({"email": admin_email}, {"$set": {"password_hash": hash_password(admin_password)}})
 
-    # seed initial mock logs & trades
     add_log("INFO", "API server online")
     add_log("INFO", f"Loaded {len(EXCHANGES)} exchanges, {len(SYMBOLS)} symbols")
+    if worker_client.is_configured():
+        add_log("INFO", f"Worker bridge configured: {worker_client.WORKER_URL}")
     asyncio.create_task(background_tick())
+    asyncio.create_task(worker_probe_loop())
 
 
 # ---------- Auth ----------
@@ -292,16 +336,30 @@ async def me(user: dict = Depends(get_current_user)):
     return user
 
 
+# ---------- Worker bridge ----------
+@api.get("/worker/health")
+async def worker_health_view(user: dict = Depends(get_current_user)):
+    return worker_health_cache
+
+
 # ---------- Bot status / control ----------
 @api.get("/bot/status")
 async def get_status(user: dict = Depends(get_current_user)):
-    return {**bot_state, "config": bot_config}
+    # try worker first
+    if worker_health_cache.get("ok"):
+        upstream = await worker_client.get("/status")
+        if isinstance(upstream, dict):
+            return {**bot_state, "config": bot_config, "source": "worker", "upstream": upstream}
+    return {**bot_state, "config": bot_config, "source": "mock"}
 
 
 @api.post("/bot/action")
 async def bot_action(payload: BotActionIn, user: dict = Depends(get_current_user)):
     if payload.action not in ("start", "stop", "restart"):
         raise HTTPException(400, "Invalid action")
+    # try forwarding to worker first
+    if worker_health_cache.get("ok"):
+        await worker_client.post(f"/control/{payload.action}")
     if payload.action == "start":
         bot_state["status"] = "running"
         bot_state["started_at"] = datetime.now(timezone.utc).isoformat()
@@ -322,6 +380,8 @@ async def set_mode(payload: dict, user: dict = Depends(get_current_user)):
     mode = payload.get("mode")
     if mode not in ("paper", "live"):
         raise HTTPException(400, "mode must be paper or live")
+    if worker_health_cache.get("ok"):
+        await worker_client.post("/control/mode", {"mode": mode})
     bot_state["mode"] = mode
     add_log("WARN" if mode == "live" else "INFO", f"Mode switched to {mode.upper()} by {user['email']}")
     return bot_state
@@ -336,29 +396,49 @@ async def get_config(user: dict = Depends(get_current_user)):
 async def put_config(payload: BotConfigIn, user: dict = Depends(get_current_user)):
     data = payload.model_dump(exclude_none=True)
     bot_config.update(data)
+    if worker_health_cache.get("ok"):
+        await worker_client.post("/config", data)
     add_log("INFO", f"Config updated by {user['email']}: {list(data.keys())}")
     return bot_config
 
 
-# ---------- Market / opportunities ----------
+# ---------- Market ----------
 @api.get("/market/spreads")
 async def market_spreads(user: dict = Depends(get_current_user)):
+    if worker_health_cache.get("ok"):
+        upstream = await worker_client.get("/spreads")
+        if isinstance(upstream, dict) and "rows" in upstream:
+            return {**upstream, "source": "worker"}
     snap = gen_price_snapshot()
     rows = compute_spreads(snap)
-    return {"rows": rows, "ts": datetime.now(timezone.utc).isoformat()}
+    return {"rows": rows, "ts": datetime.now(timezone.utc).isoformat(), "source": "mock"}
 
 
 @api.get("/market/opportunities")
 async def opportunities(user: dict = Depends(get_current_user)):
+    if worker_health_cache.get("ok"):
+        upstream = await worker_client.get("/opportunities")
+        if isinstance(upstream, list):
+            return upstream
     snap = gen_price_snapshot()
     rows = compute_spreads(snap)
-    # only viable opportunities
     return [r for r in rows if r["spread_pct"] >= bot_config["min_spread_pct"]][:10]
 
 
+# ---------- Trades (persistent) ----------
 @api.get("/trades")
 async def trades(limit: int = 50, user: dict = Depends(get_current_user)):
-    return trades_buffer[:limit]
+    # combine recent in-memory with Mongo history when needed
+    if limit <= len(trades_buffer):
+        return trades_buffer[:limit]
+    docs = await db.trades.find({}, {"_id": 0, "created_at": 0}).sort("ts", -1).limit(limit).to_list(limit)
+    return docs
+
+
+@api.get("/trades/history")
+async def trades_history(limit: int = 200, user: dict = Depends(get_current_user)):
+    docs = await db.trades.find({}, {"_id": 0, "created_at": 0}).sort("ts", -1).limit(limit).to_list(limit)
+    return docs
 
 
 @api.get("/pnl")
@@ -366,8 +446,13 @@ async def pnl(user: dict = Depends(get_current_user)):
     return pnl_state
 
 
+# ---------- Wallet ----------
 @api.get("/wallet/balances")
 async def wallet_balances(user: dict = Depends(get_current_user)):
+    if worker_health_cache.get("ok"):
+        upstream = await worker_client.get("/balances")
+        if isinstance(upstream, list):
+            return upstream
     out = []
     for ex in EXCHANGES:
         out.append({
@@ -383,9 +468,19 @@ async def wallet_balances(user: dict = Depends(get_current_user)):
     return out
 
 
+# ---------- Logs (persistent) ----------
 @api.get("/logs")
 async def logs(limit: int = 200, user: dict = Depends(get_current_user)):
-    return logs_buffer[-limit:][::-1]
+    if limit <= len(logs_buffer):
+        return logs_buffer[-limit:][::-1]
+    docs = await db.engine_logs.find({}, {"_id": 0, "created_at": 0}).sort("ts", -1).limit(limit).to_list(limit)
+    return docs
+
+
+@api.get("/logs/history")
+async def logs_history(limit: int = 500, user: dict = Depends(get_current_user)):
+    docs = await db.engine_logs.find({}, {"_id": 0, "created_at": 0}).sort("ts", -1).limit(limit).to_list(limit)
+    return docs
 
 
 # ---------- Telegram ----------
@@ -413,10 +508,72 @@ async def test_telegram(user: dict = Depends(get_current_user)):
     return {"ok": True, "delivered": True}
 
 
+# ---------- Exchange API Key manager (encrypted) ----------
+@api.get("/exchange-keys")
+async def list_keys(user: dict = Depends(get_current_user)):
+    docs = await db.exchange_keys.find({}, {"_id": 0}).to_list(50)
+    out = []
+    for d in docs:
+        api_key_plain = decrypt(d.get("api_key_enc", ""))
+        secret_plain = decrypt(d.get("api_secret_enc", ""))
+        passphrase_plain = decrypt(d.get("passphrase_enc", ""))
+        out.append({
+            "exchange": d["exchange"],
+            "label": d.get("label") or "",
+            "api_key_masked": mask(api_key_plain),
+            "api_secret_masked": mask(secret_plain),
+            "passphrase_masked": mask(passphrase_plain),
+            "has_passphrase": bool(passphrase_plain),
+            "created_at": d.get("created_at").isoformat() if d.get("created_at") else None,
+            "updated_at": d.get("updated_at").isoformat() if d.get("updated_at") else None,
+        })
+    # also list "configured" status for every supported exchange
+    configured = {d["exchange"] for d in docs}
+    return {
+        "items": out,
+        "supported": EXCHANGES,
+        "configured": sorted(list(configured)),
+    }
+
+
+@api.post("/exchange-keys")
+async def upsert_key(payload: ApiKeyIn, user: dict = Depends(get_current_user)):
+    if payload.exchange not in EXCHANGES:
+        raise HTTPException(400, f"Unknown exchange: {payload.exchange}")
+    if not payload.api_key or not payload.api_secret:
+        raise HTTPException(400, "api_key and api_secret are required")
+    now = datetime.now(timezone.utc)
+    existing = await db.exchange_keys.find_one({"exchange": payload.exchange})
+    doc = {
+        "exchange": payload.exchange,
+        "label": payload.label or "",
+        "api_key_enc": encrypt(payload.api_key),
+        "api_secret_enc": encrypt(payload.api_secret),
+        "passphrase_enc": encrypt(payload.passphrase or ""),
+        "updated_at": now,
+    }
+    if existing is None:
+        doc["created_at"] = now
+        await db.exchange_keys.insert_one(doc)
+        add_log("INFO", f"API key added for {payload.exchange} by {user['email']}")
+    else:
+        await db.exchange_keys.update_one({"exchange": payload.exchange}, {"$set": doc})
+        add_log("INFO", f"API key updated for {payload.exchange} by {user['email']}")
+    return {"ok": True, "exchange": payload.exchange}
+
+
+@api.delete("/exchange-keys/{exchange}")
+async def delete_key(exchange: str, user: dict = Depends(get_current_user)):
+    res = await db.exchange_keys.delete_one({"exchange": exchange})
+    if res.deleted_count:
+        add_log("WARN", f"API key removed for {exchange} by {user['email']}")
+    return {"ok": True, "removed": res.deleted_count}
+
+
 # ---------- Health ----------
 @api.get("/health")
 async def health():
-    return {"ok": True, "ts": datetime.now(timezone.utc).isoformat()}
+    return {"ok": True, "ts": datetime.now(timezone.utc).isoformat(), "worker": worker_health_cache}
 
 
 app.include_router(api)

@@ -75,6 +75,9 @@ export default function Dashboard() {
                 <span className={status?.health === "healthy" ? "text-primary" : "text-yellow-400"}>
                   {status?.health || "—"}
                 </span>{" "}
+                · feed <span className={status?.source === "worker" ? "text-primary" : "text-yellow-400"} data-testid="feed-source">
+                  {status?.source === "worker" ? "live" : "mock"}
+                </span>{" "}
                 · region <span className="text-white">{status?.worker_region || "—"}</span>
               </div>
             </div>

@@ -10,6 +10,7 @@ import Wallet from "./pages/Wallet";
 import Config from "./pages/Config";
 import Logs from "./pages/Logs";
 import Telegram from "./pages/Telegram";
+import ApiKeys from "./pages/ApiKeys";
 
 function Shell() {
   const { user } = useAuth();
@@ -33,6 +34,8 @@ function Shell() {
         <Route path="/config" element={<Config />} />
         <Route path="/logs" element={<Logs />} />
         <Route path="/telegram" element={<Telegram />} />
+        <Route path="/keys" element={<ApiKeys />} />
+        <Route path="/api-keys" element={<ApiKeys />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </Layout>

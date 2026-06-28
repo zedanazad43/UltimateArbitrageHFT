@@ -1,13 +1,16 @@
 import React from "react";
 import { NavLink, useLocation } from "react-router-dom";
 import { useAuth } from "../contexts/AuthContext";
-import { LayoutDashboard, LineChart, History, Wallet, Settings, Terminal, Send, LogOut, Activity } from "lucide-react";
+import { LayoutDashboard, LineChart, History, Wallet, Settings, Terminal, Send, LogOut, Activity, KeyRound } from "lucide-react";
+import { useEffect, useState } from "react";
+import api from "../lib/api";
 
 const NAV = [
   { to: "/", label: "Dashboard", icon: LayoutDashboard, testid: "nav-dashboard" },
   { to: "/spreads", label: "Spreads", icon: LineChart, testid: "nav-spreads" },
   { to: "/trades", label: "Trades", icon: History, testid: "nav-trades" },
   { to: "/wallet", label: "Wallet", icon: Wallet, testid: "nav-wallet" },
+  { to: "/keys", label: "API Keys", icon: KeyRound, testid: "nav-keys" },
   { to: "/config", label: "Bot Config", icon: Settings, testid: "nav-config" },
   { to: "/logs", label: "Logs", icon: Terminal, testid: "nav-logs" },
   { to: "/telegram", label: "Telegram", icon: Send, testid: "nav-telegram" },
@@ -17,6 +20,29 @@ export default function Layout({ children }) {
   const { user, logout } = useAuth();
   const loc = useLocation();
   const current = NAV.find((n) => n.to === loc.pathname) || NAV[0];
+  const [worker, setWorker] = useState(null);
+
+  useEffect(() => {
+    let m = true;
+    const tick = async () => {
+      try {
+        const { data } = await api.get("/worker/health");
+        if (m) setWorker(data);
+      } catch {}
+    };
+    tick();
+    const id = setInterval(tick, 8000);
+    return () => {
+      m = false;
+      clearInterval(id);
+    };
+  }, []);
+
+  const wTone = !worker?.configured
+    ? { dot: "bg-muted", text: "worker · off" }
+    : worker?.ok
+    ? { dot: "bg-primary animate-pulseDot", text: "worker · live" }
+    : { dot: "bg-yellow-400", text: `worker · ${worker?.status_code || "?"}` };
 
   return (
     <div className="min-h-screen grid-bg flex">
@@ -76,7 +102,12 @@ export default function Layout({ children }) {
             <current.icon size={16} className="text-muted" />
             <div className="font-display text-sm tracking-tight">{current.label}</div>
           </div>
-          <div className="flex items-center gap-2 text-[11px] text-muted font-mono">
+          <div className="flex items-center gap-3 text-[11px] text-muted font-mono">
+            <span className="flex items-center gap-1.5" data-testid="worker-status-pill">
+              <span className={`h-1.5 w-1.5 rounded-full ${wTone.dot}`} />
+              <span>{wTone.text}</span>
+            </span>
+            <span className="w-px h-3 bg-border" />
             <Activity size={12} className="text-primary animate-pulseDot" />
             edge · ENAM · {new Date().toLocaleTimeString()}
           </div>
