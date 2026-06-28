@@ -177,23 +177,7 @@ export default function WorkerDeploy() {
   const [copied, setCopied] = useState(null);
   const [smoke, setSmoke] = useState(null);
   const [smoking, setSmoking] = useState(false);
-
-  const load = async (force = false) => {
-    try {
-      if (force) {
-        setProbing(true);
-        const { data } = await api.post("/worker/probe");
-        setWorker(data);
-      } else {
-        const { data } = await api.get("/worker/health");
-        setWorker(data);
-      }
-    } catch (err) {
-      console.error("worker probe failed", err);
-    } finally {
-      setProbing(false);
-    }
-  };
+  const [lastOkSeen, setLastOkSeen] = useState(false);
 
   const runSmoke = async () => {
     setSmoking(true);
@@ -204,6 +188,31 @@ export default function WorkerDeploy() {
       console.error("worker smoke failed", err);
     } finally {
       setSmoking(false);
+    }
+  };
+
+  const load = async (force = false) => {
+    try {
+      let data;
+      if (force) {
+        setProbing(true);
+        ({ data } = await api.post("/worker/probe"));
+      } else {
+        ({ data } = await api.get("/worker/health"));
+      }
+      setWorker(data);
+      // Auto-trigger smoke when worker transitions from offline -> online
+      const nowOk = !!data?.ok;
+      if (nowOk && !lastOkSeen) {
+        setLastOkSeen(true);
+        runSmoke();
+      } else if (!nowOk && lastOkSeen) {
+        setLastOkSeen(false);
+      }
+    } catch (err) {
+      console.error("worker probe failed", err);
+    } finally {
+      setProbing(false);
     }
   };
 

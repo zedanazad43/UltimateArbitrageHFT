@@ -2,8 +2,9 @@ import React, { useEffect, useState, useCallback } from "react";
 import api from "../lib/api";
 import { Card, CardHeader, Metric, Pill } from "../components/ui/Primitives";
 import { motion } from "framer-motion";
-import { Play, Square, RotateCcw, Zap, ShieldAlert, ArrowRight } from "lucide-react";
+import { Play, Square, RotateCcw, Zap, ShieldAlert, ArrowRight, Check, X, ChevronRight, Rocket } from "lucide-react";
 import { useAuth } from "../contexts/AuthContext";
+import { Link } from "react-router-dom";
 import PnlChart from "../components/PnlChart";
 
 function uptime(sec) {
@@ -20,24 +21,27 @@ export default function Dashboard() {
   const [pnl, setPnl] = useState(null);
   const [opps, setOpps] = useState([]);
   const [trades, setTrades] = useState([]);
+  const [readiness, setReadiness] = useState(null);
   const [actionError, setActionError] = useState("");
 
   const refresh = useCallback(async () => {
     try {
-      const [s, p, o, t] = await Promise.all([
+      const [s, p, o, t, r] = await Promise.all([
         api.get("/bot/status"),
         api.get("/pnl"),
         api.get("/market/opportunities"),
         api.get("/trades?limit=6"),
+        isAdmin ? api.get("/safety/live-readiness") : Promise.resolve({ data: null }),
       ]);
       setStatus(s.data);
       setPnl(p.data);
       setOpps(o.data);
       setTrades(t.data);
+      setReadiness(r.data);
     } catch (e) {
       console.error("dashboard refresh failed", e);
     }
-  }, []);
+  }, [isAdmin]);
 
   useEffect(() => {
     refresh();
@@ -160,6 +164,11 @@ export default function Dashboard() {
         )}
       </Card>
 
+      {/* Go-Live Roadmap (admin only — only shown until everything's green) */}
+      {isAdmin && readiness && !readiness.ready && (
+        <GoLiveRoadmap readiness={readiness} />
+      )}
+
       {/* PnL chart */}
       <PnlChart />
 
@@ -260,5 +269,103 @@ export default function Dashboard() {
         </Card>
       </div>
     </div>
+  );
+}
+
+// Maps each safety check id to a friendly title + an in-app action route.
+const ROADMAP_ACTIONS = {
+  worker: {
+    title: "Deploy your Cloudflare Worker",
+    detail: "Until ecostamp.net is reachable, the dashboard runs on mock data. Real-money trading requires a live worker.",
+    cta: "Open Deploy Helper",
+    to: "/worker",
+  },
+  trade_key: {
+    title: "Add an exchange API key with 'trade' permission",
+    detail: "At least one enabled exchange (Binance / KuCoin / MEXC) must have a key with the 'trade' permission.",
+    cta: "Open API Keys",
+    to: "/keys",
+  },
+  telegram: {
+    title: "Configure Telegram alerts",
+    detail: "Set the bot_token and chat_id so the bot can notify you about fills, errors and circuit-breaker pauses.",
+    cta: "Open Telegram",
+    to: "/telegram",
+  },
+  fast_alert: {
+    title: "Enable a fast alert rule (cooldown ≤ 60s)",
+    detail: "Real-time alerting is required so a runaway spread, latency spike or empty wallet can pause the bot in seconds.",
+    cta: "Open Alerts",
+    to: "/alerts",
+  },
+  paper_track: {
+    title: "Build a positive 24h paper-mode track record",
+    detail: "≥10 paper trades with positive total PnL in the last 24h. This proves the strategy works before risking capital.",
+    cta: "Open Autopilot",
+    to: "/autopilot",
+  },
+};
+
+function GoLiveRoadmap({ readiness }) {
+  const checks = readiness.checks || [];
+  const done = checks.filter((c) => c.ok).length;
+  const total = checks.length;
+  const pct = total === 0 ? 0 : Math.round((done / total) * 100);
+
+  return (
+    <Card className="border-accent/40" testid="go-live-roadmap-card">
+      <div className="px-4 py-3 border-b border-border/60 flex items-center justify-between">
+        <div className="flex items-center gap-3">
+          <div className="h-9 w-9 rounded-sm border border-accent/40 bg-accent/10 text-accent flex items-center justify-center">
+            <Rocket size={16} />
+          </div>
+          <div>
+            <div className="text-[10px] uppercase tracking-[0.22em] text-muted">Path to Real-Money Trading</div>
+            <div className="font-display text-sm font-medium">{done}/{total} prerequisites complete · LIVE mode locked until all pass</div>
+          </div>
+        </div>
+        <Pill tone="warn" testid="go-live-progress-pill">{pct}%</Pill>
+      </div>
+      <div className="h-1.5 bg-elevated">
+        <div
+          data-testid="go-live-progress-bar"
+          className="h-full bg-accent transition-[width] duration-500"
+          style={{ width: `${pct}%` }}
+        />
+      </div>
+      <div className="divide-y divide-border/40">
+        {checks.map((c) => {
+          const meta = ROADMAP_ACTIONS[c.id] || { title: c.label, detail: "", cta: null, to: null };
+          return (
+            <div
+              key={c.id}
+              data-testid={`roadmap-step-${c.id}`}
+              className="px-4 py-3 flex items-start gap-3"
+            >
+              <div
+                className={`h-6 w-6 rounded-sm flex items-center justify-center shrink-0 ${
+                  c.ok ? "bg-primary/15 text-primary" : "bg-destructive/15 text-destructive"
+                }`}
+              >
+                {c.ok ? <Check size={13} /> : <X size={13} />}
+              </div>
+              <div className="flex-1 min-w-0">
+                <div className="text-sm font-medium">{meta.title}</div>
+                <div className="text-[11px] text-muted font-mono mt-0.5">{meta.detail}</div>
+              </div>
+              {!c.ok && meta.to && (
+                <Link
+                  to={meta.to}
+                  data-testid={`roadmap-cta-${c.id}`}
+                  className="shrink-0 flex items-center gap-1 text-[11px] uppercase tracking-wider px-2.5 py-1.5 border border-accent/40 text-accent hover:bg-accent/10 rounded-sm"
+                >
+                  {meta.cta} <ChevronRight size={11} />
+                </Link>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </Card>
   );
 }
