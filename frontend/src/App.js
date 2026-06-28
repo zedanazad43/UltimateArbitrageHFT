@@ -35,7 +35,6 @@ function Shell() {
         <Route path="/logs" element={<Logs />} />
         <Route path="/telegram" element={<Telegram />} />
         <Route path="/keys" element={<ApiKeys />} />
-        <Route path="/api-keys" element={<ApiKeys />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </Layout>
