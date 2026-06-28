@@ -35,7 +35,7 @@
 - iter_5: 30/30 + e2e (alerts + presets + key test + runtime persistence)
 - iter_6: 40/40 + e2e (worker speedup + JWT revocation + audit + cooldown persistence + A/B)
 - iter_7: 11/11 iter7 + 12/12 iter4 + 13/13 iter5 + 10/10 iter6 = **68/68 backend tests passing** + 100% frontend e2e (Autopilot + safety checklist)
-- iter_8 (2026-02-28): Worker Deploy Helper page added (self-tested via screenshot — runbook renders, force-probe button returns fresh worker status 403 from ecostamp.net as expected). Lint warning in `Users.jsx` (unescaped apostrophe) fixed.
+- iter_8 (2026-02-28): Worker Deploy Helper page added (self-tested via screenshot — runbook renders, force-probe button returns fresh worker status 403 from ecostamp.net as expected). Lint warning in `Users.jsx` (unescaped apostrophe) fixed. **Smoke-test endpoint panel** added (`GET /api/worker/smoke`) — probes `/health`, `/status`, `/spreads`, `/opportunities`, `/balances` in parallel via `asyncio.gather` (~1s worst-case) and reports HTTP + shape match per endpoint. Testing agent: 14/14 backend + 100% frontend e2e.
 
 ## What "Real Money" Requires (User-Side)
 The control center and worker are READY but I (the AI) cannot deploy or auth as the user. To trade real money the user must:

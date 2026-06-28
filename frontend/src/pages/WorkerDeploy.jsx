@@ -367,7 +367,7 @@ function SmokeRow({ row }) {
   const fullyGreen = greenHttp && greenShape;
   const Icon = fullyGreen ? CheckCircle2 : XCircle;
   return (
-    <div className="px-4 py-3" data-testid={`worker-smoke-row-${row.path.replace("/", "")}`}>
+    <div className="px-4 py-3" data-testid={`worker-smoke-row-${row.path.replaceAll("/", "")}`}>
       <div className="flex items-start gap-3">
         <Icon
           size={16}

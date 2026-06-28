@@ -730,8 +730,7 @@ async def worker_smoke(user: dict = Depends(require_admin)):
     if not worker_client.is_configured():
         return {"configured": False, "results": [], "url": None}
 
-    results = []
-    for path, expected_type, expected_keys in _SMOKE_ENDPOINTS:
+    async def _probe_one(path, expected_type, expected_keys):
         entry = {
             "path": path,
             "expected_type": expected_type,
@@ -769,7 +768,6 @@ async def worker_smoke(user: dict = Depends(require_admin)):
                             entry["shape_ok"] = len(missing) == 0
                         else:
                             entry["shape_ok"] = True
-                    # Stash a small sample for the UI
                     if isinstance(body, dict):
                         entry["sample"] = {k: body[k] for k in list(body.keys())[:5]}
                     elif isinstance(body, list):
@@ -778,8 +776,10 @@ async def worker_smoke(user: dict = Depends(require_admin)):
                 entry["error"] = f"http {r.status_code}"
         except Exception as e:
             entry["error"] = str(e)[:160]
-        results.append(entry)
+        return entry
 
+    results = await asyncio.gather(*[_probe_one(p, t, k) for p, t, k in _SMOKE_ENDPOINTS])
+    results = list(results)
     all_ok = all(e["ok"] and e["shape_ok"] for e in results)
     return {
         "configured": True,
