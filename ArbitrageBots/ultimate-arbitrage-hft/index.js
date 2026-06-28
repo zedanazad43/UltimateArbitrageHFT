@@ -244,7 +244,7 @@ export default {
         return new Response('Invalid JSON', { status: 400 });
       }
       const state = await env.BOT_STATE.get('trading_state', 'json') || {};
-      for (const key of ['max_daily_loss_usd', 'min_seconds_between_trades', 'max_per_trade_loss_pct', 'initial_capital', 'max_spread_pct']) {
+      for (const key of ['max_daily_loss_usd', 'min_seconds_between_trades', 'max_per_trade_loss_pct', 'initial_capital', 'max_spread_pct', 'max_trades_per_scan']) {
         if (body[key] !== undefined) {
           const v = parseFloat(body[key]);
           if (!isNaN(v) && v > 0) state[key] = v;
@@ -585,21 +585,31 @@ async function logAdminEvent(env, action, request) {
 }
 
 // ---------- Price Helpers ----------
+// Fetch with hard timeout via AbortController — single slow exchange must not
+// stall the whole scan cycle. Default 350ms is generous for global edges.
+async function fetchWithTimeout(url, options = {}, timeoutMs = 350) {
+  const ctrl = new AbortController();
+  const t = setTimeout(() => ctrl.abort(), timeoutMs);
+  try {
+    return await fetch(url, { ...options, signal: ctrl.signal });
+  } finally {
+    clearTimeout(t);
+  }
+}
+
+// Direct MEXC spot price — drops the previous Durable-Object round-trip which
+// added ~30-80ms with no benefit when the DO wasn't pre-warmed for the symbol.
 async function getPrice(env, symbol, source = 'mexc') {
   try {
-    const id = env.MARKET_STREAMER.idFromName(symbol);
-    const obj = env.MARKET_STREAMER.get(id);
-    const resp = await obj.fetch('https://dummy/price');
+    const apiUrl = source === 'mexc'
+      ? `https://api.mexc.com/api/v3/ticker/price?symbol=${symbol}`
+      : `https://api.kucoin.com/api/v1/market/orderbook/level1?symbol=${symbol.replace('USDT', '-USDT')}`;
+    const resp = await fetchWithTimeout(apiUrl, { cf: { cacheTtl: 1, cacheEverything: true } });
     const data = await resp.json();
-    if (data.price > 0) return { price: data.price, exchange: source, fee: 0.0005 };
-  } catch (_) {}
-  const apiUrl = source === 'mexc'
-    ? `https://api.mexc.com/api/v3/ticker/price?symbol=${symbol}`
-    : `https://api.kucoin.com/api/v1/market/orderbook/level1?symbol=${symbol.replace('USDT', '-USDT')}`;
-  const resp = await fetch(apiUrl);
-  const data = await resp.json();
-  const price = source === 'mexc' ? parseFloat(data.price) : parseFloat(data.data.price);
-  return { price, exchange: source, fee: source === 'mexc' ? 0.0005 : 0.001 };
+    const price = source === 'mexc' ? parseFloat(data.price) : parseFloat(data?.data?.price);
+    if (!price || isNaN(price)) return null;
+    return { price, exchange: source, fee: source === 'mexc' ? 0.0005 : 0.001 };
+  } catch (_) { return null; }
 }
 
 async function get0xPrice(env, symbol) {
@@ -630,8 +640,10 @@ async function get0xPrice(env, symbol) {
 // ---------- Multi-Exchange Price Helpers ----------
 async function getBinancePrice(env, symbol) {
   try {
-    const resp = await fetch(`https://api.binance.com/api/v3/ticker/price?symbol=${symbol}`,
-      { cf: { cacheTtl: 2, cacheEverything: true } });
+    const resp = await fetchWithTimeout(
+      `https://api.binance.com/api/v3/ticker/price?symbol=${symbol}`,
+      { cf: { cacheTtl: 1, cacheEverything: true } }
+    );
     const data = await resp.json();
     const price = parseFloat(data.price);
     if (!price || isNaN(price)) return null;
@@ -642,7 +654,7 @@ async function getBinancePrice(env, symbol) {
 async function getMEXCPerpPrice(env, symbol) {
   try {
     const perpSymbol = symbol.replace('USDT', '_USDT');
-    const resp = await fetch(`https://contract.mexc.com/api/v1/contract/ticker?symbol=${perpSymbol}`);
+    const resp = await fetchWithTimeout(`https://contract.mexc.com/api/v1/contract/ticker?symbol=${perpSymbol}`);
     const data = await resp.json();
     if (data.success && data.data?.lastPrice) {
       return { price: parseFloat(data.data.lastPrice), exchange: 'mexc_perp', fee: 0.0002 };
@@ -654,9 +666,9 @@ async function getMEXCPerpPrice(env, symbol) {
 async function getKuCoinPrice(env, symbol) {
   try {
     const kuSymbol = symbol.endsWith('USDT') ? symbol.slice(0, -4) + '-USDT' : symbol;
-    const resp = await fetch(
+    const resp = await fetchWithTimeout(
       `https://api.kucoin.com/api/v1/market/orderbook/level1?symbol=${kuSymbol}`,
-      { cf: { cacheTtl: 2, cacheEverything: true } }
+      { cf: { cacheTtl: 1, cacheEverything: true } }
     );
     const data = await resp.json();
     const price = parseFloat(data?.data?.price);
@@ -815,9 +827,13 @@ async function scanAndExecute(env) {
     const initialCapital = state.initial_capital || CONFIG.RISK.INITIAL_CAPITAL_USD;
     const equity = initialCapital + (state.total_pnl || 0);
 
-    for (const symbol of SUPPORTED_SYMBOLS) {
-      try {
-        // Fetch all price sources in parallel (MEXC spot, 0x DEX, Binance, MEXC perps, KuCoin)
+    // ---------- PHASE 1: Parallel scan across ALL symbols ----------
+    // Previously this loop walked symbols sequentially, multiplying per-symbol
+    // RTT by 15. We now fan out across every symbol (and each symbol fans out
+    // across its 5 price sources), so the total scan latency = slowest single
+    // (symbol × source) pair, not the SUM. Expect ~15× lower decision latency.
+    const scanResults = await Promise.allSettled(
+      SUPPORTED_SYMBOLS.map(async (symbol) => {
         const [rMEXC, rZeroX, rBinance, rPerp, rKuCoin] = await Promise.allSettled([
           getPrice(env, symbol, 'mexc'),
           get0xPrice(env, symbol),
@@ -825,7 +841,6 @@ async function scanAndExecute(env) {
           getMEXCPerpPrice(env, symbol),
           getKuCoinPrice(env, symbol)
         ]);
-
         const sources = [
           rMEXC.status === 'fulfilled' ? rMEXC.value : null,
           rZeroX.status === 'fulfilled' ? rZeroX.value : null,
@@ -833,21 +848,18 @@ async function scanAndExecute(env) {
           rPerp.status === 'fulfilled' ? rPerp.value : null,
           rKuCoin.status === 'fulfilled' ? rKuCoin.value : null
         ].filter(Boolean);
+        if (sources.length < 2) return null;
 
-        if (sources.length < 2) continue;
-
-        // Volatility guard: reject if any pair's gross spread exceeds MAX_SPREAD_PCT
-        // (protects against stale / erroneous price data)
+        // Volatility guard: skip if max observed spread looks like stale data
         const prices = sources.map(s => s.price);
         const priceMin = Math.min(...prices);
         const priceMax = Math.max(...prices);
         const maxObservedSpread = ((priceMax - priceMin) / priceMin) * 100;
         if (maxObservedSpread > maxSpreadPct) {
-          console.log(`⚠️  ${symbol} skipped — spread ${maxObservedSpread.toFixed(2)}% exceeds ${maxSpreadPct}% guard`);
-          continue;
+          return { symbol, skipped: 'spread_guard', spread: maxObservedSpread };
         }
 
-        // Find best arbitrage pair across all sources (both ± directions)
+        // Find best (buy, sell) pair across all sources
         let bestOpp = null;
         for (let i = 0; i < sources.length; i++) {
           for (let j = 0; j < sources.length; j++) {
@@ -855,29 +867,37 @@ async function scanAndExecute(env) {
             const buyEx = sources[i];
             const sellEx = sources[j];
             if (sellEx.price <= buyEx.price) continue;
-
             const grossPct = ((sellEx.price - buyEx.price) / buyEx.price) * 100;
             const totalFeePct = (buyEx.fee + sellEx.fee) * 100;
             const netPct = grossPct - totalFeePct;
             if (netPct <= 0) continue;
-
             const safetyFactor = netPct / grossPct;
-            if (safetyFactor < minSafetyPct) continue; // 40% safety filter
-
+            if (safetyFactor < minSafetyPct) continue;
             if (!bestOpp || netPct > bestOpp.netPct) {
-              bestOpp = { buyEx, sellEx, grossPct, netPct, safetyFactor };
+              bestOpp = { symbol, buyEx, sellEx, grossPct, netPct, safetyFactor };
             }
           }
         }
+        return bestOpp;
+      })
+    );
 
-        if (!bestOpp) continue;
+    // Collect & rank opportunities; execute up to MAX_TRADES_PER_SCAN per cycle.
+    const opportunities = scanResults
+      .filter(r => r.status === 'fulfilled' && r.value && r.value.buyEx)
+      .map(r => r.value)
+      .sort((a, b) => b.netPct - a.netPct);
 
-        const { buyEx, sellEx, netPct, safetyFactor } = bestOpp;
+    const maxTradesPerScan = Math.max(1, Math.min(5, state.max_trades_per_scan || 1));
+
+    let executedThisCycle = 0;
+    for (const opp of opportunities) {
+      if (executedThisCycle >= maxTradesPerScan) break;
+      try {
+        const { symbol, buyEx, sellEx, netPct, safetyFactor } = opp;
 
         // Adaptive leverage: grows with capital
         const leverage = calculateAdaptiveLeverage(equity, netPct, initialCapital);
-
-        // Position size × leverage, never risk > 50% equity
         const baseSize = calculatePositionSize(equity, state.win_rate || 0.55, state.risk_reward_ratio || 2.0);
         const sizeUsd = Math.min(baseSize * leverage, equity * 0.5);
         const amount = (sizeUsd / buyEx.price).toFixed(6);
@@ -899,7 +919,6 @@ async function scanAndExecute(env) {
             } else if (sellEx.exchange === 'mexc') {
               await placeMarketOrderMEXC(env, symbol, 'SELL', amount);
             } else {
-              // Neither side is MEXC spot — use MEXC futures as proxy
               await placeMEXCFuturesOrder(env, symbol, 'LONG', amount, leverage);
             }
             await sendTelegramAlert(env, `✅ [LIVE] 🐋 ${symbol}\n${direction}\nحجم: $${sizeUsd.toFixed(2)} | رافعة: ${leverage}x\nصافي: ${netPct.toFixed(4)}% | أمان: ${(safetyFactor*100).toFixed(1)}%`);
@@ -914,11 +933,10 @@ async function scanAndExecute(env) {
         const tradePnl = sizeUsd * netPct / 100;
         state.daily_used_usd = (state.daily_used_usd || 0) + sizeUsd;
         state.daily_pnl = (state.daily_pnl || 0) + tradePnl;
-        state.total_pnl = (state.total_pnl || 0) + tradePnl; // auto-compound into equity
+        state.total_pnl = (state.total_pnl || 0) + tradePnl;
         state.daily_trades = (state.daily_trades || 0) + 1;
         state.total_trades = (state.total_trades || 0) + 1;
         state.last_trade_timestamp = Date.now();
-        await env.BOT_STATE.put('trading_state', JSON.stringify(state));
 
         if (env.DB) {
           try {
@@ -930,10 +948,15 @@ async function scanAndExecute(env) {
           }
         }
 
-        break; // one trade per scan cycle
+        executedThisCycle++;
       } catch (e) {
-        console.error(`❌ Error scanning ${symbol}:`, e.message);
+        console.error('❌ Execution error:', e.message);
       }
+    }
+
+    // Single persist after all writes for this cycle
+    if (executedThisCycle > 0) {
+      await env.BOT_STATE.put('trading_state', JSON.stringify(state));
     }
   } finally {
     await releaseExecutionLock(env);

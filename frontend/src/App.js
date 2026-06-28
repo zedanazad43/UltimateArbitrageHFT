@@ -13,6 +13,8 @@ import Telegram from "./pages/Telegram";
 import ApiKeys from "./pages/ApiKeys";
 import Users from "./pages/Users";
 import Alerts from "./pages/Alerts";
+import ABTest from "./pages/ABTest";
+import Audit from "./pages/Audit";
 import Share from "./pages/Share";
 
 function Shell() {
@@ -42,6 +44,8 @@ function Shell() {
         <Route path="/api-keys" element={<ApiKeys />} />
         {isAdmin && <Route path="/users" element={<Users />} />}
         {isAdmin && <Route path="/alerts" element={<Alerts />} />}
+        {isAdmin && <Route path="/ab" element={<ABTest />} />}
+        {isAdmin && <Route path="/audit" element={<Audit />} />}
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </Layout>

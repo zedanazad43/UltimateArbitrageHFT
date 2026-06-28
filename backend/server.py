@@ -48,11 +48,12 @@ def verify_password(plain: str, hashed: str) -> bool:
     return bcrypt.checkpw(plain.encode(), hashed.encode())
 
 
-def create_access_token(user_id: str, email: str, role: str) -> str:
+def create_access_token(user_id: str, email: str, role: str, token_version: int = 0) -> str:
     payload = {
         "sub": user_id,
         "email": email,
         "role": role,
+        "tv": token_version,
         "type": "access",
         "exp": datetime.now(timezone.utc) + timedelta(minutes=ACCESS_TOKEN_TTL_MIN),
     }
@@ -74,6 +75,10 @@ async def get_current_user(request: Request) -> dict:
         user = await db.users.find_one({"_id": ObjectId(payload["sub"])})
         if not user:
             raise HTTPException(status_code=401, detail="User not found")
+        # Revocation: token_version on user must match the one in the JWT.
+        # Bumping users.token_version (on password/role change) invalidates all prior JWTs.
+        if int(user.get("token_version", 0)) != int(payload.get("tv", 0)):
+            raise HTTPException(status_code=401, detail="Token revoked")
         user["id"] = str(user["_id"])
         del user["_id"]
         user.pop("password_hash", None)
@@ -360,6 +365,11 @@ async def background_tick():
                     await _evaluate_alerts(spreads)
                 except Exception as e:
                     add_log("ERROR", f"alert eval error: {e}")
+                # A/B paper-lane simulator (cheap; only ticks if enabled)
+                try:
+                    await _ab_tick(spreads)
+                except Exception as e:
+                    add_log("ERROR", f"ab tick error: {e}")
             await asyncio.sleep(2)
         except asyncio.CancelledError:
             raise
@@ -441,6 +451,7 @@ async def _send_telegram_alert(rule: dict, value: float, msg: str) -> bool:
     """Mocked Telegram dispatch: logs + persists. Replace with real worker/Telegram API later."""
     add_log("WARN", f"ALERT[{rule.get('name')}]: {msg}")
     try:
+        now = datetime.now(timezone.utc)
         await db.alert_events.insert_one({
             "rule_id": str(rule.get("_id")),
             "rule_name": rule.get("name"),
@@ -451,11 +462,29 @@ async def _send_telegram_alert(rule: dict, value: float, msg: str) -> bool:
             "msg": msg,
             "delivered": True,
             "channel": "telegram",
-            "ts": datetime.now(timezone.utc),
+            "ts": now,
         })
+        # Persist cooldown to the rule itself so post-restart we don't storm.
+        if rule.get("_id") is not None:
+            await db.alert_rules.update_one({"_id": rule["_id"]}, {"$set": {"last_fired_at": now}})
     except Exception:
         pass
     return True
+
+
+# ---------- Audit log ----------
+async def _audit(actor: Optional[dict], action: str, details: Optional[dict] = None):
+    try:
+        await db.audit_log.insert_one({
+            "ts": datetime.now(timezone.utc),
+            "actor_id": (actor or {}).get("id"),
+            "actor_email": (actor or {}).get("email"),
+            "actor_role": (actor or {}).get("role"),
+            "action": action,
+            "details": details or {},
+        })
+    except Exception:
+        pass
 
 
 def _eval_op(value: float, op: str, threshold: float) -> bool:
@@ -529,9 +558,24 @@ async def lifespan(app: FastAPI):
     await db.engine_logs.create_index("ts")
     await db.alert_rules.create_index("name")
     await db.alert_events.create_index([("ts", -1)])
+    await db.audit_log.create_index([("ts", -1)])
+    await db.audit_log.create_index("action")
 
     # restore runtime state from previous run (best-effort)
     await _restore_runtime_state()
+
+    # Hydrate per-rule alert cooldown markers so the cooldown window survives a restart
+    try:
+        cur = db.alert_rules.find({"last_fired_at": {"$exists": True}})
+        async for r in cur:
+            lf = r.get("last_fired_at")
+            if lf:
+                # MongoDB returns naive datetimes — coerce to UTC-aware to match datetime.now(timezone.utc)
+                if isinstance(lf, datetime) and lf.tzinfo is None:
+                    lf = lf.replace(tzinfo=timezone.utc)
+                _alert_last_fired[str(r["_id"])] = lf
+    except Exception:
+        pass
 
     admin_email = os.environ["ADMIN_EMAIL"].lower()
     admin_password = os.environ["ADMIN_PASSWORD"]
@@ -613,11 +657,14 @@ async def login(payload: LoginIn, response: Response):
     email = payload.email.lower()
     user = await db.users.find_one({"email": email})
     if not user or not verify_password(payload.password, user["password_hash"]):
+        await _audit(None, "auth.login_failed", {"email": email})
         raise HTTPException(status_code=401, detail="Invalid email or password")
     role = user.get("role") or ROLE_VIEWER
-    token = create_access_token(str(user["_id"]), email, role)
+    tv = int(user.get("token_version") or 0)
+    token = create_access_token(str(user["_id"]), email, role, tv)
     csrf = secrets.token_urlsafe(32)
     set_auth_cookies(response, token, csrf)
+    await _audit({"id": str(user["_id"]), "email": email, "role": role}, "auth.login", {})
     return {
         "token": token,
         "csrf_token": csrf,
@@ -686,6 +733,7 @@ async def bot_action(payload: BotActionIn, user: dict = Depends(require_admin)):
         bot_state["uptime_seconds"] = 0
         bot_state["started_at"] = datetime.now(timezone.utc).isoformat()
         add_log("INFO", f"Bot restarted by {user['email']}")
+    await _audit(user, f"bot.{payload.action}", {"mode": bot_state["mode"]})
     return bot_state
 
 
@@ -700,6 +748,7 @@ async def set_mode(payload: dict, user: dict = Depends(require_admin)):
         await worker_client.post("/control/mode", {"mode": mode})
     bot_state["mode"] = mode
     add_log("WARN" if mode == "live" else "INFO", f"Mode switched to {mode.upper()} by {user['email']}")
+    await _audit(user, "bot.mode", {"mode": mode})
     return bot_state
 
 
@@ -989,6 +1038,7 @@ async def update_user(user_id: str, payload: UserUpdateIn, user: dict = Depends(
         upd["name"] = data["name"]
     if "password" in data:
         upd["password_hash"] = hash_password(data["password"])
+        upd["token_version"] = int(target.get("token_version") or 0) + 1  # revoke all prior tokens
     if "role" in data:
         if data["role"] not in VALID_ROLES:
             raise HTTPException(400, f"Invalid role. Must be one of: {sorted(VALID_ROLES)}")
@@ -997,8 +1047,11 @@ async def update_user(user_id: str, payload: UserUpdateIn, user: dict = Depends(
         if target.get("email") == bootstrap_email and data["role"] != ROLE_ADMIN:
             raise HTTPException(409, "Cannot demote the bootstrap admin")
         upd["role"] = data["role"]
+        if data["role"] != target.get("role"):
+            upd["token_version"] = int(target.get("token_version") or 0) + 1  # role change → revoke
     if upd:
         await db.users.update_one({"_id": oid}, {"$set": upd})
+    await _audit(user, "user.update", {"target": target["email"], "fields": list(upd.keys())})
     add_log("INFO", f"User {target['email']} updated by {user['email']}: {list(upd.keys())}")
     fresh = await db.users.find_one({"_id": oid})
     return _user_public(fresh)
@@ -1217,6 +1270,120 @@ async def alert_events(limit: int = 100, user: dict = Depends(get_current_user))
         if isinstance(d.get("ts"), datetime):
             d["ts"] = d["ts"].isoformat()
     return docs
+
+
+# ---------- Audit log endpoint ----------
+@api.get("/audit")
+async def get_audit_log(limit: int = 100, action: Optional[str] = None, user: dict = Depends(require_admin)):
+    q = {}
+    if action:
+        q["action"] = action
+    cur = db.audit_log.find(q, {"_id": 0}).sort("ts", -1).limit(min(limit, 500))
+    out = []
+    async for d in cur:
+        if isinstance(d.get("ts"), datetime):
+            d["ts"] = d["ts"].isoformat()
+        out.append(d)
+    return out
+
+
+# ---------- Strategy A/B mode ----------
+# Two paper-trading lanes running in parallel, each with its own preset config.
+# Backed by db.ab_lanes (singleton doc) — accumulates pnl & trades per lane.
+DEFAULT_AB = {
+    "enabled": False,
+    "lane_a": {"preset": "conservative", "pnl": 0.0, "trades": 0, "wins": 0},
+    "lane_b": {"preset": "aggressive", "pnl": 0.0, "trades": 0, "wins": 0},
+    "started_at": None,
+}
+
+
+class ABStartIn(BaseModel):
+    lane_a_preset: str = "conservative"
+    lane_b_preset: str = "aggressive"
+
+
+async def _ab_get():
+    doc = await db.ab_lanes.find_one({"_id": "singleton"})
+    return doc or {**DEFAULT_AB, "_id": "singleton"}
+
+
+async def _ab_tick(spreads: list):
+    """Per-tick A/B simulator — mirrors background_tick but uses each lane's preset config."""
+    doc = await _ab_get()
+    if not doc.get("enabled"):
+        return
+    for lane_key in ("lane_a", "lane_b"):
+        lane = doc.get(lane_key) or {}
+        preset = STRATEGY_PRESETS.get(lane.get("preset")) or STRATEGY_PRESETS["balanced"]
+        min_spread = preset["min_spread_pct"]
+        size = preset["max_position_usd"]
+        viable = [s for s in spreads if s["spread_pct"] >= min_spread]
+        if not viable or random.random() >= 0.45:
+            continue
+        op = viable[0]
+        gross = op["spread_pct"] / 100 * size
+        # paper-style realized fraction
+        pnl = gross * random.uniform(0.5, 0.95)
+        lane["pnl"] = round(float(lane.get("pnl") or 0.0) + pnl, 2)
+        lane["trades"] = int(lane.get("trades") or 0) + 1
+        if pnl > 0:
+            lane["wins"] = int(lane.get("wins") or 0) + 1
+        doc[lane_key] = lane
+    try:
+        await db.ab_lanes.update_one({"_id": "singleton"}, {"$set": doc}, upsert=True)
+    except Exception:
+        pass
+
+
+@api.get("/ab/status")
+async def ab_status(user: dict = Depends(get_current_user)):
+    doc = await _ab_get()
+    doc.pop("_id", None)
+    if doc.get("started_at") and isinstance(doc["started_at"], datetime):
+        doc["started_at"] = doc["started_at"].isoformat()
+    # decorate with win rates
+    for k in ("lane_a", "lane_b"):
+        ln = doc.get(k) or {}
+        n = ln.get("trades") or 0
+        ln["win_rate"] = round((ln.get("wins") or 0) / n, 4) if n else 0.0
+        doc[k] = ln
+    return doc
+
+
+@api.post("/ab/start")
+async def ab_start(payload: ABStartIn, user: dict = Depends(require_admin)):
+    for p in (payload.lane_a_preset, payload.lane_b_preset):
+        if p not in STRATEGY_PRESETS:
+            raise HTTPException(400, f"Unknown preset: {p}. Valid: {list(STRATEGY_PRESETS.keys())}")
+    doc = {
+        "_id": "singleton",
+        "enabled": True,
+        "lane_a": {"preset": payload.lane_a_preset, "pnl": 0.0, "trades": 0, "wins": 0},
+        "lane_b": {"preset": payload.lane_b_preset, "pnl": 0.0, "trades": 0, "wins": 0},
+        "started_at": datetime.now(timezone.utc),
+    }
+    await db.ab_lanes.update_one({"_id": "singleton"}, {"$set": doc}, upsert=True)
+    await _audit(user, "ab.start", {"lane_a": payload.lane_a_preset, "lane_b": payload.lane_b_preset})
+    add_log("INFO", f"A/B test started by {user['email']}: {payload.lane_a_preset} vs {payload.lane_b_preset}")
+    doc.pop("_id", None)
+    doc["started_at"] = doc["started_at"].isoformat()
+    return doc
+
+
+@api.post("/ab/stop")
+async def ab_stop(user: dict = Depends(require_admin)):
+    await db.ab_lanes.update_one({"_id": "singleton"}, {"$set": {"enabled": False}})
+    await _audit(user, "ab.stop", {})
+    add_log("INFO", f"A/B test stopped by {user['email']}")
+    return {"ok": True}
+
+
+@api.post("/ab/reset")
+async def ab_reset(user: dict = Depends(require_admin)):
+    await db.ab_lanes.delete_one({"_id": "singleton"})
+    await _audit(user, "ab.reset", {})
+    return {"ok": True}
 
 
 # ---------- Health ----------
