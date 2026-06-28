@@ -1,45 +1,54 @@
 # UltimateArbitrageHFT — Control Center Web App (PRD)
 
 ## Original Problem Statement
-"Continue Ultimatearbitragehft Bot web App build"
+"Continue Ultimatearbitragehft Bot web App build" + iterative expansion via "execute all of it" + "GO"
 
 ## User Choices
-- Scope: Monitor + Control Center
-- Stack: FastAPI + React + MongoDB
-- Exchanges: All (Binance, KuCoin, MEXC, Bybit, OKX, Coinbase, Bitget)
-- Symbols: BTC, ETH, SOL, XRP, BNB, ADA, DOGE, AVAX, LINK, MATIC (against USDT)
-- Data: MOCK + Cloudflare Worker bridge w/ graceful fallback
-- Auth: JWT (cookie-only, no localStorage) + CSRF double-submit + multi-user roles
+- Stack: FastAPI + React + MongoDB + Cloudflare Worker bridge (mock fallback)
+- Auth: JWT cookie-only + CSRF double-submit + multi-user roles + JWT revocation
 - Worker URL: `https://ecostamp.net` (Cloudflare 1014/403 — mock fallback active)
 
 ## Architecture
-- **Backend (FastAPI)** `/app/backend/`
-  - `server.py` — all routes, FastAPI lifespan (startup/shutdown w/ task cancellation, `worker_client.aclose()`, runtime-state hydration)
-  - `worker_client.py` — HTTPX adapter w/ `aclose()`
-  - `crypto_util.py` — Fernet (AES-128 + HMAC-SHA256) encrypt/decrypt/mask
-  - **Mongo collections**: `users` (`role: admin|viewer`), `trades`, `engine_logs`, `exchange_keys`, `alert_rules`, `alert_events`, `runtime_state`
-  - **Background tasks**: `background_tick` (price scan + alert evaluator every 2s), `worker_probe_loop` (20s), `state_persistence_loop` (15s snapshot of bot_state/config/pnl/telegram → `db.runtime_state`)
-  - **Security**: CSRF double-submit middleware, role-based `require_admin` dependency, per-key trade-permission enforcement before LIVE mode, encrypted-at-rest secrets
+- **Backend** `/app/backend/`
+  - `server.py` (~1400 lines), `worker_client.py`, `crypto_util.py`
+  - **Mongo**: `users` (`role`, `token_version`), `trades`, `engine_logs`, `exchange_keys`, `alert_rules` (`last_fired_at`), `alert_events`, `runtime_state`, `ab_lanes`, **`audit_log`**
+  - **Background tasks** (FastAPI lifespan, cancelled cleanly on shutdown): `background_tick` (2s; price scan + alert eval + A/B simulator), `worker_probe_loop` (20s), `state_persistence_loop` (15s snapshot)
+  - **Security**: CSRF double-submit, role-based deps, per-key trade-permission enforcement, encrypted-at-rest keys, **JWT revocation via `token_version`** (bumped on password / role change), **audit log** captures actor + action + details (login success/fail, bot.*, ab.*, user.update)
+  - Restart-safe alert cooldown: `last_fired_at` persisted on rules; hydrated on startup (timezone-aware coerce)
 
-- **Frontend (React 18 + Tailwind + Framer Motion + lucide-react + recharts)** `/app/frontend/src/`
-  - Pages: Dashboard (with PnL chart), Spreads, Trades, Wallet, **API Keys** (encrypted vault, permissions editor, connectivity Test button), **Bot Config** (Strategy Presets + Risk/Symbols/Exchanges), Logs, Telegram, **Alerts** (rule engine + event history), **Users**, **Share** (public, no auth)
-  - Cookie-only JWT + CSRF auto-attached interceptor; viewer role hides admin nav and disables controls
+- **Frontend** `/app/frontend/src/` — React 18 + Tailwind + Framer Motion + lucide-react + recharts
+  - Cookie-only JWT, CSRF auto-attached interceptor
+  - Pages: Dashboard (PnL chart), Spreads, Trades, Wallet, API Keys (vault + permissions editor + connectivity test), Bot Config (presets + risk), **A/B Test**, Alerts, Users, **Audit Log**, Logs, Telegram, Share (public)
+  - Admin-gated nav + disabled controls for viewer role
+
+- **Cloudflare Worker** `/app/ArbitrageBots/ultimate-arbitrage-hft/index.js` (~960 lines)
+  - **OPTIMIZED**: `scanAndExecute` now parallelizes the symbol loop via `Promise.allSettled` — total scan latency = slowest (symbol × source) pair, not the sum. Expected ~15× lower decision latency.
+  - Added `fetchWithTimeout` (350ms AbortSignal) so one slow exchange can't stall a cycle.
+  - Removed pointless Durable-Object round-trip from `getPrice` (~30-80ms saved per MEXC call).
+  - `MAX_TRADES_PER_SCAN` config knob — pick top-N opportunities per cycle (default 1).
+  - Tighter `cf: { cacheTtl: 1 }` (was 2) for fresher data.
 
 ## Implemented Phases
-1. **MVP** — auth + 7 core pages (iteration_1: 19/19+23/23 ✅)
-2. **Worker bridge + Mongo persistence + encrypted key vault** (iteration_2: 17/17 + e2e ✅)
-3. **Code-quality fixes**: no localStorage, env-driven creds, console.error in catch blocks (iteration_3: 17/17 + regression ✅)
-4. **CSRF + roles + permission enforcement + PnL chart + Public share + lifespan** (iteration_4: 17/17 + e2e ✅)
-5. **Alert rules engine + Strategy presets + Exchange-key connectivity test + Runtime-state persistence** (iteration_5: **30/30** backend pytest + e2e ✅ after one frontend follow-up)
+1. **MVP** — auth + 7 core pages (iter_1: 19/19 + 23/23 ✅)
+2. **Worker bridge + Mongo persistence + encrypted key vault** (iter_2: 17/17 + e2e ✅)
+3. **Code-quality hardening**: no localStorage, env-driven creds, no silent catches (iter_3: 17/17 ✅)
+4. **CSRF + roles + permission enforcement + PnL chart + Public share + lifespan** (iter_4: 17/17 + e2e ✅)
+5. **Alert engine + Strategy presets + Exchange-key test + Runtime persistence** (iter_5: 30/30 + e2e ✅)
+6. **Worker speed-up + JWT revocation + Audit log + Persisted alert cooldowns + Strategy A/B mode** (iter_6: 40/40 backend + e2e ✅)
 
-## Backlog
-- **P2** Split `server.py` into per-feature routers (~1240 lines now)
-- **P2** Persist `_alert_last_fired` to Mongo so post-restart cooldowns survive (prevent alert storm)
-- **P2** Token revocation list (invalidate JWT on password/role change)
-- **P2** WebSocket push for sub-second updates
-- **P3** Real Cloudflare Worker integration (requires user to fix `ecostamp.net` DNS/route binding + provide `ADMIN_TOKEN`)
-- **P3** Real Telegram delivery (requires user's bot_token + chat_id; mocked endpoint already in place)
+## Backlog (P2/P3)
+- **P2** Modularize `server.py` into per-feature routers (1400 lines now)
+- **P2** `to_utc()` helper across the codebase (timezone-coerce pattern flagged in iter_6 RCA)
+- **P2** Audit `_audit()` should `add_log` on its own exception path (currently silent)
+- **P2** WebSocket push (deferred — risky in this preview env)
+- **P3** Real Cloudflare Worker integration — requires user to fix `ecostamp.net` DNS/route binding + provide `WORKER_ADMIN_TOKEN`
+- **P3** Real Telegram delivery — requires bot_token + chat_id
+
+## Git Sync
+- Repo: `zedanazad43/UltimateArbitrageHFT` on branch `copilot/activate-control-center-and-telegram-bot`
+- ⚠️ User exposed two GitHub PATs in chat — must rotate immediately at https://github.com/settings/tokens
+- Push: use **"Save to GitHub"** button in the chat input. Recommend a new branch `ai/speed-and-features`.
 
 ## Test Reports
-- `/app/test_reports/iteration_{1,2,3,4,5}.json`
-- `/app/backend/tests/test_iteration{2,4,5}.py` (rerunnable pytest suites)
+- `/app/test_reports/iteration_{1..6}.json`
+- `/app/backend/tests/test_iteration{2,4,5,6}.py` (rerunnable suites)
