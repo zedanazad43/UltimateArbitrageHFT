@@ -1,0 +1,39 @@
+{
+  "summary": "Iteration 10 — Verified surgical fix on /api/safety/live-readiness (Depends(get_current_user) → Depends(require_admin) at server.py:1647). Backend pytest 17/17 PASSED in 7.7s: admin→200 with full shape (5 checks, blocking_count, ready, ts), viewer→403 (was 200 in iter_9 — fix confirmed), no-auth→401, plus iter_8/9 regression (worker probe + health + smoke + 8 core endpoints). Frontend Playwright (admin+viewer): admin Dashboard still renders go-live-roadmap-card with progress pill '60%', 5 roadmap-step-* rows, and 2 CTAs (roadmap-cta-telegram, roadmap-cta-worker); viewer Dashboard renders without the card (querySelector returned null) and without page errors. No frontend regression — Dashboard.jsx already gates the API call on isAdmin (line ~34) so the new 403 path is never triggered for viewers from the client.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Console", "issues": ["Pre-existing React Router v6 future-flag warnings (harmless)", "Cosmetic 401s for viewer on /api/worker/health and dashboard refresh — pre-existing from iter_9 (these endpoints already require admin, viewer probes get rejected before role check on FE). Not caused by iter_10 change."]}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iteration10.py",
+    "/app/test_reports/pytest/iter10.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "Iter_10 fix is minimal and correct: only the dependency on line 1647 changed from get_current_user to require_admin. require_admin returns HTTP 403 for authenticated non-admins (verified — test_viewer_now_returns_403 asserts == 403, passed).",
+    "Dashboard.jsx still gates the readiness fetch on isAdmin (line ~34) so no new 401/403 noise is introduced in the viewer UX — defense-in-depth working as intended (server-side now enforces what client-side was already gating).",
+    "server.py is 1704 lines — still recommend modularization into routers/{auth,bot,autopilot,worker,safety,alerts,users}.py. Same recommendation as iter7/8/9.",
+    "Polling interval on Dashboard remains 2500ms — /safety/live-readiness now runs a mongo aggregate every 2.5s while an admin viewer has the dashboard open. Consider lengthening readiness poll to 10–15s independently from bot status poll (carried from iter_9).",
+    "iter_9 viewer-access test accepted either 200 or 403 — iter_10 now strictly asserts 403, locking down the contract."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iteration10.py"
+  ],
+  "success_rate": {
+    "backend": "100% (17/17 iter10) — live-readiness (5) + worker probe (2) + worker smoke (2) + core regression (8)",
+    "frontend": "100% — admin sees go-live-roadmap-card + 60% pill + 5 roadmap-step-* + roadmap-cta-telegram + roadmap-cta-worker; viewer does NOT see the card; no page errors"
+  },
+  "test_credentials": "Admin: zedanazad43@gmail.com / Zed-gxvgfNixv4biRJ! (from /app/memory/test_credentials.md). Viewers viewer_iter10@arbhft.io (pytest) and viewer_iter10_ui@arbhft.io (Playwright) were created + deleted within their test sessions.",
+  "seed_data_creation": "None permanent. Both viewer accounts cleaned up via DELETE /api/users/{id} in fixture teardown / inline cleanup.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Run /app/backend/tests/test_iteration10.py (~8s, 17 tests). Key assertion is test_viewer_now_returns_403 — confirms /api/safety/live-readiness now returns 403 for viewer (was 200 in iter_9). All other behavior is identical to iter_9. Frontend regression covered by Playwright run that exercises both admin (card present + pill 60% + 5 steps + 2 CTAs) and viewer (card absent) flows.",
+  "rca of the issue": "No bugs. Iter_10 was a surgical fix (one-character diff) to address an iter_9 code-review comment that /api/safety/live-readiness was open to any authenticated user but leaks per-prereq state useful only to admins. Verified: server.py:1647 now reads `async def live_readiness(user: dict = Depends(require_admin))`. Admin path unaffected (200 + identical shape). Viewer path now correctly 403. No client-side regression because Dashboard.jsx line ~34 already gated the fetch on isAdmin."
+}

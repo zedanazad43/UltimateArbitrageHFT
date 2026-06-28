@@ -1644,7 +1644,7 @@ async def autopilot_resume(user: dict = Depends(require_admin)):
 
 # ---------- Live-mode readiness check ----------
 @api.get("/safety/live-readiness")
-async def live_readiness(user: dict = Depends(get_current_user)):
+async def live_readiness(user: dict = Depends(require_admin)):
     """Returns a checklist of prerequisites before flipping to live mode.
     UI gates the Live toggle on this passing."""
     # 1. At least one trade-permission key on an enabled exchange
