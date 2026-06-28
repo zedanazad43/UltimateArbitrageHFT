@@ -25,3 +25,8 @@ build/
 # System files
 .DS_Store
 Thumbs.db
+.env.*
+credentials.json
+*.pem
+*.key
+.credentials
