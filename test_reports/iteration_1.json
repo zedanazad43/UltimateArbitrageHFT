@@ -1,0 +1,35 @@
+{
+  "summary": "Smoke test of UltimateArbitrageHFT MVP. Backend: 19/19 endpoints verified (auth, bot control/config, market spreads/opps, trades, pnl, wallet, logs, telegram). Frontend: 23/23 UI flow checks passed (login, dashboard cards, start/stop/mode toggle, all sidebar nav pages, config save persistence, 7 wallet cards, logout, bad-creds error). End-to-end integration between FastAPI + React + MongoDB is working with the mock background engine. NOTE: /app/memory/test_credentials.md was missing; used credentials from backend .env (admin@arbhft.io / Admin@123) as supplied in the review request.",
+  "tested_scope": ["frontend", "backend", "auth", "integration"],
+  "passed": [
+    "GET /api/health -> 200 {ok:true}",
+    "POST /api/auth/login wrong password -> 401",
+    "POST /api/auth/login admin@arbhft.io/Admin@123 -> 200 {token,user}",
+    "GET /api/auth/me without auth -> 401; with Bearer -> 200 user",
+    "GET /api/bot/status -> running, mode=paper, config payload",
+    "POST /api/bot/action stop -> status=stopped; start -> running; invalid -> 400",
+    "POST /api/bot/mode live/paper toggle works; invalid -> 400",
+    "GET /api/bot/config + PUT /api/bot/config (min_spread_pct=0.25) persisted",
+    "GET /api/market/spreads returns rows[] with symbol/buy_exchange/sell_exchange/spread_pct/est_profit_usd",
+    "GET /api/market/opportunities returns viable opportunities (>=min)",
+    "GET /api/trades returns mock-generated trades",
+    "GET /api/pnl returns total/today/h24/d7/win_rate/trades_total",
+    "GET /api/wallet/balances returns 7 exchanges with balances + total_usd + connected",
+    "GET /api/logs returns recent INFO log lines from background engine",
+    "GET /api/telegram/config (masked) + PUT updates; POST /api/telegram/test -> 400 without creds, 200 {ok:true,delivered:true} after PUT",
+    "Frontend Login screen loads at /; correct creds -> Dashboard; wrong creds -> visible login-error",
+    "Dashboard renders master-control-card, bot-status-text, pnl-today/24h/total/winrate cards, opportunities-card, recent-trades-card",
+    "Start/Stop buttons toggle bot-status-text RUNNING<->STOPPED visibly; Paper/Live mode buttons toggle without error",
+    "Sidebar nav routes work: Spreads, Trades, Wallet (7 wallet-card-* tiles), Config, Logs (logs-viewer visible), Telegram",
+    "Config page: editing min-spread to 0.42 and Save persists (input still shows 0.42 after refetch)",
+    "Logout returns to login-screen"
+  ],
+  "failed": [],
+  "action_items": [
+    "Create /app/memory/test_credentials.md documenting admin@arbhft.io / Admin@123 for future test runs (optional, currently sourced from backend .env)"
+  ],
+  "success_rate": {"backend": "100%", "frontend": "100%"},
+  "retest_needed": false,
+  "full_testing_deferred": true,
+  "test_credentials": "MISSING /app/memory/test_credentials.md — used credentials from backend .env as documented in review request"
+}
