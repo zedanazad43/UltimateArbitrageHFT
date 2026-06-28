@@ -109,13 +109,22 @@ async function main() {
 
       const safety = safetyResp.json || {};
       const readiness = readinessResp.json || {};
-      const networkOk = safetyResp.status === 200 && readinessResp.status === 200;
+      const safetyOk = safetyResp.status === 200;
+      const readinessOk = readinessResp.status === 200;
+      const networkOk = safetyOk && readinessOk;
+
+      // accessFailure: HTTP response received but status != 200 (WAF block, 503, etc.)
+      // This is an infrastructure/access issue, NOT a state failure.
+      const accessFailure = !networkOk;
 
       row = {
         i,
         ts,
         ok: networkOk,
         networkOk,
+        accessFailure,
+        safetyStatus: safetyResp.status,
+        readinessStatus: readinessResp.status,
         lock: safety.spotOnlyLock,
         forced: safety.spotOnlyLockForced,
         perps: safety?.strategyFlags?.perps,
@@ -129,19 +138,31 @@ async function main() {
         },
       };
 
-      const statePass = networkOk && isStrictPass(safety, readiness);
-      row.statePass = statePass;
+      // networkFailure is false in both branches: a response was received.
       row.networkFailure = false;
-      row.strictPass = statePass;
+
+      if (accessFailure) {
+        // Non-200 from server: classify as access failure, not state failure.
+        row.statePass = false;
+        row.strictPass = false;
+        row.failureCategory = 'access';
+      } else {
+        const statePass = isStrictPass(safety, readiness);
+        row.statePass = statePass;
+        row.strictPass = statePass;
+        row.failureCategory = statePass ? 'none' : 'state';
+      }
     } catch (error) {
       row = {
         i,
         ts,
         ok: false,
         networkOk: false,
+        accessFailure: false,
         statePass: false,
         strictPass: false,
         networkFailure: true,
+        failureCategory: 'network',
         error: String(error?.message || error),
       };
     }
@@ -155,17 +176,20 @@ async function main() {
   }
 
   const networkFailures = rows.filter((r) => r.networkFailure === true);
-  const stateFailures = rows.filter((r) => r.networkFailure !== true && r.statePass !== true);
+  const accessFailures = rows.filter((r) => r.accessFailure === true);
+  const stateFailures = rows.filter((r) => r.failureCategory === 'state');
   const summary = {
     startedAt,
     endedAt: new Date().toISOString(),
     sampleCount: rows.length,
-    strictFailures: networkFailures.length + stateFailures.length,
+    strictFailures: networkFailures.length + accessFailures.length + stateFailures.length,
     networkFailures: networkFailures.length,
+    accessFailures: accessFailures.length,
     stateFailures: stateFailures.length,
-    strictStable: networkFailures.length + stateFailures.length === 0,
+    strictStable: networkFailures.length + accessFailures.length + stateFailures.length === 0,
     stateStable: stateFailures.length === 0,
     networkStable: networkFailures.length === 0,
+    accessStable: accessFailures.length === 0,
     first: rows[0],
     last: rows[rows.length - 1],
   };
