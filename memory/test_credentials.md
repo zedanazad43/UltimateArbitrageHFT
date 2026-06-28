@@ -1,31 +1,28 @@
 # Test Credentials — UltimateArbitrageHFT Control Center
 
-## Bootstrap Admin (always present)
-- Email: `admin@arbhft.io`
-- Password: `Admin@123`
+## Bootstrap Admin (re-seeded from backend/.env on every startup)
+- **Email**: `zedanazad43@gmail.com`
+- **Password**: `Zed-gxvgfNixv4biRJ!`  ← TEMPORARY — change immediately
 - Role: `admin`
-- Auto-seeded from `backend/.env` at startup; cannot be demoted or deleted via the API.
+
+⚠️ This is a generated temporary password. Sign in once, then go to the **Users** page and change it to a strong unique password you've never used anywhere else. **NEVER reuse your email password for any service.**
 
 ## Roles
-- `admin` — full control (bot/action, bot/mode, bot/config PUT, telegram, exchange-keys CRUD, users CRUD)
-- `viewer` — read-only (all GET endpoints + login/logout); write attempts return 403
+- `admin` — full control
+- `viewer` — read-only
 
 ## Auth Mechanism
-- **Cookie-only JWT**: `access_token` is an httpOnly + Secure + SameSite=None cookie set by `POST /api/auth/login`.
-- **CSRF (double-submit)**: a non-httpOnly companion cookie `csrf_token` is set on login; frontend axios reads it and echoes it as `X-CSRF-Token` header on every state-changing request. Backend rejects mismatched / missing headers with 403.
-- **CLI/pytest**: send `Authorization: Bearer <token>` only (no cookies) — CSRF middleware bypasses pure-bearer requests.
-- **Refresh CSRF**: `GET /api/auth/csrf` (authenticated) issues a fresh token and updates the cookie.
+- Cookie-only JWT (httpOnly + Secure + SameSite=None)
+- CSRF double-submit via non-httpOnly `csrf_token` cookie + `X-CSRF-Token` header
+- JWT revocation: `users.token_version` bumped on password / role change
+- Bootstrap admin cannot be demoted or deleted via API (lifespan re-promotes role on every startup)
 
 ## Endpoints
 - `POST /api/auth/login` — `{email, password}` → `{token, csrf_token, user}` + cookies
 - `POST /api/auth/logout` — clears both cookies
 - `GET /api/auth/me` — current user
-- `GET /api/auth/csrf` — refreshes the CSRF token
+- `GET /api/auth/csrf` — refresh CSRF token
 
-## Test File
-- `/app/backend/tests/test_iteration2.py` (phase-2 regression)
-- `/app/backend/tests/test_iteration4.py` (CSRF + roles + permissions + PnL series + public stats)
-- Both read creds from `TEST_ADMIN_EMAIL`/`TEST_ADMIN_PASSWORD` or `ADMIN_EMAIL`/`ADMIN_PASSWORD` env vars, falling back to parsing `/app/backend/.env`.
-
-## Public Page (no auth required)
-- `GET /share` (frontend) and `GET /api/public/stats` (backend) — share-safe stats, no secrets.
+## To change the admin password permanently
+1. Sign in with the temporary password above
+2. Go to **Users** page → click your row → set a new password via the (currently API-only) `PATCH /api/users/{id}` endpoint with `{"password":"YourNewStrongPassword"}` — or update `ADMIN_PASSWORD` in `/app/backend/.env` and restart backend; the new password will be re-seeded.

@@ -6,8 +6,8 @@ const AUTH_BG = "https://images.pexels.com/photos/30547584/pexels-photo-30547584
 
 export default function Login() {
   const { login, error } = useAuth();
-  const [email, setEmail] = useState("admin@arbhft.io");
-  const [password, setPassword] = useState("Admin@123");
+  const [email, setEmail] = useState("zedanazad43@gmail.com");
+  const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
 
   const onSubmit = async (e) => {
@@ -91,8 +91,9 @@ export default function Login() {
           </button>
         </form>
 
-        <div className="mt-6 pt-5 border-t border-border/60 text-[11px] text-muted font-mono">
-          default · admin@arbhft.io / Admin@123
+        <div className="mt-6 pt-5 border-t border-border/60 text-[11px] text-muted font-mono leading-relaxed">
+          first-time access? check the credentials your operator gave you.
+          <br />change your password on the Users page right after sign-in.
         </div>
       </motion.div>
     </div>
