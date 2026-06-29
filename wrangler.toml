@@ -13,6 +13,7 @@ id = "ac954cedbedd48f8aa4452975e5fc2a1"
 binding = "DB"
 database_name = "ultimate-arbitrage-db"
 database_id = "cd726538-9c41-456c-b172-15fcc3a63a0c"
+migrations_dir = "migrations"
 
 [[durable_objects.bindings]]
 name = "MARKET_STREAMER"
