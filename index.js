@@ -716,6 +716,17 @@ function renderLoginPage(showError = false) {
   );
 }
 
+// Returns a descriptive 401 response that distinguishes "secret not configured" from
+// "wrong token supplied", making it easier to diagnose setup problems.
+// Use `asJson` for API routes that speak JSON; leave false for plain-text admin routes.
+function authDenied(env, c, asJson = false) {
+  const hint = !env.ADMIN_TOKEN
+    ? 'ADMIN_TOKEN secret not configured — run: wrangler secret put ADMIN_TOKEN'
+    : 'Invalid admin token';
+  if (asJson) return c.json({ error: 'Unauthorized', hint }, 401);
+  return c.text(`Unauthorized: ${hint}`, 401);
+}
+
 // ─── Rate limiter helper ──────────────────────────────────────────────────────
 // Uses the RATE_LIMITER binding (Cloudflare Rate Limiting API).
 // Returns a 429 response if the caller has exceeded the configured threshold;
