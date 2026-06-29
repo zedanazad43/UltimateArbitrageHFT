@@ -671,6 +671,51 @@ function renderPublicLandingPage() {
   );
 }
 
+// ─── Login page renderer ──────────────────────────────────────────────────────
+function renderLoginPage(showError = false) {
+  const errorBanner = showError
+    ? `<div style="background:#e74c3c;color:#fff;padding:10px 18px;border-radius:8px;margin-bottom:18px;font-weight:bold">❌ رمز الإدارة غير صحيح — حاول مجدداً</div>`
+    : '';
+  return new Response(
+    `<!DOCTYPE html>
+<html dir="rtl" lang="ar">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Nexus Arbitrage Hub — تسجيل الدخول</title>
+  <style>
+    *{box-sizing:border-box;margin:0;padding:0}
+    body{background:#0b0e14;color:#eee;font-family:'Segoe UI',Tahoma,sans-serif;min-height:100vh;display:flex;align-items:center;justify-content:center;padding:20px}
+    .card{background:#1a1e26;border-radius:16px;padding:40px;width:100%;max-width:400px;box-shadow:0 4px 40px rgba(0,0,0,.5);text-align:center}
+    h1{color:#f0b90b;font-size:1.6em;margin-bottom:8px}
+    .subtitle{color:#888;font-size:.9em;margin-bottom:28px}
+    label{display:block;text-align:right;color:#aaa;font-size:.85em;margin-bottom:6px}
+    input[type=password]{width:100%;background:#2a2e38;color:#eee;border:1px solid #444;border-radius:8px;padding:10px 14px;font-size:1em;margin-bottom:18px;outline:none}
+    input[type=password]:focus{border-color:#f0b90b}
+    button{width:100%;background:#f0b90b;color:#000;font-weight:bold;font-size:1em;padding:12px;border:none;border-radius:8px;cursor:pointer;transition:opacity .2s}
+    button:hover{opacity:.85}
+    .footer{color:#555;font-size:.75em;margin-top:24px}
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div style="font-size:2.2em;margin-bottom:12px">🔷</div>
+    <h1>Nexus Arbitrage Hub</h1>
+    <p class="subtitle">أدخل رمز الإدارة للمتابعة</p>
+    ${errorBanner}
+    <form method="POST" action="/login">
+      <label for="token">رمز الإدارة (ADMIN_TOKEN)</label>
+      <input id="token" name="token" type="password" placeholder="••••••••••••" autocomplete="current-password" autofocus required>
+      <button type="submit">🔑 دخول</button>
+    </form>
+    <p class="footer">مبني على Cloudflare Workers</p>
+  </div>
+</body>
+</html>`,
+    { headers: { 'Content-Type': 'text/html; charset=utf-8' } }
+  );
+}
+
 // ─── Rate limiter helper ──────────────────────────────────────────────────────
 // Uses the RATE_LIMITER binding (Cloudflare Rate Limiting API).
 // Returns a 429 response if the caller has exceeded the configured threshold;
