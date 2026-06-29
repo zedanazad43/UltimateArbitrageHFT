@@ -20,7 +20,7 @@ name = "MARKET_STREAMER"
 class_name = "MarketStreamer"
 
 [[migrations]]
-tag = "v1"
+tag = "v3"
 new_classes = ["MarketStreamer"]
 
 [[analytics_engine_datasets]]
