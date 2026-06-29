@@ -175,6 +175,17 @@ If the **Deploy Worker** workflow fails during `wrangler deploy`, use this check
 
 ---
 
+## Cloudflare deployment troubleshooting
+
+If the **Deploy Worker** workflow fails during `wrangler deploy`, use this checklist:
+
+1. Confirm `CLOUDFLARE_API_TOKEN` uses **Account > Workers Scripts > Edit** permission.
+2. Remove any **Client IP Address Filtering** from that token (GitHub Actions runners use dynamic IPs).
+3. If logs include `entitlements.not_available` / `code: 10007`, open Cloudflare dashboard and enable the required Workers entitlements/subscription for the account.
+4. Update repository secret `CLOUDFLARE_API_TOKEN` if you rotated the token, then rerun the workflow.
+
+---
+
 ## HFT Tools Configuration & CI Automation
 
 The Go HFT engine maintains an automated tools configuration report (`hft/# Tools Configuration.md`) that tracks the build environment (Go version, tools, environment variables).
