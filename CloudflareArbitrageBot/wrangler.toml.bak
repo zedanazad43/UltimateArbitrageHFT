@@ -1,0 +1,14 @@
+name = "arbitrage-bot"
+main = "index.js"
+compatibility_date = "2025-03-18"
+
+kv_namespaces = [
+    { binding = "KV_STORAGE", id = "efadbbc5889d40979c7103bc15ce6479" }
+]
+
+[triggers]
+crons = ["*/10 * * * *"]
+
+[vars]
+TELEGRAM_BOT_TOKEN = "esIV25iOJKtJJNuTa6Fzp_Iw8TkpRVgsKRoPL3BGe4c1rYsaKqujXg"
+TELEGRAM_CHAT_ID = "8770101170"
