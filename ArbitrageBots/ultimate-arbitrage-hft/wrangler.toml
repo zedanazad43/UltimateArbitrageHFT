@@ -1,6 +1,15 @@
 name = "ultimate-arbitrage-hft"
 main = "index.js"
 compatibility_date = "2025-01-01"
+compatibility_flags = ["nodejs_compat"]
+
+[[durable_objects.bindings]]
+name = "MARKET_STREAMER"
+class_name = "MarketStreamer"
+
+[[migrations]]
+tag = "v1"
+new_classes = ["MarketStreamer"]
 
 [[kv_namespaces]]
 binding = "BOT_STATE"

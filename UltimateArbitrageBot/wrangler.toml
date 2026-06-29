@@ -1,7 +1,15 @@
 name = "ultimate-arbitrage-hft"
-# Intentionally target the canonical HFT worker source from this deployment folder.
-main = "../ArbitrageBots/ultimate-arbitrage-hft/index.js"
+main = "src/worker.js"
 compatibility_date = "2025-01-01"
+compatibility_flags = ["nodejs_compat"]
+
+[[durable_objects.bindings]]
+name = "MARKET_STREAMER"
+class_name = "MarketStreamer"
+
+[[migrations]]
+tag = "v1"
+new_classes = ["MarketStreamer"]
 
 [[kv_namespaces]]
 binding = "BOT_STATE"
@@ -14,17 +22,6 @@ database_id = "cd726538-9c41-456c-b172-15fcc3a63a0c"
 
 [ai]
 binding = "AI"
-
-[[durable_objects.bindings]]
-name = "MARKET_STREAMER"
-class_name = "MarketStreamer"
-
-[[migrations]]
-tag = "v1"
-new_sqlite_classes = ["MarketStreamer"]
-
-[[tail_consumers]]
-service = "ultimate-arbitrage-tail"
 
 [observability]
 enabled = false
@@ -42,7 +39,14 @@ persist = true
 head_sampling_rate = 1
 
 [triggers]
-crons = ["*/5 * * * *"]
+crons = ["*/1 * * * *"]
 
 # Secrets required by this worker (set via `wrangler secret put <NAME>`):
-# - ALCHEMY_API_KEY  : Alchemy Token Prices API key
+# - ADMIN_TOKEN          : protects /start /stop /scan /mode/* /config
+# - MEXC_API_KEY         : MEXC exchange API key (required for live trading)
+# - MEXC_API_SECRET      : MEXC exchange API secret (required for live trading)
+# - TELEGRAM_BOT_TOKEN   : Telegram bot token for alerts
+# - TELEGRAM_CHAT_ID     : Telegram chat ID for alerts
+# - ZEROX_API_KEY        : 0x Protocol API key (optional, for DEX price feeds)
+# - DEX_WALLET_ADDRESS   : DEX/Metamask wallet address (optional)
+
