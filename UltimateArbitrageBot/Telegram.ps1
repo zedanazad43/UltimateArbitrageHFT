@@ -1,0 +1,1 @@
+curl https://api.telegram.org/bot<توكن_البوت>/sendMessage -d "chat_id=<معرف_الدردشة>&text=✅ البوت يعمل ويراقب السوق"

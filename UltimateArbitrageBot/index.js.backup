@@ -1,0 +1,260 @@
+﻿// ============================================================
+// ULTIMATE ARBITRAGE BOT - FIXED PRICE FETCHING (BINANCE & BITMART)
+// ============================================================
+const INITIAL_TRADE_SIZE = 10;
+const GROWTH_FACTOR = 3.5;
+const MIN_PROFIT_PERCENT = 0.005;
+const MIN_TRADE_USD = 10;
+const PAPER_TRADING = false;
+let botRunning = true;
+
+let botState = {
+    tradeSize: INITIAL_TRADE_SIZE,
+    totalProfitUSD: 0,
+    dailyProfitUSD: 0,
+    totalTrades: 0,
+    tradeCount: 0,
+    lastDate: new Date().toDateString(),
+    history: [],
+    balances: {}
+};
+
+// ========== دوال مساعدة ==========
+async function fetchWithRetry(url, options = {}, retries = 2, delay = 1000, sourceName = '') {
+    for (let i = 0; i <= retries; i++) {
+        try {
+            const response = await fetch(url, options);
+            if (!response.ok) throw new Error(`HTTP ${response.status}`);
+            const data = await response.json();
+            if (sourceName) console.log(`✅ ${sourceName} (${url})`);
+            return data;
+        } catch (err) {
+            console.error(`⚠️ فشل جلب ${sourceName || url}: ${err.message} (محاولة ${i+1}/${retries+1})`);
+            if (i === retries) return null;
+            await new Promise(r => setTimeout(r, delay * (i+1)));
+        }
+    }
+    return null;
+}
+
+async function hmacSha256(message, secret) {
+    if (!secret) return '';
+    const encoder = new TextEncoder();
+    const keyData = encoder.encode(secret);
+    const messageData = encoder.encode(message);
+    const cryptoKey = await crypto.subtle.importKey('raw', keyData, { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
+    const signature = await crypto.subtle.sign('HMAC', cryptoKey, messageData);
+    return Array.from(new Uint8Array(signature)).map(b => b.toString(16).padStart(2, '0')).join('');
+}
+
+function base64Encode(str) {
+    return btoa(String.fromCharCode(...new Uint8Array(str.match(/.{1,2}/g).map(byte => parseInt(byte, 16)))));
+}
+
+// ========== جلب الأسعار مع محاولات متعددة ==========
+// MEXC
+const getMEXC = async (symbol) => {
+    const data = await fetchWithRetry(`https://api.mexc.com/api/v3/ticker/price?symbol=${symbol}USDT`, {}, 1, 500, 'MEXC');
+    return data?.price ? parseFloat(data.price) : null;
+};
+
+// Binance: جرب USDT أولاً، ثم USDC
+const getBinance = async (symbol) => {
+    let data = await fetchWithRetry(`https://api.binance.com/api/v3/ticker/price?symbol=${symbol}USDT`, {}, 1, 500, 'Binance-USDT');
+    if (data?.price) return parseFloat(data.price);
+    data = await fetchWithRetry(`https://api.binance.com/api/v3/ticker/price?symbol=${symbol}USDC`, {}, 1, 500, 'Binance-USDC');
+    return data?.price ? parseFloat(data.price) : null;
+};
+
+// Bitmart: استخدم رمز BTC_USDT (لاحظ underscore)
+const getBitmart = async (symbol) => {
+    const data = await fetchWithRetry(`https://api-cloud.bitmart.com/spot/v1/ticker?symbol=${symbol}_USDT`, {}, 1, 500, 'Bitmart');
+    if (data?.data?.tickers?.[0]?.last_price) {
+        return parseFloat(data.data.tickers[0].last_price);
+    }
+    // محاولة بديلة: استخدام نقطة نهاية مختلفة
+    const altData = await fetchWithRetry(`https://api-cloud.bitmart.com/spot/v1/symbols?symbol=${symbol}_USDT`, {}, 1, 500, 'Bitmart-alt');
+    return null;
+};
+
+// ========== الأرصدة (محاكاة – يمكن تحديثها) ==========
+async function fetchBalances(env) {
+    const balances = {
+        MEXC: { USDT: 25, BTC: 0.00033, ETH: 0 },
+        Binance: { USDC: 100, BTC: 0, ETH: 0 },
+        Bitmart: { USDT: 100, BTC: 0, ETH: 0 }
+    };
+    console.log(`💰 الأرصدة: MEXC USDT: ${balances.MEXC.USDT}, Binance USDC: ${balances.Binance.USDC}, Bitmart USDT: ${balances.Bitmart.USDT}`);
+    return balances;
+}
+
+// ========== تجميع الأسعار ==========
+async function fetchAllPrices() {
+    const [mexcBTC, mexcETH, binanceBTC, binanceETH, bitmartBTC, bitmartETH] = await Promise.all([
+        getMEXC('BTC'), getMEXC('ETH'),
+        getBinance('BTC'), getBinance('ETH'),
+        getBitmart('BTC'), getBitmart('ETH')
+    ]);
+    console.log(`📊 الأسعار: MEXC-BTC: $${mexcBTC}, Binance-BTC: $${binanceBTC}, Bitmart-BTC: $${bitmartBTC}`);
+    console.log(`📊 MEXC-ETH: $${mexcETH}, Binance-ETH: $${binanceETH}, Bitmart-ETH: $${bitmartETH}`);
+    return {
+        BTC: { MEXC: mexcBTC, Binance: binanceBTC, Bitmart: bitmartBTC },
+        ETH: { MEXC: mexcETH, Binance: binanceETH, Bitmart: bitmartETH }
+    };
+}
+
+// ========== كشف الفرص مع مراعاة الأرصدة ==========
+function findOpportunity(prices, balances, tradeSize, assetType = 'BTC') {
+    let best = null;
+    const exchanges = ['MEXC', 'Binance', 'Bitmart'];
+    for (let i = 0; i < exchanges.length; i++) {
+        for (let j = i+1; j < exchanges.length; j++) {
+            const buyEx = exchanges[i];
+            const sellEx = exchanges[j];
+            const buyPrice = prices[assetType][buyEx];
+            const sellPrice = prices[assetType][sellEx];
+            if (!buyPrice || !sellPrice) continue;
+            // التحقق من الرصيد الكافي للشراء
+            let hasBalance = false;
+            if (buyEx === 'MEXC' && balances.MEXC.USDT >= tradeSize) hasBalance = true;
+            if (buyEx === 'Binance' && balances.Binance.USDC >= tradeSize) hasBalance = true;
+            if (buyEx === 'Bitmart' && balances.Bitmart.USDT >= tradeSize) hasBalance = true;
+            if (!hasBalance) continue;
+            const profitPct = ((sellPrice - buyPrice) / buyPrice) * 100;
+            if (profitPct > MIN_PROFIT_PERCENT) {
+                const profitUSD = (profitPct / 100) * tradeSize;
+                if (!best || profitUSD > best.profitUSD) {
+                    best = { type: `${assetType}-CEX`, buyExchange: buyEx, buyPrice, sellExchange: sellEx, sellPrice, profitPct, profitUSD };
+                }
+            }
+        }
+    }
+    return best;
+}
+
+// ========== دوال تنفيذ الأوامر (مختصرة – يجب إكمالها من الكود السابق) ==========
+async function mexcOrder(side, symbol, quantity, env) {
+    const apiKey = env.MEXC_API_KEY;
+    const secret = env.MEXC_API_SECRET;
+    if (!apiKey || !secret) throw new Error('MEXC keys missing');
+    let rounded = symbol === 'BTC' ? Math.floor(quantity * 1e6) / 1e6 : Math.floor(quantity * 1e4) / 1e4;
+    if (rounded <= 0) throw new Error('Quantity too small');
+    const timestamp = Date.now();
+    const params = new URLSearchParams({ symbol: `${symbol}USDT`, side: side.toUpperCase(), type: 'MARKET', quantity: rounded.toString(), timestamp: timestamp.toString() });
+    const signature = await hmacSha256(params.toString(), secret);
+    const url = `https://api.mexc.com/api/v3/order?${params}&signature=${signature}`;
+    const response = await fetch(url, { method: 'POST', headers: { 'X-MEXC-APIKEY': apiKey } });
+    const data = await response.json();
+    if (!response.ok) throw new Error(`MEXC ${side} failed: ${JSON.stringify(data)}`);
+    console.log(`✅ MEXC ${side.toUpperCase()} ${rounded} ${symbol}`);
+    return data;
+}
+async function binanceOrder(side, symbol, quantity, env) {
+    const apiKey = env.BINANCE_API_KEY;
+    const secret = env.BINANCE_API_SECRET;
+    if (!apiKey || !secret) throw new Error('Binance keys missing');
+    const timestamp = Date.now();
+    const pair = `${symbol}USDC`; // نستخدم USDC حسب الرصيد
+    const params = new URLSearchParams({ symbol: pair, side: side.toLowerCase(), type: 'MARKET', quantity: quantity.toString(), timestamp: timestamp.toString() });
+    const signature = await hmacSha256(params.toString(), secret);
+    const url = `https://api.binance.com/api/v3/order?${params}&signature=${signature}`;
+    const response = await fetch(url, { method: 'POST', headers: { 'X-MBX-APIKEY': apiKey } });
+    const data = await response.json();
+    if (!response.ok) throw new Error(`Binance ${side} failed: ${JSON.stringify(data)}`);
+    console.log(`✅ Binance ${side} ${quantity} ${symbol} (USDC)`);
+    return data;
+}
+async function bitmartOrder(side, symbol, quantity, env) {
+    const apiKey = env.BITMART_API_KEY;
+    const secret = env.BITMART_API_SECRET;
+    const uid = env.BITMART_UID;
+    if (!apiKey || !secret) throw new Error('Bitmart keys missing');
+    const timestamp = Date.now();
+    const endpoint = '/spot/v2/submit_order';
+    const body = JSON.stringify({ symbol: `${symbol}_USDT`, side: side.toLowerCase(), type: 'market', size: quantity.toString() });
+    const strToSign = timestamp + '#' + uid + '#' + body;
+    const signature = await hmacSha256(strToSign, secret);
+    const url = `https://api-cloud.bitmart.com${endpoint}`;
+    const response = await fetch(url, {
+        method: 'POST',
+        headers: { 'X-BM-KEY': apiKey, 'X-BM-SIGN': signature, 'X-BM-TIMESTAMP': timestamp.toString(), 'Content-Type': 'application/json' },
+        body
+    });
+    const data = await response.json();
+    if (data.code !== 1000) throw new Error(`Bitmart ${side} failed: ${JSON.stringify(data)}`);
+    console.log(`✅ Bitmart ${side} ${quantity} ${symbol}`);
+    return data;
+}
+
+const orderHandlers = { MEXC: mexcOrder, Binance: binanceOrder, Bitmart: bitmartOrder };
+
+async function executeRealTrade(opp, symbol, env, tradeSize) {
+    const quantity = tradeSize / opp.buyPrice;
+    if (PAPER_TRADING) {
+        console.log(`🔸 [PAPER] شراء ${quantity.toFixed(8)} ${symbol} من ${opp.buyExchange} وبيع في ${opp.sellExchange} – ربح $${opp.profitUSD.toFixed(2)}`);
+        return true;
+    }
+    const buyHandler = orderHandlers[opp.buyExchange];
+    const sellHandler = orderHandlers[opp.sellExchange];
+    if (!buyHandler || !sellHandler) return false;
+    try {
+        await buyHandler('buy', symbol, quantity, env);
+        await sellHandler('sell', symbol, quantity, env);
+        console.log(`🎉 صفقة منفذة: ${opp.buyExchange} → ${opp.sellExchange}`);
+        return true;
+    } catch (err) {
+        console.error(`❌ فشل: ${err.message}`);
+        return false;
+    }
+}
+
+async function updateState(opp, profit, symbol, env) {
+    const today = new Date().toDateString();
+    if (botState.lastDate !== today) { botState.dailyProfitUSD = 0; botState.lastDate = today; }
+    botState.totalTrades++;
+    botState.totalProfitUSD += profit;
+    botState.dailyProfitUSD += profit;
+    botState.tradeCount++;
+    if (botState.tradeCount % 10 === 0) botState.tradeSize = Math.min(botState.tradeSize * GROWTH_FACTOR, 500);
+    botState.history.unshift({ time: new Date().toISOString(), symbol, action: opp.type, profit: profit.toFixed(2) });
+    if (botState.history.length > 50) botState.history.pop();
+    await env.BOT_STATE.put('bot_state', JSON.stringify(botState));
+    console.log(`💰 ربح الصفقة: $${profit.toFixed(2)} | إجمالي: $${botState.totalProfitUSD.toFixed(2)}`);
+}
+
+async function runCycle(env) {
+    const saved = await env.BOT_STATE.get('bot_state', 'json');
+    if (saved) botState = { ...botState, ...saved };
+    const today = new Date().toDateString();
+    if (botState.lastDate !== today) { botState.dailyProfitUSD = 0; botState.lastDate = today; await env.BOT_STATE.put('bot_state', JSON.stringify(botState)); }
+    const balances = await fetchBalances(env);
+    const prices = await fetchAllPrices();
+    const btcOpp = findOpportunity(prices, balances, botState.tradeSize, 'BTC');
+    if (btcOpp) {
+        console.log(`🎯 فرصة BTC: ربح ${btcOpp.profitPct.toFixed(3)}% ($${btcOpp.profitUSD.toFixed(2)})`);
+        if (await executeRealTrade(btcOpp, 'BTC', env, botState.tradeSize))
+            await updateState(btcOpp, btcOpp.profitUSD, 'BTC', env);
+    }
+    const ethOpp = findOpportunity(prices, balances, botState.tradeSize, 'ETH');
+    if (ethOpp) {
+        console.log(`🎯 فرصة ETH: ربح ${ethOpp.profitPct.toFixed(3)}% ($${ethOpp.profitUSD.toFixed(2)})`);
+        if (await executeRealTrade(ethOpp, 'ETH', env, botState.tradeSize))
+            await updateState(ethOpp, ethOpp.profitUSD, 'ETH', env);
+    }
+}
+
+function renderDashboard(state) {
+    return `<!DOCTYPE html><html lang="ar" dir="rtl"><head><meta charset="UTF-8"><title>بوت المراجحة الذكي</title><style>body{background:#0f0c29;color:#fff;font-family:system-ui;text-align:center;padding:20px}.stats{display:grid;grid-template-columns:repeat(4,1fr);gap:15px;margin:20px 0}.stat-box{background:rgba(0,0,0,0.3);padding:15px;border-radius:10px}.stat-value{font-size:28px;font-weight:bold;color:#00cec9}button{background:#00b894;border:none;color:#fff;padding:10px 20px;margin:5px;border-radius:8px;cursor:pointer}.stop{background:#d63031}</style></head><body><div><h1>🤖 بوت المراجحة الذكي</h1><div><button onclick="fetch('/control',{method:'POST',body:'start'}).then(()=>location.reload())">▶️ تشغيل</button><button onclick="fetch('/control',{method:'POST',body:'stop'}).then(()=>location.reload())" class="stop">⏹️ إيقاف</button></div><div class="stats"><div class="stat-box"><div class="stat-value">${state.totalTrades||0}</div><div>الصفقات</div></div><div class="stat-box"><div class="stat-value">$${(state.totalProfitUSD||0).toFixed(2)}</div><div>الربح</div></div><div class="stat-box"><div class="stat-value">$${(state.dailyProfitUSD||0).toFixed(2)}</div><div>ربح اليوم</div></div><div class="stat-box"><div class="stat-value">$${state.tradeSize.toFixed(2)}</div><div>حجم الصفقة</div></div></div><h3>📜 آخر الصفقات</h3><ul>${state.history.slice(0,10).map(t=>`<li>${new Date(t.time).toLocaleString()}: ${t.action} ($${t.profit})</li>`).join('')}</ul></div></body></html>`;
+}
+
+export default {
+    async scheduled(event, env, ctx) { if (botRunning) await runCycle(env); },
+    async fetch(request, env, ctx) {
+        const saved = await env.BOT_STATE.get('bot_state', 'json');
+        if (saved) botState = { ...botState, ...saved };
+        const url = new URL(request.url);
+        if (url.pathname === '/' || url.pathname === '/dashboard') return new Response(renderDashboard(botState), { headers: { 'Content-Type': 'text/html; charset=UTF-8' } });
+        if (url.pathname === '/control' && request.method === 'POST') { const body = await request.text(); botRunning = (body === 'start'); return new Response("OK"); }
+        return new Response("استخدم /dashboard");
+    }
+};

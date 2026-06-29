@@ -50,6 +50,13 @@ export default [
       sourceType: "commonjs",
     },
   },
+  // CommonJS files need commonjs sourceType
+  {
+    files: ['**/*.cjs'],
+    languageOptions: {
+      sourceType: 'commonjs',
+    },
+  },
   // Node.js environment for scripts and temporal worker
   {
     files: [

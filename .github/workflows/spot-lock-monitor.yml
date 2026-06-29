@@ -112,9 +112,11 @@ jobs:
             summary = {
               strictFailures: 1,
               stateFailures: 1,
+              accessFailures: 0,
               networkFailures: 0,
               strictStable: false,
               stateStable: false,
+              accessStable: true,
               networkStable: true,
             };
           }
@@ -127,6 +129,7 @@ jobs:
 
           setOutput('strict_failures', String(summary.strictFailures ?? 0));
           setOutput('state_failures', String(summary.stateFailures ?? 0));
+          setOutput('access_failures', String(summary.accessFailures ?? 0));
           setOutput('network_failures', String(summary.networkFailures ?? 0));
           setOutput('state_stable', String(summary.stateStable === true));
           setOutput('ready_for_live', String(lastSample?.readyForLive === true));
@@ -150,6 +153,7 @@ jobs:
             echo "## Spot Lock Monitor";
             echo "";
             echo "- State failures: ${{ steps.parse.outputs.state_failures }}";
+            echo "- Access failures: ${{ steps.parse.outputs.access_failures }}";
             echo "- Network failures: ${{ steps.parse.outputs.network_failures }}";
             echo "- Ready for live (last sample): ${{ steps.parse.outputs.ready_for_live }}";
             echo "- State stable: ${{ steps.parse.outputs.state_stable }}";
@@ -288,15 +292,16 @@ jobs:
 
             core.info(`Closed recovered incident issue #${issue.number}.`);
 
-      - name: Telegram warning alert (network only)
-        if: always() && steps.parse.outputs.state_failures == '0' && steps.parse.outputs.network_failures != '0' && env.TELEGRAM_BOT_TOKEN != '' && env.TELEGRAM_CHAT_ID != ''
+      - name: Telegram warning alert (network/access only)
+        if: always() && steps.parse.outputs.state_failures == '0' && (steps.parse.outputs.network_failures != '0' || steps.parse.outputs.access_failures != '0') && env.TELEGRAM_BOT_TOKEN != '' && env.TELEGRAM_CHAT_ID != ''
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: |
-          text=$(printf 'WARNING: Spot-lock monitor saw transient network failures\nRepo: %s\nRun: %s\nnetworkFailures=%s stateFailures=%s' \
+          text=$(printf 'WARNING: Spot-lock monitor saw transient network/access failures\nRepo: %s\nRun: %s\naccessFailures=%s networkFailures=%s stateFailures=%s' \
             "${GITHUB_REPOSITORY}" \
             "${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}" \
+            "${{ steps.parse.outputs.access_failures }}" \
             "${{ steps.parse.outputs.network_failures }}" \
             "${{ steps.parse.outputs.state_failures }}")
 

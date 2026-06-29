@@ -1,0 +1,25 @@
+# Copy this file to .dev.vars and fill in your actual values.
+# .dev.vars is gitignored and read by `wrangler dev` for local secrets.
+# For production use: wrangler secret put <NAME>
+# Or use the npm scripts from UltimateArbitrageBot/:
+#   npm run cf:set-mexc          — uploads MEXC keys
+#   npm run cf:set-admin-token   — generates and uploads ADMIN_TOKEN
+#   npm run cf:set-main-telegram — uploads Telegram bot credentials
+
+# ── Required for live trading ──────────────────────────────────────
+MEXC_API_KEY=your_mexc_api_key_here
+MEXC_API_SECRET=your_mexc_api_secret_here
+
+# ── Required to protect admin endpoints ────────────────────────────
+# Generate with: npm run cf:set-admin-token  (auto-generates a secure token)
+ADMIN_TOKEN=your_admin_token_here
+
+# ── Optional: Telegram trade alerts ───────────────────────────────
+TELEGRAM_BOT_TOKEN=your_telegram_bot_token_here
+TELEGRAM_CHAT_ID=your_telegram_chat_id_here
+
+# ── Optional: 0x Protocol DEX price feeds ─────────────────────────
+ZEROX_API_KEY=your_zerox_api_key_here
+
+# ── Optional: Alchemy cross-chain price feeds ──────────────────────
+ALCHEMY_API_KEY=your_alchemy_api_key_here

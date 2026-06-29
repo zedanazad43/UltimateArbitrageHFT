@@ -1,0 +1,50 @@
+{
+  "summary": "Iteration 6 backend regression PASSED 10/10 (test_iteration6.py) after fixing ONE critical timezone bug in lifespan alert-cooldown hydration. Iter4+iter5 regression also PASSED 30/30. Frontend smoke for A/B and Audit pages PASSED end-to-end via playwright: nav-ab + nav-audit visible in sidebar; /ab renders abtest-page; reset → start → enabled pill='running'; after 13s, lane-a-card-pnl=$33.06 (5 trades, 100% wr), lane-b-card-pnl=$51.74 (2 trades, 100% wr), ab-delta-pnl=$-18.68, leader='Lane B'; /audit renders 61 entries with timestamps, actor admin@arbhft.io, action pills (bot.start, bot.mode, ab.start, ab.reset, auth.login, etc), details JSON; audit-filter='bot.start' narrows to 6 rows, all matching.\n\nBackend verifications:\n• JWT revocation on role change — token2 → 401 'Token revoked' immediately after PATCH role=admin; fresh login succeeds. ✓\n• JWT revocation on password change — old token → 401, login with new password works. ✓\n• Audit endpoint — returns {ts, actor_email, actor_role, action, details}; bot.start + bot.mode entries appear after POSTs; ?action=bot.start filter is strict. ✓\n• Failed login audited — wrong-pw POST creates auth.login_failed entry with email in details. ✓\n• A/B full flow — reset → status default → start with bad preset returns 400 → start valid → 20s wait → trades>0 in lanes → stop retains counters → reset wipes. ✓\n• A/B viewer-forbidden — GET status allowed, all writes 403. ✓\n• Alert cooldown survives restart — created max_spread_pct>0 (cooldown=20s) rule, waited for fire, persisted last_fired_at verified, supervisorctl restart backend, slept 4s, delta events ≤ 1 (no storm). ✓",
+  "backend_issues": {
+    "critical": [],
+    "minor": [],
+    "fixed_during_test": [
+      {"file": "/app/backend/server.py", "function": "lifespan (alert cooldown hydration block, lines ~568-575)", "issue": "MongoDB returns offset-naive datetimes; _evaluate_alerts uses datetime.now(timezone.utc) (offset-aware). After lifespan hydrated _alert_last_fired from rule docs, every tick raised 'can't subtract offset-naive and offset-aware datetimes' → ENTIRE alert evaluator was broken silently (logs at ERROR level every 2s). This defeated the iteration 6 cooldown-persistence feature AND broke pre-existing alert rules. FIX: coerce lf.replace(tzinfo=timezone.utc) when lf.tzinfo is None.", "priority": "CRITICAL"}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Console", "issues": ["React Router v7 future flag warnings (v7_startTransition, v7_relativeSplatPath) — pre-existing harmless deprecations."]}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iteration6.py",
+    "/app/test_reports/pytest/iter6.xml"
+  ],
+  "action_items": [
+    "[OPTIONAL] Verify the timezone fix in server.py lifespan persists across future deploys — should be a permanent change.",
+    "[CARRIED FROM iter5] ApiKeys page: still missing data-testid='apikey-test-{ex}' button + result label (not in scope for iter6 review but unresolved).",
+    "[OPTIONAL] /api/auth/me returning 401 once on initial load from frontend (login flow recovers cleanly); not blocking."
+  ],
+  "critical_code_review_comments": [
+    "CRITICAL BUG FIXED: lifespan hydration of _alert_last_fired stored MongoDB-naive datetimes; later compared against aware datetime.now(timezone.utc) → TypeError on every background tick. Same risk pattern lives elsewhere: any time a datetime is read from Mongo and compared/subtracted with an aware datetime, coerce tz first. Suggest a tiny helper: def to_utc(dt): return dt if (dt is None or dt.tzinfo) else dt.replace(tzinfo=timezone.utc) and use across the codebase.",
+    "server.py is now 1403 lines — modularization strongly recommended (auth/users/bot/alerts/audit/ab/market routers).",
+    "_audit catches all exceptions silently — fine for hot-path safety but consider at least add_log('ERROR', ...) inside the except, so silent audit failures are visible.",
+    "_ab_tick triggers on every tick with random.random() < 0.45 but ignores ab_lanes.enabled set to True/False atomically — if a viewer changes 'enabled' between get and update, you may overwrite. Singleton + 2s cadence makes the race very unlikely.",
+    "GET /api/ab/status uses get_current_user (any auth) which is correct per spec; writes use require_admin ✓.",
+    "JWT 'tv' claim correctly bumped on both role change (server.py:1047) and password change (server.py:1037). Idempotency: bumping by +1 means token issued AFTER the change has fresh tv. The fixture test_jwt_revocation_on_role_change verifies the immediate 401 and the fresh-login success. ✓",
+    "Audit log entries store actor_id/email/role at the time of the action — good for forensics. No PII redaction needed since admin-only.",
+    "/api/audit limit clamped to 500 ✓; result sorted by ts desc ✓; _id excluded ✓; filter by action exact-match ✓."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iteration6.py",
+    "/app/backend/server.py (lifespan timezone fix only)"
+  ],
+  "success_rate": {
+    "backend": "100% (10/10 iter6 + 30/30 iter4+iter5 regression = 40/40)",
+    "frontend": "100% — sidebar nav-ab/nav-audit, /ab full flow (reset, start, running pill, lane PnL/trades update, delta, leader, reset cleanup), /audit (rows, pills, details, filter narrowing)"
+  },
+  "test_credentials": "Admin: admin@arbhft.io / Admin@123. Pytest auto-creates+deletes viewer_iter6@arbhft.io, viewer_iter6b@arbhft.io, viewer_iter6_audit@arbhft.io, viewer_iter6_ab@arbhft.io (all cleaned).",
+  "seed_data_creation": "Pytest creates+cleans 4 viewers, 1 alert rule (ITER6_cooldown), starts/stops bot, mutates bot mode to 'paper', resets+starts+stops+resets A/B singleton. Pre-existing 'Spread > 0.4%' rule left intact. Audit log naturally grew by ~10 entries during the run. UI test reset the A/B singleton and started conservative vs aggressive lanes — left running at end; main agent may want to call POST /api/ab/reset after merge to leave a clean slate.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Re-run /app/backend/tests/test_iteration6.py for iter6 regression (10 tests, ~27s including a backend restart). Also re-run test_iteration5.py + test_iteration4.py (30 tests, ~40s). The cooldown-survives-restart test uses sudo supervisorctl restart backend — needs ~30s for the backend to come back. The A/B simulator fires with 45% probability per tick per lane, so within 20s you reliably get trades>0 in at least one lane. JWT 'tv' bump is the key revocation primitive — every PATCH /api/users that touches password or role increments it. Pre-existing alerts rule 'Spread > 0.4%' fires every ~30s (cooldown=30s) when bot is running. After iter6's tz fix, alert evaluator runs cleanly with no ERROR logs.",
+  "rca of the issue": "RCA — Alert evaluator silent failure post-iter6:\n• Bug introduced when lifespan hydration code (server.py:568) loaded last_fired_at from Mongo into the in-memory _alert_last_fired dict using the raw value. Mongo's BSON datetime is offset-naive on read (motor/pymongo default tz_aware=False).\n• Then _evaluate_alerts (server.py:521) computed `now = datetime.now(timezone.utc)` and on line 526 did `(now - last).total_seconds()` — TypeError raised every 2s background_tick, caught by the outer try/except at server.py:366-367, logged at ERROR but the eval loop early-exits before firing any alerts.\n• Symptom: no new alert events for any rule (even pre-existing 'Spread > 0.4%') in /api/alerts/events; engine_logs flooded with 'alert eval error: can't subtract offset-naive and offset-aware datetimes'.\n• Reproduction (before fix): create rule max_spread_pct>0 cooldown 20s; restart backend (so hydration runs); wait 10s → 0 events fired.\n• Mitigation applied: at hydration time, if lf.tzinfo is None, lf = lf.replace(tzinfo=timezone.utc) before storing in _alert_last_fired. Post-fix verified: rule fires within 2-4s of bot running, last_fired_at persisted, no ERROR logs."
+}

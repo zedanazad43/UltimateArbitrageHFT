@@ -23,10 +23,37 @@ const BINANCE_EXCHANGE_INFO_ENDPOINTS = [
   'https://data-api.binance.vision/api/v3/exchangeInfo',
 ];
 
-function fail(message, details) {
-  console.error(`[symbol-catalog-check] ${message}`);
+// Failure classification tokens — parseable by CI steps.
+const FAIL_CLASS = {
+  WAF_CHALLENGE: 'WAF_CHALLENGE',
+  AUTH_FAILURE: 'AUTH_FAILURE',
+  HTTP_ERROR: 'HTTP_ERROR',
+  DATA_ERROR: 'DATA_ERROR',
+};
+
+function fail(message, details, classification) {
+  const cls = classification || FAIL_CLASS.DATA_ERROR;
+  console.error(`[symbol-catalog-check] FAILURE_CLASS=${cls} ${message}`);
   if (details) console.error(details);
   process.exit(1);
+}
+
+/**
+ * Inspect a non-200 response and return a classification object.
+ * Reads the body text (already consumed by caller) to distinguish
+ * WAF HTML challenge pages from genuine API responses.
+ */
+const WAF_HTML_PATTERN = /<html|<!DOCTYPE|<head|<body|<title/i;
+const WAF_CHALLENGE_PATTERN = /cloudflare|just a moment|cf-ray|challenge/i;
+
+function classifyHttpFailure(status, bodyText) {
+  if (status === 403) {
+    if (WAF_HTML_PATTERN.test(bodyText) || WAF_CHALLENGE_PATTERN.test(bodyText)) {
+      return FAIL_CLASS.WAF_CHALLENGE;
+    }
+    return FAIL_CLASS.AUTH_FAILURE;
+  }
+  return FAIL_CLASS.HTTP_ERROR;
 }
 
 async function fetchWithTimeout(url, options, timeoutMs) {
@@ -77,7 +104,7 @@ async function getBinanceReferenceCount(timeoutMs) {
 
 async function main() {
   if (!ADMIN_TOKEN) {
-    fail('ADMIN_TOKEN is required');
+    fail('ADMIN_TOKEN is required', null, FAIL_CLASS.AUTH_FAILURE);
   }
 
   const url = `${BASE_URL}/api/symbols/catalog?includeMetaMask=true&maxMetaMask=3000&maxScan=200`;
@@ -93,13 +120,36 @@ async function main() {
 
     if (!response.ok) {
       const body = await response.text();
-      fail(`HTTP ${response.status} from symbol catalog endpoint`, body.slice(0, 500));
+      const cls = classifyHttpFailure(response.status, body);
+
+      if (cls === FAIL_CLASS.WAF_CHALLENGE) {
+        // Retrying a WAF block is pointless — exit immediately with clear diagnostics.
+        console.error(
+          '[symbol-catalog-check] FAILURE_CLASS=WAF_CHALLENGE ' +
+          `HTTP ${response.status}: Cloudflare WAF challenge page detected. ` +
+          'This is an access/infrastructure issue, NOT a data failure. ' +
+          'The GitHub Actions runner IP may be blocked by the WAF policy for api.ecostamp.net. ' +
+          'Remediation: add the runner IP range to the WAF allowlist, or configure a proxy.'
+        );
+        process.exit(1);
+      }
+
+      if (cls === FAIL_CLASS.AUTH_FAILURE) {
+        fail(
+          `HTTP ${response.status}: Authentication failure (JSON 403). ` +
+          'Verify WORKFLOW_ADMIN_TOKEN / ADMIN_TOKEN is set correctly in repo secrets.',
+          body.slice(0, 500),
+          FAIL_CLASS.AUTH_FAILURE
+        );
+      }
+
+      fail(`HTTP ${response.status} from symbol catalog endpoint`, body.slice(0, 500), FAIL_CLASS.HTTP_ERROR);
     }
 
     const payload = await response.json();
     const summary = payload?.summary;
     if (!summary) {
-      fail('Missing summary object in response');
+      fail('Missing summary object in response', null, FAIL_CLASS.DATA_ERROR);
     }
 
     allSummaries.push(summary);
@@ -160,12 +210,12 @@ async function main() {
     const msg = failures
       .map(([name, value, min]) => `${name}: got ${value}, expected >= ${min}`)
       .join(' | ');
-    fail(`Threshold check failed: ${msg}`);
+    fail(`Threshold check failed: ${msg}`, null, FAIL_CLASS.DATA_ERROR);
   }
 
   console.log('[symbol-catalog-check] OK');
 }
 
 main().catch((error) => {
-  fail(error?.message || 'Unknown error');
+  fail(error?.message || 'Unknown error', null, FAIL_CLASS.DATA_ERROR);
 });

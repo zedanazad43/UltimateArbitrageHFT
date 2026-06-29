@@ -635,6 +635,42 @@ function renderLoginPage(showError = false, adminConfigured = true) {
   );
 }
 
+function renderPublicLandingPage() {
+  return new Response(
+    `<!DOCTYPE html>
+<html dir="rtl" lang="ar">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Nexus Arbitrage Hub</title>
+  <style>
+    *{box-sizing:border-box;margin:0;padding:0}
+    body{background:#0b0e14;color:#eee;font-family:'Segoe UI',Tahoma,sans-serif;min-height:100vh;display:flex;align-items:center;justify-content:center;padding:20px}
+    .card{background:#1a1e26;border-radius:16px;padding:40px;width:100%;max-width:720px;box-shadow:0 4px 40px rgba(0,0,0,.5);text-align:center}
+    h1{color:#f0b90b;font-size:2em;margin-bottom:8px}
+    .subtitle{color:#aaa;font-size:1em;margin-bottom:24px}
+    .btn{display:inline-block;background:#f0b90b;color:#000;font-weight:bold;font-size:1em;padding:12px 24px;border-radius:10px;text-decoration:none;margin:6px}
+    .btn-secondary{background:#2a2e38;color:#f0b90b}
+    .status{margin-top:18px;color:#888;font-size:.86em;line-height:1.8}
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div style="font-size:2.4em;margin-bottom:10px">🔷</div>
+    <h1>Nexus Arbitrage Hub</h1>
+    <p class="subtitle">منصة تداول آلي موحدة — CEX + DEX + Perps</p>
+    <a class="btn" href="/dashboard">🚀 لوحة التحكم</a>
+    <a class="btn btn-secondary" href="/login">🔑 تسجيل الدخول</a>
+    <p class="status">
+      للوصول إلى التنفيذ الحقيقي: تأكد من ضبط مفاتيح المنصات + ADMIN_TOKEN ثم التبديل إلى وضع Live من لوحة التحكم.
+    </p>
+  </div>
+</body>
+</html>`,
+    { headers: { 'Content-Type': 'text/html; charset=utf-8' } }
+  );
+}
+
 // ─── Rate limiter helper ──────────────────────────────────────────────────────
 // Uses the RATE_LIMITER binding (Cloudflare Rate Limiting API).
 // Returns a 429 response if the caller has exceeded the configured threshold;
@@ -925,7 +961,7 @@ app.get('/api/prices/stream', async (c) => {
 // Browser access requires a valid session; redirect to /login when absent.
 // API callers that send an x-admin-token header bypass the cookie check.
 app.get('/', async (c) => {
-  if (c.env.ADMIN_TOKEN && !isAuthorized(c.env, c)) return c.redirect('/login', 302);
+  if (!isAuthorized(c.env, c)) return renderPublicLandingPage();
   return renderDashboard(c.env);
 });
 app.get('/dashboard', async (c) => {
@@ -2837,6 +2873,171 @@ app.get('/api/symbols/catalog', async (c) => {
   });
 });
 
+// ── API: Perps status ─────────────────────────────────────────────────────────
+// Returns the current perpetuals scan state, active perp exchanges (price feeds),
+// and MEXC Futures execution readiness.  Auth-protected.
+app.get('/api/perps', async (c) => {
+  if (!isAuthorized(c.env, c)) return authDenied(c.env, c, true);
+  const [lastScan, cb] = await Promise.all([
+    c.env.BOT_STATE.get('nexus_last_scan', 'json').catch(() => null),
+    c.env.BOT_STATE.get('nexus_circuit_breaker', 'json').catch(() => null)
+  ]);
+  const cbState = cb || {};
+
+  const perpExchanges = ['mexc_perp', 'binance_perp', 'okx_perp', 'bybit_perp'];
+  const exchangeStatus = perpExchanges.map(ex => {
+    const info = cbState[ex];
+    const now = Date.now();
+    const open = info?.open && (now - (info?.lastFailure || 0)) < 300000;
+    // mexc_perp is the only executable perp feed; others are data-only feeds
+    const isExecutable = ex === 'mexc_perp';
+    return {
+      exchange: ex,
+      status: open ? 'open' : 'ok',
+      failures: info?.failures || 0,
+      dataOnly: !isExecutable,
+      executionVia: isExecutable ? 'mexc_futures' : 'spot_hedge'
+    };
+  });
+
+  const mexcReady = hasExchangeCredentials(c.env, 'mexc');
+
+  return c.json({
+    success: true,
+    perpsEnabled: true,
+    mexcFuturesConfigured: mexcReady,
+    lastPerpsOpp: lastScan?.perps || null,
+    lastFundingOpp: lastScan?.funding || null,
+    exchangeStatus,
+    executionNote: mexcReady
+      ? 'MEXC Futures active — perps orders placed via contract.mexc.com'
+      : 'MEXC credentials missing — perps will run as spot hedge on best available exchange'
+  });
+});
+
+// ── API: Per-exchange status & balance ────────────────────────────────────────
+// GET /api/exchange/:exchange — returns connection status and USDT balance for
+// a single exchange.  Auth-protected.
+app.get('/api/exchange/:exchange', async (c) => {
+  if (!isAuthorized(c.env, c)) return authDenied(c.env, c, true);
+  const exchange = c.req.param('exchange').toLowerCase();
+  const isActive  = ACTIVE_EXECUTION_EXCHANGES.includes(exchange);
+  const isDataOnly = DATA_ONLY_EXCHANGES.has(exchange);
+  if (!isActive && !isDataOnly) {
+    return c.json({ error: `Unknown exchange: ${exchange}` }, 404);
+  }
+  if (isDataOnly) {
+    return c.json({
+      exchange,
+      configured: false,
+      balance: null,
+      dataOnly: true,
+      note: 'German regulatory restriction — price feed only, no live execution'
+    });
+  }
+  const configured = hasExchangeCredentials(c.env, exchange);
+  if (!configured) {
+    return c.json({ exchange, configured: false, balance: null });
+  }
+  try {
+    const balance = await getExchangeBalance(c.env, exchange, 'USDT');
+    return c.json({ exchange, configured: true, balance });
+  } catch (e) {
+    return c.json({ exchange, configured: true, balance: null, error: e.message }, 502);
+  }
+});
+
+// ── API: Manual order placement on a specific exchange ────────────────────────
+// POST /api/exchange/:exchange/order — places a market order on the named
+// exchange.  Auth-protected.  Respects paper_trading mode.
+// Body: { symbol, side, quantity, sizeUsd }
+app.post('/api/exchange/:exchange/order', async (c) => {
+  const limited = await checkRateLimit(c.env, c);
+  if (limited) return limited;
+  if (!isAuthorized(c.env, c)) return authDenied(c.env, c, true);
+
+  const exchange = c.req.param('exchange').toLowerCase();
+  if (!ACTIVE_EXECUTION_EXCHANGES.includes(exchange)) {
+    return c.json({ error: `Exchange not available for execution: ${exchange}` }, 400);
+  }
+  if (!hasExchangeCredentials(c.env, exchange)) {
+    return c.json({ error: `${exchange} API credentials not configured` }, 503);
+  }
+
+  let body;
+  try { body = await c.req.json(); } catch (_) { return c.json({ error: 'Invalid JSON body' }, 400); }
+
+  const { symbol, side, quantity, sizeUsd } = body || {};
+  if (symbol == null || side == null || quantity == null || sizeUsd == null) {
+    return c.json({ error: 'Required fields: symbol, side, quantity, sizeUsd' }, 400);
+  }
+  if (!['BUY', 'SELL'].includes(side?.toUpperCase())) {
+    return c.json({ error: 'side must be BUY or SELL' }, 400);
+  }
+  const parsedSizeUsd = parseFloat(sizeUsd);
+  if (isNaN(parsedSizeUsd) || parsedSizeUsd <= 0) {
+    return c.json({ error: 'sizeUsd must be a positive number' }, 400);
+  }
+
+  const state = await getState(c.env);
+  if (state.paper_trading) {
+    return c.json({
+      success: true,
+      paper: true,
+      exchange,
+      symbol,
+      side: side.toUpperCase(),
+      quantity,
+      sizeUsd,
+      note: 'Paper trading mode — no real order placed'
+    });
+  }
+
+  try {
+    const result = await placeExchangeMarketOrder(c.env, exchange, symbol, side.toUpperCase(), quantity, parsedSizeUsd);
+    await logAdminEvent(c.env, 'manual-order', c.req.raw);
+    return c.json({ success: true, paper: false, exchange, symbol, side: side.toUpperCase(), result });
+  } catch (e) {
+    return c.json({ success: false, error: e.message }, 502);
+  }
+});
+
+// ── API: DEX / MetaMask status ────────────────────────────────────────────────
+// GET /api/dex — returns on-chain/DEX trading configuration status:
+//   - whether Alchemy API key is configured (needed for ETH price feeds)
+//   - whether the Go HFT engine is configured (needed for DEX execution)
+//   - last DEX scan result from KV state
+// DEX execution requires the Go HFT engine + a funded wallet.
+// MetaMask integration is handled client-side; this endpoint exposes the
+// server-side readiness.  Auth-protected.
+app.get('/api/dex', async (c) => {
+  if (!isAuthorized(c.env, c)) return authDenied(c.env, c, true);
+
+  const alchemyConfigured = !!(c.env.ALCHEMY_API_KEY || c.env.ALCHEMY_ETHEREUM_ENDPOINT);
+  const hftConfigured = isHFTEngineConfigured(c.env);
+  const lastScan = await c.env.BOT_STATE.get('nexus_last_scan', 'json').catch(() => null);
+
+  let currentOpportunity = null;
+  if (alchemyConfigured) {
+    try {
+      currentOpportunity = await scanDEX(c.env);
+    } catch (_) {}
+  }
+
+  return c.json({
+    success: true,
+    alchemyConfigured,
+    hftEngineConfigured: hftConfigured,
+    executionReady: alchemyConfigured && hftConfigured,
+    lastDexOpp: lastScan?.dex ?? null,
+    currentOpportunity,
+    executionNote: hftConfigured
+      ? 'Go HFT engine active — DEX orders executed via engine wallet'
+      : 'Go HFT engine not configured — set HFT_ENGINE_URL + HFT_ENGINE_SECRET to enable DEX execution',
+    metamaskNote: 'MetaMask wallet connect is handled client-side; server executes via HFT engine private key'
+  });
+});
+
 // ── Admin: Reset daily stats ──────────────────────────────────────────────────
 app.post('/reset-daily', async (c) => {
   const limited = await checkRateLimit(c.env, c);
@@ -2953,6 +3154,56 @@ app.get('/api/ai/optimizer', async (c) => {
   return c.json(system.optimizer.getStatus());
 });
 
+// ── API: AI Analysis — opportunity-focused endpoint for dashboard ─────────────
+// Accepts { opportunity: { symbol, strategy, direction, buyPrice, sellPrice, netPct } }
+// Translates to AIWORKER format and returns { analysis, provider }.
+app.post('/api/ai-analysis', async (c) => {
+  if (!isAuthorized(c.env, c)) return authDenied(c.env, c, true);
+
+  let body;
+  try { body = await c.req.json(); } catch (_) { return c.json({ error: 'Invalid JSON' }, 400); }
+
+  const opp = body.opportunity;
+  if (!opp || typeof opp !== 'object') {
+    return c.json({ error: 'Missing required field: opportunity' }, 400);
+  }
+
+  // Minimum net-spread % considered viable for a real trade after fees
+  const MIN_VIABLE_SPREAD_PCT = 0.3;
+
+  const prompt = [
+    `You are an expert crypto arbitrage analyst. Analyze the following trading opportunity and provide a concise recommendation (2–4 sentences) covering: whether to execute, key risks, and any concerns about liquidity or timing.`,
+    ``,
+    `Opportunity:`,
+    `- Symbol: ${opp.symbol || '—'}`,
+    `- Strategy: ${opp.strategy || '—'}`,
+    `- Direction: ${opp.direction || '—'}`,
+    `- Buy Price: $${opp.buyPrice || 0}`,
+    `- Sell Price: $${opp.sellPrice || 0}`,
+    `- Net Profit %: ${opp.netPct || 0}%`,
+  ].join('\n');
+
+  // Fallback if no AIWORKER binding
+  if (!c.env.AIWORKER) {
+    const fallback = opp.netPct > MIN_VIABLE_SPREAD_PCT
+      ? `✅ Potential opportunity: net spread of ${opp.netPct}% is above threshold. Verify liquidity and fee structure before executing. Monitor for slippage — position size should remain small (≤$5 for initial trades).`
+      : `⚠️ Low spread: net spread of ${opp.netPct}% may not cover execution costs after slippage. Consider waiting for a higher-quality opportunity.`;
+    return c.json({ analysis: fallback, provider: 'fallback' });
+  }
+
+  try {
+    const result = await c.env.AIWORKER.run('@cf/meta/llama-3.1-8b-instruct', {
+      messages: [{ role: 'user', content: prompt }],
+      max_tokens: 256,
+    });
+    const analysis = result?.response ?? result?.text ?? JSON.stringify(result);
+    return c.json({ analysis, provider: 'workers-ai' });
+  } catch (e) {
+    console.error('[AI /api/ai-analysis] error:', e.message);
+    return c.json({ error: e.message }, 500);
+  }
+});
+
 // ── API: Ecosystem integrations ────────────────────────────────────────────────
 app.get('/api/ecosystem', (c) => {
   return c.json({
@@ -3023,6 +3274,203 @@ app.post('/api/integrations/executive/execute-all', async (c) => {
     });
   } catch (e) {
     return c.json({ success: false, error: e.message }, 500);
+  }
+});
+
+// ── API: Ecosystem integrations ────────────────────────────────────────────────
+app.get('/api/ecosystem', (c) => {
+  return c.json({
+    updated_at: '2026-05-09',
+    catalog: getEcosystemCatalog()
+  });
+});
+
+app.get('/api/ecosystem/recommendation', (c) => {
+  const goal = c.req.query('goal') || 'quick_start';
+  return c.json(recommendEcosystem(goal));
+});
+
+app.get('/api/security/api-keys', (c) => {
+  return c.json({
+    checklist: getApiKeySecurityChecklist()
+  });
+});
+
+// ── API: Executable integrations (Hummingbot/Freqtrade/CrewAI/AutoGPT) ────────
+app.get('/api/integrations/executive/status', async (c) => {
+  if (!isAuthorized(c.env, c)) return authDenied(c.env, c, true);
+  try {
+    const statuses = await probeExecutableIntegrations(c.env);
+    return c.json({ integrations: statuses });
+  } catch (e) {
+    return c.json({ error: e.message }, 500);
+  }
+});
+
+app.post('/api/integrations/executive/execute', async (c) => {
+  const limited = await checkRateLimit(c.env, c);
+  if (limited) return limited;
+  if (!isAuthorized(c.env, c)) return authDenied(c.env, c, true);
+  try {
+    const { integration, payload } = await c.req.json().catch(() => ({}));
+    const ids = listExecutableIntegrationIds();
+    if (!ids.includes(integration)) {
+      return c.json({ error: `integration must be one of: ${ids.join(', ')}` }, 400);
+    }
+    const result = await executeExecutableIntegration(c.env, integration, payload || {});
+    await logAdminEvent(c.env, `executive:${integration}:execute`, c.req.raw);
+    return c.json({ success: true, ...result });
+  } catch (e) {
+    return c.json({ success: false, error: e.message }, 500);
+  }
+});
+
+app.post('/api/integrations/executive/execute-all', async (c) => {
+  const limited = await checkRateLimit(c.env, c);
+  if (limited) return limited;
+  if (!isAuthorized(c.env, c)) return authDenied(c.env, c, true);
+  try {
+    const body = await c.req.json().catch(() => ({}));
+    const results = await executeAllExecutableIntegrations(
+      c.env,
+      body.payloadByIntegration || {},
+      body.defaultPayload || {}
+    );
+    await logAdminEvent(c.env, 'executive:all:execute', c.req.raw);
+    const successCount = results.filter((item) => item.success).length;
+    return c.json({
+      success: successCount === results.length,
+      success_count: successCount,
+      total: results.length,
+      results,
+    });
+  } catch (e) {
+    return c.json({ success: false, error: e.message }, 500);
+  }
+});
+
+// ── API: Generic AI inference (OpenAI Responses API schema) ──────────────────
+// Accepts a JSON body that conforms to the Responses API request schema and
+// returns a response that conforms to the Responses API response schema.
+//
+// Request schema (required: input):
+//   input            – string | array  – user message(s)
+//   instructions     – string          – optional system prompt
+//   temperature      – number 0–2
+//   max_output_tokens– number > 0
+//   top_p            – number 0–1
+//   stream           – boolean         – streaming not yet supported; ignored
+//   tools            – array           – tool definitions (passed to model if supported)
+//   tool_choice      – any             – passed through
+//   text             – object          – text format hints
+//   reasoning        – { effort }      – "none"|"low"|"medium"|"high"
+//
+// Response schema:
+//   id, object:"response", created_at, model, output, output_text, status, usage
+app.post('/api/ai', async (c) => {
+  if (!isAuthorized(c.env, c)) return c.json({ error: 'Unauthorized' }, 401);
+  if (!c.env.AIWORKER) return c.json({ error: 'Workers AI binding not configured' }, 503);
+
+  let body;
+  try { body = await c.req.json(); } catch (_) { return c.json({ error: 'Invalid JSON' }, 400); }
+
+  // Validate required field
+  if (body.input == null) {
+    return c.json({ error: 'Missing required field: input' }, 400);
+  }
+
+  // Build messages array for Workers AI
+  const messages = [];
+
+  // System message from instructions
+  if (typeof body.instructions === 'string' && body.instructions.trim()) {
+    messages.push({ role: 'system', content: body.instructions.trim() });
+  }
+
+  // User content from input
+  if (typeof body.input === 'string') {
+    messages.push({ role: 'user', content: body.input });
+  } else if (Array.isArray(body.input)) {
+    for (const item of body.input) {
+      if (item && typeof item === 'object' && typeof item.role === 'string' && item.role && item.content !== undefined) {
+        messages.push({ role: item.role, content: item.content });
+      } else if (typeof item === 'string') {
+        messages.push({ role: 'user', content: item });
+      }
+    }
+  }
+
+  if (messages.length === 0) {
+    return c.json({ error: 'input produced no messages' }, 400);
+  }
+
+  // Map reasoning effort to max_tokens multiplier (higher effort → longer response)
+  const VALID_EFFORTS = new Set(['none', 'low', 'medium', 'high']);
+  const effortMultiplier = { none: 0.25, low: 0.5, medium: 1, high: 2 };
+  const effort = body.reasoning?.effort ?? 'medium';
+  if (!VALID_EFFORTS.has(effort)) {
+    return c.json({ error: `Invalid reasoning.effort value: "${effort}". Must be one of: none, low, medium, high` }, 400);
+  }
+  const baseMaxTokens = typeof body.max_output_tokens === 'number' && body.max_output_tokens > 0
+    ? body.max_output_tokens
+    : 512;
+  const max_tokens = Math.round(baseMaxTokens * effortMultiplier[effort]);
+
+  const aiParams = { messages, max_tokens };
+  if (typeof body.temperature === 'number') aiParams.temperature = body.temperature;
+  if (typeof body.top_p       === 'number') aiParams.top_p       = body.top_p;
+
+  const MODEL = '@cf/meta/llama-3.1-8b-instruct';
+  const createdAt = Math.floor(Date.now() / 1000);
+  const responseId = `resp_${crypto.randomUUID().replace(/-/g, '')}`;
+
+  try {
+    const result = await c.env.AIWORKER.run(MODEL, aiParams);
+
+    const rawText = result?.response ?? result?.text;
+    const text = rawText !== undefined
+      ? rawText
+      : (typeof result === 'string'
+          ? result
+          : (() => {
+              console.warn('[AI /api/ai] unexpected result format; serialising to JSON:', JSON.stringify(result).slice(0, 200));
+              return JSON.stringify(result);
+            })());
+
+    const outputItem = {
+      type: 'message',
+      role: 'assistant',
+      content: [{ type: 'output_text', text }],
+    };
+
+    const usage = {
+      input_tokens:  result?.usage?.prompt_tokens     ?? 0,
+      output_tokens: result?.usage?.completion_tokens ?? 0,
+      total_tokens:  result?.usage?.total_tokens      ?? 0,
+    };
+
+    return c.json({
+      id:          responseId,
+      object:      'response',
+      created_at:  createdAt,
+      model:       MODEL,
+      output:      [outputItem],
+      output_text: text,
+      status:      'completed',
+      usage,
+    });
+  } catch (e) {
+    console.error('[AI /api/ai] run error:', e.message);
+    return c.json({
+      id:         responseId,
+      object:     'response',
+      created_at: createdAt,
+      model:      MODEL,
+      output:     [],
+      status:     'failed',
+      usage:      { input_tokens: 0, output_tokens: 0, total_tokens: 0 },
+      error:      e.message,
+    }, 500);
   }
 });
 

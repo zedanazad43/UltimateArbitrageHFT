@@ -1,0 +1,12 @@
+[MEXC]
+API_KEY=your_mexc_api_key_here
+API_SECRET=your_mexc_api_secret_here
+PASSPHRASE=
+
+[BINANCE]
+API_KEY=your_binance_api_key_here
+API_SECRET=your_binance_api_secret_here
+
+[METAMASK]
+ADDRESS=0xYOUR_WALLET_ADDRESS
+PRIVATE_KEY=0xYOUR_PRIVATE_KEY

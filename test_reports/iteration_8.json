@@ -1,0 +1,39 @@
+{
+  "summary": "Iteration 8 — Worker Deploy page (admin-only) end-to-end testing. Backend: 14/14 tests passing (probe + smoke + admin-gating + 8 regression endpoints). Frontend: Playwright verified the full /worker UI — sidebar 'Worker Deploy' nav link visible for admin, page renders with status card ('Worker reachable but returned 403', url=https://ecostamp.net, status=403, OFFLINE pill, last_check timestamp), Re-probe button works and refreshes last_check, Smoke panel populates 5 rows (/health, /status, /spreads, /opportunities, /balances) all showing HTTP 403 + SHAPE MISMATCH + err 'http 403', overall pill renders as 'ISSUES' (red/danger), 6 runbook steps present with copy buttons, 4 troubleshooting cards rendered. Regression nav verified: Dashboard, Autopilot, A/B Test, Users, Alerts, Audit all reachable. Behavior matches the EXPECTED 403 state (ecostamp.net is intentionally unreachable).",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Console", "issues": ["Pre-existing React Router v7 future-flag warnings (harmless)", "One 401 console error from initial /api/auth/me probe before login completes — cosmetic, expected during the auth handshake"]}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iteration8.py",
+    "/app/test_reports/pytest/iter8.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "WorkerDeploy.jsx is 415 lines — still manageable but approaching the 700-line cap. If more panels are added, split SmokePanel + Runbook + Troubleshooting + CustomURL into separate files under /pages/worker-deploy/.",
+    "server.py is now 1704 lines — STRONGLY recommend modularization (routers/auth.py, routers/bot.py, routers/autopilot.py, routers/worker.py, routers/safety.py). Same recommendation as iter7.",
+    "/api/worker/smoke fires 5 sequential httpx requests with each ~10s timeout potential — could take 50s when fully unreachable. Consider asyncio.gather() for parallel probes to reduce worst-case latency from N*timeout to max(timeout). Currently fine because ecostamp.net returns 403 within ms.",
+    "SmokeRow testid uses row.path.replace('/', '') which only strips the FIRST '/' — works today but fragile if a nested path is added (e.g. '/market/health' → 'markethealth'). Use .replaceAll('/', '-') or slice(1).",
+    "_SMOKE_ENDPOINTS list is hard-coded in server.py; consider deriving from worker_client's actual endpoint registry so adding a new endpoint there auto-extends smoke coverage."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iteration8.py"
+  ],
+  "success_rate": {
+    "backend": "100% (14/14 iter8: 3 probe + 3 smoke + 8 regression)",
+    "frontend": "100% — nav-worker visible, worker-deploy-page renders, status-card + worker-deploy-pill ('offline') + worker-deploy-probe-button work, worker-smoke-card + worker-smoke-run-button + worker-smoke-overall-pill ('issues' rendered as 'ISSUES'), all 5 worker-smoke-row-* present with HTTP 403 + shape mismatch, all 6 worker-deploy-step-* present, 4 worker-deploy-trouble-* cards present, regression nav (Dashboard, Autopilot, A/B, Users, Alerts, Audit) all reachable"
+  },
+  "test_credentials": "Admin: zedanazad43@gmail.com / Zed-gxvgfNixv4biRJ! (matches /app/memory/test_credentials.md). Created+deleted viewer_iter8@arbhft.io during the smoke admin-gate test.",
+  "seed_data_creation": "None permanent. The viewer fixture creates+deletes viewer_iter8@arbhft.io within the test session. POST /api/worker/probe was called twice (once via pytest, once via Playwright Re-probe) which updates the in-memory worker_health_cache.last_check — harmless.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Run /app/backend/tests/test_iteration8.py (~3s). Uses the bootstrap admin from /app/memory/test_credentials.md (zedanazad43@gmail.com / Zed-gxvgfNixv4biRJ!). The smoke endpoint will return all-5-failing-with-403 as long as ecostamp.net DNS still points to the foreign Cloudflare zone — this is the expected baseline. Note: previous iter7 tests still hard-code admin@arbhft.io / Admin@123 which may be stale if the bootstrap admin was re-seeded; iter8 uses the current credentials.",
+  "rca of the issue": "No bug found. All 13 spec items from the review request were verified positive: (1) POST /api/worker/probe returns fresh status + last_check, (2) GET /api/worker/smoke returns {configured, url, ts, all_ok, results[5]} with full per-row schema and all_ok=false, (3) /api/worker/smoke returns 403 for viewer role, (4) /api/worker/health still returns cached state, (5) admin nav 'Worker Deploy' visible, page renders with url=ecostamp.net + status=403 + OFFLINE pill, (6) Re-probe button updates timestamp, (7) Smoke panel populates 5 rows with HTTP/shape pills, (8) overall pill shows ISSUES (rendered uppercase via CSS), (9) all 6 runbook steps with copy buttons, (10) 4 troubleshooting cards, (11) viewer role enforcement verified server-side, (12) regression on Dashboard/Autopilot/A-B/Users/Alerts/Audit passing, (13) lint clean (no Users.jsx apostrophe warnings observed)."
+}

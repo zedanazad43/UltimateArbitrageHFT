@@ -346,7 +346,7 @@ export async function getMarketStreamerPrice(env, symbol) {
   try {
     const id = env.MARKET_STREAMER.idFromName(symbol);
     const obj = env.MARKET_STREAMER.get(id);
-    const resp = await obj.fetch(`https://dummy/price?symbol=${symbol}`);
+    const resp = await obj.fetch(`${env.MEXC_BASE_URL}/price`).then(r => { r.body?.cancel(); return r });
     const data = await resp.json();
     if (data.price > 0) return { price: data.price, exchange: 'mexc', fee: 0.0005 };
   } catch (_) { }
@@ -1199,3 +1199,7 @@ export async function getAllSpotPrices(env, symbol, openCircuits = new Set()) {
     .map(r => (r.status === 'fulfilled' ? r.value : null))
     .filter(Boolean);
 }
+
+
+
+
