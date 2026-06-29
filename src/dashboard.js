@@ -213,6 +213,9 @@ export async function renderDashboard(env) {
     return n.toFixed(8);
   }
 
+  // HTML attribute escaper — prevents XSS in server-interpolated input value="…"
+  const esc = (v) => String(v ?? '').replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+
   // Opportunity card HTML helper
   function oppCard(opp) {
     if (!opp) return `<div style="color:#888;font-size:.85em">لا توجد فرصة في آخر مسح</div>`;
