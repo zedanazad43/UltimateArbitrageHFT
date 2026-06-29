@@ -135,6 +135,13 @@ export async function parseJsonResponse(resp, context = '') {
     err.status = resp.status;
     throw err;
   }
+
+  // Fallback for minimal Response-like mocks that only implement json().
+  if (resp && typeof resp.json === 'function') {
+    return await resp.json();
+  }
+
+  throw new Error(`${prefix}Response body is not readable (missing text() and json())`);
 }
 
 // ── Exchange-aware fetch helper ──────────────────────────────────────────────
