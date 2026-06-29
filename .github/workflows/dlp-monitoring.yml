@@ -1,6 +1,10 @@
 name: Continuous DLP Monitoring
 
 on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main, develop]
   schedule:
     - cron: '0 */6 * * *'  # Every 6 hours
   workflow_dispatch:

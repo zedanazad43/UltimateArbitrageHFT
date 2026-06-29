@@ -6,6 +6,7 @@ env:
 on:
   schedule:
     - cron: "*/10 * * * *"
+    - cron: "*/15 * * * *"
     - cron: "0 2 * * *"
     - cron: "0 6 * * 1"
   workflow_dispatch:
@@ -20,6 +21,16 @@ on:
         required: false
         type: boolean
         default: false
+      simulate_failure:
+        description: Force smoke test failure to validate Telegram alert delivery
+        required: false
+        type: boolean
+        default: true
+      base_url:
+        description: Worker base URL (used by smoke test)
+        required: false
+        type: string
+        default: https://api.ecostamp.net
 
 permissions:
   contents: read
@@ -215,3 +226,84 @@ jobs:
         run: |
           payload=$(printf '{"chat_id":"%s","text":"%s"}' "$TELEGRAM_CHAT_ID" 'UltimateArbitrageHFT self-evaluation failed. Check the workflow logs and artifact state.')
           curl -sS -X POST -H "Content-Type: application/json" -d "$payload" "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage"
+
+  smoke-alert-test:
+    if: github.event_name == 'workflow_dispatch' || github.event.schedule == '*/15 * * * *'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run production endpoint smoke test
+        id: smoke
+        continue-on-error: true
+        env:
+          WORKFLOW_ADMIN_TOKEN_SECRET: ${{ secrets.WORKFLOW_ADMIN_TOKEN }}
+          SIMULATE_FAILURE: ${{ inputs.simulate_failure || 'false' }}
+          BASE_URL: ${{ inputs.base_url || 'https://api.ecostamp.net' }}
+          EVENT_NAME: ${{ github.event_name }}
+        run: |
+          # Scheduled runs should always execute a real smoke check.
+          if [ "$EVENT_NAME" = "schedule" ]; then
+            SIMULATE_FAILURE="false"
+          fi
+
+          token="$WORKFLOW_ADMIN_TOKEN_SECRET"
+          if [ "$SIMULATE_FAILURE" = "true" ]; then
+            token="invalid-${GITHUB_RUN_ID:-0}-${GITHUB_RUN_ATTEMPT:-0}"
+            echo "Simulating failure with invalid admin token"
+          fi
+
+          WORKFLOW_ADMIN_TOKEN="$token" BASE_URL="$BASE_URL" EXPECTED_WORKER_NAME="ultimatearbitragehft" REQUIRE_READY_FOR_LIVE="false" SKIP_CUSTOM_DOMAIN_CHECK="true" node ./scripts/verify-production-endpoints.js
+
+      - name: Telegram alert when smoke test fails
+        if: steps.smoke.outcome == 'failure'
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          SHA: ${{ github.sha }}
+          BRANCH: ${{ github.ref_name }}
+          SIMULATE_FAILURE: ${{ inputs.simulate_failure || 'false' }}
+        run: |
+          if [ -z "$TELEGRAM_BOT_TOKEN" ] || [ -z "$TELEGRAM_CHAT_ID" ]; then
+            echo "Telegram secrets are not set; skipping alert."
+            exit 0
+          fi
+
+          short_sha=$(echo "$SHA" | cut -c1-7)
+          text=$(printf 'Smoke alert test failed%%0ASimulated: %s%%0ABranch: %s%%0ASHA: %s%%0ARun: %s' "$SIMULATE_FAILURE" "$BRANCH" "$short_sha" "$RUN_URL")
+
+          curl -fsS -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
+            -d "chat_id=${TELEGRAM_CHAT_ID}" \
+            -d "text=${text}" \
+            -d "disable_web_page_preview=true"
+
+      - name: Finalize status
+        if: always()
+        env:
+          SIMULATE_FAILURE: ${{ inputs.simulate_failure || 'false' }}
+          SMOKE_OUTCOME: ${{ steps.smoke.outcome }}
+          EVENT_NAME: ${{ github.event_name }}
+        run: |
+          if [ "$EVENT_NAME" = "schedule" ]; then
+            SIMULATE_FAILURE="false"
+          fi
+
+          echo "Smoke outcome: $SMOKE_OUTCOME"
+          if [ "$SMOKE_OUTCOME" = "failure" ] && [ "$SIMULATE_FAILURE" != "true" ]; then
+            echo "Real smoke test failed"
+            exit 1
+          fi
+          echo "Workflow completed"
