@@ -1142,6 +1142,9 @@ ${liveDealsHtml}
     });
   }
   async function callAdminApi(path,opts={}){
+    if(!adminConfigured){
+      throw new Error('ADMIN_TOKEN غير مُهيَّأ على الخادم. فعّل السر أولاً عبر wrangler secret put ADMIN_TOKEN ثم أعد النشر.');
+    }
     let r;
     try{
       r = adminConfigured
