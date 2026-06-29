@@ -26,7 +26,9 @@ jobs:
         run: npm ci
 
       - name: Check symbol catalog thresholds
-        run: npm run check:symbol-catalog
+        id: catalog_check
+        continue-on-error: true
+        run: npm run check:symbol-catalog 2>&1 | tee symbol-catalog-check.log
         env:
           WORKFLOW_ADMIN_TOKEN: ${{ secrets.WORKFLOW_ADMIN_TOKEN }}
           SYMBOL_CATALOG_URL: https://api.ecostamp.net
@@ -38,8 +40,26 @@ jobs:
           BINANCE_REFERENCE_CHECK: "true"
           BINANCE_REFERENCE_OVERRIDE: "true"
 
+      - name: Classify catalog failure
+        id: classify
+        if: steps.catalog_check.outcome == 'failure'
+        run: |
+          LOG=symbol-catalog-check.log
+          if grep -q 'FAILURE_CLASS=WAF_CHALLENGE' "$LOG" 2>/dev/null; then
+            echo "::warning::Symbol catalog check blocked by Cloudflare WAF (FAILURE_CLASS=WAF_CHALLENGE)."
+            echo "::warning::This is an infrastructure/access issue — NOT a data regression."
+            echo "::warning::Remediation: add GitHub Actions IP ranges to the WAF allowlist for api.ecostamp.net, or configure a proxy."
+            echo "failure_class=WAF_CHALLENGE" >> "$GITHUB_OUTPUT"
+          else
+            # Real data or auth failure — re-surface as an error so the job fails.
+            grep 'FAILURE_CLASS=' "$LOG" | head -5 || true
+            echo "::error::Symbol catalog threshold check failed with a data or auth error. See log above."
+            echo "failure_class=DATA_OR_AUTH" >> "$GITHUB_OUTPUT"
+            exit 1
+          fi
+
       - name: Telegram alert on failure
-        if: failure() && env.TELEGRAM_BOT_TOKEN != '' && env.TELEGRAM_CHAT_ID != ''
+        if: steps.classify.outputs.failure_class == 'DATA_OR_AUTH' && env.TELEGRAM_BOT_TOKEN != '' && env.TELEGRAM_CHAT_ID != ''
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}

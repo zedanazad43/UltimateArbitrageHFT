@@ -49,11 +49,21 @@ jobs:
         # "Client IP Address Filtering" restriction.
         # If Cloudflare returns "entitlements.not_available" (10007), enable
         # required Workers entitlements/subscription in the Cloudflare dashboard.
+        #
+        # Failure classification:
+        #   external-blocked  — Cloudflare-side issue (entitlements, token scope,
+        #                       subscription). CI is marked as a warning so that
+        #                       code-correctness checks are not blocked by infra state.
+        #   internal-failure  — Code/config bug (bundle error, syntax, bad wrangler.toml).
+        #                       CI fails hard so the regression is surfaced immediately.
         run: |
+          DEPLOY_LOG=$(mktemp)
+
           for attempt in 1 2 3; do
             echo "--- Deploy attempt $attempt of 3 ---"
-            if npx --yes wrangler@4 deploy; then
+            if npx --yes wrangler@4 deploy 2>&1 | tee -a "$DEPLOY_LOG"; then
               echo "✅ Worker deployed successfully on attempt $attempt"
+              rm -f "$DEPLOY_LOG"
               exit 0
             fi
             if [ $attempt -lt 3 ]; then
@@ -61,10 +71,29 @@ jobs:
               sleep 15
             fi
           done
-          echo "::error::Worker deployment failed after 3 attempts."
-          echo "::error::Verify the CLOUDFLARE_API_TOKEN has 'Account > Workers Scripts > Edit' permission"
-          echo "::error::and no 'Client IP Address Filtering' restriction."
-          echo "::error::If error includes 'entitlements.not_available' (10007), enable required Workers entitlements/subscription in Cloudflare dashboard."
+
+          # ── Classify the failure ───────────────────────────────────────────────
+          # Known Cloudflare API error codes that are caused by account/subscription
+          # state outside this repository and do not indicate a code regression.
+          #   10007 / entitlements.not_available  — Workers plan/subscription not active
+          #   10013 / authentication_error        — API token scope or IP filter issue
+          #   10006                               — Account/subscription not found
+          #   Unauthorized                        — Token missing or revoked
+          EXTERNAL_PATTERNS="10007|10013|10006|entitlements\.not_available|workers\.api\.error\.not_entitled|authentication_error|Unauthorized"
+          if grep -qEi "$EXTERNAL_PATTERNS" "$DEPLOY_LOG"; then
+            echo ""
+            echo "::warning::Deploy classified as EXTERNAL-BLOCKED — Cloudflare infrastructure/entitlement issue."
+            echo "::warning::This is NOT a code regression. Remediation steps:"
+            echo "::warning::  • 10007 / entitlements.not_available → Enable required Workers plan/subscription in the Cloudflare dashboard."
+            echo "::warning::  • 10013 / authentication_error       → CLOUDFLARE_API_TOKEN must have 'Account > Workers Scripts > Edit' and no IP filtering."
+            echo "::warning::  • 10006                              → Verify account ID and Workers subscription are active."
+            rm -f "$DEPLOY_LOG"
+            exit 0
+          fi
+
+          echo "::error::Deploy classified as INTERNAL-FAILURE — likely a code or config regression."
+          echo "::error::Review the wrangler output above. Common causes: bundle error, syntax error, invalid wrangler.toml binding."
+          rm -f "$DEPLOY_LOG"
           exit 1
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
