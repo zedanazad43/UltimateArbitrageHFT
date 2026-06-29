@@ -1,6 +1,6 @@
 ﻿// src/index.js - بوت المراجحة على Cloudflare Worker
 export default {
-    async scheduled(event, env, ctx) {
+    async scheduled(event, env, _ctx) {
         await runArbitrage(env);
     },
 

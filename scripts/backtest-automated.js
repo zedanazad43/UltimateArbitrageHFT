@@ -15,8 +15,6 @@
 //   ADMIN_TOKEN                         — auth token for API calls
 //   WORKER_URL                          — base URL of the deployed worker
 
-/* global setInterval */
-
 const BASE_URL = process.env.WORKER_URL || 'https://ultimatearbitragehft.zedanazad43.workers.dev';
 const ADMIN_TOKEN = process.env.ADMIN_TOKEN || '';
 const BACKTEST_ENABLED = String(process.env.BACKTEST_AUTO_ENABLED || 'true').toLowerCase() !== 'false';

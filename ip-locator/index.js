@@ -1,6 +1,6 @@
 // index.js - كاشف عنوان IP لبوت المراجحة (يدعم IPv4 و IPv6)
 export default {
-    async fetch(request, env) {
+    async fetch(request, _env) {
         // 1. جلب عنوان IPv4
         let ipv4 = 'غير متاح';
         try {

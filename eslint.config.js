@@ -5,8 +5,10 @@ export default [
     ignores: [
       "node_modules/**",
       ".venv/**",
+      ".vscode/**",
       ".wrangler/**",
       "public/**",
+      "frontend/**",
       "UltimateArbitrageHFT/**",
       "money-transfer-project-template-java/**",
       "backup_*/**",
@@ -20,6 +22,9 @@ export default [
       "aimaster_skills_list/**",
       "aimaster_council_temp/**",
       "aimaster/**",
+      // This file is an INI config template (not JavaScript) that happens to be
+      // named index.js — ESLint cannot parse it.
+      "UnifiedArbitrageBot/index.js",
     ],
   },
   // Base rules for all JS files
@@ -48,13 +53,6 @@ export default [
     files: ["**/*.cjs"],
     languageOptions: {
       sourceType: "commonjs",
-    },
-  },
-  // CommonJS files need commonjs sourceType
-  {
-    files: ['**/*.cjs'],
-    languageOptions: {
-      sourceType: 'commonjs',
     },
   },
   // Node.js environment for scripts and temporal worker
@@ -101,9 +99,12 @@ export default [
       ],
     },
   },
-  // Cloudflare Worker / browser environment for main files
+  // Cloudflare Worker / browser environment — applies to all JS files so that
+  // Worker scripts in any subdirectory (ArbitrageBots/, nexus/, ip-locator/,
+  // UltimateArbitrageBot/, etc.) get the required globals without per-directory
+  // overrides.
   {
-    files: ["index.js", "src/**/*.js"],
+    files: ["**/*.{js,mjs}"],
     languageOptions: {
       globals: {
         console: "readonly",

@@ -20,7 +20,6 @@
 //
 // Usage:
 //   npm run hummingbot:start
-/* global AbortSignal */
 
 import { readFileSync, existsSync, appendFileSync } from 'node:fs';
 import { resolve, dirname } from 'node:path';
