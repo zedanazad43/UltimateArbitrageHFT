@@ -99,6 +99,21 @@ jobs:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
 
+      - name: Setup Flyctl
+        if: ${{ secrets.FLY_API_TOKEN != '' }}
+        uses: superfly/flyctl-actions/setup-flyctl@master
+
+      - name: Deploy HFT to Fly.io
+        if: ${{ secrets.FLY_API_TOKEN != '' }}
+        timeout-minutes: 10
+        run: flyctl deploy --config fly.toml --remote-only
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+
+      - name: Fly deploy skipped (missing token)
+        if: ${{ secrets.FLY_API_TOKEN == '' }}
+        run: echo "::warning::Skipping Fly.io deploy because FLY_API_TOKEN is not set."
+
       - name: Upload secrets to Cloudflare Worker
         timeout-minutes: 5
         # NOTE: Secrets below marked as optional (GATEIO_*, ZEROX_*, ALCHEMY_*, HFT_ENGINE_*, TEMPORAL_*, EXTERNAL_PROXY_*)
