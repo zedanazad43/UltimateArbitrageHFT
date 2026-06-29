@@ -585,6 +585,63 @@ export async function getCoinGeckoSimplePrice(coinId) {
   } catch (_) { return null; }
 }
 
+// ── DEXScreener public price ──────────────────────────────────────────────────
+//
+// DEXScreener aggregates DEX prices across multiple chains — no API key, no
+// IP whitelist.  The endpoint is open to any IP including Cloudflare Workers.
+// Returns the price from the highest-volume pair for the given token address.
+
+/**
+ * Fetches the USD price of a token from DEXScreener.
+ *
+ * @param {string} chainId       — e.g. 'ethereum', 'bsc', 'arbitrum'
+ * @param {string} tokenAddress  — checksum or lowercase ERC-20/BEP-20 token address
+ * @returns {{ price: number, exchange: string, fee: number }|null}
+ */
+export async function getDEXScreenerPrice(chainId, tokenAddress) {
+  try {
+    const resp = await fetchWithRetry(
+      `https://api.dexscreener.com/latest/dex/tokens/${tokenAddress}`,
+      FETCH_CF
+    );
+    if (!resp || !resp.ok) { await resp?.body?.cancel(); return null; }
+    const data = await resp.json();
+    // Filter to the requested chain and require a priceUsd field.
+    const pairs = (data?.pairs || []).filter(p => p.chainId === chainId && p.priceUsd);
+    if (!pairs.length) return null;
+    // Use the highest-24h-volume pair for the most representative price.
+    const best = pairs.reduce((a, b) => ((b.volume?.h24 || 0) > (a.volume?.h24 || 0) ? b : a));
+    const price = parseFloat(best.priceUsd);
+    if (!price || isNaN(price)) return null;
+    return { price, exchange: 'dexscreener', fee: 0.0025 }; // avg DEX taker fee
+  } catch (_) { return null; }
+}
+
+// ── CoinGecko public simple price ─────────────────────────────────────────────
+//
+// CoinGecko's /simple/price endpoint is public — no API key, no IP whitelist.
+// Rate-limited to ~30 req/min by IP in the free tier; cached by CF edge (2 s).
+
+/**
+ * Fetches the USD price of a coin from CoinGecko Simple Price API.
+ *
+ * @param {string} coinId  — CoinGecko coin ID, e.g. 'ethereum', 'bitcoin', 'binancecoin'
+ * @returns {number|null}  price in USD, or null on failure
+ */
+export async function getCoinGeckoSimplePrice(coinId) {
+  try {
+    const resp = await fetchWithRetry(
+      `https://api.coingecko.com/api/v3/simple/price?ids=${coinId}&vs_currencies=usd`,
+      FETCH_CF
+    );
+    if (!resp || !resp.ok) { await resp?.body?.cancel(); return null; }
+    const data = await resp.json();
+    const price = data?.[coinId]?.usd;
+    if (price === undefined || price === null) return null;
+    return parseFloat(price);
+  } catch (_) { return null; }
+}
+
 export async function get0xPrice(env, symbol) {
   const apiKey = env.ZEROX_API_KEY;
   if (!apiKey) return null;
