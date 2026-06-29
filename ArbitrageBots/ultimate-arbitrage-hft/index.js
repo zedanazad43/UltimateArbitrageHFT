@@ -271,6 +271,22 @@ export default {
     const state = await env.BOT_STATE.get('trading_state', 'json') || { trading_enabled: true };
     if (!state.trading_enabled) return;
     await scanAndExecute(env);
+  },
+
+  async queue(batch, env) {
+    // Queue consumer handler — acknowledges all messages from ultimate-arbitrage-queue
+    for (const msg of batch.messages) {
+      try {
+        const body = msg.body;
+        if (body && body.type === 'trade') {
+          console.log('Queue trade event:', JSON.stringify(body));
+        }
+        msg.ack();
+      } catch (e) {
+        console.error('Queue handler error:', e.message);
+        msg.retry();
+      }
+    }
   }
 };
 
