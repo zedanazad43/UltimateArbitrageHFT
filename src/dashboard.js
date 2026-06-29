@@ -594,6 +594,18 @@ ${autoStopBanner}
     <div class="card-value" style="color:${Number.parseFloat(expectancy) >= 0 ? '#2ecc71' : '#e74c3c'}">$${expectancy}</div>
   </div>
   <div class="card">
+    <div class="card-label">Sortino Ratio</div>
+    <div class="card-value" style="color:${parseFloat(sortino)>=1?'#2ecc71':parseFloat(sortino)>=0?'#f0b90b':'#e74c3c'}">${sortino}</div>
+  </div>
+  <div class="card">
+    <div class="card-label">Profit Factor</div>
+    <div class="card-value" style="color:${profitFactor==='∞'||parseFloat(profitFactor)>=2?'#2ecc71':parseFloat(profitFactor)>=1?'#f0b90b':'#e74c3c'}">${profitFactor}</div>
+  </div>
+  <div class="card">
+    <div class="card-label">Expectancy ($)</div>
+    <div class="card-value" style="color:${parseFloat(expectancy)>=0?'#2ecc71':'#e74c3c'}">$${expectancy}</div>
+  </div>
+  <div class="card">
     <div class="card-label">تصدير البيانات</div>
     <div style="margin-top:8px">
       <a href="/api/export" style="color:#f0b90b;font-size:.85em;text-decoration:none">⬇️ تحميل CSV (الكل)</a><br>
@@ -1440,6 +1452,74 @@ ${liveDealsHtml}
       }).join('');
     } catch(e) {
       tbody.innerHTML = \`<tr><td colspan="5" style="color:#e74c3c">❌ \${e.message}</td></tr>\`;
+    }
+  }
+
+  // ── Strategy P&L Bar Chart ────────────────────────────────────────────────────
+  const stratCtx = document.getElementById('stratChart').getContext('2d');
+  new Chart(stratCtx, {
+    type: 'bar',
+    data: {
+      labels: ['CEX', 'DEX', 'Perps', 'Triangular', 'Statistical'],
+      datasets: [{
+        label: 'P&L بالاستراتيجية ($)',
+        data: [
+          ${(cexPnl).toFixed(4)},
+          ${(dexPnl).toFixed(4)},
+          ${(perpsPnl).toFixed(4)},
+          ${(triPnl).toFixed(4)},
+          ${(statPnl).toFixed(4)}
+        ],
+        backgroundColor: ['#3498db','#9b59b6','#e67e22','#1abc9c','#e91e8c'],
+        borderRadius: 6
+      }]
+    },
+    options: {
+      responsive: true,
+      plugins: { legend: { labels: { color: '#eee' } } },
+      scales: {
+        x: { ticks: { color: '#888' } },
+        y: { ticks: { color: '#888' } }
+      }
+    }
+  });
+
+  // ── Backtesting ──────────────────────────────────────────────────────────────
+  async function runBacktest() {
+    const capital  = parseFloat(document.getElementById('bt_capital').value)  || 1000;
+    const frac     = parseFloat(document.getElementById('bt_frac').value)     || 0.10;
+    const minnet   = parseFloat(document.getElementById('bt_minnet').value)   || 0;
+    const days     = parseInt(document.getElementById('bt_days').value)       || 30;
+    const from_ms  = Date.now() - days * 86400000;
+    const body     = JSON.stringify({ initial_capital: capital, position_frac: frac, min_net_pct: minnet, from_ms, run_monte_carlo: true });
+    const el       = document.getElementById('btResults');
+    const grid     = document.getElementById('btMetricsGrid');
+    const mc       = document.getElementById('btMC');
+    grid.innerHTML = '<span style="color:#888">جارٍ التشغيل…</span>';
+    el.style.display = 'block';
+    mc.textContent   = '';
+    try {
+      const res  = await callAdminApi('/api/backtest', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body });
+      const data = JSON.parse(res.text);
+      const m    = data.metrics || {};
+      const ret  = (data.return_pct || 0).toFixed(2);
+      const retColor = parseFloat(ret) >= 0 ? '#2ecc71' : '#e74c3c';
+      grid.innerHTML = \`
+        <div class="card"><div class="card-label">العائد</div><div class="card-value" style="color:\${retColor}">\${ret}%</div></div>
+        <div class="card"><div class="card-label">رأس المال النهائي</div><div class="card-value">$\${(data.final_equity||0).toFixed(2)}</div></div>
+        <div class="card"><div class="card-label">الصفقات</div><div class="card-value">\${m.total_trades||0}</div></div>
+        <div class="card"><div class="card-label">Win Rate</div><div class="card-value">\${((m.win_rate||0)*100).toFixed(1)}%</div></div>
+        <div class="card"><div class="card-label">Sharpe</div><div class="card-value">\${(m.sharpe||0).toFixed(2)}</div></div>
+        <div class="card"><div class="card-label">Sortino</div><div class="card-value">\${(m.sortino||0).toFixed(2)}</div></div>
+        <div class="card"><div class="card-label">Max Drawdown</div><div class="card-value" style="color:#e74c3c">$\${(m.max_drawdown_usd||0).toFixed(2)}</div></div>
+        <div class="card"><div class="card-label">Profit Factor</div><div class="card-value">\${isFinite(m.profit_factor)?((m.profit_factor||0).toFixed(2)):'∞'}</div></div>
+      \`;
+      if (data.monte_carlo) {
+        const mc_data = data.monte_carlo;
+        mc.innerHTML  = \`🎲 Monte Carlo (500 simulations) — P5: $\${mc_data.p5?.toFixed(2)} | P50: $\${mc_data.p50?.toFixed(2)} | P95: $\${mc_data.p95?.toFixed(2)}\`;
+      }
+    } catch(e) {
+      grid.innerHTML = '<span style="color:#e74c3c">❌ ' + e.message + '</span>';
     }
   }
 

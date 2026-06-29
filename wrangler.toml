@@ -140,3 +140,17 @@ ALCHEMY_API_KEY = ""
 ALCHEMY_EVM_WALLET = "0x2d680d0b87e91d64e7b4d0c8b56611b47f8d7e59"
 ALCHEMY_SOLANA_WALLET = "Dp2KqwZcin85pSJ4hH1VFrEkJTgNBhiMnTm7Pk86UPTJ"
 
+# ── Exchange feature flags ─────────────────────────────────────────────────────
+# bybit and gateio are excluded from live execution (German regulatory law).
+# They remain active as price-data sources only.
+# All other exchanges are enabled for full order execution when credentials are set.
+# Secrets are uploaded via: pwsh ./scripts/upload-secrets.ps1
+# Required secrets per exchange (use `wrangler secret put <KEY>`):
+#   MEXC:    MEXC_API_KEY, MEXC_API_SECRET
+#   Binance: BINANCE_API_KEY, BINANCE_API_SECRET
+#   KuCoin:  KUCOIN_API_KEY, KUCOIN_SECRET_KEY, KUCOIN_PASSPHRASE
+#   OKX:     OKX_API_KEY, OKX_API_SECRET, OKX_PASSPHRASE
+#   Bitget:  BITGET_API_KEY, BITGET_SECRET_KEY, BITGET_API_PASSPHRASE
+#   Bitmart: BITMART_API_KEY, BITMART_SECRET_KEY, BITMART_MEMO
+#   HTX:     HTX_API_KEY, HTX_API_SECRET
+
