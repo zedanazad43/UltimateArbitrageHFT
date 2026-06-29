@@ -2,52 +2,155 @@ name = "ultimate-arbitrage-hft"
 main = "index.js"
 compatibility_date = "2025-01-01"
 compatibility_flags = ["nodejs_compat"]
+workers_dev = false
+preview_urls = false
 
+# --- Routes ---
+[[routes]]
+pattern = "api.ecostamp.net/*"
+zone_name = "ecostamp.net"
+
+# --- Durable Objects ---
 [[durable_objects.bindings]]
 name = "MARKET_STREAMER"
 class_name = "MarketStreamer"
 
+[[durable_objects.bindings]]
+name = "HFT_BACKUP"
+class_name = "HFTBackup"
+
 [[migrations]]
 tag = "v1"
 new_classes = ["MarketStreamer"]
+new_sqlite_classes = ["MarketStreamer"]
 
+# --- KV ---
 [[kv_namespaces]]
 binding = "BOT_STATE"
 id = "ac954cedbedd48f8aa4452975e5fc2a1"
 
+# --- D1 ---
 [[d1_databases]]
 binding = "DB"
 database_name = "ultimate-arbitrage-db"
 database_id = "cd726538-9c41-456c-b172-15fcc3a63a0c"
 
+# --- AI ---
 [ai]
 binding = "AI"
 
-[[durable_objects.bindings]]
-name = "MARKET_STREAMER"
-class_name = "MarketStreamer"
+# --- Queues ---
+[[queues.consumers]]
+queue = "ultimate-arbitrage-queue"
+max_batch_size = 10
+max_batch_timeout = 30
 
-[[migrations]]
-tag = "v1"
-new_sqlite_classes = ["MarketStreamer"]
+[[queues.producers]]
+binding = "ULTIMATEARBITRAGEQUEUE"
+queue = "ultimate-arbitrage-queue"
 
-[[tail_consumers]]
-service = "ultimate-arbitrage-tail"
+# --- R2 ---
+[[r2_buckets]]
+binding = "R2"
+bucket_name = "ultimate-arbitrage-logs"
 
+# --- Service Bindings ---
+[[services]]
+binding = "hero-super-agent"
+service = "hero-super-agent"
+environment = "production"
+
+[[services]]
+binding = "nexus-arbitrage"
+service = "nexus-arbitrage"
+environment = "production"
+entrypoint = "default"
+
+# --- Rate Limits ---
+[[unsafe.bindings]]
+type = "ratelimit"
+name = "RATE_LIMITER"
+namespace_id = "1001"
+simple = { limit = 20, period = 60 }
+
+# --- Observability ---
 [observability]
-enabled = false
-head_sampling_rate = 1
+enabled = true
+head_sampling_rate = 0.1
 
 [observability.logs]
 enabled = true
-head_sampling_rate = 1
+head_sampling_rate = 0.1
 persist = true
 invocation_logs = true
 
 [observability.traces]
-enabled = false
+enabled = true
+head_sampling_rate = 0.1
 persist = true
-head_sampling_rate = 1
 
+# --- Tail Consumer ---
+[[tail_consumers]]
+service = "ultimate-arbitrage-tail"
+
+# --- Cron Triggers ---
 [triggers]
 crons = ["*/1 * * * *"]
+
+# --- Environment Variables ---
+[vars]
+STRATEGY_MODE                           = "multi_exchange"
+EXECUTION_EXCHANGES_ALLOWLIST           = "mexc,bitget,binance,kucoin,bybit,gateio,htx"
+DIRECT_EXCHANGES                        = "kucoin"
+TEMPORAL_WORKER_URL                     = "https://ultimatearbitragehft.zedanazad43.workers.dev"
+HFT_ENGINE_URL                          = "https://ultimatearbitragehft-production.up.railway.app"
+PROXY_FALLBACK_URL                      = "https://arb-proxy-gateway.zedanazad43.workers.dev"
+EXTERNAL_PROXY_FALLBACK_URL             = "https://ultimatearbitragehft-production.up.railway.app/proxy"
+EXTERNAL_PROXY_FALLBACK_PROVIDER        = "bright_data"
+LLM_MODEL                               = "@cf/meta/llama-3.1-8b-instruct"
+AI_FILTER_ENABLED                       = "true"
+AI_FILTER_MIN_CONFIDENCE                = "0.7"
+AI_GATEWAY_ID                           = ""
+AI_GATEWAY_URL                          = ""
+AGGRESSIVE_SCAN_MODE                    = "on"
+AGGRESSIVE_EXECUTION_FORCE              = "off"
+AGGRESSIVE_FORCED_MAX_LIVE_TRADES_PER_SCAN   = "20"
+AGGRESSIVE_FORCED_MIN_SECONDS_BETWEEN_TRADES = "5"
+AGGRESSIVE_FORCED_POSITION_SIZE_USD     = "15"
+AGGRESSIVE_FORCED_SCALP_MIN_NET_PCT     = "0.05"
+AGGRESSIVE_FORCED_SUPPORTED_SYMBOLS     = "BTCUSDT,ETHUSDT,SOLUSDT,XRPUSDT,BNBUSDT,ADAUSDT,DOGEUSDT,LTCUSDT,TRXUSDT,LINKUSDT,AVAXUSDT,DOTUSDT,ETHBTC,BNBBTC,SOLBTC,XRPBTC,ADABTC,DOTBTC,LINKBTC,LTCBTC,AVAXBTC,BNBETH,LINKETH,DOTETH,UNIETH,SOLBNB,XRPBNB,ADABNB"
+CEX_MIN_SAFETY_FACTOR                   = "0.10"
+CEX_SLIPPAGE_MULTIPLIER                 = "0.5"
+PERPS_MIN_SAFETY_FACTOR                 = "0.10"
+EXPOSURE_BOOST_MULTIPLIER               = "1.50"
+VENUE_READY_PRIORITY_MULTIPLIER         = "1.45"
+MAX_DAILY_LOSS_USD                      = "25"
+LIVE_EXECUTION_MIN_BALANCE_USD          = "0"
+SKIP_BALANCE_CHECK                      = "true"
+SPOT_ONLY_LOCK_FORCE                    = "false"
+MANUAL_RISK_LOCK_FORCE                  = "false"
+BACKTEST_AUTO_ENABLED                   = "true"
+BACKTEST_AUTO_INTERVAL_HOURS            = "24"
+DEX_CHAINS                              = "ethereum,polygon,arbitrum,optimism,bsc"
+DEX_MULTI_CHAIN_ENABLED                 = "true"
+ALCHEMY_EVM_WALLET                      = "0x2d680d0b87e91d64e7b4d0c8b56611b47f8d7e59"
+ALCHEMY_SOLANA_WALLET                   = "Dp2KqwZcin85pSJ4hH1VFrEkJTgNBhiMnTm7Pk86UPTJ"
+ALCHEMY_API_KEY                         = ""
+ONEINCH_API                             = ""
+ONEINCH_API_KEY                         = ""
+CLOUDFLARE_GATEWAY_ETH                  = ""
+CLOUDFLARE_GATEWAY_ARB                  = ""
+CLOUDFLARE_GATEWAY_BSC                  = ""
+CLOUDFLARE_GATEWAY_IPFS                 = ""
+CF_TUNNEL_US_BYPASS_URL                 = ""
+CF_TUNNEL_EU_URL                        = ""
+CF_TUNNEL_ASIA_URL                      = ""
+CCXT_REST_STATUS_URL                    = ""
+CCXT_REST_EXECUTE_URL                   = ""
+SUPERALGOS_STATUS_URL                   = ""
+SUPERALGOS_EXECUTE_URL                  = ""
+BRIGHT_DATA_USER                        = ""
+BRIGHT_DATA_PASSWORD                    = ""
+OXYLABS_USER                            = ""
+OXYLABS_PASSWORD                        = ""
+EXECUTIVE_LOCAL_ADAPTERS                = "true"
