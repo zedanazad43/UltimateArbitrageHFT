@@ -6,32 +6,6 @@ const MIN_SAFETY_FACTOR = 0.20; // net/gross must be >= 20% (aggressive mode)
 // These exchanges are restricted by regulation (BaFin Germany) or lack API credentials.
 const DATA_ONLY_EXCHANGES = new Set(['kraken', 'coinbase']);
 
-// Estimated market-impact slippage (in % of trade value) applied per leg.
-// Derived from empirical analysis of crypto order-book depth at ~$5k–$50k sizes.
-// Inspired by Hummingbot's slippage buffer and harjus order-fill modelling.
-// Exchange-specific overrides handle known thin-book exchanges.
-const DEFAULT_SLIPPAGE_PCT = 0.05; // 5 bps per leg
-const SLIPPAGE_OVERRIDES = {
-  mexc: 0.03,  // MEXC has tight spreads on majors
-  binance: 0.02,  // deepest order books
-  bybit: 0.04,
-  okx: 0.03,
-  kucoin: 0.05,
-  bitget: 0.06,
-  gateio: 0.07,
-  bitmart: 0.08,
-  htx: 0.06,
-};
-
-/**
- * Returns estimated one-way slippage in percent for a given exchange.
- * @param {string} exchange
- * @returns {number}
- */
-function slippagePct(exchange) {
-  return SLIPPAGE_OVERRIDES[exchange] ?? DEFAULT_SLIPPAGE_PCT;
-}
-
 function addRejection(options, reason, count = 1) {
   if (!options || !options.rejections || !reason || count <= 0) return;
   options.rejections[reason] = Number(options.rejections[reason] || 0) + Number(count || 0);
