@@ -71,3 +71,10 @@ samples/java/target/
 *.jar
 *.class
 backup_*/
+
+# Python bytecode and cache
+__pycache__/
+*.pyc
+
+# Local git identity – never commit
+.gitconfig
