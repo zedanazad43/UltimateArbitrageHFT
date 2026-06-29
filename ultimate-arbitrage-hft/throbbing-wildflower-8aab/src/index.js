@@ -147,8 +147,6 @@ export default {
   }
 };
 
-function _sleep(ms) { return new Promise(resolve => setTimeout(resolve, ms)); }
-
 async function getPrice(env, symbol, source = 'mexc') {
   try {
     const id = env.MARKET_STREAMER.idFromName(symbol);

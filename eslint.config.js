@@ -22,6 +22,8 @@ export default [
       "aimaster_skills_list/**",
       "aimaster_council_temp/**",
       "aimaster/**",
+      // This file is an INI config template (not JavaScript) that happens to be
+      // named index.js — ESLint cannot parse it.
       "UnifiedArbitrageBot/index.js",
     ],
   },
