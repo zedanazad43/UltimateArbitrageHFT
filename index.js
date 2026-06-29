@@ -635,6 +635,42 @@ function renderLoginPage(showError = false, adminConfigured = true) {
   );
 }
 
+function renderPublicLandingPage() {
+  return new Response(
+    `<!DOCTYPE html>
+<html dir="rtl" lang="ar">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Nexus Arbitrage Hub</title>
+  <style>
+    *{box-sizing:border-box;margin:0;padding:0}
+    body{background:#0b0e14;color:#eee;font-family:'Segoe UI',Tahoma,sans-serif;min-height:100vh;display:flex;align-items:center;justify-content:center;padding:20px}
+    .card{background:#1a1e26;border-radius:16px;padding:40px;width:100%;max-width:720px;box-shadow:0 4px 40px rgba(0,0,0,.5);text-align:center}
+    h1{color:#f0b90b;font-size:2em;margin-bottom:8px}
+    .subtitle{color:#aaa;font-size:1em;margin-bottom:24px}
+    .btn{display:inline-block;background:#f0b90b;color:#000;font-weight:bold;font-size:1em;padding:12px 24px;border-radius:10px;text-decoration:none;margin:6px}
+    .btn-secondary{background:#2a2e38;color:#f0b90b}
+    .status{margin-top:18px;color:#888;font-size:.86em;line-height:1.8}
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div style="font-size:2.4em;margin-bottom:10px">🔷</div>
+    <h1>Nexus Arbitrage Hub</h1>
+    <p class="subtitle">منصة تداول آلي موحدة — CEX + DEX + Perps</p>
+    <a class="btn" href="/dashboard">🚀 لوحة التحكم</a>
+    <a class="btn btn-secondary" href="/login">🔑 تسجيل الدخول</a>
+    <p class="status">
+      للوصول إلى التنفيذ الحقيقي: تأكد من ضبط مفاتيح المنصات + ADMIN_TOKEN ثم التبديل إلى وضع Live من لوحة التحكم.
+    </p>
+  </div>
+</body>
+</html>`,
+    { headers: { 'Content-Type': 'text/html; charset=utf-8' } }
+  );
+}
+
 // ─── Rate limiter helper ──────────────────────────────────────────────────────
 // Uses the RATE_LIMITER binding (Cloudflare Rate Limiting API).
 // Returns a 429 response if the caller has exceeded the configured threshold;
@@ -925,7 +961,7 @@ app.get('/api/prices/stream', async (c) => {
 // Browser access requires a valid session; redirect to /login when absent.
 // API callers that send an x-admin-token header bypass the cookie check.
 app.get('/', async (c) => {
-  if (c.env.ADMIN_TOKEN && !isAuthorized(c.env, c)) return c.redirect('/login', 302);
+  if (!isAuthorized(c.env, c)) return renderPublicLandingPage();
   return renderDashboard(c.env);
 });
 app.get('/dashboard', async (c) => {
