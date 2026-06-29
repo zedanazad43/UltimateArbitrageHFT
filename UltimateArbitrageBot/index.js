@@ -89,7 +89,7 @@ function connectWebSocket(url, exchange, symbols, env) {
         priceCache[exchange][symbol] = { price, timestamp: Date.now() };
         checkForArbitrageOpportunity(symbol, env);
       }
-    } catch (e) {}
+    } catch {}
   };
   ws.onerror = (e) => console.error(`? WebSocket ${exchange} error:`, e);
   ws.onclose = () => { console.log(`?? WebSocket ${exchange} closed, reconnecting...`); setTimeout(() => connectWebSocket(url, exchange, symbols, env), 5000); };
@@ -125,7 +125,7 @@ async function scheduledScan(env) {
       priceCache.mexc[symbol] = { price: parseFloat(mexc.price), timestamp: Date.now() };
       priceCache.bitget[symbol] = { price: parseFloat(bitget.data[0].lastPr), timestamp: Date.now() };
       await checkForArbitrageOpportunity(symbol, env);
-    } catch (e) {}
+    } catch {}
   }
   try {
     await checkCrossChainArbitrage(env);

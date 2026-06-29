@@ -288,7 +288,7 @@ async function renderDashboard(env) {
   const currentLeverage = calculateAdaptiveLeverage(equity, 0.05, initialCapital);
   let tradesHtml = '';
   let pnlData = [];
-  let paperCount = 0;
+  let _paperCount = 0;
   let liveCount = 0;
   if (env.DB) {
     try {
@@ -306,7 +306,7 @@ async function renderDashboard(env) {
         cumPnl += t.size_usd * t.net_profit_percent / 100;
         return cumPnl.toFixed(2);
       });
-      paperCount = results.filter(t => t.mode === 'paper').length;
+      _paperCount = results.filter(t => t.mode === 'paper').length;
       liveCount = results.filter(t => t.mode === 'live').length;
     } catch (_) {}
   }
@@ -533,11 +533,11 @@ ${autoStopBanner}
 // ---------- Go-Live Checklist ----------
 async function renderChecklist(env) {
   const state = await env.BOT_STATE.get('trading_state', 'json') || {};
-  let paperTradesCount = 0;
+  let _paperTradesCount = 0;
   if (env.DB) {
     try {
       const row = await env.DB.prepare(`SELECT COUNT(*) AS n FROM trades WHERE mode = ?`).bind('paper').first();
-      paperTradesCount = row?.n || 0;
+      _paperTradesCount = row?.n || 0;
     } catch (_) {}
   }
   const checks = [

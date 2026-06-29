@@ -1,6 +1,6 @@
 // ip-locator.js - كشف عنوان IP الخاص بـ Cloudflare Worker
 export default {
-    async fetch(request, env) {
+    async fetch(request, _env) {
         // استخدام API مخصص لجلب عنوان IP للـ Worker نفسه
         // ملاحظة: هذا يعمل من داخل بيئة Worker ويعيد الـ IP الذي يستخدمه للاتصال بالخارج
         const ipResponse = await fetch('https://api.ipify.org?format=json');

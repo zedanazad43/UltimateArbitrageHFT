@@ -69,7 +69,7 @@ export class MarketStreamer {
           this.state.storage.put('lastPrice', this.currentPrice);
           this.state.storage.put('lastUpdate', this.lastUpdate);
         }
-      } catch (e) {}
+      } catch {}
     };
     this.ws.onerror = (error) => console.error(`[${this.symbol}] WebSocket error:`, error);
     this.ws.onclose = () => {
@@ -109,7 +109,7 @@ export default {
           tradesHtml = results.map(t => `<tr><td>${t.strategy}</td><td>$${t.size_usd.toFixed(2)}</td><td>${t.net_profit_percent.toFixed(4)}%</td><td>${new Date(t.created_at).toLocaleString('ar')}</td></tr>`).join('');
           let cumPnl = 0;
           pnlData = results.reverse().map(t => { cumPnl += t.size_usd * t.net_profit_percent / 100; return cumPnl.toFixed(2); });
-        } catch (e) {}
+        } catch {}
       }
       const html = `<!DOCTYPE html><html dir="rtl"><head><meta charset="UTF-8"><title>v22.0</title><script src="https://cdn.jsdelivr.net/npm/chart.js"></script><style>body{background:#0b0e14;color:#eee;font-family:Segoe UI;padding:20px}h1{color:#f0b90b}.card{background:#1a1e26;padding:20px;border-radius:12px;margin-bottom:20px}.btn{background:#f0b90b;color:#000;padding:10px 20px;border:none;border-radius:8px;margin:5px;cursor:pointer}table{width:100%;border-collapse:collapse;background:#1a1e26;border-radius:12px}th{background:#2a2e38;color:#f0b90b;padding:12px}td{padding:10px;border-bottom:1px solid #2a2e38}</style></head><body><h1>🔥 Ultimate Arbitrage v22.0 (HFT Edition)</h1><div><button class="btn" onclick="fetch('/scan')">🔍 مسح فوري</button><button class="btn" onclick="fetch('/start')">▶️ تشغيل</button><button class="btn" onclick="fetch('/stop')">⏸️ إيقاف</button><button class="btn" onclick="location.reload()">🔄 تحديث</button></div><div class="card"><span>الحالة: <span style="color:${state.trading_enabled?'#2ecc71':'#e74c3c'}">${state.trading_enabled?'مفعل':'متوقف'}</span> | 💰 الحجم اليومي: $${state.daily_used_usd.toFixed(2)} | 📈 صافي اليوم: $${state.daily_pnl.toFixed(2)} | 🎯 نسبة النجاح: ${(state.win_rate*100).toFixed(1)}%</span></div><div style="background:#1a1e26;padding:20px;border-radius:12px;margin-bottom:20px"><canvas id="pnlChart"></canvas></div><h2>📊 آخر الصفقات</h2><table><tr><th>الاستراتيجية</th><th>الحجم (USD)</th><th>الربح</th><th>الوقت</th></tr>${tradesHtml||'<tr><td colspan="4">لا توجد صفقات</td></tr>'}</table><script>const ctx=document.getElementById('pnlChart').getContext('2d');new Chart(ctx,{type:'line',data:{labels:[...Array(${pnlData.length})].map((_,i)=>i+1),datasets:[{label:'الربح المتراكم ($)',data:${JSON.stringify(pnlData)},borderColor:'#f0b90b',backgroundColor:'rgba(240,185,11,0.1)',fill:true}]},options:{responsive:true}});</script></body></html>`;
       return new Response(html, { headers: { 'Content-Type': 'text/html; charset=utf-8' } });
@@ -140,14 +140,14 @@ export default {
     }
     return new Response('🤖 Ultimate Arbitrage Bot v22.0', { status: 200 });
   },
-  async scheduled(event, env, ctx) {
+  async scheduled(event, env, _ctx) {
     const state = await env.BOT_STATE.get('trading_state', 'json') || { trading_enabled: true };
     if (!state.trading_enabled) return;
     await scanAndExecute(env);
   }
 };
 
-function sleep(ms) { return new Promise(resolve => setTimeout(resolve, ms)); }
+function _sleep(ms) { return new Promise(resolve => setTimeout(resolve, ms)); }
 
 async function getPrice(env, symbol, source = 'mexc') {
   try {
@@ -156,7 +156,7 @@ async function getPrice(env, symbol, source = 'mexc') {
     const resp = await obj.fetch('https://dummy/price');
     const data = await resp.json();
     if (data.price > 0) return { price: data.price, exchange: source, fee: 0.0005 };
-  } catch (e) {}
+  } catch {}
   const url = source === 'mexc' 
     ? `https://api.mexc.com/api/v3/ticker/price?symbol=${symbol}`
     : `https://api.kucoin.com/api/v1/market/orderbook/level1?symbol=${symbol.replace('USDT', '-USDT')}`;

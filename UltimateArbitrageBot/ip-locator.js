@@ -1,6 +1,6 @@
 // ip-locator.js
 export default {
-    async fetch(request, env) {
+    async fetch(_request, _env) {
         // جلب عنوان IPv4 الخاص بالـ Worker
         const ipResponse = await fetch('https://api.ipify.org?format=json');
         const ipData = await ipResponse.json();

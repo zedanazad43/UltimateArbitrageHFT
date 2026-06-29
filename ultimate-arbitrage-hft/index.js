@@ -7,7 +7,7 @@ const FLASH_LOAN_ABI = ['function flashLoan(address receiverAddress, address[] a
 async function executeFlashLoanArbitrage(env, opportunity) {
   const provider = new ethers.JsonRpcProvider(env.ETH_RPC_URL);
   const wallet = new ethers.Wallet(env.DEX_PRIVATE_KEY, provider);
-  const aavePool = new ethers.Contract(AAVE_POOL_ADDRESS, FLASH_LOAN_ABI, wallet);
+  const _aavePool = new ethers.Contract(AAVE_POOL_ADDRESS, FLASH_LOAN_ABI, wallet);
   
   console.log(`?? ????? ??? ???? ????? ${opportunity.symbol}...`);
   // Build flash loan transaction

@@ -10,7 +10,7 @@ import { schemaSQL } from '../migrations/schema.js';
 // Schema SQL is imported from migrations/schema.js (single source of truth).
 let _schemaInitPromise = null;
 
-function splitSchemaStatements(sql) {
+function _splitSchemaStatements(sql) {
   // The canonical schema in migrations/schema.js is intentionally simple:
   // plain CREATE TABLE / CREATE INDEX statements with semicolon terminators and
   // no embedded semicolons in strings or comments. Splitting here keeps local
