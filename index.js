@@ -2953,6 +2953,56 @@ app.get('/api/ai/optimizer', async (c) => {
   return c.json(system.optimizer.getStatus());
 });
 
+// ── API: AI Analysis — opportunity-focused endpoint for dashboard ─────────────
+// Accepts { opportunity: { symbol, strategy, direction, buyPrice, sellPrice, netPct } }
+// Translates to AIWORKER format and returns { analysis, provider }.
+app.post('/api/ai-analysis', async (c) => {
+  if (!isAuthorized(c.env, c)) return authDenied(c.env, c, true);
+
+  let body;
+  try { body = await c.req.json(); } catch (_) { return c.json({ error: 'Invalid JSON' }, 400); }
+
+  const opp = body.opportunity;
+  if (!opp || typeof opp !== 'object') {
+    return c.json({ error: 'Missing required field: opportunity' }, 400);
+  }
+
+  // Minimum net-spread % considered viable for a real trade after fees
+  const MIN_VIABLE_SPREAD_PCT = 0.3;
+
+  const prompt = [
+    `You are an expert crypto arbitrage analyst. Analyze the following trading opportunity and provide a concise recommendation (2–4 sentences) covering: whether to execute, key risks, and any concerns about liquidity or timing.`,
+    ``,
+    `Opportunity:`,
+    `- Symbol: ${opp.symbol || '—'}`,
+    `- Strategy: ${opp.strategy || '—'}`,
+    `- Direction: ${opp.direction || '—'}`,
+    `- Buy Price: $${opp.buyPrice || 0}`,
+    `- Sell Price: $${opp.sellPrice || 0}`,
+    `- Net Profit %: ${opp.netPct || 0}%`,
+  ].join('\n');
+
+  // Fallback if no AIWORKER binding
+  if (!c.env.AIWORKER) {
+    const fallback = opp.netPct > MIN_VIABLE_SPREAD_PCT
+      ? `✅ Potential opportunity: net spread of ${opp.netPct}% is above threshold. Verify liquidity and fee structure before executing. Monitor for slippage — position size should remain small (≤$5 for initial trades).`
+      : `⚠️ Low spread: net spread of ${opp.netPct}% may not cover execution costs after slippage. Consider waiting for a higher-quality opportunity.`;
+    return c.json({ analysis: fallback, provider: 'fallback' });
+  }
+
+  try {
+    const result = await c.env.AIWORKER.run('@cf/meta/llama-3.1-8b-instruct', {
+      messages: [{ role: 'user', content: prompt }],
+      max_tokens: 256,
+    });
+    const analysis = result?.response ?? result?.text ?? JSON.stringify(result);
+    return c.json({ analysis, provider: 'workers-ai' });
+  } catch (e) {
+    console.error('[AI /api/ai-analysis] error:', e.message);
+    return c.json({ error: e.message }, 500);
+  }
+});
+
 // ── API: Ecosystem integrations ────────────────────────────────────────────────
 app.get('/api/ecosystem', (c) => {
   return c.json({
