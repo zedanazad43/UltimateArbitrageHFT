@@ -539,6 +539,37 @@ LLM_MODEL = "@cf/meta/llama-3.1-70b-instruct"
 - **Token tracking**: Each response includes `input_tokens`, `output_tokens`, `total_tokens`
 - **Cost estimate**: Cloudflare Workers AI is included in the Worker subscription; external gateways bill separately
 
+## Ecosystem integrations (2026)
+
+The project now includes a built-in integration catalog and recommendation API for:
+
+- **Hummingbot** (professional arbitrage starter)
+- **Freqtrade + FreqAI** (AI/ML-driven strategy stack)
+- **OpenCode** and **Aider** (coding-agent support)
+- **CrewAI** and **AutoGPT** (multi-agent orchestration patterns)
+
+API endpoints:
+
+- `GET /api/ecosystem` → full catalog
+- `GET /api/ecosystem/recommendation?goal=quick_start|ai_learning|coding_support|multi_agent_ops`
+- `GET /api/security/api-keys` → secure exchange API-key checklist
+- `GET /api/integrations/executive/status` → live status of Hummingbot/Freqtrade/CrewAI/AutoGPT integrations (admin auth required)
+- `POST /api/integrations/executive/execute` with `{ "integration": "hummingbot|freqtrade|crewai|autogpt", "payload": {...} }`
+- `POST /api/integrations/executive/execute-all` with `{ "defaultPayload": {...}, "payloadByIntegration": {...} }`
+
+Required integration URLs (set in Worker vars):
+
+- `HUMMINGBOT_EXECUTE_URL`, `HUMMINGBOT_STATUS_URL`
+- `FREQTRADE_EXECUTE_URL`, `FREQTRADE_STATUS_URL`
+- `CREWAI_EXECUTE_URL`, `CREWAI_STATUS_URL`
+- `AUTOGPT_EXECUTE_URL`, `AUTOGPT_STATUS_URL`
+
+Optional integration auth secrets (set with `wrangler secret put`):
+
+- `HUMMINGBOT_API_TOKEN`, `FREQTRADE_API_TOKEN`, `CREWAI_API_TOKEN`, `AUTOGPT_API_TOKEN`
+
+Latency note: run the bot and execution services in regions close to exchange infrastructure to improve arbitrage fill quality.
+
 ## Security
 
 Secrets (`api_keys.txt`, `.env`) **must not** be committed — see `.gitignore`.
