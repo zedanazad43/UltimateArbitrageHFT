@@ -1443,6 +1443,10 @@ ${liveDealsHtml}
   // ── Load dynamic panels ──────────────────────────────────────────────────────
   async function loadBalances(){
     const el=document.getElementById('balancesContent');
+    if(!adminConfigured){
+      el.innerHTML='<span style="color:#e67e22">⚠️ أضف ADMIN_TOKEN أولاً لعرض أرصدة المنصات المحمية.</span>';
+      return;
+    }
     try{
       const res=await callAdminApi('/api/balances');
       const json=JSON.parse(res.text);
@@ -1511,6 +1515,10 @@ ${liveDealsHtml}
   async function loadPerpsStatus(){
     const el=document.getElementById('perpsStatusContent');
     if(!el) return;
+    if(!adminConfigured){
+      el.innerHTML='<span style="color:#e67e22">⚠️ أضف ADMIN_TOKEN أولاً لعرض حالة Perps المحمية.</span>';
+      return;
+    }
     try{
       const res=await callAdminApi('/api/perps');
       const json=JSON.parse(res.text);
