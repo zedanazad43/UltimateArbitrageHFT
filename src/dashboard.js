@@ -203,6 +203,16 @@ export async function renderDashboard(env) {
     return n.toFixed(8);
   }
 
+  function formatMoneyAdaptive(value) {
+    const n = Number(value);
+    if (!Number.isFinite(n)) return '—';
+    const abs = Math.abs(n);
+    if (abs >= 1) return n.toFixed(2);
+    if (abs >= 0.01) return n.toFixed(4);
+    if (abs >= 0.0001) return n.toFixed(6);
+    return n.toFixed(8);
+  }
+
   // Opportunity card HTML helper
   function oppCard(opp) {
     if (!opp) return `<div style="color:#888;font-size:.85em">لا توجد فرصة في آخر مسح</div>`;
