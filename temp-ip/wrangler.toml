@@ -1,0 +1,4 @@
+name = "ip-worker3"
+main = "index.js"
+compatibility_date = "2025-03-18"
+

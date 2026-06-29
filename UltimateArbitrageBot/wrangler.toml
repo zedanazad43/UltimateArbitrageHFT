@@ -1,0 +1,45 @@
+name = "orchestrator-bot"
+main = "index.js"
+compatibility_date = "2025-01-01"
+
+[[kv_namespaces]]
+binding = "BOT_STATE"
+id = "ac954cedbedd48f8aa4452975e5fc2a1"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "ultimate-arbitrage-db"
+database_id = "cd726538-9c41-456c-b172-15fcc3a63a0c"
+
+[ai]
+binding = "AI"
+
+[[services]]
+binding = "PERPS_EXECUTOR"
+service = "perps-executor"
+
+[[services]]
+binding = "DEX_EXECUTOR"
+service = "dex-executor"
+
+[observability]
+enabled = false
+head_sampling_rate = 1
+
+[observability.logs]
+enabled = true
+head_sampling_rate = 1
+persist = true
+invocation_logs = true
+
+[observability.traces]
+enabled = false
+persist = true
+head_sampling_rate = 1
+
+[triggers]
+crons = ["*/5 * * * *"]
+
+# Secrets required by this worker (set via `wrangler secret put <NAME>`):
+# - ALCHEMY_API_KEY  : Alchemy Token Prices API key
+

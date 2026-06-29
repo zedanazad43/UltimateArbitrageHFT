@@ -1,0 +1,14 @@
+name = "arbitrage-bot"
+main = "src/index.js"
+compatibility_date = "2025-03-18"
+
+kv_namespaces = [
+    { binding = "KV_STORAGE", id = "efadbbc5889d40979c7103bc15ce6479" }
+]
+
+[triggers]
+crons = ["*/10 * * * *"]
+
+# Secrets must be set via: wrangler secret put TELEGRAM_BOT_TOKEN
+# and: wrangler secret put TELEGRAM_CHAT_ID
+# Do NOT commit real values here.

@@ -1,0 +1,36 @@
+{
+  "summary": "Iteration 4 large-scope test PASSED end-to-end. Backend: 17/17 pytest checks in /app/backend/tests/test_iteration4.py PASS in 6.74s covering (a) CSRF double-submit middleware — login returns csrf_token+sets non-httpOnly cookie, POST without X-CSRF-Token = 403, POST with header = 200, GET /api/auth/csrf re-issues fresh token, pure Bearer (no cookies) bypasses CSRF as designed; (b) regression on all pre-iter4 endpoints (auth/me, bot/*, market/*, trades, pnl, wallet, logs, telegram, exchange-keys, worker/health); (c) Users CRUD — create viewer, promote→admin, revert→viewer, delete; bootstrap admin demote=409, delete=409, self-delete=409; (d) Role enforcement — viewer gets 403 on bot/action, bot/config PUT, telegram/test, exchange-keys POST, GETs work; (e) Per-key permissions — LIVE mode blocked with 409 when no trade-perm key exists, succeeds after PATCH /exchange-keys/Binance/permissions ['read','trade']; (f) PnL series — ?hours=24→25 buckets, ?hours=6→7 buckets, ?hours=200 capped to 168→169 buckets, each bucket has {ts,label,pnl,trades,cumulative}; (g) Public /api/public/stats requires NO auth, returns name/version/status/mode/pnl/exchanges/symbols/series_24h(25 pts). Frontend: Public /share renders without auth (data-testid='share-page' + 'share-chart' + exchange/symbol chips + auto-refresh 8s footer). Admin login → Dashboard shows pnl-chart-card with 6h/24h/72h/168h range buttons all present and clickable, pnl-chart-cum pill updates, user-role-pill='admin', open-share-link present. Users page (data-testid='users-page') renders, Add User form creates 'uitest_viewer@arbhft.io' viewer row successfully. Viewer login: role pill='viewer', sidebar HIDES API Keys, Bot Config, Users, Telegram (visible: Dashboard, Spreads, Trades, Wallet, Logs). Dashboard master-control buttons (PAPER/LIVE/Start/Stop/Restart) render visibly greyed/disabled in viewer mode (confirmed via screenshot). Test viewer user cleaned up (DELETE 200).",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Console", "issues": ["React Router v7 future flag warnings (v7_startTransition, v7_relativeSplatPath) — harmless deprecation notices, not a defect."]}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iteration4.py",
+    "/app/backend/tests/test_iteration2.py",
+    "/app/test_reports/pytest/iter4.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "CSRF middleware is well-implemented: double-submit cookie + secrets.compare_digest constant-time compare; correctly skips when no csrf_token cookie present so pure-bearer CLI/test clients still work; correctly enforces when cookie IS present.",
+    "FastAPI lifespan() context manager replaces deprecated @app.on_event — startup creates indexes + seeds admin + spawns background_tick & worker_probe_loop tasks; shutdown cancels tasks and calls worker_client.aclose(). Clean.",
+    "require_admin dependency is properly chained on every write/admin endpoint (bot/action, bot/mode, bot/config PUT, telegram, exchange-keys POST/PATCH/DELETE, users POST/PATCH/DELETE).",
+    "Per-key permission gate via _trade_keys_present() is correctly evaluated for BOTH POST /bot/mode (live) AND POST /bot/action (start/restart while in live mode). 409 used appropriately.",
+    "MINOR: bot_state, bot_config, pnl_state are module-level dicts (in-memory) — restart wipes runtime mode/uptime/pnl_today but trades & logs are persisted in Mongo. Acceptable for a single-node control panel; if scaled out, hoist these to Mongo too.",
+    "MINOR: /api/users PATCH allows changing password but does not invalidate the user's existing JWT (no token revocation list). For an admin tool this is acceptable, but worth noting.",
+    "MINOR: server.py is now ~890 lines — approaching the 700-line threshold. Consider splitting routers (auth.py, bot.py, users.py, exchange_keys.py, public.py) when iter 5 lands.",
+    "MINOR: /api/auth/csrf is a GET that mutates server state (sets a new cookie). Idempotent enough but technically a side-effect on GET — could be POST to be RESTful-pure.",
+    "MINOR: Dashboard master-control buttons in viewer mode have no data-testid='bot-action-{start|stop|restart}' / data-testid='bot-mode-{paper|live}' attributes; they render disabled but lack stable testids. Adding them would help future testing agents target the disabled-state assertion programmatically."
+  ],
+  "updated_files": ["/app/backend/tests/test_iteration4.py"],
+  "success_rate": {"backend": "100% (17/17)", "frontend": "100% (share-page no-auth, admin pnl-chart + range buttons + cum pill + role pill + open-share-link, users-page create flow, viewer role-pill + sidebar gating + disabled controls)"},
+  "test_credentials": "Admin: admin@arbhft.io / Admin@123 (from /app/memory/test_credentials.md). Viewer (ephemeral): viewer_test@arbhft.io / Viewer@123 (pytest, auto-cleaned) and uitest_viewer@arbhft.io / UIViewer@123 (frontend, auto-cleaned).",
+  "seed_data_creation": "Pytest created+deleted user viewer_test@arbhft.io. PATCHed Binance permissions to ['read','trade'] to verify the LIVE-success path — Binance now has trade permission persisted. Bot mode was left in 'paper' after tests. Frontend test created+deleted user uitest_viewer@arbhft.io.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Iteration 4 is fully verified. Backend regression file /app/backend/tests/test_iteration4.py is reusable — re-runs cleanly and self-cleans (no leftover users, no leftover keys beyond the pre-existing Binance entry which now has ['read','trade'] permissions persisted in Mongo). If iteration 5 modifies bot mode persistence or CSRF cookie attributes, run iter4 first as regression. Note: front-end role-gated buttons (Start/Stop/Restart/Paper/Live) render disabled for viewers but currently lack stable data-testid attributes (only visible greying confirms the gating in screenshots). Main agent may want to add data-testid='bot-action-start' etc. for future testability. Also the dashboard-action-error data-testid surfacing on a 409 LIVE attempt was NOT directly exercised in the UI test (because backend now has a trade-permission key — live succeeds); if the main agent strips that perm and retries, the UI error surface should be verified manually or with a fresh test.",
+  "rca of the issue": "N/A — no defects. Initial Playwright run failed during the viewer-login phase because the logout selector used a comma-separated text/data-testid expression that Playwright treated as a single CSS query, leaving the session still authenticated as admin. Worked around by calling /api/auth/logout via fetch() and clearing context cookies; second pass verified the viewer flow cleanly."
+}
