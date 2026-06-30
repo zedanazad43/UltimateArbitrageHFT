@@ -59,6 +59,7 @@ export default [
   {
     files: [
       "**/*.cjs",
+      "hero-agent/**/*.js",
       "temporal-worker.js",
       "scripts/**/*.js",
       "src/ai-client.js",
