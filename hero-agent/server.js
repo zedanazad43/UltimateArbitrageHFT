@@ -48,6 +48,16 @@ loadDotEnv();
 const VERSION = '2.2.0';
 const PORT = parseInt(process.env.PORT ?? '3001', 10);
 const AIMASTER_ENDPOINT = (process.env.AIMASTER_ENDPOINT ?? 'http://127.0.0.1:8000').replace(/\/$/, '');
+const MAX_PROMPT_LENGTH = 8192;
+
+const PLATFORM_LABELS = {
+  github: 'GitHub',
+  cloudflare: 'Cloudflare',
+  railway: 'Railway',
+  stripe: 'Stripe',
+  wallet: 'Wallet',
+  manus: 'Manus',
+};
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 function json(res, status, body) {
@@ -112,7 +122,8 @@ async function handleAgent(req, res) {
   }
 
   const prompt = body.prompt ?? body.message ?? body.query;
-  if (!prompt) return json(res, 400, { error: 'Missing field: prompt / message / query' });
+  if (!prompt || typeof prompt !== 'string') return json(res, 400, { error: 'Missing field: prompt / message / query' });
+  if (prompt.length > MAX_PROMPT_LENGTH) return json(res, 400, { error: `Prompt too long (max ${MAX_PROMPT_LENGTH} chars)` });
 
   // Try aimaster HTTP endpoint first
   try {
@@ -232,17 +243,9 @@ async function router(req, res) {
 async function runStatusOnly() {
   console.log('\n🦸 Hero Super Agent — Platform Status Check\n');
   const platforms = await checkAllPlatforms();
-  const labels = {
-    github: 'GitHub',
-    cloudflare: 'Cloudflare',
-    railway: 'Railway',
-    stripe: 'Stripe',
-    wallet: 'Wallet',
-    manus: 'Manus',
-  };
   for (const [key, result] of Object.entries(platforms)) {
     const icon = result.connected ? '✅' : '❌';
-    const label = (labels[key] ?? key).padEnd(12);
+    const label = (PLATFORM_LABELS[key] ?? key).padEnd(12);
     console.log(`   ${icon} ${label} ${result.detail}`);
   }
   console.log();
@@ -250,37 +253,37 @@ async function runStatusOnly() {
 }
 
 // ── Entry point ───────────────────────────────────────────────────────────────
-if (process.argv.includes('--status-only')) {
-  await runStatusOnly();
-} else {
-  const server = http.createServer(async (req, res) => {
-    try {
-      await router(req, res);
-    } catch (err) {
-      console.error('[hero-agent] Unhandled error:', err);
-      try { json(res, 500, { error: 'Internal server error', detail: err.message }); } catch { res.end(); }
-    }
-  });
-
-  server.listen(PORT, '0.0.0.0', () => {
-    console.log(`\n🦸 Hero Super Agent Server v${VERSION}`);
-    console.log(`📍 http://localhost:${PORT}`);
-    console.log(`📍 Agent: http://localhost:${PORT}/api/agent`);
-    console.log(`📍 Files: http://localhost:${PORT}/api/files`);
-    console.log(`📍 Health: http://localhost:${PORT}/health`);
-    console.log('\n🔗 Checking platform connections...\n');
-
-    checkAllPlatforms().then((platforms) => {
-      const labels = { github: 'GitHub', cloudflare: 'Cloudflare', railway: 'Railway', stripe: 'Stripe', wallet: 'Wallet', manus: 'Manus' };
-      console.log('🔗 Connected Platforms Status:');
-      for (const [key, result] of Object.entries(platforms)) {
-        const icon = result.connected ? '✅' : '❌';
-        const label = (labels[key] ?? key).padEnd(12);
-        console.log(`   ${icon} ${label} ${result.detail}`);
+(async () => {
+  if (process.argv.includes('--status-only')) {
+    await runStatusOnly();
+  } else {
+    const server = http.createServer(async (req, res) => {
+      try {
+        await router(req, res);
+      } catch (err) {
+        console.error('[hero-agent] Unhandled error:', err);
+        try { json(res, 500, { error: 'Internal server error', detail: err.message }); } catch { res.end(); }
       }
-      console.log();
-    }).catch(() => {});
-  });
+    });
+
+    server.listen(PORT, '0.0.0.0', () => {
+      console.log(`\n🦸 Hero Super Agent Server v${VERSION}`);
+      console.log(`📍 http://localhost:${PORT}`);
+      console.log(`📍 Agent: http://localhost:${PORT}/api/agent`);
+      console.log(`📍 Files: http://localhost:${PORT}/api/files`);
+      console.log(`📍 Health: http://localhost:${PORT}/health`);
+      console.log('\n🔗 Checking platform connections...\n');
+
+      checkAllPlatforms().then((platforms) => {
+        console.log('🔗 Connected Platforms Status:');
+        for (const [key, result] of Object.entries(platforms)) {
+          const icon = result.connected ? '✅' : '❌';
+          const label = (PLATFORM_LABELS[key] ?? key).padEnd(12);
+          console.log(`   ${icon} ${label} ${result.detail}`);
+        }
+        console.log();
+      }).catch(() => {});
+    });
 
   server.on('error', (err) => {
     if (err.code === 'EADDRINUSE') {
@@ -290,4 +293,8 @@ if (process.argv.includes('--status-only')) {
     }
     process.exit(1);
   });
-}
+  }
+})().catch((err) => {
+  console.error('[hero-agent] Fatal error:', err);
+  process.exit(1);
+});

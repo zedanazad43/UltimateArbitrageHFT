@@ -6,7 +6,7 @@
  * All checks are designed to be short-circuited (no token → false immediately).
  */
 
-const TIMEOUT_MS = 7000;
+const TIMEOUT_MS = parseInt(process.env.PLATFORM_CHECK_TIMEOUT_MS ?? '7000', 10);
 
 /**
  * Wraps fetch with a timeout and never throws — returns null on network error.
@@ -93,9 +93,8 @@ export async function checkStripe(env = process.env) {
   const key = env.STRIPE_SECRET_KEY;
   if (!key) return { connected: false, detail: 'STRIPE_SECRET_KEY not set' };
 
-  const credentials = Buffer.from(`${key}:`).toString('base64');
   const res = await safeFetch('https://api.stripe.com/v1/account', {
-    headers: { Authorization: `Basic ${credentials}` },
+    headers: { Authorization: 'Bearer ' + key },
   });
 
   if (!res) return { connected: false, detail: 'Network error or timeout' };
