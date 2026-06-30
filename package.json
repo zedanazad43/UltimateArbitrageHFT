@@ -80,7 +80,9 @@
     "profile:direct": "bash scripts/switch-profile.sh direct",
     "profile:mixed": "bash scripts/switch-profile.sh mixed",
     "profile:strict": "bash scripts/switch-profile.sh strict",
-    "profile:dry": "bash scripts/switch-profile.sh"
+    "profile:dry": "bash scripts/switch-profile.sh",
+    "hero:start": "node hero-agent/server.js",
+    "hero:status": "node hero-agent/server.js --status-only"
   },
   "dependencies": {
     "@langchain/community": "^1.1.28",
