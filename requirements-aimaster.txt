@@ -2,3 +2,4 @@
 # Install: pip install -r requirements-aimaster.txt
 
 requests>=2.28.0
+flask>=2.3.0
