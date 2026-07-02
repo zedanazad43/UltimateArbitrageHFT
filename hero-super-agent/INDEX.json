@@ -1,0 +1,16 @@
+{
+  "scope": "hero-super-agent",
+  "generated_at": "2026-07-02",
+  "canonical_root": "hero-super-agent",
+  "entries": [
+    {
+      "name": "hero-agent",
+      "canonical_path": "hero-super-agent/hero-agent",
+      "legacy_aliases": [
+        "hero-agent"
+      ],
+      "type": "directory",
+      "status": "active_with_compat_alias"
+    }
+  ]
+}

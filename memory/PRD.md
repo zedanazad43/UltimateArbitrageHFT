@@ -21,7 +21,7 @@
   - Pages: Dashboard (PnL chart), Spreads, Trades, Wallet, API Keys (vault + permissions + connectivity test), Bot Config (presets + risk), A/B Test, **Autopilot** (master toggle + periodic promotion + circuit breaker + safety checklist), **Worker Deploy** (runbook + force-probe + troubleshooting guide), Alerts (CRUD + event feed), Users (admin team management + change-password), Audit Log, Logs, Telegram, Share (public, no auth)
   - Cookie-only JWT, CSRF auto-attached, admin-gated nav, viewer role disables controls
 
-- **Cloudflare Worker** `/app/ArbitrageBots/ultimate-arbitrage-hft/index.js`
+- **Cloudflare Worker** `/app/arbitragebot/ArbitrageBots/ultimate-arbitrage-hft/index.js`
   - Parallelized symbol scan (~15× lower decision latency vs original sequential loop)
   - `fetchWithTimeout` (350ms AbortSignal — slow exchange can't stall a cycle)
   - Direct MEXC fetch (removed pointless DO round-trip, ~30-80ms saved/call)
@@ -43,7 +43,7 @@
 The control center and worker are READY but I (the AI) cannot deploy or auth as the user. To trade real money the user must:
 1. Revoke the two GitHub PATs leaked in chat (CRITICAL)
 2. Push my changes via **"Save to GitHub"** button (recommend branch `ai/speed-and-features`)
-3. On their local: `git pull && cd ArbitrageBots/ultimate-arbitrage-hft && wrangler deploy`
+3. On their local: `git pull && cd arbitragebot/ArbitrageBots/ultimate-arbitrage-hft && wrangler deploy`
 4. Fund exchange accounts + add live API keys with `trade` permission (IP-allowlist Cloudflare egress)
 5. Fix `ecostamp.net` DNS/route binding on Cloudflare so backend can reach the worker
 6. Configure Telegram bot_token + chat_id on the Telegram page

@@ -1,0 +1,147 @@
+{
+  "version": "1.0.0",
+  "name": "Universal Orchestrator",
+  "description": "Token-efficient primary agent for all platforms",
+  "orchestration": {
+    "token_budget": 100000,
+    "headroom_ratio": 0.2,
+    "max_context_tokens": 100000,
+    "auto_fallback": true,
+    "batch_priority": true
+  },
+  "agents": {
+    "ollama": {
+      "type": "local",
+      "cost": "free",
+      "priority": 1,
+      "fallback_to": "codegeex",
+      "best_for": ["code", "general"],
+      "endpoint": "http://127.0.0.1:11434",
+      "models": ["llama2", "mistral", "neural-chat"]
+    },
+    "codegeex": {
+      "type": "local_or_free_tier",
+      "cost": "free",
+      "priority": 2,
+      "fallback_to": "aimaster",
+      "best_for": ["code", "analysis"],
+      "endpoint": "http://127.0.0.1:8000",
+      "api_key_env": "CODEGEEX_API_KEY"
+    },
+    "aimaster": {
+      "type": "multi_model",
+      "cost": "mixed",
+      "priority": 3,
+      "fallback_to": "cli",
+      "best_for": ["analysis", "reasoning", "critical"],
+      "providers": ["ollama", "deepseek", "codegeex", "github_copilot"],
+      "use_free_only": true
+    },
+    "arbitrage": {
+      "type": "specialized",
+      "cost": "free",
+      "priority": 4,
+      "fallback_to": "aimaster",
+      "best_for": ["trading", "arbitrage"],
+      "endpoint": "local_python_module"
+    },
+    "cli": {
+      "type": "local_shell",
+      "cost": "free",
+      "priority": 5,
+      "fallback_to": null,
+      "best_for": ["command_execution", "last_resort"]
+    }
+  },
+  "routing_rules": {
+    "code_task": {
+      "primary": "codegeex",
+      "secondary": ["ollama", "aimaster"],
+      "keywords": ["code", "function", "debug", "implement", "test"]
+    },
+    "analysis_task": {
+      "primary": "aimaster",
+      "secondary": ["ollama", "codegeex"],
+      "keywords": ["analyze", "report", "summary", "explain", "compare"]
+    },
+    "trading_task": {
+      "primary": "arbitrage",
+      "secondary": ["aimaster", "cli"],
+      "keywords": ["trade", "arbitrage", "market", "position", "order"]
+    },
+    "budget_tight": {
+      "primary": "ollama",
+      "secondary": ["codegeex", "cli"],
+      "threshold_percent": 80
+    },
+    "budget_critical": {
+      "primary": "cli",
+      "secondary": [],
+      "threshold_percent": 95
+    }
+  },
+  "lean_context": {
+    "enabled": true,
+    "remove_verbose_logs": true,
+    "remove_examples": true,
+    "remove_urls": true,
+    "collapse_whitespace": true,
+    "max_chars": 1000,
+    "compression_target": 0.3
+  },
+  "platforms": {
+    "cli": {
+      "enabled": true,
+      "command": "python3 orchestrator/cli.py"
+    },
+    "vscode": {
+      "enabled": false,
+      "extension_id": "orchestrator.universal-agent",
+      "port": 3000
+    },
+    "web": {
+      "enabled": false,
+      "api_port": 3001,
+      "dashboard_port": 3002
+    },
+    "github_actions": {
+      "enabled": false,
+      "action_name": "@orchestrator/run"
+    },
+    "cloudflare_worker": {
+      "enabled": false,
+      "endpoint": "orchestrator.workers.dev"
+    }
+  },
+  "integrations": {
+    "github": {
+      "enabled": true,
+      "check_token": true,
+      "api_endpoint": "https://api.github.com"
+    },
+    "cloudflare": {
+      "enabled": true,
+      "check_token": true,
+      "api_endpoint": "https://api.cloudflare.com"
+    },
+    "railway": {
+      "enabled": true,
+      "check_token": true,
+      "api_endpoint": "https://backboard.railway.app/graphql/v2"
+    },
+    "stripe": {
+      "enabled": false,
+      "check_token": false
+    },
+    "arbitrage_exchanges": {
+      "enabled": true,
+      "exchanges": ["binance", "kraken", "coinbase"]
+    }
+  },
+  "monitoring": {
+    "log_level": "info",
+    "log_file": "logs/orchestrator.log",
+    "health_check_interval_seconds": 60,
+    "metrics_enabled": true
+  }
+}

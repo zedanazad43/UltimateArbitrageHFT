@@ -6,12 +6,16 @@
   "main": "index.js",
   "scripts": {
     "lint": "eslint . --ext .js,.jsx,.mjs,.cjs",
-    "build:check": "wrangler deploy --dry-run",
+    "build:check": "npx --yes wrangler@4.86.0 deploy --dry-run",
     "verify:prod": "npm run lint && npm run test:all && npm run build:check",
     "preflight:prod": "npm run verify:prod && npm run check:secrets",
     "ready:prod": "npm run preflight:prod && npm run validate:production",
-    "build": "wrangler deploy",
-    "deploy": "wrangler deploy",
+    "build:frontend": "npm --prefix frontend run build",
+    "upload:frontend": "node scripts/upload-frontend-r2.mjs",
+    "build": "npx --yes wrangler@4.86.0 deploy",
+    "deploy": "npx --yes wrangler@4.86.0 deploy",
+    "deploy:with-frontend": "npm run build:frontend && npm run upload:frontend && npm run deploy",
+    "deploy:emergent": "npm run deploy:with-frontend && npm run smoke:prod",
     "dev": "wrangler dev",
     "dev:local-ai": "AI_BACKEND=local LOCAL_AI_ENDPOINT=http://127.0.0.1:8000 wrangler dev --local",
     "ai:gateway:start": "python3 codegeex-server.py",
@@ -81,8 +85,8 @@
     "profile:mixed": "bash scripts/switch-profile.sh mixed",
     "profile:strict": "bash scripts/switch-profile.sh strict",
     "profile:dry": "bash scripts/switch-profile.sh",
-    "hero:start": "node hero-agent/server.js",
-    "hero:status": "node hero-agent/server.js --status-only"
+    "hero:start": "node hero-super-agent/hero-agent/server.js",
+    "hero:status": "node hero-super-agent/hero-agent/server.js --status-only"
   },
   "dependencies": {
     "@langchain/community": "^1.1.28",

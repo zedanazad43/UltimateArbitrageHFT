@@ -435,6 +435,86 @@ def cmd_serve(args) -> int:
         return 1
 
 
+def cmd_orchestrator(args) -> int:
+    """Universal Orchestrator - Token-efficient primary agent for all platforms."""
+    from .integrations import AgentOrchestrator
+    
+    orch = AgentOrchestrator()
+    
+    if args.chat:
+        print(f"\n🤖 Orchestrator Chat")
+        result = orch.ai_master.chat(args.chat)
+        if result.success:
+            print(f"\n✅ {result.provider_name}:")
+            print(result.content)
+            print(f"\n📊 Latency: {result.latency_ms:.0f}ms")
+        else:
+            print(f"\n❌ Error: {result.error}")
+        return 0 if result.success else 1
+    
+    elif args.action:
+        print(f"\n⚙️  Orchestrator Action: {args.action}")
+        # Route based on action type
+        if "trade" in args.action.lower() or "arbitrage" in args.action.lower():
+            print("📈 Routing to: Arbitrage Engine")
+            if orch.arbitrage:
+                stats = orch.arbitrage.get_stats()
+                print(f"✅ {stats}")
+            else:
+                print("❌ Arbitrage engine not initialized")
+        else:
+            result = orch.ai_master.chat(args.action)
+            if result.success:
+                print(f"✅ {result.provider_name}:")
+                print(result.content)
+            else:
+                print(f"❌ Error: {result.error}")
+        return 0
+    
+    elif args.status:
+        print("\n📊 Orchestrator Status")
+        print("=" * 60)
+        status = orch.health_report()
+        print(f"📡 Providers: {len(status['available_providers'])} available")
+        print(f"   {', '.join(status['available_providers']) if status['available_providers'] else 'NONE'}")
+        if status['ollama_agent']['available']:
+            print(f"🦙 Ollama: {status['ollama_agent']['model_count']} models")
+        else:
+            print(f"🦙 Ollama: offline")
+        if status['arbitrage']['available']:
+            print(f"📈 Arbitrage: active")
+        print("=" * 60)
+        return 0
+    
+    elif args.health:
+        print("\n🏥 Agent Health Check")
+        print("=" * 60)
+        health = orch.ai_master.health_check()
+        available = orch.ai_master.get_available_providers()
+        for agent, healthy in health.items():
+            status = "🟢" if healthy else "🔴"
+            print(f"{status} {agent}: {'ONLINE' if healthy else 'OFFLINE'}")
+        print(f"\n📊 {len(available)}/{len(health)} agents online")
+        print("=" * 60)
+        return 0
+    
+    else:
+        print("\n🚀 Universal Orchestrator")
+        print("=" * 60)
+        print("Token-efficient primary agent (free models: Ollama, CodeGeeX, AIMaster)")
+        print("\nUsage:")
+        print("  --chat TEXT      Send chat message")
+        print("  --action TEXT    Execute specialized action")
+        print("  --status         Show orchestrator status")
+        print("  --health         Check agent health")
+        print("\nExamples:")
+        print("  aimaster orchestrator --chat 'Hello'")
+        print("  aimaster orchestrator --action 'analyze market trends'")
+        print("  aimaster orchestrator --status")
+        print("=" * 60)
+        return 0
+
+
 def main():
     parser = argparse.ArgumentParser(
         description="AIMaster - Multi-Provider AI Agent",
@@ -492,6 +572,14 @@ Examples:
     p_serve.add_argument("--port", "-p", type=int, help="Server port (default: 8000)")
     p_serve.add_argument("--debug", "-d", action="store_true", help="Enable debug mode")
     p_serve.set_defaults(func=cmd_serve)
+
+    # orchestrator
+    p_orch = subparsers.add_parser("orchestrator", help="Universal token-efficient agent")
+    p_orch.add_argument("--chat", help="Send chat message")
+    p_orch.add_argument("--action", help="Execute specialized action")
+    p_orch.add_argument("--status", action="store_true", help="Show status")
+    p_orch.add_argument("--health", action="store_true", help="Check agent health")
+    p_orch.set_defaults(func=cmd_orchestrator)
 
     # concurrent
     p_conc = subparsers.add_parser("concurrent", help="Race all providers")

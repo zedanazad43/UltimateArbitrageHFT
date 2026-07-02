@@ -24,7 +24,7 @@ export default [
       "aimaster/**",
       // This file is an INI config template (not JavaScript) that happens to be
       // named index.js — ESLint cannot parse it.
-      "UnifiedArbitrageBot/index.js",
+      "arbitragebot/UnifiedArbitrageBot/index.js",
     ],
   },
   // Base rules for all JS files
@@ -59,7 +59,7 @@ export default [
   {
     files: [
       "**/*.cjs",
-      "hero-agent/**/*.js",
+      "hero-super-agent/hero-agent/**/*.js",
       "temporal-worker.js",
       "scripts/**/*.js",
       "src/ai-client.js",
@@ -101,8 +101,9 @@ export default [
     },
   },
   // Cloudflare Worker / browser environment — applies to all JS files so that
-  // Worker scripts in any subdirectory (ArbitrageBots/, nexus/, ip-locator/,
-  // UltimateArbitrageBot/, etc.) get the required globals without per-directory
+  // Worker scripts in any subdirectory (arbitragebot/ArbitrageBots/, nexus/,
+  // ip-locator/, arbitragebot/UltimateArbitrageBot/, etc.) get the required
+  // globals without per-directory
   // overrides.
   {
     files: ["**/*.{js,mjs}"],

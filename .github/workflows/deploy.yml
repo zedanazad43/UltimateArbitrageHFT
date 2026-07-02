@@ -22,8 +22,22 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Install frontend dependencies
+        run: npm --prefix frontend ci
+
       - name: Run full test suite
         run: npm run test:all
+
+      - name: Build frontend
+        run: npm --prefix frontend run build
+
+      - name: Upload frontend assets to R2
+        timeout-minutes: 10
+        run: node scripts/upload-frontend-r2.mjs
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          FRONTEND_R2_BUCKET: emergent-website
 
       - name: Upload build artifact
         uses: actions/upload-artifact@v5
@@ -61,7 +75,7 @@ jobs:
 
           for attempt in 1 2 3; do
             echo "--- Deploy attempt $attempt of 3 ---"
-            if npx --yes wrangler@4 deploy 2>&1 | tee -a "$DEPLOY_LOG"; then
+            if npx --yes wrangler@4.86.0 deploy 2>&1 | tee -a "$DEPLOY_LOG"; then
               echo "✅ Worker deployed successfully on attempt $attempt"
               rm -f "$DEPLOY_LOG"
               exit 0
@@ -99,20 +113,8 @@ jobs:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
 
-      - name: Setup Flyctl
-        if: ${{ secrets.FLY_API_TOKEN != '' }}
-        uses: superfly/flyctl-actions/setup-flyctl@master
-
-      - name: Deploy HFT to Fly.io
-        if: ${{ secrets.FLY_API_TOKEN != '' }}
-        timeout-minutes: 10
-        run: flyctl deploy --config fly.toml --remote-only
-        env:
-          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
-
-      - name: Fly deploy skipped (missing token)
-        if: ${{ secrets.FLY_API_TOKEN == '' }}
-        run: echo "::warning::Skipping Fly.io deploy because FLY_API_TOKEN is not set."
+      - name: Fly deploy disabled for lean path
+        run: echo "::notice::Fly.io deploy is intentionally disabled in default emergent pipeline."
 
       - name: Upload secrets to Cloudflare Worker
         timeout-minutes: 5
@@ -153,7 +155,7 @@ jobs:
           with os.fdopen(fd, "w") as f:
             json.dump(secrets, f)
           PYEOF
-          npx --yes wrangler@4 secret bulk /tmp/cf_secrets.json
+          npx --yes wrangler@4.86.0 secret bulk /tmp/cf_secrets.json
           rm /tmp/cf_secrets.json
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
