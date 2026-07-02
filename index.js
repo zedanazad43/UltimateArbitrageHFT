@@ -184,8 +184,13 @@ function contentTypeForPath(pathname) {
 
 function frontendCacheControl(pathname) {
   const path = String(pathname || '').toLowerCase();
-  // Long cache for hashed static assets, short cache for HTML entrypoints.
-  if (path.startsWith('static/') || path.includes('.')) {
+  // Long cache ONLY for hashed static assets. Short cache for HTML & manifest files.
+  // HTML entrypoints must be short-lived to pick up new deployments.
+  if (path.endsWith('.html') || path.endsWith('manifest.json') || path.endsWith('asset-manifest.json') || path.endsWith('robots.txt')) {
+    return 'public, max-age=3600, must-revalidate';
+  }
+  // Only cache immutably if in static/ AND has hash-like pattern (8+ hex chars)
+  if (path.startsWith('static/') && /\.[a-f0-9]{8,}\./.test(path)) {
     return 'public, max-age=31536000, immutable';
   }
   return 'public, max-age=300';

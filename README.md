@@ -19,6 +19,24 @@ For local/global VS Code Copilot sessions across all projects, user-level instru
 
 ---
 
+## Canonical Project Layout
+
+Repository structure is normalized around two canonical roots:
+
+- `arbitragebot/` — all arbitrage-related projects and variants
+- `hero-super-agent/` — hero service stack (`hero-agent` runtime)
+
+Compatibility aliases may still exist at legacy top-level paths (for scripts or
+older docs), but new changes should target canonical paths only.
+
+Authoritative maps:
+
+- `REPO_ORG_INDEX.md`
+- `arbitragebot/INDEX.json`
+- `hero-super-agent/INDEX.json`
+
+---
+
 ## Environment Setup
 
 > **Canonical variable reference**: [`docs/env-reference.md`](docs/env-reference.md)

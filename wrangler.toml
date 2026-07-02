@@ -25,7 +25,7 @@ class_name = "HFTBackup"
 
 [[migrations]]
 tag = "v3"
-new_classes = ["MarketStreamer"]
+new_classes = ["MarketStreamer", "HFTBackup"]
 
 [[analytics_engine_datasets]]
 binding = "ANALYTICS"
