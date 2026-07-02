@@ -6,7 +6,9 @@
     {
       "name": "ArbitrageBot",
       "canonical_path": "ArbitrageBot",
-      "legacy_aliases": ["arbitragebot/ArbitrageBot"],
+      "legacy_aliases": [
+        "arbitragebot/ArbitrageBot"
+      ],
       "type": "submodule",
       "status": "active",
       "notes": "Kept at repository root due to git submodule constraint; canonical root links to it."
@@ -14,14 +16,18 @@
     {
       "name": "ArbitrageBots",
       "canonical_path": "arbitragebot/ArbitrageBots",
-      "legacy_aliases": ["ArbitrageBots"],
+      "legacy_aliases": [
+        "ArbitrageBots"
+      ],
       "type": "directory",
       "status": "active_with_compat_alias"
     },
     {
       "name": "CloudflareArbitrageBot",
       "canonical_path": "arbitragebot/CloudflareArbitrageBot",
-      "legacy_aliases": ["CloudflareArbitrageBot"],
+      "legacy_aliases": [
+        "CloudflareArbitrageBot"
+      ],
       "type": "directory",
       "status": "active_with_compat_alias",
       "notes": "Contains submodule path CloudflareArbitrageBot/arbitrage-bot under canonical root."
@@ -29,28 +35,36 @@
     {
       "name": "MegaArbitrageBot",
       "canonical_path": "arbitragebot/MegaArbitrageBot",
-      "legacy_aliases": ["MegaArbitrageBot"],
+      "legacy_aliases": [
+        "MegaArbitrageBot"
+      ],
       "type": "directory",
       "status": "active_with_compat_alias"
     },
     {
       "name": "UltimateArbitrageBot",
       "canonical_path": "arbitragebot/UltimateArbitrageBot",
-      "legacy_aliases": ["UltimateArbitrageBot"],
+      "legacy_aliases": [
+        "UltimateArbitrageBot"
+      ],
       "type": "directory",
       "status": "active_with_compat_alias"
     },
     {
       "name": "UnifiedArbitrageBot",
       "canonical_path": "arbitragebot/UnifiedArbitrageBot",
-      "legacy_aliases": ["UnifiedArbitrageBot"],
+      "legacy_aliases": [
+        "UnifiedArbitrageBot"
+      ],
       "type": "directory",
       "status": "active_with_compat_alias"
     },
     {
       "name": "ultimate-arbitrage-hft",
       "canonical_path": "arbitragebot/ultimate-arbitrage-hft",
-      "legacy_aliases": ["ultimate-arbitrage-hft"],
+      "legacy_aliases": [
+        "ultimate-arbitrage-hft"
+      ],
       "type": "directory",
       "status": "active_with_compat_alias"
     }
