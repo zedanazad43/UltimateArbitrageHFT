@@ -86,7 +86,11 @@
     "profile:strict": "bash scripts/switch-profile.sh strict",
     "profile:dry": "bash scripts/switch-profile.sh",
     "hero:start": "node hero-super-agent/hero-agent/server.js",
-    "hero:status": "node hero-super-agent/hero-agent/server.js --status-only"
+    "hero:status": "node hero-super-agent/hero-agent/server.js --status-only",
+    "check:structure": "node scripts/enforce-canonical-structure.js",
+    "monitor:prod": "node scripts/monitor-production.js",
+    "verify:integrations": "node scripts/verify-integrations.js",
+    "verify:all:post-deploy": "npm run verify:integrations && npm run check:structure && npm run monitor:prod"
   },
   "dependencies": {
     "@langchain/community": "^1.1.28",
