@@ -164,7 +164,6 @@ export class ExternalProxyManager {
     }
 
     let timeoutId;
-    let response;
     try {
       const controller = new AbortController();
       timeoutId = setTimeout(() => controller.abort(), timeout);
@@ -175,7 +174,7 @@ export class ExternalProxyManager {
       };
 
       const proxyUrl = this.getProxyUrl();
-      response = await fetch(`${proxyUrl}?target=${encodeURIComponent(url)}`, {
+      const response = await fetch(`${proxyUrl}?target=${encodeURIComponent(url)}`, {
         ...fetchOptions,
         headers: {
           ...fetchOptions.headers,
@@ -196,7 +195,6 @@ export class ExternalProxyManager {
       return this.localProxyPool.fetchWithProxy(url, options, 2);
     } finally {
       if (timeoutId) clearTimeout(timeoutId);
-      response.body && response.body.cancel();
     }
   }
 
