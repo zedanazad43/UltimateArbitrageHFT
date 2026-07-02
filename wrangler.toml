@@ -19,6 +19,10 @@ migrations_dir = "migrations"
 name = "MARKET_STREAMER"
 class_name = "MarketStreamer"
 
+[[durable_objects.bindings]]
+name = "HFT_BACKUP"
+class_name = "HFTBackup"
+
 [[migrations]]
 tag = "v3"
 new_classes = ["MarketStreamer"]
@@ -30,6 +34,10 @@ dataset = "arbitrage_events"
 [[r2_buckets]]
 binding = "TRADE_LOGS"
 bucket_name = "ultimate-arbitrage-logs"
+
+[[r2_buckets]]
+binding = "FRONTEND"
+bucket_name = "emergent-website"
 
 [ai]
 binding = "AIWORKER"

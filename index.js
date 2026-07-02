@@ -162,6 +162,53 @@ function parseEnvBool(value) {
   return ['1', 'true', 'on', 'yes'].includes(String(value || '').toLowerCase());
 }
 
+function contentTypeForPath(pathname) {
+  const path = String(pathname || '').toLowerCase();
+  if (path.endsWith('.html')) return 'text/html; charset=utf-8';
+  if (path.endsWith('.css')) return 'text/css; charset=utf-8';
+  if (path.endsWith('.js') || path.endsWith('.mjs')) return 'application/javascript; charset=utf-8';
+  if (path.endsWith('.json')) return 'application/json; charset=utf-8';
+  if (path.endsWith('.svg')) return 'image/svg+xml';
+  if (path.endsWith('.png')) return 'image/png';
+  if (path.endsWith('.jpg') || path.endsWith('.jpeg')) return 'image/jpeg';
+  if (path.endsWith('.webp')) return 'image/webp';
+  if (path.endsWith('.gif')) return 'image/gif';
+  if (path.endsWith('.ico')) return 'image/x-icon';
+  if (path.endsWith('.txt')) return 'text/plain; charset=utf-8';
+  if (path.endsWith('.map')) return 'application/json; charset=utf-8';
+  if (path.endsWith('.woff2')) return 'font/woff2';
+  if (path.endsWith('.woff')) return 'font/woff';
+  if (path.endsWith('.ttf')) return 'font/ttf';
+  return 'application/octet-stream';
+}
+
+function frontendCacheControl(pathname) {
+  const path = String(pathname || '').toLowerCase();
+  // Long cache for hashed static assets, short cache for HTML entrypoints.
+  if (path.startsWith('static/') || path.includes('.')) {
+    return 'public, max-age=31536000, immutable';
+  }
+  return 'public, max-age=300';
+}
+
+async function serveFrontendObject(c, key) {
+  const normalized = String(key || '').replace(/^\/+/, '');
+  const object = await c.env.FRONTEND?.get(normalized);
+  if (!object) return null;
+
+  return new Response(object.body, {
+    status: 200,
+    headers: {
+      'Content-Type': object.httpMetadata?.contentType || contentTypeForPath(normalized),
+      'Cache-Control': frontendCacheControl(normalized),
+    },
+  });
+}
+
+async function serveFrontendIndex(c) {
+  return serveFrontendObject(c, 'index.html');
+}
+
 function applyForcedManualRiskLockFromEnv(state, env) {
   if (!parseEnvBool(env.MANUAL_RISK_LOCK_FORCE)) return state;
   if (state?.manual_risk_lock_override === true) return state;
@@ -754,6 +801,20 @@ export class MarketStreamer {
   }
 }
 
+// Backward-compatible Durable Object class kept for existing deployed migrations.
+// This prevents deploy failures for legacy HFT_BACKUP bindings still referenced
+// by Cloudflare script version history.
+export class HFTBackup {
+  constructor(state, env) {
+    this.state = state;
+    this.env = env;
+  }
+
+  async fetch() {
+    return new Response('HFTBackup OK');
+  }
+}
+
 // ─── Hono App ─────────────────────────────────────────────────────────────────
 const app = new Hono();
 app.use('*', cors({ origin: ['https://ultimatearbitragehft.zedanazad43.workers.dev', 'https://nexus-arbitrage.pages.dev'], allowMethods: ['GET', 'POST'], allowHeaders: ['Content-Type', 'x-admin-token', 'x-workflow-token', 'x-risk-unlock-token'], maxAge: 86400 }));
@@ -961,9 +1022,56 @@ app.get('/api/prices/stream', async (c) => {
 // Browser access requires a valid session; redirect to /login when absent.
 // API callers that send an x-admin-token header bypass the cookie check.
 app.get('/', async (c) => {
+  const frontend = await serveFrontendIndex(c);
+  if (frontend) return frontend;
   if (!isAuthorized(c.env, c)) return renderPublicLandingPage();
   return renderDashboard(c.env);
 });
+
+// Serve React build artifacts uploaded to the FRONTEND R2 bucket.
+app.get('/static/*', async (c) => {
+  const path = c.req.path.replace(/^\/+/, '');
+  const file = await serveFrontendObject(c, path);
+  if (file) return file;
+  return c.notFound();
+});
+
+app.get('/asset-manifest.json', async (c) => {
+  const file = await serveFrontendObject(c, 'asset-manifest.json');
+  if (file) return file;
+  return c.notFound();
+});
+
+app.get('/manifest.json', async (c) => {
+  const file = await serveFrontendObject(c, 'manifest.json');
+  if (file) return file;
+  return c.notFound();
+});
+
+app.get('/favicon.ico', async (c) => {
+  const file = await serveFrontendObject(c, 'favicon.ico');
+  if (file) return file;
+  return c.notFound();
+});
+
+app.get('/robots.txt', async (c) => {
+  const file = await serveFrontendObject(c, 'robots.txt');
+  if (file) return file;
+  return c.notFound();
+});
+
+app.get('/app', async (c) => {
+  const index = await serveFrontendIndex(c);
+  if (index) return index;
+  return c.notFound();
+});
+
+app.get('/app/*', async (c) => {
+  const index = await serveFrontendIndex(c);
+  if (index) return index;
+  return c.notFound();
+});
+
 app.get('/dashboard', async (c) => {
   if (c.env.ADMIN_TOKEN && !isAuthorized(c.env, c)) return c.redirect('/login', 302);
   return renderDashboard(c.env);
@@ -2921,7 +3029,7 @@ app.get('/api/perps', async (c) => {
 app.get('/api/exchange/:exchange', async (c) => {
   if (!isAuthorized(c.env, c)) return authDenied(c.env, c, true);
   const exchange = c.req.param('exchange').toLowerCase();
-  const isActive  = ACTIVE_EXECUTION_EXCHANGES.includes(exchange);
+  const isActive = ACTIVE_EXECUTION_EXCHANGES.includes(exchange);
   const isDataOnly = DATA_ONLY_EXCHANGES.has(exchange);
   if (!isActive && !isDataOnly) {
     return c.json({ error: `Unknown exchange: ${exchange}` }, 404);
@@ -3021,7 +3129,7 @@ app.get('/api/dex', async (c) => {
   if (alchemyConfigured) {
     try {
       currentOpportunity = await scanDEX(c.env);
-    } catch (_) {}
+    } catch (_) { }
   }
 
   return c.json({
@@ -3418,7 +3526,7 @@ app.post('/api/ai', async (c) => {
 
   const aiParams = { messages, max_tokens };
   if (typeof body.temperature === 'number') aiParams.temperature = body.temperature;
-  if (typeof body.top_p       === 'number') aiParams.top_p       = body.top_p;
+  if (typeof body.top_p === 'number') aiParams.top_p = body.top_p;
 
   const MODEL = '@cf/meta/llama-3.1-8b-instruct';
   const createdAt = Math.floor(Date.now() / 1000);
@@ -3431,11 +3539,11 @@ app.post('/api/ai', async (c) => {
     const text = rawText !== undefined
       ? rawText
       : (typeof result === 'string'
-          ? result
-          : (() => {
-              console.warn('[AI /api/ai] unexpected result format; serialising to JSON:', JSON.stringify(result).slice(0, 200));
-              return JSON.stringify(result);
-            })());
+        ? result
+        : (() => {
+          console.warn('[AI /api/ai] unexpected result format; serialising to JSON:', JSON.stringify(result).slice(0, 200));
+          return JSON.stringify(result);
+        })());
 
     const outputItem = {
       type: 'message',
@@ -3444,32 +3552,32 @@ app.post('/api/ai', async (c) => {
     };
 
     const usage = {
-      input_tokens:  result?.usage?.prompt_tokens     ?? 0,
+      input_tokens: result?.usage?.prompt_tokens ?? 0,
       output_tokens: result?.usage?.completion_tokens ?? 0,
-      total_tokens:  result?.usage?.total_tokens      ?? 0,
+      total_tokens: result?.usage?.total_tokens ?? 0,
     };
 
     return c.json({
-      id:          responseId,
-      object:      'response',
-      created_at:  createdAt,
-      model:       MODEL,
-      output:      [outputItem],
+      id: responseId,
+      object: 'response',
+      created_at: createdAt,
+      model: MODEL,
+      output: [outputItem],
       output_text: text,
-      status:      'completed',
+      status: 'completed',
       usage,
     });
   } catch (e) {
     console.error('[AI /api/ai] run error:', e.message);
     return c.json({
-      id:         responseId,
-      object:     'response',
+      id: responseId,
+      object: 'response',
       created_at: createdAt,
-      model:      MODEL,
-      output:     [],
-      status:     'failed',
-      usage:      { input_tokens: 0, output_tokens: 0, total_tokens: 0 },
-      error:      e.message,
+      model: MODEL,
+      output: [],
+      status: 'failed',
+      usage: { input_tokens: 0, output_tokens: 0, total_tokens: 0 },
+      error: e.message,
     }, 500);
   }
 });

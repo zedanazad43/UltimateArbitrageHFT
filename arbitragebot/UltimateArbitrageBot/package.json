@@ -25,7 +25,7 @@
     "cf:check": "wrangler deploy --dry-run",
     "cf:tail": "wrangler tail",
     "cf:set-admin-token": "pwsh -NoProfile -File ./scripts/set-admin-token.ps1",
-    "cf:set-mexc": "pwsh -NoProfile -File ./scripts/set-mexc-secrets.ps1 -ConfigPath ../ArbitrageBots/ultimate-arbitrage-hft/wrangler.toml",
+    "cf:set-mexc": "pwsh -NoProfile -File ./scripts/set-mexc-secrets.ps1 -ConfigPath ../../ArbitrageBots/ultimate-arbitrage-hft/wrangler.toml",
     "cf:set-main-telegram": "pwsh -NoProfile -File ./scripts/set-telegram-secrets.ps1",
     "cf:set-tail-telegram": "pwsh -NoProfile -File ./scripts/set-telegram-secrets.ps1 -ConfigPath tail-worker/wrangler.toml",
     "d1:migrate:local": "wrangler d1 migrations apply ultimate-arbitrage-db --local",

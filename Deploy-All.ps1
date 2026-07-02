@@ -18,11 +18,11 @@
     All values are resolved from (highest to lowest priority):
       • Named parameters passed on the command line
       • Environment variables
-      • UltimateArbitrageBot/.dev.vars file
+    • arbitragebot/UltimateArbitrageBot/.dev.vars file
       • Interactive prompt (unless -NoPrompt or CI environment is detected)
 
 .PARAMETER WorkerDir
-    Path to the UltimateArbitrageBot directory. Defaults to the UltimateArbitrageBot
+    Path to the UltimateArbitrageBot directory. Defaults to arbitragebot/UltimateArbitrageBot
     subfolder next to this script.
 
 .PARAMETER AdminToken
@@ -163,7 +163,7 @@ if (-not (Test-Path $WorkerDir)) {
     throw "nexus directory not found at: $WorkerDir`nClone the repo and run this script from the repo root."
 }
 
-$scriptsDir   = Join-Path $scriptRoot 'UltimateArbitrageBot' 'scripts'
+$scriptsDir   = Join-Path $scriptRoot 'arbitragebot' 'UltimateArbitrageBot' 'scripts'
 $wranglerToml = Join-Path $WorkerDir 'wrangler.toml'
 $devVarsPath  = Join-Path $WorkerDir '.dev.vars'
 $devVars      = Read-DevVars -Path $devVarsPath
@@ -231,7 +231,7 @@ if ([string]::IsNullOrWhiteSpace($resolvedBotToken))   { $missingSecrets += 'TEL
 if ([string]::IsNullOrWhiteSpace($resolvedChatId))     { $missingSecrets += 'TELEGRAM_CHAT_ID' }
 
 if ($missingSecrets.Count -gt 0) {
-    throw "Required secrets not provided: $($missingSecrets -join ', ')`nSet them in UltimateArbitrageBot/.dev.vars or pass them as parameters."
+    throw "Required secrets not provided: $($missingSecrets -join ', ')`nSet them in arbitragebot/UltimateArbitrageBot/.dev.vars or pass them as parameters."
 }
 Write-OK "All required secrets collected."
 
