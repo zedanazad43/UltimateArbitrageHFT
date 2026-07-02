@@ -399,6 +399,42 @@ def cmd_concurrent(args) -> int:
         return 1
 
 
+def cmd_serve(args) -> int:
+    """Start the AIMaster HTTP server."""
+    from .http_server import start_http_server
+
+    host = args.host or "127.0.0.1"
+    port = args.port or 8000
+    debug = args.debug
+
+    print("=" * 60)
+    print("  AIMaster HTTP Server")
+    print("=" * 60)
+    print(f"  Starting on http://{host}:{port}")
+    print(f"  Endpoints: POST /chat, GET /health, GET /")
+    print(f"  Debug: {debug}")
+    print("  Press Ctrl+C to stop")
+    print("=" * 60)
+    print()
+
+    try:
+        start_http_server(
+            config_path=args.config,
+            host=host,
+            port=port,
+            debug=debug,
+        )
+        return 0
+    except KeyboardInterrupt:
+        print("\n" + "=" * 60)
+        print("  Server stopped")
+        print("=" * 60)
+        return 0
+    except Exception as e:
+        print(f"\nERROR: {e}", file=sys.stderr)
+        return 1
+
+
 def main():
     parser = argparse.ArgumentParser(
         description="AIMaster - Multi-Provider AI Agent",
@@ -410,7 +446,10 @@ Examples:
   aimaster chat --provider deepseek "..."   # Use specific provider
   aimaster list                             # List providers
   aimaster interactive                      # Interactive chat mode
-  aimaster concurrent "What is HFT?"        # Race all providers\n  aimaster council "Q"                     # LLM Council
+  aimaster concurrent "What is HFT?"        # Race all providers
+  aimaster council "Q"                      # LLM Council
+  aimaster serve                            # Start HTTP server (port 8000)
+  aimaster serve --port 9000                # Start on custom port
   aimaster skills list                      # List loaded skills
   aimaster skills search "changelog"        # Search skills
   aimaster skills show changelog-generator  # Show skill details
@@ -446,6 +485,13 @@ Examples:
     p_int = subparsers.add_parser("interactive", help="Interactive chat mode")
     p_int.add_argument("--provider", "-p", help="Force specific provider")
     p_int.set_defaults(func=cmd_interactive)
+
+    # serve
+    p_serve = subparsers.add_parser("serve", help="Start HTTP server")
+    p_serve.add_argument("--host", help="Server host (default: 127.0.0.1)")
+    p_serve.add_argument("--port", "-p", type=int, help="Server port (default: 8000)")
+    p_serve.add_argument("--debug", "-d", action="store_true", help="Enable debug mode")
+    p_serve.set_defaults(func=cmd_serve)
 
     # concurrent
     p_conc = subparsers.add_parser("concurrent", help="Race all providers")
