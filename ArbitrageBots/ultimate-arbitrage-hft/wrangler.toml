@@ -2,12 +2,16 @@ name = "ultimate-arbitrage-hft"
 main = "index.js"
 compatibility_date = "2025-01-01"
 compatibility_flags = ["nodejs_compat"]
-workers_dev = false
+workers_dev = true
 preview_urls = false
 
 # --- Routes ---
 [[routes]]
 pattern = "api.ecostamp.net/*"
+zone_name = "ecostamp.net"
+
+[[routes]]
+pattern = "ecostamp.net/share"
 zone_name = "ecostamp.net"
 
 # --- Durable Objects ---
