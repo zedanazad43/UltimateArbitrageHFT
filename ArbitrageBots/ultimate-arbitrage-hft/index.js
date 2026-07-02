@@ -264,6 +264,42 @@ export default {
       return new Response(`✅ بدأ اتصال WebSocket لـ ${symbol}`);
     }
 
+    if (path === '/spreads') {
+      const raw = await env.BOT_STATE.get('last_scan_opportunities', 'json') || [];
+      return new Response(JSON.stringify({ spreads: raw, count: raw.length, timestamp: new Date().toISOString() }), {
+        headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' }
+      });
+    }
+
+    if (path === '/opportunities') {
+      const raw = await env.BOT_STATE.get('last_scan_opportunities', 'json') || [];
+      return new Response(JSON.stringify({ opportunities: raw, count: raw.length, timestamp: new Date().toISOString() }), {
+        headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' }
+      });
+    }
+
+    if (path === '/balances') {
+      const state = await env.BOT_STATE.get('trading_state', 'json') || {};
+      const initialCapital = state.initial_capital || CONFIG.RISK.INITIAL_CAPITAL_USD;
+      const equity = initialCapital + (state.total_pnl || 0);
+      return new Response(JSON.stringify({
+        status: 'ok',
+        equity_usd: Number(equity.toFixed(2)),
+        initial_capital_usd: Number(initialCapital.toFixed(2)),
+        total_pnl_usd: Number((state.total_pnl || 0).toFixed(2)),
+        daily_pnl_usd: Number((state.daily_pnl || 0).toFixed(2)),
+        daily_used_usd: Number((state.daily_used_usd || 0).toFixed(2)),
+        daily_trades: state.daily_trades || 0,
+        total_trades: state.total_trades || 0,
+        paper_trading: state.paper_trading !== false,
+        timestamp: new Date().toISOString()
+      }), {
+        headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' }
+      });
+    }
+
+    if (path === '/share') return renderShare(env);
+
     return new Response('🤖 Ultimate Arbitrage Bot v24.0 WHALE — Control Center. Open /dashboard', { status: 200 });
   },
 
@@ -273,6 +309,75 @@ export default {
     await scanAndExecute(env);
   }
 };
+
+// ---------- Public Share Page ----------
+async function renderShare(env) {
+  const state = await env.BOT_STATE.get('trading_state', 'json') || {};
+  const opps = await env.BOT_STATE.get('last_scan_opportunities', 'json') || [];
+  const initialCapital = state.initial_capital || CONFIG.RISK.INITIAL_CAPITAL_USD;
+  const equity = initialCapital + (state.total_pnl || 0);
+  const totalPnl = state.total_pnl || 0;
+  const dailyPnl = state.daily_pnl || 0;
+  const winRate = ((state.win_rate || 0.55) * 100).toFixed(1);
+  const pnlColor = totalPnl >= 0 ? '#2ecc71' : '#e74c3c';
+  const dailyColor = dailyPnl >= 0 ? '#2ecc71' : '#e74c3c';
+  const paperMode = state.paper_trading !== false;
+  const modeLabel = paperMode ? '📄 PAPER' : '🔴 LIVE';
+  const oppsRows = opps.slice(0, 10).map(o =>
+    `<tr><td>${o.symbol}</td><td>${o.buy_exchange.toUpperCase()} → ${o.sell_exchange.toUpperCase()}</td><td style="color:#2ecc71">+${o.net_pct.toFixed(4)}%</td><td style="color:#888;font-size:.85em">${o.scanned_at ? new Date(o.scanned_at).toLocaleTimeString('ar') : ''}</td></tr>`
+  ).join('');
+  const html = `<!DOCTYPE html>
+<html dir="rtl" lang="ar">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta property="og:title" content="Ultimate Arbitrage Bot v24.0 WHALE">
+  <meta property="og:description" content="رأس المال: $${equity.toFixed(2)} | إجمالي الأرباح: $${totalPnl.toFixed(2)}">
+  <title>Ultimate Arbitrage — النتائج المباشرة</title>
+  <style>
+    *{box-sizing:border-box}
+    body{background:#0b0e14;color:#eee;font-family:'Segoe UI',sans-serif;padding:24px;margin:0;max-width:900px;margin:0 auto}
+    h1{color:#f0b90b;font-size:1.5em;margin-bottom:6px}
+    .sub{color:#888;font-size:.88em;margin-bottom:22px}
+    .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:14px;margin-bottom:22px}
+    .card{background:#1a1e26;padding:16px;border-radius:12px}
+    .card-label{color:#888;font-size:.78em;margin-bottom:4px}
+    .card-value{font-size:1.35em;font-weight:bold}
+    .panel{background:#1a1e26;padding:20px;border-radius:12px;margin-bottom:18px}
+    table{width:100%;border-collapse:collapse}
+    th{background:#2a2e38;color:#f0b90b;padding:10px 12px;text-align:right}
+    td{padding:9px 12px;border-bottom:1px solid #2a2e38}
+    .badge{display:inline-block;padding:3px 10px;border-radius:20px;font-size:.8em;font-weight:bold}
+    .badge-paper{background:#f0b90b20;color:#f0b90b}
+    .badge-live{background:#e74c3c20;color:#e74c3c}
+    footer{color:#555;font-size:.78em;text-align:center;margin-top:28px}
+  </style>
+</head>
+<body>
+<h1>🐋 Ultimate Arbitrage Bot v24.0 WHALE</h1>
+<p class="sub">لقطة حية — آخر تحديث: ${new Date().toLocaleString('ar')} &nbsp;|&nbsp; <span class="badge ${paperMode ? 'badge-paper' : 'badge-live'}">${modeLabel}</span></p>
+
+<div class="grid">
+  <div class="card"><div class="card-label">رأس المال الفعلي</div><div class="card-value" style="color:#2ecc71">$${equity.toFixed(2)}</div></div>
+  <div class="card"><div class="card-label">إجمالي الأرباح</div><div class="card-value" style="color:${pnlColor}">$${totalPnl.toFixed(2)}</div></div>
+  <div class="card"><div class="card-label">ربح اليوم</div><div class="card-value" style="color:${dailyColor}">$${dailyPnl.toFixed(2)}</div></div>
+  <div class="card"><div class="card-label">صفقات اليوم</div><div class="card-value">${state.daily_trades || 0}</div></div>
+  <div class="card"><div class="card-label">إجمالي الصفقات</div><div class="card-value">${state.total_trades || 0}</div></div>
+  <div class="card"><div class="card-label">نسبة النجاح</div><div class="card-value">${winRate}%</div></div>
+</div>
+
+<div class="panel">
+  <h2 style="color:#f0b90b;margin-top:0;font-size:1em">📡 آخر فرص المراجحة (${opps.length} فرصة)</h2>
+  ${opps.length > 0 ? `<table>
+    <tr><th>الزوج</th><th>الاتجاه</th><th>صافي الربح</th><th>وقت الفحص</th></tr>
+    ${oppsRows}
+  </table>` : '<p style="color:#888;text-align:center;padding:20px">لا توجد فرص مسجّلة — يعمل البوت على الفحص كل دقيقة</p>'}
+</div>
+
+<footer>Ultimate Arbitrage HFT &mdash; البيانات للعرض فقط، لا تمثل نصيحة استثمارية.</footer>
+</body></html>`;
+  return new Response(html, { headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' } });
+}
 
 // ---------- Dashboard HTML ----------
 async function renderDashboard(env) {
@@ -958,6 +1063,22 @@ async function scanAndExecute(env) {
     if (executedThisCycle > 0) {
       await env.BOT_STATE.put('trading_state', JSON.stringify(state));
     }
+
+    // Cache last scan results for /spreads and /opportunities endpoints
+    try {
+      const scanSnapshot = opportunities.slice(0, 20).map(o => ({
+        symbol: o.symbol,
+        buy_exchange: o.buyEx.exchange,
+        sell_exchange: o.sellEx.exchange,
+        gross_pct: Number(o.grossPct.toFixed(6)),
+        net_pct: Number(o.netPct.toFixed(6)),
+        safety_factor: Number(o.safetyFactor.toFixed(4)),
+        buy_price: o.buyEx.price,
+        sell_price: o.sellEx.price,
+        scanned_at: new Date().toISOString()
+      }));
+      await env.BOT_STATE.put('last_scan_opportunities', JSON.stringify(scanSnapshot), { expirationTtl: 300 });
+    } catch (_) {}
   } finally {
     await releaseExecutionLock(env);
   }

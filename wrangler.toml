@@ -19,6 +19,12 @@ migrations_dir = "migrations"
 name = "MARKET_STREAMER"
 class_name = "MarketStreamer"
 
+# HFTBackup is already registered in Cloudflare (deployed in a prior session).
+# Binding is declared here; no new_classes migration to avoid error code 10074.
+[[durable_objects.bindings]]
+name = "HFT_BACKUP"
+class_name = "HFTBackup"
+
 [[migrations]]
 tag = "v3"
 new_classes = ["MarketStreamer"]
