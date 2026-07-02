@@ -19,6 +19,11 @@ const CANONICAL_ROOTS = {
     hero: 'hero-super-agent/',
 };
 
+// Legacy aliases intentionally retained for backwards compatibility.
+const ALLOWED_LEGACY_ALIASES = new Set([
+    'hero-agent',
+]);
+
 const BLOCKED_PATTERNS = [
     /^arbitrage[^/]*\/$/,  // arbitrage*, arbitrage-*, etc at root
     /^hero[^/]*\/$/,        // hero*, hero-*, etc at root
@@ -42,6 +47,9 @@ function checkViolations() {
     for (const dir of dirs) {
         for (const pattern of BLOCKED_PATTERNS) {
             if (pattern.test(dir + '/')) {
+                if (ALLOWED_LEGACY_ALIASES.has(dir)) {
+                    continue;
+                }
                 // Exclude canonical roots
                 if (!Object.values(CANONICAL_ROOTS).some(canonical => canonical.startsWith(dir))) {
                     violations.push({
