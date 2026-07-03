@@ -933,7 +933,30 @@ app.get('/health', async (c) => {
 // These mirror the auth-gated /api/* equivalents but expose only safe, read-only
 // snapshots that the Python backend polls and re-exposes behind its own auth.
 
-// GET /status — bot state snapshot (shape: dict)
+// Shared helper: extract normalised opportunity rows from a nexus_last_scan KV entry.
+// Each returned row has: symbol, pair, spread_pct, buy_exchange, sell_exchange, direction, strategy, timestamp.
+function _lastScanRows(lastScan) {
+  if (!lastScan) return [];
+  const sources = [lastScan.cex, lastScan.triangular, lastScan.statistical, lastScan.dex];
+  const rows = [];
+  for (const opp of sources) {
+    if (!opp) continue;
+    const symbol = opp.symbol || opp.pair || '';
+    rows.push({
+      symbol,
+      pair: opp.pair || symbol,
+      spread_pct: Number(opp.netPct ?? opp.spread_pct ?? 0),
+      buy_exchange: opp.buyExchange || opp.buy_exchange || '',
+      sell_exchange: opp.sellExchange || opp.sell_exchange || '',
+      direction: opp.direction || '',
+      strategy: opp.strategy || '',
+      timestamp: lastScan.timestamp ?? null,
+    });
+  }
+  return rows;
+}
+
+// GET /status — bot state snapshot (shape: dict with status, trading_enabled, mode, …)
 app.get('/status', async (c) => {
   const [state, lastScan] = await Promise.all([
     getState(c.env).catch(() => null),
@@ -952,58 +975,23 @@ app.get('/status', async (c) => {
   });
 });
 
-// GET /spreads — latest spread rows (shape: dict with "rows" key)
+// GET /spreads — latest spread rows (shape: dict with "rows" list and "ts" string)
 app.get('/spreads', async (c) => {
   const lastScan = c.env.BOT_STATE
     ? await c.env.BOT_STATE.get('nexus_last_scan', 'json').catch(() => null)
     : null;
-  const rows = [];
-  if (lastScan) {
-    const sources = [lastScan.cex, lastScan.triangular, lastScan.statistical, lastScan.dex];
-    for (const opp of sources) {
-      if (!opp) continue;
-      const symbol = opp.symbol || opp.pair || '';
-      rows.push({
-        symbol,
-        pair: opp.pair || symbol,
-        spread_pct: Number(opp.netPct ?? opp.spread_pct ?? 0),
-        buy_exchange: opp.buyExchange || opp.buy_exchange || '',
-        sell_exchange: opp.sellExchange || opp.sell_exchange || '',
-        strategy: opp.strategy || '',
-      });
-    }
-  }
-  return c.json({ rows, ts: new Date().toISOString() });
+  return c.json({ rows: _lastScanRows(lastScan), ts: new Date().toISOString() });
 });
 
-// GET /opportunities — viable opportunities list (shape: list with "pair" + "spread_pct")
+// GET /opportunities — viable opportunities (shape: list; each item has pair + spread_pct)
 app.get('/opportunities', async (c) => {
   const lastScan = c.env.BOT_STATE
     ? await c.env.BOT_STATE.get('nexus_last_scan', 'json').catch(() => null)
     : null;
-  const out = [];
-  if (lastScan) {
-    const sources = [lastScan.cex, lastScan.triangular, lastScan.statistical, lastScan.dex];
-    for (const opp of sources) {
-      if (!opp) continue;
-      const symbol = opp.symbol || opp.pair || '';
-      const spreadPct = Number(opp.netPct ?? opp.spread_pct ?? 0);
-      out.push({
-        pair: opp.pair || symbol,
-        symbol,
-        spread_pct: spreadPct,
-        buy_exchange: opp.buyExchange || opp.buy_exchange || '',
-        sell_exchange: opp.sellExchange || opp.sell_exchange || '',
-        direction: opp.direction || '',
-        strategy: opp.strategy || '',
-        timestamp: lastScan.timestamp ?? null,
-      });
-    }
-  }
-  return c.json(out);
+  return c.json(_lastScanRows(lastScan));
 });
 
-// GET /balances — exchange balance list (shape: list with "exchange" key)
+// GET /balances — exchange balance list (shape: list; each item has exchange key)
 app.get('/balances', async (c) => {
   const data = await getExecutionBalancesSnapshot(c.env).catch(() => []);
   return c.json(data);
