@@ -929,6 +929,86 @@ app.get('/health', async (c) => {
   });
 });
 
+// ── Public proxy routes (no auth) — consumed by backend worker_client.py ─────
+// These mirror the auth-gated /api/* equivalents but expose only safe, read-only
+// snapshots that the Python backend polls and re-exposes behind its own auth.
+
+// GET /status — bot state snapshot (shape: dict)
+app.get('/status', async (c) => {
+  const [state, lastScan] = await Promise.all([
+    getState(c.env).catch(() => null),
+    c.env.BOT_STATE ? c.env.BOT_STATE.get('nexus_last_scan', 'json').catch(() => null) : null,
+  ]);
+  const summary = state ? getStateSummary(state) : {};
+  return c.json({
+    status: state ? 'ok' : 'degraded',
+    trading_enabled: state?.trading_enabled ?? false,
+    paper_trading: state?.paper_trading ?? true,
+    auto_stopped: state?.auto_stopped ?? false,
+    mode: state?.paper_trading !== false ? 'paper' : 'live',
+    ...summary,
+    lastScanTimestamp: lastScan?.timestamp ?? null,
+    timestamp: new Date().toISOString(),
+  });
+});
+
+// GET /spreads — latest spread rows (shape: dict with "rows" key)
+app.get('/spreads', async (c) => {
+  const lastScan = c.env.BOT_STATE
+    ? await c.env.BOT_STATE.get('nexus_last_scan', 'json').catch(() => null)
+    : null;
+  const rows = [];
+  if (lastScan) {
+    const sources = [lastScan.cex, lastScan.triangular, lastScan.statistical, lastScan.dex];
+    for (const opp of sources) {
+      if (!opp) continue;
+      const symbol = opp.symbol || opp.pair || '';
+      rows.push({
+        symbol,
+        pair: opp.pair || symbol,
+        spread_pct: Number(opp.netPct ?? opp.spread_pct ?? 0),
+        buy_exchange: opp.buyExchange || opp.buy_exchange || '',
+        sell_exchange: opp.sellExchange || opp.sell_exchange || '',
+        strategy: opp.strategy || '',
+      });
+    }
+  }
+  return c.json({ rows, ts: new Date().toISOString() });
+});
+
+// GET /opportunities — viable opportunities list (shape: list with "pair" + "spread_pct")
+app.get('/opportunities', async (c) => {
+  const lastScan = c.env.BOT_STATE
+    ? await c.env.BOT_STATE.get('nexus_last_scan', 'json').catch(() => null)
+    : null;
+  const out = [];
+  if (lastScan) {
+    const sources = [lastScan.cex, lastScan.triangular, lastScan.statistical, lastScan.dex];
+    for (const opp of sources) {
+      if (!opp) continue;
+      const symbol = opp.symbol || opp.pair || '';
+      const spreadPct = Number(opp.netPct ?? opp.spread_pct ?? 0);
+      out.push({
+        pair: opp.pair || symbol,
+        symbol,
+        spread_pct: spreadPct,
+        buy_exchange: opp.buyExchange || opp.buy_exchange || '',
+        sell_exchange: opp.sellExchange || opp.sell_exchange || '',
+        direction: opp.direction || '',
+        strategy: opp.strategy || '',
+        timestamp: lastScan.timestamp ?? null,
+      });
+    }
+  }
+  return c.json(out);
+});
+
+// GET /balances — exchange balance list (shape: list with "exchange" key)
+app.get('/balances', async (c) => {
+  const data = await getExecutionBalancesSnapshot(c.env).catch(() => []);
+  return c.json(data);
+});
+
 // ── WebSocket / HFT Engine Integration: Live Price Feed ───────────────────
 // GET /prices — returns current prices from the WebSocket price book
 // Used by the Go HFT engine and external consumers to get real-time prices
