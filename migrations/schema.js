@@ -1,6 +1,4 @@
-// migrations/schema.js — canonical D1 schema, single source of truth.
-// Imported by src/db.js#ensureSchema() for runtime self-healing initialisation.
-// For manual migration: npx wrangler d1 execute ultimate-arbitrage-db --file=./migrations/schema.sql --remote
+// migrations/schema.js
 export const schemaSQL = `
 CREATE TABLE IF NOT EXISTS trades (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -63,19 +61,6 @@ CREATE TABLE IF NOT EXISTS settings (
   updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 
-CREATE TABLE IF NOT EXISTS backtest_runs (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  config TEXT,
-  results TEXT,
-  created_at INTEGER NOT NULL
-);
-
 CREATE INDEX IF NOT EXISTS idx_trades_created_at ON trades(created_at DESC);
-CREATE INDEX IF NOT EXISTS idx_trades_strategy ON trades(strategy);
-CREATE INDEX IF NOT EXISTS idx_trades_mode ON trades(mode);
 CREATE INDEX IF NOT EXISTS idx_admin_events_created_at ON admin_events(created_at DESC);
-CREATE INDEX IF NOT EXISTS idx_bot_events_created_at ON bot_events(created_at DESC);
-CREATE INDEX IF NOT EXISTS idx_paper_positions_symbol ON paper_positions(symbol);
-CREATE INDEX IF NOT EXISTS idx_paper_positions_closed ON paper_positions(closed_at);
-CREATE INDEX IF NOT EXISTS idx_backtest_runs_created_at ON backtest_runs(created_at DESC);
 `;

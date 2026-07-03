@@ -1,0 +1,54 @@
+# ── Simple API + Web Stack — Docker Hardened Image (DHI) ───────────────────
+# Optimized for security, minimal footprint, and fast builds
+# Multi-stage build pattern for Node.js API
+
+# Build stage: install dependencies
+FROM --platform=$BUILDPLATFORM node:22-alpine AS builder
+
+ENV NODE_ENV=production
+
+WORKDIR /app
+
+# Copy package files only (for cache efficiency)
+COPY packages/api/package*.json ./
+
+# Install production dependencies only
+RUN npm ci --only=production && \
+    npm prune --production
+
+# ── Runtime stage: Hardened Alpine ────────────────────────────────────────
+# Minimal base image with security hardening
+FROM alpine:3.20
+
+# Install runtime dependencies
+RUN apk add --no-cache nodejs ca-certificates dumb-init && \
+    # Create non-root appuser
+    addgroup -g 1000 appuser && \
+    adduser -D -u 1000 -G appuser appuser
+
+ENV NODE_ENV=production
+
+# Create app directory
+WORKDIR /app
+RUN chown appuser:appuser /app && chmod 755 /app
+
+# Copy production dependencies from builder
+COPY --from=builder --chown=appuser:appuser /app/node_modules ./node_modules
+
+# Copy application source code (production files only)
+COPY --chown=appuser:appuser packages/api/src ./src
+COPY --chown=appuser:appuser packages/api/*.js ./
+
+# Run as non-root
+USER appuser:appuser
+
+# Expose API port (non-privileged > 1024)
+EXPOSE 3001
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
+  CMD wget --quiet --tries=1 -O- http://localhost:3001/ || exit 1
+
+# Use dumb-init for signal handling
+ENTRYPOINT ["/sbin/dumb-init", "--"]
+CMD ["node", "--enable-source-maps", "index.js"]

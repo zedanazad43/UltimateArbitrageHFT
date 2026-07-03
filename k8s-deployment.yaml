@@ -1,0 +1,549 @@
+---
+# Kubernetes Namespace
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: ultimatearbitrage
+  labels:
+    name: ultimatearbitrage
+
+---
+# ConfigMap: Non-secret environment variables
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ultimatearbitrage-config
+  namespace: ultimatearbitrage
+data:
+  PAPER_TRADING: "true"
+  TRADING_ENABLED: "false"
+  SCAN_INTERVAL_MS: "500"
+  MIN_NET_PROFIT_PCT: "0.05"
+  MAX_SPREAD_PCT: "5.0"
+  INITIAL_CAPITAL_USD: "1000"
+  MAX_DAILY_LOSS_USD: "25"
+  MIN_SECONDS_BETWEEN_TX: "30"
+  WIN_RATE: "0.55"
+  RISK_REWARD_RATIO: "2.0"
+  MAX_GAS_COST_PCT: "0.30"
+  METRICS_ADDR: ":9090"
+  TEMPORAL_NAMESPACE: "default"
+  NODE_ENV: "production"
+
+---
+# Secret: API keys and credentials (base64-encoded)
+# IMPORTANT: Use a secret management solution in production (Sealed Secrets, External Secrets, Vault)
+apiVersion: v1
+kind: Secret
+metadata:
+  name: ultimatearbitrage-secrets
+  namespace: ultimatearbitrage
+type: Opaque
+stringData:
+  ADMIN_TOKEN: ""
+  MEXC_API_KEY: ""
+  MEXC_API_SECRET: ""
+  BINANCE_API_KEY: ""
+  BINANCE_API_SECRET: ""
+  KUCOIN_API_KEY: ""
+  KUCOIN_SECRET_KEY: ""
+  KUCOIN_PASSPHRASE: ""
+  BITGET_API_KEY: ""
+  BITGET_SECRET_KEY: ""
+  BITGET_API_PASSPHRASE: ""
+  BITMART_API_KEY: ""
+  BITMART_SECRET_KEY: ""
+  BITMART_MEMO: ""
+  HFT_ENGINE_SECRET: ""
+  POSTGRES_PASSWORD: ""
+  TEMPORAL_API_KEY: ""
+
+---
+# PersistentVolumeClaim: Database storage
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: postgres-data
+  namespace: ultimatearbitrage
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 10Gi
+  storageClassName: standard # Change based on your cluster's storage classes
+
+---
+# Service: HFT Engine (internal)
+apiVersion: v1
+kind: Service
+metadata:
+  name: hft-engine
+  namespace: ultimatearbitrage
+  labels:
+    app: hft-engine
+spec:
+  type: ClusterIP
+  selector:
+    app: hft-engine
+  ports:
+    - name: metrics
+      port: 9090
+      targetPort: 9090
+
+---
+# Service: PostgreSQL (internal)
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres
+  namespace: ultimatearbitrage
+  labels:
+    app: postgres
+spec:
+  type: ClusterIP
+  selector:
+    app: postgres
+  ports:
+    - name: db
+      port: 5432
+      targetPort: 5432
+
+---
+# Service: Worker Dashboard (external access)
+apiVersion: v1
+kind: Service
+metadata:
+  name: ultimatearbitrage-worker
+  namespace: ultimatearbitrage
+  labels:
+    app: worker
+spec:
+  type: LoadBalancer # Change to ClusterIP if using Ingress instead
+  selector:
+    app: worker
+  ports:
+    - name: http
+      port: 80
+      targetPort: 8787
+
+---
+# Deployment: PostgreSQL
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: postgres
+  namespace: ultimatearbitrage
+  labels:
+    app: postgres
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: postgres
+  template:
+    metadata:
+      labels:
+        app: postgres
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 999 # postgres user in container
+        fsGroup: 999
+      containers:
+        - name: postgres
+          image: postgres:16-alpine
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: POSTGRES_USER
+              value: arbitrage
+            - name: POSTGRES_DB
+              value: ultimatearbitrage
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: ultimatearbitrage-secrets
+                  key: POSTGRES_PASSWORD
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+          livenessProbe:
+            exec:
+              command: ["pg_isready", "-U", "arbitrage"]
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          readinessProbe:
+            exec:
+              command: ["pg_isready", "-U", "arbitrage"]
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            timeoutSeconds: 5
+            failureThreshold: 3
+          volumeMounts:
+            - name: postgres-data
+              mountPath: /var/lib/postgresql/data
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: false # Postgres needs writable FS
+            capabilities:
+              drop:
+                - ALL
+      volumes:
+        - name: postgres-data
+          persistentVolumeClaim:
+            claimName: postgres-data
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchExpressions:
+                    - key: app
+                      operator: In
+                      values:
+                        - worker
+                        - hft-engine
+                topologyKey: kubernetes.io/hostname
+
+---
+# Deployment: Go HFT Engine
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: hft-engine
+  namespace: ultimatearbitrage
+  labels:
+    app: hft-engine
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: hft-engine
+  template:
+    metadata:
+      labels:
+        app: hft-engine
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "9090"
+        prometheus.io/path: "/"
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+      containers:
+        - name: hft-engine
+          image: ultimatearbitragehft-hft-engine:latest # Change to your registry
+          imagePullPolicy: Always # Change to IfNotPresent for offline environments
+          env:
+            - name: PAPER_TRADING
+              valueFrom:
+                configMapKeyRef:
+                  name: ultimatearbitrage-config
+                  key: PAPER_TRADING
+            - name: TRADING_ENABLED
+              valueFrom:
+                configMapKeyRef:
+                  name: ultimatearbitrage-config
+                  key: TRADING_ENABLED
+            - name: SCAN_INTERVAL_MS
+              valueFrom:
+                configMapKeyRef:
+                  name: ultimatearbitrage-config
+                  key: SCAN_INTERVAL_MS
+            - name: METRICS_ADDR
+              valueFrom:
+                configMapKeyRef:
+                  name: ultimatearbitrage-config
+                  key: METRICS_ADDR
+            - name: MEXC_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: ultimatearbitrage-secrets
+                  key: MEXC_API_KEY
+            - name: MEXC_API_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: ultimatearbitrage-secrets
+                  key: MEXC_API_SECRET
+            - name: DATABASE_URL
+              value: postgresql://arbitrage:$(POSTGRES_PASSWORD)@postgres:5432/ultimatearbitrage
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: ultimatearbitrage-secrets
+                  key: POSTGRES_PASSWORD
+          ports:
+            - name: metrics
+              containerPort: 9090
+              protocol: TCP
+          resources:
+            requests:
+              cpu: 250m
+              memory: 256Mi
+            limits:
+              cpu: 1000m
+              memory: 1Gi
+          livenessProbe:
+            httpGet:
+              path: /
+              port: metrics
+            initialDelaySeconds: 10
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /
+              port: metrics
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir: {}
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchExpressions:
+                    - key: app
+                      operator: In
+                      values:
+                        - postgres
+                        - worker
+                topologyKey: kubernetes.io/hostname
+
+---
+# Deployment: Node.js Worker
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: worker
+  namespace: ultimatearbitrage
+  labels:
+    app: worker
+spec:
+  replicas: 2 # Horizontal scaling for HA
+  selector:
+    matchLabels:
+      app: worker
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  template:
+    metadata:
+      labels:
+        app: worker
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+      containers:
+        - name: worker
+          image: ultimatearbitragehft-worker:latest # Change to your registry
+          imagePullPolicy: Always # Change to IfNotPresent for offline environments
+          env:
+            - name: NODE_ENV
+              value: production
+            - name: ADMIN_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: ultimatearbitrage-secrets
+                  key: ADMIN_TOKEN
+            - name: HFT_ENGINE_URL
+              value: http://hft-engine:9090
+            - name: HFT_ENGINE_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: ultimatearbitrage-secrets
+                  key: HFT_ENGINE_SECRET
+            - name: PAPER_TRADING
+              valueFrom:
+                configMapKeyRef:
+                  name: ultimatearbitrage-config
+                  key: PAPER_TRADING
+            - name: TRADING_ENABLED
+              valueFrom:
+                configMapKeyRef:
+                  name: ultimatearbitrage-config
+                  key: TRADING_ENABLED
+            - name: MEXC_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: ultimatearbitrage-secrets
+                  key: MEXC_API_KEY
+            - name: MEXC_API_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: ultimatearbitrage-secrets
+                  key: MEXC_API_SECRET
+          ports:
+            - name: http
+              containerPort: 8787
+              protocol: TCP
+          resources:
+            requests:
+              cpu: 200m
+              memory: 256Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+            - name: cache
+              mountPath: /app/node_modules/.cache
+      volumes:
+        - name: tmp
+          emptyDir: {}
+        - name: cache
+          emptyDir: {}
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchExpressions:
+                    - key: app
+                      operator: In
+                      values:
+                        - worker
+                topologyKey: kubernetes.io/hostname
+
+---
+# HorizontalPodAutoscaler: Auto-scale Worker based on CPU
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: worker-hpa
+  namespace: ultimatearbitrage
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: worker
+  minReplicas: 2
+  maxReplicas: 5
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70
+    - type: Resource
+      resource:
+        name: memory
+        target:
+          type: Utilization
+          averageUtilization: 80
+
+---
+# NetworkPolicy: Restrict traffic between pods
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: ultimatearbitrage-netpol
+  namespace: ultimatearbitrage
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    # Allow traffic from worker to hft-engine metrics
+    - from:
+        - podSelector:
+            matchLabels:
+              app: worker
+      to:
+        - ports:
+            - protocol: TCP
+              port: 9090
+    # Allow traffic from any pod to worker
+    - from:
+        - namespaceSelector: {}
+      to:
+        - ports:
+            - protocol: TCP
+              port: 8787
+    # Allow postgres connections
+    - from:
+        - podSelector:
+            matchLabels:
+              app: worker
+        - podSelector:
+            matchLabels:
+              app: hft-engine
+      to:
+        - ports:
+            - protocol: TCP
+              port: 5432
+  egress:
+    # Allow all egress (necessary for external API calls)
+    - to:
+        - namespaceSelector: {}
+
+---
+# ServiceMonitor: Prometheus scraping (if using Prometheus Operator)
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: hft-engine-monitor
+  namespace: ultimatearbitrage
+spec:
+  selector:
+    matchLabels:
+      app: hft-engine
+  endpoints:
+    - port: metrics
+      interval: 30s

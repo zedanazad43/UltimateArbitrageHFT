@@ -15,6 +15,8 @@ const expectedWorkerName = process.env.EXPECTED_WORKER_NAME || 'ultimatearbitrag
 const requireReadyForLive = String(process.env.REQUIRE_READY_FOR_LIVE || 'true').toLowerCase() === 'true';
 const skipCustomDomainCheck = String(process.env.SKIP_CUSTOM_DOMAIN_CHECK || 'false').toLowerCase() === 'true';
 const requireBaseReadyForLive = String(process.env.REQUIRE_BASE_READY_FOR_LIVE || 'false').toLowerCase() === 'true';
+const skipReadinessCheck = String(process.env.SKIP_READINESS_CHECK || 'false').toLowerCase() === 'true';
+const skipProtectedCheck = String(process.env.SKIP_PROTECTED_CHECK || 'false').toLowerCase() === 'true';
 const adminToken = process.env.WORKFLOW_ADMIN_TOKEN || process.env.ADMIN_TOKEN || '';
 
 if (!adminToken) {
@@ -140,14 +142,14 @@ async function main() {
 
   if (hasCustomDomain) {
     await checkIdentityAndReadiness(customBaseUrl, 'custom-domain', {
-      requireReadiness: true,
+      requireReadiness: !skipReadinessCheck,
       readinessMustBeGreen: requireReadyForLive,
     });
 
     // workers.dev may have different egress behavior; keep it diagnostic by default.
     try {
       await checkIdentityAndReadiness(baseUrl, 'workers.dev/base', {
-        requireReadiness: true,
+        requireReadiness: !skipReadinessCheck,
         readinessMustBeGreen: requireBaseReadyForLive,
       });
     } catch (err) {
@@ -156,12 +158,16 @@ async function main() {
     }
   } else {
     await checkIdentityAndReadiness(baseUrl, 'workers.dev/base', {
-      requireReadiness: true,
+      requireReadiness: !skipReadinessCheck,
       readinessMustBeGreen: requireReadyForLive,
     });
   }
 
-  await checkProtected(primaryUrl);
+  if (!skipProtectedCheck) {
+    await checkProtected(primaryUrl);
+  } else {
+    console.log('Skipping protected endpoint checks (SKIP_PROTECTED_CHECK=true)');
+  }
   console.log('All production endpoint checks passed');
 }
 

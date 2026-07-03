@@ -1,43 +1,32 @@
 name: Deploy Worker
 
 on:
-  workflow_dispatch: {}
+  workflow_dispatch:
   push:
     branches: [main]
 
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
 jobs:
   deploy:
-    name: Deploy
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    name: Deploy
+
     steps:
       - uses: actions/checkout@v5
 
       - name: Setup Node.js
         uses: actions/setup-node@v6
         with:
-          node-version: "22"
-          cache: "npm"
+          node-version: '24'
+          cache: 'npm'
 
       - name: Install dependencies
         run: npm ci
 
-      - name: Install frontend dependencies
-        run: npm --prefix frontend ci
-
       - name: Run full test suite
         run: npm run test:all
-
-      - name: Build frontend
-        run: npm --prefix frontend run build
-
-      - name: Upload frontend assets to R2
-        timeout-minutes: 10
-        run: node scripts/upload-frontend-r2.mjs
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          FRONTEND_R2_BUCKET: emergent-website
 
       - name: Upload build artifact
         uses: actions/upload-artifact@v5
@@ -54,30 +43,18 @@ jobs:
           compression-level: 6
           overwrite: true
           include-hidden-files: false
+    
 
       - name: Deploy Worker
-        timeout-minutes: 5
         # Retry up to 3 times: Cloudflare's Workers API occasionally returns transient
-        # 10500 errors. For API auth failures (for example 10013), ensure
-        # CLOUDFLARE_API_TOKEN has "Account > Workers Scripts > Edit" and no
-        # "Client IP Address Filtering" restriction.
-        # If Cloudflare returns "entitlements.not_available" (10007), enable
-        # required Workers entitlements/subscription in the Cloudflare dashboard.
-        #
-        # Failure classification:
-        #   external-blocked  — Cloudflare-side issue (entitlements, token scope,
-        #                       subscription). CI is marked as a warning so that
-        #                       code-correctness checks are not blocked by infra state.
-        #   internal-failure  — Code/config bug (bundle error, syntax, bad wrangler.toml).
-        #                       CI fails hard so the regression is surfaced immediately.
+        # 10500 errors. If the token correctly has "Account > Workers Scripts > Edit"
+        # permission and retries still fail, check the token permissions/IP filtering
+        # using the guidance printed by the "Verify Cloudflare credentials" step above.
         run: |
-          DEPLOY_LOG=$(mktemp)
-
           for attempt in 1 2 3; do
             echo "--- Deploy attempt $attempt of 3 ---"
-            if npx --yes wrangler@4.86.0 deploy 2>&1 | tee -a "$DEPLOY_LOG"; then
+            if npx --yes wrangler@4 deploy; then
               echo "✅ Worker deployed successfully on attempt $attempt"
-              rm -f "$DEPLOY_LOG"
               exit 0
             fi
             if [ $attempt -lt 3 ]; then
@@ -85,48 +62,22 @@ jobs:
               sleep 15
             fi
           done
-
-          # ── Classify the failure ───────────────────────────────────────────────
-          # Known Cloudflare API error codes that are caused by account/subscription
-          # state outside this repository and do not indicate a code regression.
-          #   10007 / entitlements.not_available  — Workers plan/subscription not active
-          #   10013 / authentication_error        — API token scope or IP filter issue
-          #   10006                               — Account/subscription not found
-          #   Unauthorized                        — Token missing or revoked
-          EXTERNAL_PATTERNS="10007|10013|10006|entitlements\.not_available|workers\.api\.error\.not_entitled|authentication_error|Unauthorized"
-          if grep -qEi "$EXTERNAL_PATTERNS" "$DEPLOY_LOG"; then
-            echo ""
-            echo "::warning::Deploy classified as EXTERNAL-BLOCKED — Cloudflare infrastructure/entitlement issue."
-            echo "::warning::This is NOT a code regression. Remediation steps:"
-            echo "::warning::  • 10007 / entitlements.not_available → Enable required Workers plan/subscription in the Cloudflare dashboard."
-            echo "::warning::  • 10013 / authentication_error       → CLOUDFLARE_API_TOKEN must have 'Account > Workers Scripts > Edit' and no IP filtering."
-            echo "::warning::  • 10006                              → Verify account ID and Workers subscription are active."
-            rm -f "$DEPLOY_LOG"
-            exit 0
-          fi
-
-          echo "::error::Deploy classified as INTERNAL-FAILURE — likely a code or config regression."
-          echo "::error::Review the wrangler output above. Common causes: bundle error, syntax error, invalid wrangler.toml binding."
-          rm -f "$DEPLOY_LOG"
+          echo "::error::Worker deployment failed after 3 attempts."
+          echo "::error::Verify the CLOUDFLARE_API_TOKEN has 'Account > Workers Scripts > Edit' permission"
+          echo "::error::and no 'Client IP Address Filtering' restriction."
           exit 1
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
 
-      - name: Fly deploy disabled for lean path
-        run: echo "::notice::Fly.io deploy is intentionally disabled in default emergent pipeline."
-
       - name: Upload secrets to Cloudflare Worker
-        timeout-minutes: 5
-        # NOTE: Secrets below marked as optional (GATEIO_*, ZEROX_*, ALCHEMY_*, HFT_ENGINE_*, TEMPORAL_*, EXTERNAL_PROXY_*)
-        # will be gracefully skipped if not configured in GitHub repository settings.
-        # The Python filter `if os.environ.get(k)` ensures missing secrets are not uploaded.
         run: |
           python3 - <<'PYEOF'
           import json, os
           keys = [
             "MEXC_API_KEY", "MEXC_API_SECRET",
             "BINANCE_API_KEY", "BINANCE_API_SECRET",
+            "OKX_API_KEY", "OKX_API_SECRET", "OKX_PASSPHRASE",
             "KUCOIN_API_KEY", "KUCOIN_SECRET_KEY", "KUCOIN_PASSPHRASE",
             "COINBASE_API_KEY", "COINBASE_SECRET_KEY",
             "BITGET_API_KEY", "BITGET_SECRET_KEY", "BITGET_API_PASSPHRASE",
@@ -136,26 +87,17 @@ jobs:
             "HTX_API_KEY", "HTX_API_SECRET",
             "ZEROX_API_KEY", "ALCHEMY_API_KEY",
             "TELEGRAM_BOT_TOKEN", "TELEGRAM_CHAT_ID",
-            "ADMIN_TOKEN", "WORKFLOW_ADMIN_TOKEN",
+            "ADMIN_TOKEN",
             "GITHUB_TOKEN",
             "HFT_ENGINE_SECRET",
             "TEMPORAL_API_KEY",
-            "PROXY_URL",
-            "PROXY_LIST",
-            "PROXY_AUTH_HEADER",
-            "EXTERNAL_PROXY_URL",
-            "EXTERNAL_PROXY_GATEWAY_URL",
-            "EXTERNAL_PROXY_PROVIDER",
-            "EXTERNAL_PROXY_USERNAME",
-            "EXTERNAL_PROXY_PASSWORD",
-            "EXTERNAL_PROXY_AUTH_HEADER",
           ]
           secrets = {k: os.environ[k] for k in keys if os.environ.get(k)}
           fd = os.open("/tmp/cf_secrets.json", os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
           with os.fdopen(fd, "w") as f:
             json.dump(secrets, f)
           PYEOF
-          npx --yes wrangler@4.86.0 secret bulk /tmp/cf_secrets.json
+          npx --yes wrangler@4 secret bulk /tmp/cf_secrets.json
           rm /tmp/cf_secrets.json
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
@@ -164,6 +106,9 @@ jobs:
           MEXC_API_SECRET: ${{ secrets.MEXC_API_SECRET }}
           BINANCE_API_KEY: ${{ secrets.BINANCE_API_KEY }}
           BINANCE_API_SECRET: ${{ secrets.BINANCE_API_SECRET }}
+          OKX_API_KEY: ${{ secrets.OKX_API_KEY }}
+          OKX_API_SECRET: ${{ secrets.OKX_API_SECRET }}
+          OKX_PASSPHRASE: ${{ secrets.OKX_PASSPHRASE }}
           KUCOIN_API_KEY: ${{ secrets.KUCOIN_API_KEY }}
           KUCOIN_SECRET_KEY: ${{ secrets.KUCOIN_SECRET_KEY }}
           KUCOIN_PASSPHRASE: ${{ secrets.KUCOIN_PASSPHRASE }}
@@ -175,37 +120,24 @@ jobs:
           BITMART_API_KEY: ${{ secrets.BITMART_API_KEY }}
           BITMART_SECRET_KEY: ${{ secrets.BITMART_SECRET_KEY }}
           BITMART_MEMO: ${{ secrets.BITMART_MEMO }}
-          BYBIT_API_KEY: ${{ secrets.BYBIT_API_KEY }}
-          BYBIT_API_SECRET: ${{ secrets.BYBIT_API_SECRET }}
-          HTX_API_KEY: ${{ secrets.HTX_API_KEY }}
-          HTX_API_SECRET: ${{ secrets.HTX_API_SECRET }}
+          ZEROX_API_KEY: ${{ secrets.ZEROX_API_KEY }}
+          ALCHEMY_API_KEY: ${{ secrets.ALCHEMY_API_KEY }}
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
           ADMIN_TOKEN: ${{ secrets.ADMIN_TOKEN }}
-          WORKFLOW_ADMIN_TOKEN: ${{ secrets.WORKFLOW_ADMIN_TOKEN }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          PROXY_URL: ${{ secrets.PROXY_URL }}
-          PROXY_LIST: ${{ secrets.PROXY_LIST }}
-          PROXY_AUTH_HEADER: ${{ secrets.PROXY_AUTH_HEADER }}
-          EXTERNAL_PROXY_URL: ${{ secrets.EXTERNAL_PROXY_URL }}
-          EXTERNAL_PROXY_PROVIDER: ${{ secrets.EXTERNAL_PROXY_PROVIDER }}
-          EXTERNAL_PROXY_USERNAME: ${{ secrets.EXTERNAL_PROXY_USERNAME }}
-          EXTERNAL_PROXY_PASSWORD: ${{ secrets.EXTERNAL_PROXY_PASSWORD }}
-          EXTERNAL_PROXY_AUTH_HEADER: ${{ secrets.EXTERNAL_PROXY_AUTH_HEADER }}
+          TEMPORAL_API_KEY: ${{ secrets.TEMPORAL_API_KEY }}
 
       - name: Post-deploy endpoint smoke test
         id: smoke_test
-        timeout-minutes: 5
         run: |
-          node ./scripts/verify-production-endpoints.js
+          chmod +x ./scripts/verify-production-endpoints.sh
+          ADMIN_TOKEN="${ADMIN_TOKEN}" ./scripts/verify-production-endpoints.sh
         env:
-          WORKFLOW_ADMIN_TOKEN: ${{ secrets.WORKFLOW_ADMIN_TOKEN }}
-          EXPECTED_WORKER_NAME: ultimatearbitragehft
-          REQUIRE_READY_FOR_LIVE: "false"
-          SKIP_CUSTOM_DOMAIN_CHECK: "true"
+          ADMIN_TOKEN: ${{ secrets.ADMIN_TOKEN }}
 
       - name: Telegram alert on smoke test failure
-        if: ${{ failure() }}
+        if: ${{ failure() && steps.smoke_test.outcome == 'failure' }}
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}

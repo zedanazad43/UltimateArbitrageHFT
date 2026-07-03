@@ -1,12 +1,5 @@
 {
-  "deploy": {
-    "healthcheckPath": "/api/health",
-    "restartPolicyMaxRetries": 5,
-    "healthcheckTimeout": 120,
-    "restartPolicyType": "ON_FAILURE"
-  },
-  "build": {
-    "dockerfilePath": "hft/Dockerfile",
-    "builder": "DOCKERFILE"
-  }
+    "build":  {
+                  "builder":  "NIXPACKS"
+              }
 }

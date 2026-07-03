@@ -23,8 +23,10 @@ export default [
       "aimaster_council_temp/**",
       "aimaster/**",
       // This file is an INI config template (not JavaScript) that happens to be
-      // named index.js — ESLint cannot parse it.
+      // named index.js — ESLint cannot parse it. Both paths cover lowercase and
+      // capital-A casing (submodule checkout on Windows CI).
       "arbitragebot/UnifiedArbitrageBot/index.js",
+      "ArbitrageBot/UnifiedArbitrageBot/index.js",
     ],
   },
   // Base rules for all JS files
@@ -60,8 +62,10 @@ export default [
     files: [
       "**/*.cjs",
       "hero-super-agent/hero-agent/**/*.js",
+      "hero-super-agent/packages/**/*.js",
       "temporal-worker.js",
       "scripts/**/*.js",
+      "scripts/**/*.mjs",
       "src/ai-client.js",
       "tests/**/*.js",
       "test-ide-integration.js",
