@@ -220,6 +220,7 @@ export default function WorkerDeploy() {
     load();
     const id = setInterval(() => load(false), 10000);
     return () => clearInterval(id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const handleCopy = (id, cmd) => {

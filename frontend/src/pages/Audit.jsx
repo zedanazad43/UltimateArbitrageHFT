@@ -32,6 +32,7 @@ export default function Audit() {
     load();
     const id = setInterval(load, 5000);
     return () => clearInterval(id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [filter]);
 
   const actions = Array.from(new Set(items.map((r) => r.action))).sort();
