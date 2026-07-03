@@ -16,10 +16,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
 	"log/slog"
 	"net/http"
-	"net/url"
 	"os"
 	"os/signal"
 	"strings"
@@ -85,9 +83,9 @@ func init() {
 // ─── Circuit breaker (in-memory) ─────────────────────────────────────────────
 
 type cbState struct {
-	failures int
-	lastFail time.Time
-	open     bool
+	failures   int
+	lastFail   time.Time
+	open       bool
 }
 
 type circuitBreaker struct {
@@ -137,10 +135,10 @@ type engine struct {
 	notifier *notify.Notifier
 	cb       *circuitBreaker
 
-	equity      float64 // tracks running P&L
-	dailyPnL    float64
-	dailyTrades int
-	lastTrade   time.Time
+	equity       float64 // tracks running P&L
+	dailyPnL     float64
+	dailyTrades  int
+	lastTrade    time.Time
 }
 
 func newEngine(cfg *config.Config, database *db.DB) *engine {
@@ -157,7 +155,7 @@ func newEngine(cfg *config.Config, database *db.DB) *engine {
 // scan evaluates all strategies across all symbols and returns the list of
 // opportunities found, sorted by netPct descending.
 func (e *engine) scan() []*cex.Opportunity {
-	var oops []*cex.Opportunity
+	var opps []*cex.Opportunity
 
 	for _, sym := range supportedSymbols {
 		spotSources := e.book.SpotSources(sym)
@@ -167,7 +165,7 @@ func (e *engine) scan() []*cex.Opportunity {
 
 		// CEX spatial arbitrage
 		if o := cex.Scan(sym, spotSources, e.cfg.MaxSpreadPct); o != nil {
-			oops = append(oops, o)
+			opps = append(opps, o)
 		}
 
 		// Perps vs spot
@@ -178,41 +176,32 @@ func (e *engine) scan() []*cex.Opportunity {
 			perpSource = perpBybit
 		}
 		if o := perps.Scan(sym, spotSources, perpSource, e.cfg.MaxSpreadPct); o != nil {
-			oops = append(oops, o)
+			opps = append(opps, o)
 		}
 
 		// Funding-rate harvest (prefer Bybit — has fundingRate field)
 		if o := funding.Scan(sym, spotSources, perpBybit, e.cfg.MaxSpreadPct); o != nil {
-			oops = append(oops, o.Opportunity)
+			opps = append(opps, o.Opportunity)
 		}
 	}
 
 	// DEX cross-chain scan
 	if dexOpp, err := dex.Scan(e.cfg.AlchemyAPIKey); err == nil && dexOpp != nil {
-		oops = append(oops, dexOpp)
+		opps = append(opps, dexOpp)
 	}
 
-	return oops
+	return opps
 }
 
 // best returns the opportunity with the highest netPct, or nil.
-func best(oops []*cex.Opportunity) *cex.Opportunity {
+func best(opps []*cex.Opportunity) *cex.Opportunity {
 	var b *cex.Opportunity
-	for _, o := range oops {
+	for _, o := range opps {
 		if b == nil || o.NetPct > b.NetPct {
 			b = o
 		}
 	}
 	return b
-}
-
-// copyHeader copies all headers from src to dst.
-func copyHeader(dst, src http.Header) {
-	for k, vv := range src {
-		for _, v := range vv {
-			dst.Add(k, v)
-		}
-	}
 }
 
 // execute performs (or paper-simulates) a trade for the given opportunity.
@@ -324,69 +313,6 @@ func (e *engine) executeLive(ctx context.Context, opp *cex.Opportunity, sizeUSD,
 			return
 		}
 		e.cb.recordSuccess("bybit")
-	case "bitget":
-		if _, err := executor.PlaceBitgetSpotOrder(
-			e.cfg.BitgetAPIKey, e.cfg.BitgetAPISecret, e.cfg.BitgetAPIPassword,
-			opp.Symbol, "BUY", qty, sizeUSD,
-		); err != nil {
-			slog.Error("bitget buy order failed", "err", err)
-			e.cb.recordFailure("bitget")
-			return
-		}
-		e.cb.recordSuccess("bitget")
-	case "htx":
-		if _, err := executor.PlaceHTXSpotOrder(
-			e.cfg.HTXAPIKey, e.cfg.HTXAPISecret, e.cfg.HTXAccountID,
-			opp.Symbol, "BUY", qty, sizeUSD,
-		); err != nil {
-			slog.Error("htx buy order failed", "err", err)
-			e.cb.recordFailure("htx")
-			return
-		}
-		e.cb.recordSuccess("htx")
-	case "coinbase":
-		if _, err := executor.PlaceCoinbaseSpotOrder(
-			e.cfg.CoinbaseAPIKey, e.cfg.CoinbaseAPISecret,
-			opp.Symbol, "BUY", qty, sizeUSD,
-		); err != nil {
-			slog.Error("coinbase buy order failed", "err", err)
-			e.cb.recordFailure("coinbase")
-			return
-		}
-		e.cb.recordSuccess("coinbase")
-	case "kucoin":
-		if _, err := executor.PlaceKuCoinSpotOrder(
-			e.cfg.KuCoinAPIKey, e.cfg.KuCoinSecretKey, e.cfg.KuCoinPassphrase,
-			opp.Symbol, "BUY", qty, sizeUSD,
-		); err != nil {
-			slog.Error("kucoin buy order failed", "err", err)
-			e.cb.recordFailure("kucoin")
-			return
-		}
-		e.cb.recordSuccess("kucoin")
-	case "gateio":
-		if _, err := executor.PlaceGateioSpotOrder(
-			e.cfg.GateioAPIKey, e.cfg.GateioAPISecret, "",
-			opp.Symbol, "buy", qty,
-		); err != nil {
-			slog.Error("gateio buy order failed", "err", err)
-			e.cb.recordFailure("gateio")
-			return
-		}
-		e.cb.recordSuccess("gateio")
-	case "okx":
-		if _, err := executor.PlaceOKXSpotOrder(
-			e.cfg.OKXAPIKEY, e.cfg.OKXAPISecret, e.cfg.OKXPassphrase,
-			opp.Symbol, "buy", qty,
-		); err != nil {
-			slog.Error("okx buy order failed", "err", err)
-			e.cb.recordFailure("okx")
-			return
-		}
-		e.cb.recordSuccess("okx")
-	default:
-		slog.Warn("buy exchange not supported for live execution", "exchange", opp.BuyExchange)
-		return
 	}
 
 	sellQty := notionalUSD / opp.SellPrice
@@ -412,50 +338,6 @@ func (e *engine) executeLive(ctx context.Context, opp *cex.Opportunity, sizeUSD,
 		); err != nil {
 			slog.Error("bybit sell order failed", "err", err)
 		}
-	case "bitget":
-		if _, err := executor.PlaceBitgetSpotOrder(
-			e.cfg.BitgetAPIKey, e.cfg.BitgetAPISecret, e.cfg.BitgetAPIPassword,
-			opp.Symbol, "SELL", sellQty, notionalUSD,
-		); err != nil {
-			slog.Error("bitget sell order failed", "err", err)
-		}
-	case "htx":
-		if _, err := executor.PlaceHTXSpotOrder(
-			e.cfg.HTXAPIKey, e.cfg.HTXAPISecret, e.cfg.HTXAccountID,
-			opp.Symbol, "SELL", sellQty, notionalUSD,
-		); err != nil {
-			slog.Error("htx sell order failed", "err", err)
-		}
-	case "coinbase":
-		if _, err := executor.PlaceCoinbaseSpotOrder(
-			e.cfg.CoinbaseAPIKey, e.cfg.CoinbaseAPISecret,
-			opp.Symbol, "SELL", sellQty, notionalUSD,
-		); err != nil {
-			slog.Error("coinbase sell order failed", "err", err)
-		}
-	case "kucoin":
-		if _, err := executor.PlaceKuCoinSpotOrder(
-			e.cfg.KuCoinAPIKey, e.cfg.KuCoinSecretKey, e.cfg.KuCoinPassphrase,
-			opp.Symbol, "SELL", sellQty, notionalUSD,
-		); err != nil {
-			slog.Error("kucoin sell order failed", "err", err)
-		}
-	case "gateio":
-		if _, err := executor.PlaceGateioSpotOrder(
-			e.cfg.GateioAPIKey, e.cfg.GateioAPISecret, "",
-			opp.Symbol, "sell", sellQty,
-		); err != nil {
-			slog.Error("gateio sell order failed", "err", err)
-		}
-	case "okx":
-		if _, err := executor.PlaceOKXSpotOrder(
-			e.cfg.OKXAPIKEY, e.cfg.OKXAPISecret, e.cfg.OKXPassphrase,
-			opp.Symbol, "sell", sellQty,
-		); err != nil {
-			slog.Error("okx sell order failed", "err", err)
-		}
-	default:
-		slog.Warn("sell exchange not supported for live execution", "exchange", opp.SellExchange)
 	}
 }
 
@@ -477,11 +359,11 @@ func (e *engine) run(ctx context.Context) {
 		}
 
 		start := time.Now()
-		oops := e.scan()
+		opps := e.scan()
 		elapsed := float64(time.Since(start).Milliseconds())
 		scanLatency.Observe(elapsed)
 
-		if b := best(oops); b != nil {
+		if b := best(opps); b != nil {
 			e.execute(ctx, b)
 		}
 	}
@@ -515,89 +397,6 @@ type apiOpportunity struct {
 type executeRequest struct {
 	Opportunity *apiOpportunity `json:"opportunity"`
 	SizeUSD     float64         `json:"size_usd"`
-}
-
-var allowedProxyHosts = map[string]bool{
-	"api.binance.com": true, "api1.binance.com": true, "api2.binance.com": true, "api3.binance.com": true,
-	"api.bitget.com": true, "capi.bitget.com": true, "api.kucoin.com": true,
-	"api.mexc.com": true, "contract.mexc.com": true, "api.bybit.com": true,
-	"api.htx.com": true, "api-cloud.bitmart.com": true,
-}
-
-func toCEXOpportunity(o *apiOpportunity) *cex.Opportunity {
-	return &cex.Opportunity{
-		Strategy:     o.Strategy,
-		Symbol:       o.Symbol,
-		BuyExchange:  o.BuyExchange,
-		SellExchange: o.SellExchange,
-		BuyPrice:     o.BuyPrice,
-		SellPrice:    o.SellPrice,
-		GrossPct:     o.GrossPct,
-		NetPct:       o.NetPct,
-		SafetyFactor: o.SafetyFactor,
-		Direction:    o.Direction,
-		IsPerp:       o.IsPerp,
-	}
-}
-
-func handleAPIExecute(eng *engine, writeJSON func(http.ResponseWriter, int, any)) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodPost {
-			writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
-			return
-		}
-		var req executeRequest
-		if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Opportunity == nil {
-			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid request body"})
-			return
-		}
-		eng.execute(r.Context(), toCEXOpportunity(req.Opportunity))
-		writeJSON(w, http.StatusOK, map[string]bool{"success": true})
-	}
-}
-
-func handleProxy(writeJSON func(http.ResponseWriter, int, any)) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		target := r.URL.Query().Get("target")
-		if target == "" {
-			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "missing ?target="})
-			return
-		}
-		targetURL, err := url.Parse(target)
-		if err != nil || (targetURL.Scheme != "http" && targetURL.Scheme != "https") {
-			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid target URL"})
-			return
-		}
-		if !allowedProxyHosts[targetURL.Host] {
-			writeJSON(w, http.StatusForbidden, map[string]string{"error": "host not allowed: " + targetURL.Host})
-			return
-		}
-		proxyReq, err := http.NewRequestWithContext(r.Context(), r.Method, target, r.Body)
-		if err != nil {
-			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
-			return
-		}
-		copyHeader(proxyReq.Header, r.Header)
-		proxyReq.Header.Set("User-Agent", "UltimateArbitrageHFT-Proxy/1.0")
-		proxyReq.Header.Del("Host")
-		proxyReq.Header.Del("Cf-Connecting-Ip")
-		proxyReq.Header.Del("Cf-Ipcountry")
-		proxyReq.Header.Del("Cf-Ray")
-		proxyReq.Header.Del("X-Forwarded-For")
-		proxyReq.Header.Del("X-Real-Ip")
-
-		resp, err := http.DefaultClient.Do(proxyReq)
-		if err != nil {
-			writeJSON(w, http.StatusBadGateway, map[string]string{"error": err.Error()})
-			return
-		}
-		defer func() { _ = resp.Body.Close() }()
-
-		copyHeader(w.Header(), resp.Header)
-		w.Header().Set("X-Proxy-By", "railway-hft")
-		w.WriteHeader(resp.StatusCode)
-		_, _ = io.Copy(w, resp.Body)
-	}
 }
 
 // newAPIServer builds the HTTP mux for the engine REST API.
@@ -647,8 +446,8 @@ func newAPIServer(eng *engine, secret string) *http.Server {
 			writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
 			return
 		}
-		oops := eng.scan()
-		b := best(oops)
+		opps := eng.scan()
+		b := best(opps)
 		if b == nil {
 			writeJSON(w, http.StatusOK, map[string]any{"opportunity": nil})
 			return
@@ -671,11 +470,33 @@ func newAPIServer(eng *engine, secret string) *http.Server {
 	}))
 
 	// ── POST /api/execute ─────────────────────────────────────────────────────
-	mux.HandleFunc("/api/execute", requireAuth(handleAPIExecute(eng, writeJSON)))
-
-	// ── GET/POST /proxy?target=<url> ─────────────────────────────────────────
-	// Forwards requests through Railway's egress IP (not blocked by exchanges).
-	mux.HandleFunc("/proxy", handleProxy(writeJSON))
+	mux.HandleFunc("/api/execute", requireAuth(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+			return
+		}
+		var req executeRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Opportunity == nil {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid request body"})
+			return
+		}
+		o := req.Opportunity
+		opp := &cex.Opportunity{
+			Strategy:     o.Strategy,
+			Symbol:       o.Symbol,
+			BuyExchange:  o.BuyExchange,
+			SellExchange: o.SellExchange,
+			BuyPrice:     o.BuyPrice,
+			SellPrice:    o.SellPrice,
+			GrossPct:     o.GrossPct,
+			NetPct:       o.NetPct,
+			SafetyFactor: o.SafetyFactor,
+			Direction:    o.Direction,
+			IsPerp:       o.IsPerp,
+		}
+		eng.execute(r.Context(), opp)
+		writeJSON(w, http.StatusOK, map[string]bool{"success": true})
+	}))
 
 	return &http.Server{
 		Addr:         eng.cfg.APIAddr,

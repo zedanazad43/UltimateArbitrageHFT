@@ -60,8 +60,10 @@ export default [
     files: [
       "**/*.cjs",
       "hero-super-agent/hero-agent/**/*.js",
+      "hero-super-agent/packages/**/*.js",
       "temporal-worker.js",
       "scripts/**/*.js",
+      "scripts/**/*.mjs",
       "src/ai-client.js",
       "tests/**/*.js",
       "test-ide-integration.js",

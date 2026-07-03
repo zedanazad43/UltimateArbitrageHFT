@@ -1,0 +1,103 @@
+name: Production Smoke Alert Test
+
+on:
+  schedule:
+    - cron: '*/15 * * * *'
+  workflow_dispatch:
+    inputs:
+      simulate_failure:
+        description: Force smoke test failure to validate Telegram alert delivery
+        required: false
+        type: boolean
+        default: true
+      base_url:
+        description: Worker base URL
+        required: false
+        type: string
+        default: https://ultimatearbitragehft.zedanazad43.workers.dev
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  smoke-alert-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run production endpoint smoke test
+        id: smoke
+        continue-on-error: true
+        env:
+          ADMIN_TOKEN_SECRET: ${{ secrets.ADMIN_TOKEN }}
+          SIMULATE_FAILURE: ${{ inputs.simulate_failure || 'false' }}
+          BASE_URL: ${{ inputs.base_url || 'https://ultimatearbitragehft.zedanazad43.workers.dev' }}
+          EVENT_NAME: ${{ github.event_name }}
+        run: |
+          chmod +x ./scripts/verify-production-endpoints.sh
+
+          # Scheduled runs should always execute a real smoke check.
+          if [ "$EVENT_NAME" = "schedule" ]; then
+            SIMULATE_FAILURE="false"
+          fi
+
+          token="$ADMIN_TOKEN_SECRET"
+          if [ "$SIMULATE_FAILURE" = "true" ]; then
+            token="invalid-${GITHUB_RUN_ID:-0}-${GITHUB_RUN_ATTEMPT:-0}"
+            echo "Simulating failure with invalid admin token"
+          fi
+
+          ADMIN_TOKEN="$token" ./scripts/verify-production-endpoints.sh "$BASE_URL"
+
+      - name: Telegram alert when smoke test fails
+        if: steps.smoke.outcome == 'failure'
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          SHA: ${{ github.sha }}
+          BRANCH: ${{ github.ref_name }}
+          SIMULATE_FAILURE: ${{ inputs.simulate_failure || 'false' }}
+        run: |
+          if [ -z "$TELEGRAM_BOT_TOKEN" ] || [ -z "$TELEGRAM_CHAT_ID" ]; then
+            echo "Telegram secrets are not set; skipping alert."
+            exit 0
+          fi
+
+          short_sha=$(echo "$SHA" | cut -c1-7)
+          text=$(printf 'Smoke alert test failed%%0ASimulated: %s%%0ABranch: %s%%0ASHA: %s%%0ARun: %s' "$SIMULATE_FAILURE" "$BRANCH" "$short_sha" "$RUN_URL")
+
+          curl -fsS -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
+            -d "chat_id=${TELEGRAM_CHAT_ID}" \
+            -d "text=${text}" \
+            -d "disable_web_page_preview=true"
+
+      - name: Finalize status
+        if: always()
+        env:
+          SIMULATE_FAILURE: ${{ inputs.simulate_failure || 'false' }}
+          SMOKE_OUTCOME: ${{ steps.smoke.outcome }}
+          EVENT_NAME: ${{ github.event_name }}
+        run: |
+          if [ "$EVENT_NAME" = "schedule" ]; then
+            SIMULATE_FAILURE="false"
+          fi
+
+          echo "Smoke outcome: $SMOKE_OUTCOME"
+          if [ "$SMOKE_OUTCOME" = "failure" ] && [ "$SIMULATE_FAILURE" != "true" ]; then
+            echo "Real smoke test failed"
+            exit 1
+          fi
+          echo "Workflow completed"

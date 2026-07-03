@@ -404,7 +404,7 @@ npm run test:all
 ```bash
 # Verify production endpoints (requires ADMIN_TOKEN)
 export ADMIN_TOKEN='your_token'
-WORKFLOW_ADMIN_TOKEN='YOUR_ADMIN_TOKEN' node scripts/verify-production-endpoints.js https://ultimatearbitragehft.zedanazad43.workers.dev
+bash scripts/verify-production-endpoints.sh https://ultimatearbitragehft.zedanazad43.workers.dev
 ```
 
 ### Manual Testing
@@ -466,7 +466,7 @@ curl https://ultimatearbitragehft.zedanazad43.workers.dev/api/execution-health \
 - ✅ Added control panel frontend with real-time monitoring
 - ✅ Added /api/bitmart/stats, /api/bitmart/reset-circuit-breaker endpoints
 - ✅ Added /api/execution-health endpoint
-- ✅ Updated production smoke verification (verify-production-endpoints.js/.sh) with BitMart checks
+- ✅ Updated verify-production-endpoints.sh with BitMart checks
 - ✅ All 391 tests passing
 
 ---

@@ -13,8 +13,6 @@ upload-secrets.ps1
 local_filelist.txt
 finalize_project.ps1
 مستند نصي جديد.txt
-.tmp/
-.tmp-dashboard-inline.js
 
 # Node
 node_modules/
@@ -41,45 +39,3 @@ coverage
 metrics.json
 strategy-evaluation.json
 test-exchanges.js
-# Kimi project memory
-.kimi-memory/
-
-# Runtime and generated ops artifacts
-logs/exec-stability-*.jsonl
-logs/exec-stability-*.summary.json
-logs/live-ops-snapshot-*.md
-scripts/.runtime/
-
-# Local SQLite runtime database (never commit)
-*.db
-ultimate-arbitrage.db
-
-# Generated scan / inventory reports and archived/stray files
-reports/
-archive/
-gitleaks-*.json
-scan-inventory.json
-scripts-catalog.json
-.aider*
-
-# Aider virtual environment
-.venv_aider/
-
-# Java build artifacts and JDK bundles
-.github/workflows/oracleJdk-26/
-samples/java/target/
-*.jar
-*.class
-backup_*/
-
-# Python bytecode and cache
-__pycache__/
-*.pyc
-
-# Local git identity – never commit
-.gitconfig
-.env.*
-credentials.json
-*.pem
-*.key
-.credentials

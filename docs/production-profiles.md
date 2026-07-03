@@ -1,8 +1,5 @@
 # Production Profiles Runbook
 
-> **Variable reference**: see [`docs/env-reference.md`](env-reference.md) for the
-> full canonical list of all Worker vars and secrets.
-
 This runbook gives copy/paste configuration profiles for operating the bot in production.
 
 ## Prerequisites

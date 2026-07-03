@@ -29,7 +29,7 @@ class ReliabilityManager {
       return await fn();
     } catch (error) {
       const { operation = 'operation', critical = false } = context;
-
+      
       this.recordError({
         operation,
         error: error.message,
@@ -130,7 +130,7 @@ class ReliabilityManager {
     const categorized = {
       ...errorInfo,
       category: this.categorizeError(new Error(errorInfo.error)),
-      id: Math.random().toString(36).slice(2, 11)
+      id: Math.random().toString(36).substr(2, 9)
     };
 
     this.errors.push(categorized);
