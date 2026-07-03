@@ -1,0 +1,136 @@
+---
+# Semgrep Security Rules for DLP/SAST
+# Detects common security vulnerabilities and sensitive data patterns
+
+rules:
+  # ═══════════════════════════════════════════════════════════════════
+  # Credential & Secret Patterns
+  # ═══════════════════════════════════════════════════════════════════
+  
+  - id: hardcoded-api-key
+    patterns:
+      - pattern: $VAR = $LITERAL
+      - metavariable-regex:
+          metavariable: $VAR
+          regex: '(?i).*(api_key|apikey|api[_-]secret).*'
+      - metavariable-regex:
+          metavariable: $LITERAL
+          regex: "^['\"][A-Za-z0-9_-]{32,}['\"]$"
+    message: Hardcoded API key detected
+    languages: [javascript, python, go]
+    severity: CRITICAL
+
+  - id: hardcoded-aws-credentials
+    pattern-either:
+      - pattern: $VAR = "AKIA[0-9A-Z]{16}"
+      - pattern: $VAR = 'AKIA[0-9A-Z]{16}'
+    message: AWS Access Key ID hardcoded
+    languages: [javascript, python, go, java]
+    severity: CRITICAL
+
+  - id: hardcoded-telegram-token
+    pattern: $VAR = /\d{9}:\w{35,}/
+    message: Telegram bot token hardcoded
+    languages: [javascript, python, go]
+    severity: CRITICAL
+
+  - id: env-variable-exposure
+    patterns:
+      - pattern-either:
+          - pattern: |
+              console.log($PASS)
+          - pattern: |
+              console.error($PASS)
+          - pattern: |
+              throw new Error($PASS)
+      - metavariable-regex:
+          metavariable: $PASS
+          regex: '(?i).*(PASSWORD|KEY|SECRET|TOKEN|CREDENTIAL).*'
+    message: Sensitive environment variable logged
+    languages: [javascript]
+    severity: HIGH
+
+  # ═══════════════════════════════════════════════════════════════════
+  # SQL Injection Prevention
+  # ═══════════════════════════════════════════════════════════════════
+  
+  - id: sql-injection-concatenation
+    pattern-either:
+      - pattern: sql = "SELECT * FROM users WHERE id = " + $VAR
+      - pattern: |
+          query = $PREFIX + $USERVAR
+    message: SQL query string concatenation (SQL injection risk)
+    languages: [javascript, python]
+    severity: HIGH
+
+  # ═══════════════════════════════════════════════════════════════════
+  # Cryptography Issues
+  # ═══════════════════════════════════════════════════════════════════
+  
+  - id: weak-crypto-md5
+    pattern-either:
+      - pattern: crypto.createHash('md5')
+      - pattern: md5($VAR)
+    message: MD5 is cryptographically weak. Use SHA-256 instead.
+    languages: [javascript, python, go]
+    severity: HIGH
+
+  - id: hardcoded-secrets-in-tests
+    patterns:
+      - pattern-either:
+          - pattern-inside: |
+              test($DESC, ...)
+          - pattern-inside: |
+              describe($DESC, ...)
+      - pattern: $VAR = "AKIA[0-9A-Z]{16}"
+    message: AWS credentials in test files
+    languages: [javascript]
+    severity: MEDIUM
+    paths:
+      include:
+        - tests/**
+        - __tests__/**
+        - '*.test.js'
+
+  # ═══════════════════════════════════════════════════════════════════
+  # PII Detection
+  # ═══════════════════════════════════════════════════════════════════
+  
+  - id: credit-card-hardcoded
+    pattern: /\b\d{4}[\s-]?\d{4}[\s-]?\d{4}[\s-]?\d{4}\b/
+    message: Potential credit card number detected
+    languages: [javascript, python, go]
+    severity: CRITICAL
+
+  - id: ssn-hardcoded
+    pattern: /\b\d{3}-\d{2}-\d{4}\b/
+    message: Potential Social Security Number detected
+    languages: [javascript, python, go]
+    severity: CRITICAL
+
+  # ═══════════════════════════════════════════════════════════════════
+  # Authentication Issues
+  # ═══════════════════════════════════════════════════════════════════
+  
+  - id: auth-bypass-empty-password
+    patterns:
+      - pattern-either:
+          - pattern: |
+              if ($USER === $INPUT && $PASS === "")
+          - pattern: |
+              authenticate($USER, "")
+    message: Empty password check allows auth bypass
+    languages: [javascript]
+    severity: HIGH
+
+  - id: jwt-secret-hardcoded
+    pattern-either:
+      - pattern: jwt.sign($PAYLOAD, "secret")
+      - patterns:
+          - pattern: jwt.sign($PAYLOAD, $SECRET)
+          - metavariable-regex:
+              metavariable: $SECRET
+              regex: "^(?i)['\"].*(secret|key|pass).*(['\"])$"
+    message: JWT signed with weak hardcoded secret
+    languages: [javascript, python]
+    severity: HIGH

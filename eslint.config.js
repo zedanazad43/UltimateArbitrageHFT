@@ -1,0 +1,116 @@
+import js from '@eslint/js';
+
+export default [
+  {
+    ignores: [
+      'node_modules/**',
+      '.wrangler/**',
+      'public/**',
+      'UltimateArbitrageHFT/**',
+      'money-transfer-project-template-java/**',
+       '.venv/**',
+       'hft/**',
+       'migrations/**',
+    ],
+  },
+  // Base rules for all JS files
+  {
+    files: ['**/*.{js,mjs,cjs}'],
+    rules: {
+      ...js.configs.recommended.rules,
+      'no-unused-vars': [
+        'error',
+        {
+          varsIgnorePattern: '^_',
+          argsIgnorePattern: '^_',
+          caughtErrors: 'all',
+          caughtErrorsIgnorePattern: '^_',
+        },
+      ],
+      'no-empty': ['error', { allowEmptyCatch: true }],
+    },
+    languageOptions: {
+      ecmaVersion: 2022,
+      sourceType: 'module',
+    },
+  },
+  // CommonJS files need commonjs sourceType
+  {
+    files: ['**/*.cjs'],
+    languageOptions: {
+      sourceType: 'commonjs',
+    },
+  },
+  // Node.js environment for scripts and temporal worker
+  {
+    files: [
+      '**/*.cjs',
+      'temporal-worker.js',
+      'scripts/**/*.js',
+      'src/ai-client.js',
+      'tests/**/*.js',
+      'test-ide-integration.js',
+    ],
+    languageOptions: {
+      globals: {
+        process: 'readonly',
+        __dirname: 'readonly',
+        __filename: 'readonly',
+        require: 'readonly',
+        module: 'readonly',
+        exports: 'readonly',
+        Buffer: 'readonly',
+        console: 'readonly',
+        URL: 'readonly',
+        URLSearchParams: 'readonly',
+        fetch: 'readonly',
+        TextEncoder: 'readonly',
+        TextDecoder: 'readonly',
+        crypto: 'readonly',
+      },
+    },
+  },
+  // Cloudflare Worker / browser environment for main files
+  {
+    files: ['index.js', 'src/**/*.js'],
+    languageOptions: {
+      globals: {
+        console: 'readonly',
+        fetch: 'readonly',
+        Request: 'readonly',
+        Response: 'readonly',
+        URL: 'readonly',
+        URLSearchParams: 'readonly',
+        TextEncoder: 'readonly',
+        TextDecoder: 'readonly',
+        crypto: 'readonly',
+        btoa: 'readonly',
+        atob: 'readonly',
+        setTimeout: 'readonly',
+          AbortController: 'readonly',
+          AbortSignal: 'readonly',
+        clearTimeout: 'readonly',
+        setInterval: 'readonly',
+        clearInterval: 'readonly',
+        Promise: 'readonly',
+        JSON: 'readonly',
+        Date: 'readonly',
+        Math: 'readonly',
+        parseInt: 'readonly',
+        parseFloat: 'readonly',
+        isNaN: 'readonly',
+        Boolean: 'readonly',
+        Number: 'readonly',
+        String: 'readonly',
+        Array: 'readonly',
+        Object: 'readonly',
+        Error: 'readonly',
+        Map: 'readonly',
+        Set: 'readonly',
+        Symbol: 'readonly',
+        Uint8Array: 'readonly',
+        ArrayBuffer: 'readonly',
+      },
+    },
+  },
+];

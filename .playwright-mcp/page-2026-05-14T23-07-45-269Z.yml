@@ -1,0 +1,441 @@
+- generic [ref=e1]:
+  - generic [ref=e2]:
+    - generic [ref=e3]:
+      - generic [ref=e4]: "تحديث تلقائي:"
+      - strong [ref=e5]: "9"
+      - text: ث |
+      - button "🔄 تحديث الآن" [ref=e6] [cursor=pointer]
+    - link "🔓 خروج" [ref=e7] [cursor=pointer]:
+      - /url: /logout
+  - heading "🔷 Nexus Arbitrage System — Control Center" [level=1] [ref=e8]
+  - generic [ref=e9]: "منظومة موحدة: CEX + DEX + Perps | آخر مسح: لم يتم المسح بعد"
+  - generic [ref=e10]:
+    - text: ⚠️ ADMIN_TOKEN غير مُهيَّأ — النظام يعمل الآن في
+    - strong [ref=e11]: وضع مفتوح
+    - text: "لتسهيل الإعداد. فعّل الحماية لاحقاً عبر:"
+    - code [ref=e12]: wrangler secret put ADMIN_TOKEN
+    - text: ثم أعد النشر.
+  - generic [ref=e13]:
+    - generic [ref=e14]:
+      - text: "الحالة:"
+      - strong [ref=e15]: ▶️ مفعّل
+    - generic [ref=e16]:
+      - text: "الوضع:"
+      - strong [ref=e17]: 🔴 LIVE
+    - generic [ref=e18]:
+      - text: "💎 رأس المال:"
+      - strong [ref=e19]: $1000.00
+    - generic [ref=e20]:
+      - text: "📈 إجمالي الأرباح:"
+      - strong [ref=e21]: $0.00
+    - generic [ref=e22]:
+      - text: "📊 ربح اليوم:"
+      - strong [ref=e23]: $0.00
+    - generic [ref=e24]:
+      - text: "⚡ رافعة:"
+      - strong [ref=e25]: 3x
+    - generic [ref=e26]:
+      - text: "🎯 صفقات اليوم:"
+      - strong [ref=e27]: "0"
+    - generic [ref=e28]:
+      - text: "📊 الإجمالي:"
+      - strong [ref=e29]: "0"
+  - heading "🔍 آخر فرص المسح — الاستراتيجيات الثلاث" [level=2] [ref=e30]
+  - generic [ref=e31]:
+    - generic [ref=e32]:
+      - generic [ref=e33]:
+        - text: 📊 CEX Arbitrage
+        - generic [ref=e34]: 0 صفقة
+        - generic [ref=e35]: $0.00
+      - generic [ref=e36]: لا توجد فرصة في آخر مسح
+    - generic [ref=e37]:
+      - generic [ref=e38]:
+        - text: 🌐 DEX Cross-Chain
+        - generic [ref=e39]: 0 صفقة
+        - generic [ref=e40]: $0.00
+      - generic [ref=e41]: لا توجد فرصة في آخر مسح
+    - generic [ref=e42]:
+      - generic [ref=e43]:
+        - text: ⚡ Perps Arbitrage
+        - generic [ref=e44]: 0 صفقة
+        - generic [ref=e45]: $0.00
+      - generic [ref=e46]: لا توجد فرصة في آخر مسح
+    - generic [ref=e47]:
+      - generic [ref=e48]:
+        - text: 🔺 Triangular Arb
+        - generic [ref=e49]: 0 صفقة
+        - generic [ref=e50]: $0.00
+      - generic [ref=e51]: لا توجد فرصة في آخر مسح
+    - generic [ref=e52]:
+      - generic [ref=e53]:
+        - text: 📐 Statistical Arb
+        - generic [ref=e54]: 0 صفقة
+        - generic [ref=e55]: $0.00
+      - generic [ref=e56]: لا توجد فرصة في آخر مسح
+  - generic [ref=e57]:
+    - heading "⚡ تحكم سريع" [level=2] [ref=e58]
+    - button "▶️ تشغيل" [ref=e59] [cursor=pointer]
+    - button "⏸️ إيقاف" [ref=e60] [cursor=pointer]
+    - button "🔍 مسح فوري" [ref=e61] [cursor=pointer]
+    - button "🔄 تحديث" [ref=e62] [cursor=pointer]
+    - button "✅ قائمة التشغيل" [ref=e63] [cursor=pointer]
+    - button "🔄 إعادة تعيين اليوم" [ref=e64] [cursor=pointer]
+  - generic [ref=e65]:
+    - heading "🎛️ إعدادات التشغيل" [level=2] [ref=e66]
+    - generic [ref=e67]:
+      - strong [ref=e68]: "وضع التداول:"
+      - button "📄 Paper" [ref=e69] [cursor=pointer]
+      - button "🔴 Live" [ref=e70] [cursor=pointer]
+      - text: 🔴 LIVE
+    - generic [ref=e71]:
+      - generic [ref=e72]:
+        - generic [ref=e73]: أقصى خسارة يومية ($)
+        - spinbutton [ref=e74]: "100"
+      - generic [ref=e75]:
+        - generic [ref=e76]: أقصى خسارة للصفقة (%)
+        - spinbutton [ref=e77]: "0.02"
+      - generic [ref=e78]:
+        - generic [ref=e79]: فاصل بين الصفقات (ثانية)
+        - spinbutton [ref=e80]: "3"
+      - generic [ref=e81]:
+        - generic [ref=e82]: رأس المال الابتدائي ($)
+        - spinbutton [ref=e83]: "1000"
+      - generic [ref=e84]:
+        - generic [ref=e85]: تعدد الاستراتيجيات (LIVE)
+        - generic [ref=e86]:
+          - checkbox "تنفيذ أكثر من استراتيجية في نفس دورة المسح" [checked] [ref=e87]
+          - text: تنفيذ أكثر من استراتيجية في نفس دورة المسح
+      - generic [ref=e88]:
+        - generic [ref=e89]: أقصى صفقات لكل دورة LIVE
+        - spinbutton [ref=e90]: "5"
+    - button "💾 حفظ الإعدادات" [ref=e92] [cursor=pointer]
+  - generic [ref=e93]:
+    - heading "🧠 تفعيل الاستراتيجيات" [level=2] [ref=e94]
+    - generic [ref=e95]: فعّل/عطّل كل استراتيجية مباشرة من الواجهة. يتم حفظ الإعدادات في حالة البوت.
+    - generic [ref=e96]:
+      - generic [ref=e97]:
+        - checkbox "CEX Arbitrage" [checked] [ref=e98]
+        - text: CEX Arbitrage
+      - generic [ref=e99]:
+        - checkbox "DEX Cross-Chain" [checked] [ref=e100]
+        - text: DEX Cross-Chain
+      - generic [ref=e101]:
+        - checkbox "Perps Arbitrage" [checked] [ref=e102]
+        - text: Perps Arbitrage
+      - generic [ref=e103]:
+        - checkbox "Funding Rate" [checked] [ref=e104]
+        - text: Funding Rate
+      - generic [ref=e105]:
+        - checkbox "Triangular" [checked] [ref=e106]
+        - text: Triangular
+      - generic [ref=e107]:
+        - checkbox "Statistical" [checked] [ref=e108]
+        - text: Statistical
+    - button "💾 حفظ إعدادات الاستراتيجيات" [ref=e110] [cursor=pointer]
+  - generic [ref=e111]:
+    - generic [ref=e112]:
+      - generic [ref=e113]: رأس المال الفعلي
+      - generic [ref=e114]: $1000.00
+    - generic [ref=e115]:
+      - generic [ref=e116]: إجمالي الأرباح
+      - generic [ref=e117]: $0.00
+    - generic [ref=e118]:
+      - generic [ref=e119]: CEX — P&L
+      - generic [ref=e120]: $0.00
+    - generic [ref=e121]:
+      - generic [ref=e122]: DEX — P&L
+      - generic [ref=e123]: $0.00
+    - generic [ref=e124]:
+      - generic [ref=e125]: Perps — P&L
+      - generic [ref=e126]: $0.00
+    - generic [ref=e127]:
+      - generic [ref=e128]: Triangular — P&L
+      - generic [ref=e129]: $0.00
+    - generic [ref=e130]:
+      - generic [ref=e131]: Statistical — P&L
+      - generic [ref=e132]: $0.00
+    - generic [ref=e133]:
+      - generic [ref=e134]: إجمالي الصفقات
+      - generic [ref=e135]: "0"
+  - heading "📈 مقاييس الأداء" [level=2] [ref=e136]
+  - generic [ref=e137]:
+    - generic [ref=e138]:
+      - generic [ref=e139]: نسبة الربح (Win Rate)
+      - generic [ref=e140]: 0.0%
+      - generic [ref=e141]: 0 ربح / 0 خسارة
+    - generic [ref=e142]:
+      - generic [ref=e143]: أقصى تراجع (Max Drawdown)
+      - generic [ref=e144]: $0.00
+    - generic [ref=e145]:
+      - generic [ref=e146]: أفضل صفقة
+      - generic [ref=e147]: $0.00
+    - generic [ref=e148]:
+      - generic [ref=e149]: أسوأ صفقة
+      - generic [ref=e150]: $0.00
+    - generic [ref=e151]:
+      - generic [ref=e152]: Sharpe Ratio
+      - generic [ref=e153]: "0.00"
+    - generic [ref=e154]:
+      - generic [ref=e155]: Sortino Ratio
+      - generic [ref=e156]: "0.00"
+    - generic [ref=e157]:
+      - generic [ref=e158]: Profit Factor
+      - generic [ref=e159]: —
+    - generic [ref=e160]:
+      - generic [ref=e161]: Expectancy ($)
+      - generic [ref=e162]: $0.000
+    - generic [ref=e163]:
+      - generic [ref=e164]: تصدير البيانات
+      - generic [ref=e165]:
+        - link "⬇️ تحميل CSV (الكل)" [ref=e166] [cursor=pointer]:
+          - /url: /api/export
+        - link "📊 تقرير JSON" [ref=e167] [cursor=pointer]:
+          - /url: /api/report
+  - generic [ref=e168]:
+    - heading "🔬 اختبار الأداء السابق (Backtest)" [level=2] [ref=e169]
+    - generic [ref=e170]:
+      - generic [ref=e171]:
+        - generic [ref=e172]: رأس المال الابتدائي ($)
+        - spinbutton [ref=e173]: "1000"
+      - generic [ref=e174]:
+        - generic [ref=e175]: نسبة الحجم من رأس المال
+        - spinbutton [ref=e176]: "0.10"
+      - generic [ref=e177]:
+        - generic [ref=e178]: الحد الأدنى لصافي الربح (%)
+        - spinbutton [ref=e179]: "0"
+      - generic [ref=e180]:
+        - generic [ref=e181]: فترة (أيام)
+        - spinbutton [ref=e182]: "30"
+    - button "🔬 تشغيل Backtest" [active] [ref=e183] [cursor=pointer]
+    - button "📋 تاريخ الاختبارات" [ref=e184] [cursor=pointer]
+    - generic [ref=e382]:
+      - generic [ref=e383]:
+        - generic [ref=e384]:
+          - generic [ref=e385]: العائد
+          - generic [ref=e386]: 0.00%
+        - generic [ref=e387]:
+          - generic [ref=e388]: رأس المال النهائي
+          - generic [ref=e389]: $1000.00
+        - generic [ref=e390]:
+          - generic [ref=e391]: الصفقات
+          - generic [ref=e392]: "0"
+        - generic [ref=e393]:
+          - generic [ref=e394]: Win Rate
+          - generic [ref=e395]: 0.0%
+        - generic [ref=e396]:
+          - generic [ref=e397]: Sharpe
+          - generic [ref=e398]: "0.00"
+        - generic [ref=e399]:
+          - generic [ref=e400]: Sortino
+          - generic [ref=e401]: "0.00"
+        - generic [ref=e402]:
+          - generic [ref=e403]: Max Drawdown
+          - generic [ref=e404]: $0.00
+        - generic [ref=e405]:
+          - generic [ref=e406]: Profit Factor
+          - generic [ref=e407]: "0.00"
+      - generic [ref=e408]: "🎲 Monte Carlo (500 simulations) — P5: $0.00 | P50: $0.00 | P95: $0.00"
+  - generic [ref=e189]:
+    - heading "💰 أرصدة المنصات (USDT)" [level=2] [ref=e190]
+    - generic [ref=e191]:
+      - generic [ref=e192]:
+        - text: ⚠️
+        - strong [ref=e193]: لا توجد مفاتيح API مُعيَّنة — لن تعمل الصفقات الحقيقية.
+        - text: "أضف أسرار المنصات باستخدام:"
+        - code [ref=e194]: wrangler secret put MEXC_API_KEY
+        - text: (وهكذا لكل مفتاح).
+        - text: راجع
+        - link "قائمة الإعداد" [ref=e195] [cursor=pointer]:
+          - /url: /checklist
+        - text: لمزيد من التفاصيل.
+      - generic [ref=e196]:
+        - generic [ref=e197]: MEXC
+        - generic [ref=e198]: غير مُهيأ
+        - generic [ref=e199]: "🔑 أضف: MEXC_API_KEY, MEXC_API_SECRET"
+      - generic [ref=e200]:
+        - generic [ref=e201]: BINANCE
+        - generic [ref=e202]: غير مُهيأ
+        - generic [ref=e203]: "🔑 أضف: BINANCE_API_KEY, BINANCE_API_SECRET"
+      - generic [ref=e204]:
+        - generic [ref=e205]: KUCOIN
+        - generic [ref=e206]: غير مُهيأ
+        - generic [ref=e207]: "🔑 أضف: KUCOIN_API_KEY, KUCOIN_SECRET_KEY (or KUCOIN_API_SECRET), KUCOIN_PASSPHRASE"
+      - generic [ref=e208]:
+        - generic [ref=e209]: OKX
+        - generic [ref=e210]: غير مُهيأ
+        - generic [ref=e211]: "🔑 أضف: OKX_API_KEY, OKX_API_SECRET, OKX_PASSPHRASE"
+      - generic [ref=e212]:
+        - generic [ref=e213]: BITGET
+        - generic [ref=e214]: غير مُهيأ
+        - generic [ref=e215]: "🔑 أضف: BITGET_API_KEY, BITGET_SECRET_KEY (or BITGET_API_SECRET), BITGET_API_PASSPHRASE"
+      - generic [ref=e216]:
+        - generic [ref=e217]: BITMART
+        - generic [ref=e218]: غير مُهيأ
+        - generic [ref=e219]: "🔑 أضف: BITMART_API_KEY, BITMART_SECRET_KEY (or BITMART_API_SECRET), BITMART_MEMO"
+      - generic [ref=e220]:
+        - generic [ref=e221]: HTX
+        - generic [ref=e222]: غير مُهيأ
+        - generic [ref=e223]: "🔑 أضف: HTX_API_KEY, HTX_API_SECRET"
+      - generic [ref=e224]:
+        - generic [ref=e225]: BYBIT
+        - generic [ref=e226]: German law — data feed only
+      - generic [ref=e227]:
+        - generic [ref=e228]: GATEIO
+        - generic [ref=e229]: German law — data feed only
+  - generic [ref=e230]:
+    - heading "🔌 حالة Circuit Breaker — المنصات الفعّالة" [level=2] [ref=e231]
+    - generic [ref=e232]: "⚠️ Gate.io و Bybit: مصادر أسعار فقط (القانون الألماني — لا تنفيذ حقيقي)"
+    - generic [ref=e233]:
+      - generic [ref=e234]:
+        - generic [ref=e235]: MEXC
+        - generic [ref=e236]: ✅ سليم
+      - generic [ref=e237]:
+        - generic [ref=e238]: MEXC_PERP
+        - generic [ref=e239]: ✅ سليم
+      - generic [ref=e240]:
+        - generic [ref=e241]: BINANCE_PERP
+        - generic [ref=e242]: ✅ سليم (feed)
+      - generic [ref=e243]:
+        - generic [ref=e244]: OKX_PERP
+        - generic [ref=e245]: ✅ سليم (feed)
+      - generic [ref=e246]:
+        - generic [ref=e247]: BINANCE
+        - generic [ref=e248]: ✅ سليم
+      - generic [ref=e249]:
+        - generic [ref=e250]: KUCOIN
+        - generic [ref=e251]: ✅ سليم
+      - generic [ref=e252]:
+        - generic [ref=e253]: OKX
+        - generic [ref=e254]: ✅ سليم
+      - generic [ref=e255]:
+        - generic [ref=e256]: BITGET
+        - generic [ref=e257]: ✅ سليم
+      - generic [ref=e258]:
+        - generic [ref=e259]: BITMART
+        - generic [ref=e260]: ✅ سليم
+      - generic [ref=e261]:
+        - generic [ref=e262]: HTX
+        - generic [ref=e263]: ✅ سليم
+      - generic [ref=e264]:
+        - generic [ref=e265]: BYBIT
+        - generic [ref=e266]: 📊 بيانات فقط
+      - generic [ref=e267]:
+        - generic [ref=e268]: GATEIO
+        - generic [ref=e269]: 📊 بيانات فقط
+      - generic [ref=e270]:
+        - generic [ref=e271]: BYBIT_PERP
+        - generic [ref=e272]: 📊 بيانات فقط
+  - generic [ref=e273]:
+    - heading "⚡ حالة Perps — العقود الدائمة" [level=2] [ref=e274]
+    - generic [ref=e275]: "مصادر أسعار Perps: MEXC Futures (تنفيذ) + Binance USDM + OKX Swap + Bybit (بيانات فقط). يتم التنفيذ الحقيقي عبر MEXC Futures أو Spot Hedge في حالة عدم توفر MEXC Futures."
+    - generic [ref=e276]:
+      - generic [ref=e363]: "⚠️ MEXC Futures: أضف MEXC_API_KEY و MEXC_API_SECRET"
+      - generic [ref=e364]: MEXC credentials missing — perps will run as spot hedge on best available exchange
+      - generic [ref=e365]:
+        - generic [ref=e366]:
+          - generic [ref=e367]: MEXC_PERP
+          - generic [ref=e368]: ✅ نشط
+        - generic [ref=e369]:
+          - generic [ref=e370]: BINANCE_PERP
+          - generic [ref=e371]: ✅ نشط
+        - generic [ref=e372]:
+          - generic [ref=e373]: OKX_PERP
+          - generic [ref=e374]: ✅ نشط
+        - generic [ref=e375]:
+          - generic [ref=e376]: BYBIT_PERP
+          - generic [ref=e377]: ✅ نشط
+      - generic [ref=e378]: لا توجد فرصة perp في آخر مسح
+  - generic [ref=e278]:
+    - heading "🦊 MetaMask — عقود Perps على السلسلة" [level=2] [ref=e279]
+    - generic [ref=e280]: ربط MetaMask لتنفيذ عقود Perps اللامركزية (GMX, dYdX v4) على السلسلة مباشرةً من المتصفح. لا يُرسَل مفتاحك الخاص للسيرفر.
+    - button "🦊 ربط MetaMask" [ref=e282] [cursor=pointer]
+  - generic [ref=e283]:
+    - heading "🤖 تحليل الفرصة بالذكاء الاصطناعي" [level=2] [ref=e284]
+    - generic [ref=e285]: أدخل بيانات الفرصة وسيحللها نموذج الذكاء الاصطناعي ويعطيك توصية فورية.
+    - generic [ref=e286]:
+      - generic [ref=e287]:
+        - generic [ref=e288]: الزوج (Symbol)
+        - textbox "BTC/USDT" [ref=e289]
+      - generic [ref=e290]:
+        - generic [ref=e291]: الاستراتيجية
+        - combobox [ref=e292]:
+          - option "CEX" [selected]
+          - option "DEX"
+          - option "Perps"
+          - option "Triangular"
+          - option "Statistical"
+      - generic [ref=e293]:
+        - generic [ref=e294]: الاتجاه
+        - textbox "buy_mexc_sell_binance" [ref=e295]
+      - generic [ref=e296]:
+        - generic [ref=e297]: سعر الشراء ($)
+        - spinbutton [ref=e298]
+      - generic [ref=e299]:
+        - generic [ref=e300]: سعر البيع ($)
+        - spinbutton [ref=e301]
+      - generic [ref=e302]:
+        - generic [ref=e303]: صافي الربح (%)
+        - spinbutton [ref=e304]
+    - button "🤖 تحليل بالذكاء الاصطناعي" [ref=e305] [cursor=pointer]
+  - generic [ref=e306]:
+    - heading "⏱️ Temporal — جلسة التداول المستدامة" [level=2] [ref=e307]
+    - generic [ref=e308]:
+      - text: Temporal يضمن استمرار جلسة التداول حتى في حالة إعادة تشغيل الـ Worker. يتطلب تهيئة
+      - code [ref=e309]: TEMPORAL_API_KEY
+      - text: .
+    - generic [ref=e310]:
+      - button "▶️ تشغيل Temporal" [ref=e311] [cursor=pointer]
+      - button "⏸️ إيقاف ناعم" [ref=e312] [cursor=pointer]
+      - button "🛑 إنهاء فوري" [ref=e313] [cursor=pointer]
+      - button "📊 الحالة" [ref=e314] [cursor=pointer]
+      - button "📄 Paper" [ref=e315] [cursor=pointer]
+      - button "🔴 Live" [ref=e316] [cursor=pointer]
+  - generic [ref=e317]:
+    - heading "🔌 التكاملات التنفيذية الأربعة" [level=2] [ref=e318]
+    - generic [ref=e319]: Hummingbot + Freqtrade + CrewAI + AutoGPT
+    - generic [ref=e320]:
+      - button "📊 الحالة" [ref=e321] [cursor=pointer]
+      - button "▶️ Hummingbot" [ref=e322] [cursor=pointer]
+      - button "▶️ Freqtrade" [ref=e323] [cursor=pointer]
+      - button "▶️ CrewAI" [ref=e324] [cursor=pointer]
+      - button "▶️ AutoGPT" [ref=e325] [cursor=pointer]
+      - button "🚀 تشغيل الأربعة معًا" [ref=e326] [cursor=pointer]
+    - generic [ref=e327]: ⚠️ HUMMINGBOT | configured=no | status=غير مفحوص ⚠️ FREQTRADE | configured=no | status=غير مفحوص ⚠️ CREWAI | configured=no | status=غير مفحوص ⚠️ AUTOGPT | configured=no | status=غير مفحوص
+  - generic [ref=e328]:
+    - heading "🗄️ أرشيف ملفات السجلات (R2)" [level=2] [ref=e329]
+    - button "📂 تحميل قائمة الأرشيف" [ref=e330] [cursor=pointer]
+  - generic [ref=e331]:
+    - heading "🔗 مزامنة الواجهة مع API" [level=2] [ref=e332]
+    - generic [ref=e333]: ✅ الواجهة متصلة بنقاط API الخلفية.
+    - generic [ref=e334]:
+      - generic [ref=e335]:
+        - generic [ref=e336]: /api/status
+        - generic [ref=e337]:
+          - text: "الحالة:"
+          - strong [ref=e379]: ▶️ مفعّل
+          - text: "الوضع: Live"
+      - generic [ref=e338]:
+        - generic [ref=e339]: /api/trades
+        - generic [ref=e340]: 0 صفقة (آخر تحديث)
+      - generic [ref=e341]:
+        - generic [ref=e342]: /api/pnl
+        - generic [ref=e343]: 3 استراتيجيات
+      - generic [ref=e344]:
+        - generic [ref=e345]: /api/report
+        - generic [ref=e346]: WinRate 0.0% | PF —
+      - generic [ref=e347]:
+        - generic [ref=e348]: /api/logs
+        - generic [ref=e349]: 0 ملف
+  - heading "📊 آخر الصفقات" [level=2] [ref=e350]
+  - table [ref=e351]:
+    - rowgroup [ref=e352]:
+      - row "الوضع الاستراتيجية الاتجاه الحجم (USD) الربح الوقت" [ref=e353]:
+        - columnheader "الوضع" [ref=e354]
+        - columnheader "الاستراتيجية" [ref=e355]
+        - columnheader "الاتجاه" [ref=e356]
+        - columnheader "الحجم (USD)" [ref=e357]
+        - columnheader "الربح" [ref=e358]
+        - columnheader "الوقت" [ref=e359]
+    - rowgroup [ref=e360]:
+      - row "لا توجد صفقات مسجّلة" [ref=e380]:
+        - cell "لا توجد صفقات مسجّلة" [ref=e381]

@@ -1,0 +1,122 @@
+name: Node.js CI
+
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+    branches: ["main"]
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  test:
+    name: Verify on node ${{ matrix.node_version }} and ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        node_version: [24]
+        os: [ubuntu-latest, windows-latest]
+
+    steps:
+    - uses: actions/checkout@v5
+    - name: Use Node.js ${{ matrix.node_version }}
+      uses: actions/setup-node@v6
+      with:
+        node-version: ${{ matrix.node_version }}
+        cache: npm
+
+    - name: Install dependencies
+      run: npm ci
+      env:
+        FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+    - name: Verify production baseline (lint + tests + dry-run build)
+      run: npm run verify:prod
+      if: matrix.os == 'ubuntu-latest'
+      env:
+        CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+
+    - name: Lint (Windows parity)
+      if: matrix.os == 'windows-latest'
+      run: npm run lint
+
+    - name: Test (Windows parity)
+      if: matrix.os == 'windows-latest'
+      run: npm run test:all
+
+    - name: Check hardcoded secrets
+      run: npm run check:secrets
+
+  go-lint:
+    name: Go lint (hft)
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v5
+
+    - name: Setup Go
+      uses: actions/setup-go@v5
+      with:
+        go-version-file: hft/go.mod
+        cache-dependency-path: hft/go.sum
+
+    - name: Go vet (hft)
+      run: |
+        cd hft
+        go vet ./...
+
+    - name: Go test (hft)
+      run: |
+        cd hft
+        go test ./...
+
+    - name: Go coverage report (hft)
+      run: |
+        cd hft
+        go test ./... -coverprofile=coverage.out
+        total_line=$(go tool cover -func=coverage.out | tail -n1)
+        echo "$total_line"
+        total_pct=$(echo "$total_line" | awk '{print $3}' | tr -d '%')
+        echo "GO_COVERAGE_TOTAL=$total_pct" >> "$GITHUB_ENV"
+
+    - name: Enforce Go coverage baseline (hft)
+      run: |
+        awk -v total="$GO_COVERAGE_TOTAL" -v min="4.5" 'BEGIN {
+          if (total + 0 < min + 0) {
+            printf("Go coverage gate failed: total %.2f%% is below %.2f%%\n", total, min)
+            exit 1
+          }
+          printf("Go coverage gate passed: total %.2f%% (min %.2f%%)\n", total, min)
+        }'
+
+    - name: Upload Go coverage artifact
+      uses: actions/upload-artifact@v5
+      with:
+        name: hft-go-coverage
+        path: hft/coverage.out
+        if-no-files-found: error
+
+    - name: Check go.mod/go.sum drift (hft)
+      run: |
+        cd hft
+        go mod tidy
+        git diff --exit-code -- go.mod go.sum
+
+    - name: Install govulncheck
+      run: |
+        cd hft
+        go install golang.org/x/vuln/cmd/govulncheck@latest
+
+    - name: Govulncheck (non-blocking rollout)
+      continue-on-error: true
+      run: |
+        cd hft
+        govulncheck ./...
+
+    - name: Run golangci-lint
+      uses: golangci/golangci-lint-action@v8
+      with:
+        version: v2.12.2
+        working-directory: hft

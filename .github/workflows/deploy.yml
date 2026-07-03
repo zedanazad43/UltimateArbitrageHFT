@@ -1,0 +1,167 @@
+name: Deploy Worker
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    name: Deploy
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run full test suite
+        run: npm run test:all
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v5
+        with:
+          name: worker-build
+          path: |
+            index.js
+            src/
+            migrations/
+            wrangler.toml
+            package.json
+          if-no-files-found: error
+          retention-days: 7
+          compression-level: 6
+          overwrite: true
+          include-hidden-files: false
+    
+
+      - name: Deploy Worker
+        # Retry up to 3 times: Cloudflare's Workers API occasionally returns transient
+        # 10500 errors. If the token correctly has "Account > Workers Scripts > Edit"
+        # permission and retries still fail, check the token permissions/IP filtering
+        # using the guidance printed by the "Verify Cloudflare credentials" step above.
+        run: |
+          for attempt in 1 2 3; do
+            echo "--- Deploy attempt $attempt of 3 ---"
+            if npx --yes wrangler@4 deploy; then
+              echo "✅ Worker deployed successfully on attempt $attempt"
+              exit 0
+            fi
+            if [ $attempt -lt 3 ]; then
+              echo "⚠️ Deploy failed, waiting 15s before retry..."
+              sleep 15
+            fi
+          done
+          echo "::error::Worker deployment failed after 3 attempts."
+          echo "::error::Verify the CLOUDFLARE_API_TOKEN has 'Account > Workers Scripts > Edit' permission"
+          echo "::error::and no 'Client IP Address Filtering' restriction."
+          exit 1
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+
+      - name: Upload secrets to Cloudflare Worker
+        run: |
+          python3 - <<'PYEOF'
+          import json, os
+          keys = [
+            "MEXC_API_KEY", "MEXC_API_SECRET",
+            "BINANCE_API_KEY", "BINANCE_API_SECRET",
+            "OKX_API_KEY", "OKX_API_SECRET", "OKX_PASSPHRASE",
+            "KUCOIN_API_KEY", "KUCOIN_SECRET_KEY", "KUCOIN_PASSPHRASE",
+            "COINBASE_API_KEY", "COINBASE_SECRET_KEY",
+            "BITGET_API_KEY", "BITGET_SECRET_KEY", "BITGET_API_PASSPHRASE",
+            "BITMART_API_KEY", "BITMART_SECRET_KEY", "BITMART_MEMO",
+            "BYBIT_API_KEY", "BYBIT_API_SECRET",
+            "GATEIO_API_KEY", "GATEIO_API_SECRET",
+            "HTX_API_KEY", "HTX_API_SECRET",
+            "ZEROX_API_KEY", "ALCHEMY_API_KEY",
+            "TELEGRAM_BOT_TOKEN", "TELEGRAM_CHAT_ID",
+            "ADMIN_TOKEN",
+            "GITHUB_TOKEN",
+            "HFT_ENGINE_SECRET",
+            "TEMPORAL_API_KEY",
+          ]
+          secrets = {k: os.environ[k] for k in keys if os.environ.get(k)}
+          fd = os.open("/tmp/cf_secrets.json", os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+          with os.fdopen(fd, "w") as f:
+            json.dump(secrets, f)
+          PYEOF
+          npx --yes wrangler@4 secret bulk /tmp/cf_secrets.json
+          rm /tmp/cf_secrets.json
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          MEXC_API_KEY: ${{ secrets.MEXC_API_KEY }}
+          MEXC_API_SECRET: ${{ secrets.MEXC_API_SECRET }}
+          BINANCE_API_KEY: ${{ secrets.BINANCE_API_KEY }}
+          BINANCE_API_SECRET: ${{ secrets.BINANCE_API_SECRET }}
+          OKX_API_KEY: ${{ secrets.OKX_API_KEY }}
+          OKX_API_SECRET: ${{ secrets.OKX_API_SECRET }}
+          OKX_PASSPHRASE: ${{ secrets.OKX_PASSPHRASE }}
+          KUCOIN_API_KEY: ${{ secrets.KUCOIN_API_KEY }}
+          KUCOIN_SECRET_KEY: ${{ secrets.KUCOIN_SECRET_KEY }}
+          KUCOIN_PASSPHRASE: ${{ secrets.KUCOIN_PASSPHRASE }}
+          COINBASE_API_KEY: ${{ secrets.COINBASE_API_KEY }}
+          COINBASE_SECRET_KEY: ${{ secrets.COINBASE_SECRET_KEY }}
+          BITGET_API_KEY: ${{ secrets.BITGET_API_KEY }}
+          BITGET_SECRET_KEY: ${{ secrets.BITGET_SECRET_KEY }}
+          BITGET_API_PASSPHRASE: ${{ secrets.BITGET_API_PASSPHRASE }}
+          BITMART_API_KEY: ${{ secrets.BITMART_API_KEY }}
+          BITMART_SECRET_KEY: ${{ secrets.BITMART_SECRET_KEY }}
+          BITMART_MEMO: ${{ secrets.BITMART_MEMO }}
+          ZEROX_API_KEY: ${{ secrets.ZEROX_API_KEY }}
+          ALCHEMY_API_KEY: ${{ secrets.ALCHEMY_API_KEY }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          ADMIN_TOKEN: ${{ secrets.ADMIN_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TEMPORAL_API_KEY: ${{ secrets.TEMPORAL_API_KEY }}
+
+      - name: Post-deploy endpoint smoke test
+        id: smoke_test
+        run: |
+          chmod +x ./scripts/verify-production-endpoints.sh
+          ADMIN_TOKEN="${ADMIN_TOKEN}" ./scripts/verify-production-endpoints.sh
+        env:
+          ADMIN_TOKEN: ${{ secrets.ADMIN_TOKEN }}
+
+      - name: Telegram alert on smoke test failure
+        if: ${{ failure() && steps.smoke_test.outcome == 'failure' }}
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          SHA: ${{ github.sha }}
+          BRANCH: ${{ github.ref_name }}
+        run: |
+          if [ -z "$TELEGRAM_BOT_TOKEN" ] || [ -z "$TELEGRAM_CHAT_ID" ]; then
+            echo "Telegram secrets are not set; skipping alert."
+            exit 0
+          fi
+
+          short_sha=$(echo "$SHA" | cut -c1-7)
+          text=$(printf 'Smoke test failed after deploy%%0AWorkflow: Deploy Worker%%0ABranch: %s%%0ASHA: %s%%0ARun: %s' "$BRANCH" "$short_sha" "$RUN_URL")
+
+          curl -fsS -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
+            -d "chat_id=${TELEGRAM_CHAT_ID}" \
+            -d "text=${text}" \
+            -d "disable_web_page_preview=true"
+
+      - name: Deployment summary
+        run: |
+          echo "✅ Deployment complete"
+          echo "   Worker  : ultimatearbitragehft"
+          echo "   Mode    : unchanged (manual switch required)"
+          echo "   Cron    : every minute"
+          echo "   Monitor : Telegram bot or Worker dashboard"

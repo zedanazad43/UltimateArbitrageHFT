@@ -1,0 +1,41 @@
+# Cloudflare Wrangler
+.wrangler/
+.dev.vars
+
+# API Keys – NEVER commit real keys
+api_keys.txt
+upload-secrets.ps1
+*MEXC_API_KEY*
+*_API_KEY=*.txt
+*_API_SECRET=*.txt
+
+# Local artifacts / Windows file listings
+local_filelist.txt
+finalize_project.ps1
+مستند نصي جديد.txt
+
+# Node
+node_modules/
+npm-debug.log*
+
+# OS
+.DS_Store
+Thumbs.db
+.env
+*.env
+*.secret*
+*.bak
+secrets.env
+node_modules
+.vscode
+UltimateArbitrageHFT
+money-transfer-project-template-java
+*.log
+coverage
+*.local
+*.cache
+*.secret
+.ai-code-tracker.json
+metrics.json
+strategy-evaluation.json
+test-exchanges.js
