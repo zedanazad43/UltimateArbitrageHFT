@@ -7,13 +7,13 @@
 
 # Dependencies
 node_modules
-package-lock.json
-yarn.lock
+
+
 pnpm-lock.yaml
 .pnpm-store
 
 # Go
-hft/go.sum
+
 vendor
 
 # Environment & secrets (CRITICAL: never include in image)

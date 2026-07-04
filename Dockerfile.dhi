@@ -15,20 +15,13 @@ COPY package.json package-lock.json ./
 
 # Install production dependencies only
 RUN npm ci --only=production && \
-    # Prune optional dependencies to reduce size
     npm prune --production
 
 # ── Runtime stage: Hardened Alpine runtime ────────────────────────────────────────
-# Minimal base image with security hardening:
-# - Alpine Linux: minimal attack surface
-# - Non-root user (1000:1000 standard unprivileged uid/gid)
-# - Read-only filesystem capability
-# - No unnecessary capabilities
 FROM alpine:3.20
 
-# Install runtime dependencies only (Node.js + dumb-init for signal handling)
-RUN apk add --no-cache nodejs dumb-init && \
-    # Create non-root appuser for security hardening
+# Install runtime dependencies only
+RUN apk add --no-cache nodejs && \
     addgroup -g 1000 appuser && \
     adduser -D -u 1000 -G appuser appuser
 
@@ -54,9 +47,6 @@ EXPOSE 8787
 # Health check: probe the /health endpoint (public, no auth required)
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
   CMD wget --quiet --tries=1 -O- http://localhost:8787/health || exit 1
-
-# Use dumb-init to properly handle signals (PID 1 problem)
-ENTRYPOINT ["/sbin/dumb-init", "--"]
 
 # Run Node.js with additional security flags
 CMD ["node", "--enable-source-maps", "index.js"]

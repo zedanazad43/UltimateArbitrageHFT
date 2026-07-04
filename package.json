@@ -1,4 +1,5 @@
 {
+    "type": "module",
     "main": "index.js",
     "name": "ultimatearbitragehft",
     "version": "1.0.0",

@@ -126,3 +126,4 @@ volumes:
 networks:
   arbitrage:
     driver: bridge
+
