@@ -1,9 +1,0 @@
-M	.github/workflows/deploy.yml
-M	.github/workflows/dlp-monitoring.yml
-M	.github/workflows/production-smoke-alert-test.yml
-M	.github/workflows/symbol-catalog-monitor.yml
-M	index.js
-M	scripts/check-symbol-catalog.js
-M	scripts/verify-production-endpoints.sh
-M	src/data/bitget-symbols-fallback.js
-M	tests/security-auth.test.js
