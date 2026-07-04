@@ -1,5 +1,10 @@
 {
-    "build":  {
-                  "builder":  "NIXPACKS"
-              }
+    "build": {
+        "builder": "DOCKERFILE",
+        "dockerfile": "Dockerfile.railway"
+    },
+    "deploy": {
+        "startCommand": "node --enable-source-maps index.js",
+        "restartPolicyMaxRetries": 5
+    }
 }
