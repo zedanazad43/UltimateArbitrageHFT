@@ -39,3 +39,4 @@ coverage
 metrics.json
 strategy-evaluation.json
 test-exchanges.js
+.env.dhi
