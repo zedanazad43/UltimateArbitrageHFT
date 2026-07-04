@@ -34,7 +34,7 @@ function shouldSkipFile(filePath) {
 }
 
 function isClearlyMockValue(line) {
-  return /secret-token|dummy|mock|example|test-only|sample|alias-secret/i.test(line);
+  return /secret-token|dummy|mock|example|test-only|sample|alias-secret|YOUR_/i.test(line);
 }
 
 function walk(dir, out = []) {
