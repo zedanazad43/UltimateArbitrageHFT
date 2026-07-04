@@ -1,0 +1,17 @@
+{
+  "pages": {
+    "projectName": "ultimate-arbitrage-hft",
+    "productionBranch": "main",
+    "buildCommand": "npm run build",
+    "buildOutputDirectory": "dist",
+    "environment": {
+      "production": {
+        "vars": {
+          "NODE_ENV": "production",
+          "PAPER_TRADING": "true"
+        }
+      }
+    },
+    "compatibility_date": "2024-01-01"
+  }
+}
