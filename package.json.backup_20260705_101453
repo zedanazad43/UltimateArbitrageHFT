@@ -1,0 +1,15 @@
+{
+    "type": "module",
+    "main": "index.js",
+    "name": "ultimatearbitragehft",
+    "version": "1.0.0",
+    "dependencies": {
+        "body-parser": "*",
+        "dotenv": "*",
+        "express": "*",
+        "hono": "^4.12.27"
+    },
+    "scripts": {
+        "start": "node index.js"
+    }
+}
