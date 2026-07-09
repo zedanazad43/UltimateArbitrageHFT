@@ -45,3 +45,9 @@ api_keys.txt
 .env.dhi
 test_reports/
 .archive/
+
+# Sensitive local configs
+api_keys.txt
+.env.docker
+.env.dhi
+UltimateArbitrageHFT/api_keys.txt
