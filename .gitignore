@@ -60,3 +60,8 @@ UltimateArbitrageHFT/.ai-code-tracker.json.tmp
 
 # removed plaintext secret (keep out of repo)
 api_keys.ini
+
+# build/bytecode artifacts
+__pycache__/
+*.pyc
+*.pyo
