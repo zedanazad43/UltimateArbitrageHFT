@@ -3,7 +3,6 @@
 .dev.vars
 
 # API Keys – NEVER commit real keys
-api_keys.txt
 upload-secrets.ps1
 *MEXC_API_KEY*
 *_API_KEY=*.txt
@@ -39,3 +38,10 @@ coverage
 metrics.json
 strategy-evaluation.json
 test-exchanges.js
+
+# Artifacts / secrets
+api_keys.txt
+.env.docker
+.env.dhi
+test_reports/
+.archive/
