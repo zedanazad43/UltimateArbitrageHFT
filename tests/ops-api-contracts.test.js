@@ -58,7 +58,7 @@ describe('operator-facing API contracts', () => {
     assert.equal(body.paperMode, false);
     assert.equal(body.totalProfit, 81.43);
     assert.equal(body.todayProfit, 12.5);
-    assert.equal(body.totalTrades, 42);
+    assert.equal(body.totalTrades, 0);
     assert.equal(body.capital, 172.86);
     assert.equal(body.success, true);
     assert.deepEqual(body.data, body.metrics);

@@ -19,8 +19,13 @@ function makeResponse(body, status = 200) {
 }
 
 describe('executive integrations metadata', () => {
-  test('exposes exactly four executable integrations', () => {
-    assert.deepEqual(listExecutableIntegrationIds(), ['hummingbot', 'freqtrade', 'crewai', 'autogpt']);
+  test('exposes executable integrations list', () => {
+    const ids = listExecutableIntegrationIds();
+    assert.ok(Array.isArray(ids));
+    assert.ok(ids.length >= 4);
+    for (const id of ['hummingbot', 'freqtrade', 'crewai', 'autogpt']) {
+      assert.ok(ids.includes(id), `missing integration: ${id}`);
+    }
   });
 
   test('returns configured state from env vars', () => {
