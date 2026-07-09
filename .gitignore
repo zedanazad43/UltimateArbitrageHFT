@@ -57,3 +57,6 @@ UltimateArbitrageHFT/api_keys.txt
 .ai-code-tracker.json.tmp
 UltimateArbitrageHFT/.tmp/
 UltimateArbitrageHFT/.ai-code-tracker.json.tmp
+
+# removed plaintext secret (keep out of repo)
+api_keys.ini
