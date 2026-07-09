@@ -51,3 +51,9 @@ api_keys.txt
 .env.docker
 .env.dhi
 UltimateArbitrageHFT/api_keys.txt
+
+# Temp/scratch
+.tmp/
+.ai-code-tracker.json.tmp
+UltimateArbitrageHFT/.tmp/
+UltimateArbitrageHFT/.ai-code-tracker.json.tmp
