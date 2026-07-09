@@ -14,8 +14,14 @@
 - `deploy.yml` writes secrets to `/tmp/cf_secrets.json` with `0o600`; acceptable CI pattern.
 
 ## Identified issues / follow-ups
+- Tracked plaintext secret files that should be removed:
+  - `api_keys.txt`
+  - `.env.docker`
+  - `.env.dhi`
 - PowerShell profile noise reported by user shows API key token being executed as command; that means key material is not reliably loaded through supported paths.
 - Fix approach:
   - Store OpenRouter/exchange keys in Hermes `.env` or repo `.dev.vars` / `.env` files
   - Remove any raw shell exports from profile/ad-hoc startup
-- Next action: verify no raw `.env` file is tracked and remove any committed secrets if found.
+- Remaining action required outside this repo:
+  - Rotate the exposed server/token material previously referenced in `api_keys.txt`
+  - Audit third-party provider dashboards for the same token
