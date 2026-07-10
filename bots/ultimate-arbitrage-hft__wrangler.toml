@@ -1,7 +1,0 @@
-﻿name = "dex-executor"
-main = "index.js"
-compatibility_date = "2025-01-01"
-
-[[kv_namespaces]]
-binding = "BOT_STATE"
-id = "ac954cedbedd48f8aa4452975e5fc2a1"
