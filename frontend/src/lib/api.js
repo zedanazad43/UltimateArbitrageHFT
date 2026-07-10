@@ -1,32 +1,60 @@
 import axios from "axios";
 
-const BASE = process.env.REACT_APP_BACKEND_URL;
+// Backend is the Nexus arbitrage bot (index.js deployed on the Worker).
+// It authenticates with either:
+//   - an `x-admin-token` header, OR
+//   - a `nexus_session` HttpOnly cookie (set by POST /api/login)
+// We use the header approach for the SPA — the token is stored in
+// localStorage and attached to every request.
+const BACKEND_URL =
+  process.env.REACT_APP_BACKEND_URL || "https://api.ecostamp.net";
 
-// Read a cookie value by name (used to attach the CSRF token to state-changing requests).
-function readCookie(name) {
-  if (typeof document === "undefined") return null;
-  const m = document.cookie.match(new RegExp("(?:^|; )" + name.replace(/[.$?*|{}()[\]\\/+^]/g, "\\$&") + "=([^;]*)"));
-  return m ? decodeURIComponent(m[1]) : null;
+const TOKEN_KEY = "nexus_admin_token";
+
+export function getToken() {
+  return localStorage.getItem(TOKEN_KEY) || "";
+}
+export function setToken(t) {
+  if (t) localStorage.setItem(TOKEN_KEY, t);
+  else localStorage.removeItem(TOKEN_KEY);
 }
 
-const api = axios.create({
-  baseURL: `${BASE}/api`,
-  withCredentials: true,
-});
+const api = axios.create({ baseURL: BACKEND_URL });
 
-// Auth: httpOnly access_token cookie (XSS-safe).
-// CSRF: double-submit pattern — non-httpOnly csrf_token cookie is echoed in X-CSRF-Token header on state-changing requests.
+// Attach the admin token to every request.
 api.interceptors.request.use((config) => {
-  const method = (config.method || "get").toLowerCase();
-  if (["post", "put", "patch", "delete"].includes(method)) {
-    const csrf = readCookie("csrf_token");
-    if (csrf) {
-      config.headers = config.headers || {};
-      config.headers["X-CSRF-Token"] = csrf;
-    }
-  }
+  const t = getToken();
+  if (t) config.headers = { ...config.headers, "x-admin-token": t };
   return config;
 });
 
+api.interceptors.response.use(
+  (r) => r,
+  (err) => {
+    if (err.response && err.response.status === 401) {
+      // Token invalid/expired — drop it so the UI shows the login screen.
+      setToken("");
+    }
+    return Promise.reject(err);
+  }
+);
+
 export default api;
-export { readCookie };
+
+// ── Endpoint wrappers (mirror Nexus routes) ───────────────────────────────
+export const nexus = {
+  login: (token) => api.post("/api/login", { token }),
+  health: () => api.get("/health"),
+  status: () => api.get("/api/status"),
+  balances: () => api.get("/api/balances"),
+  trades: () => api.get("/api/trades"),
+  pnl: () => api.get("/api/pnl"),
+  safetyState: () => api.get("/api/safety-state"),
+  executionHealth: () => api.get("/api/execution-health"),
+  platforms: () => api.get("/api/platforms"),
+  aiStatus: () => api.get("/api/ai/status"),
+  scan: () => api.post("/api/scan"),
+  setMode: (mode) => api.post(`/mode/${mode}`),
+  start: () => api.get("/start"),
+  stop: () => api.get("/stop"),
+};

@@ -898,6 +898,35 @@ app.get('/logout', (_c) => {
   });
 });
 
+// ── API aliases for frontend compatibility ───────────────────────────────────
+// The React Control Center posts to /api/login (JSON) expecting a session cookie.
+app.post('/api/login', async (c) => {
+  if (!c.env.ADMIN_TOKEN) {
+    return c.json({ error: 'Admin auth not configured', hint: 'wrangler secret put ADMIN_TOKEN' }, 503);
+  }
+  const body = await c.req.json().catch(async () => {
+    const form = await c.req.parseBody().catch(() => ({}));
+    return form;
+  });
+  const input = (typeof body.token === 'string' ? body.token : (typeof body.password === 'string' ? body.password : '')).trim();
+  if (input && constantTimeEquals(input, c.env.ADMIN_TOKEN)) {
+    const maxAge = 86400;
+    const isHttps = c.req.url.startsWith('https://');
+    return new Response(null, {
+      status: 204,
+      headers: {
+        'Set-Cookie': `nexus_session=${encodeURIComponent(crypto.randomUUID())}; HttpOnly; SameSite=Strict; Max-Age=${maxAge}; Path=/${isHttps ? '; Secure' : ''}`,
+      },
+    });
+  }
+  return c.json({ error: 'Invalid admin token' }, 401);
+});
+
+app.get('/api/login', (c) => {
+  if (isAuthorized(c.env, c)) return c.json({ ok: true }, 200);
+  return c.json({ error: 'Unauthorized' }, 401);
+});
+
 // ── Health check (public, no auth) ────────────────────────────────────────────
 // Returns a lightweight system snapshot for uptime monitors and load balancers.
 // Does not expose sensitive state — safe to probe from external services.
