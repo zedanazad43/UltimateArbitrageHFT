@@ -22,13 +22,13 @@ jobs:
       - name: Setup Go
         uses: actions/setup-go@v5
         with:
-          go-version-file: hft/go.mod
-          cache-dependency-path: hft/go.sum
+          go-version-file: agents/go.mod
+          cache-dependency-path: agents/go.sum
 
       - name: Build Linux amd64 HFT binary
         run: |
           mkdir -p dist
-          cd hft
+          cd agents
           CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -ldflags "-s -w" -o ../dist/hft-linux-amd64 ./cmd/hft
 
       - name: Add checksums
