@@ -42,10 +42,11 @@ jobs:
 
       - name: Create Cloudflare Pages project (if missing)
         uses: cloudflare/wrangler-action@v3
+        continue-on-error: true
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: 652e53f35781522e2745784cc4425d9d
-          command: pages project create ultimate-arbitrage-frontend --production-branch=main
+          command: pages project create ultimate-arbitrage-frontend --production-branch=main || true
 
       - name: Deploy to Cloudflare Pages
         uses: cloudflare/wrangler-action@v3
