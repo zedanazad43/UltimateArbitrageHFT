@@ -38,6 +38,13 @@ jobs:
       - name: Add SPA fallback for Cloudflare Pages
         run: printf '/*    /index.html   200\n' > frontend/build/_redirects
 
+      - name: Create Cloudflare Pages project (if missing)
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: 652e53f35781522e2745784cc4425d9d
+          command: pages project create ultimate-arbitrage-frontend --production-branch=main
+
       - name: Deploy to Cloudflare Pages
         uses: cloudflare/wrangler-action@v3
         with:
