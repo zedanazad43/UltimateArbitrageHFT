@@ -35,21 +35,26 @@ jobs:
             -H "Content-Type: application/json" \
             --data '{"name":"api.ecostamp.net","environment":"production","service":"ultimatearbitragehft","zone_name":"ecostamp.net"}'
 
-      - name: Remove dead services (hero-super-agent, ai-router, hero-api)
+      - name: Remove dead Workers (ai-router, hero-api)
         continue-on-error: true
         run: |
-          for p in ai-router hero-api; do
-            echo ">> delete pages project: $p"
+          for w in ai-router hero-api; do
+            echo ">> delete worker: $w"
             curl -sS -X DELETE \
-              "https://api.cloudflare.com/client/v4/accounts/$ACCT/pages/projects/$p" \
+              "https://api.cloudflare.com/client/v4/accounts/$ACCT/workers/scripts/$w" \
               -H "Authorization: Bearer $CF_TOKEN"
             echo
           done
-          echo ">> delete worker: hero-super-agent"
-          curl -sS -X DELETE \
-            "https://api.cloudflare.com/client/v4/accounts/$ACCT/workers/scripts/hero-super-agent" \
-            -H "Authorization: Bearer $CF_TOKEN"
-          echo
+
+      - name: Confirm domain binding status
+        continue-on-error: true
+        run: |
+          echo "== frontend domains =="
+          curl -sS "https://api.cloudflare.com/client/v4/accounts/$ACCT/pages/projects/ultimate-arbitrage-frontend/domains" \
+            -H "Authorization: Bearer $CF_TOKEN" | python3 -c "import json,sys; d=json.load(sys.stdin); [print(' ', x.get('name'), x.get('status')) for x in d.get('result',[])]"
+          echo "== worker routes/domains =="
+          curl -sS "https://api.cloudflare.com/client/v4/accounts/$ACCT/workers/domains" \
+            -H "Authorization: Bearer $CF_TOKEN" | python3 -c "import json,sys; d=json.load(sys.stdin); [print(' ', x.get('name'), x.get('environment'), x.get('service')) for x in d.get('result',[])]"
 
       - name: Verify remaining services
         run: |
