@@ -23,3 +23,7 @@ Prefer lean-ctx tools first to reduce token usage:
 
 When available, run these before fallbacks.
 
+CLI (repo-local): `python3 lean-ctx/ctx.py read|search|tree|shell ...`
+Canonical agent: `.github/agents/final-ai-agent.agent.md` (aimaster + Super-Agent + llm-council).
+Cloud runs: `.github/workflows/agent-run.yml`.
+

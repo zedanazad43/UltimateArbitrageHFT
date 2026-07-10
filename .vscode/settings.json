@@ -1,4 +1,12 @@
 {
     "editor.formatOnSave": true,
-    "deepseekv4.reasoningEffort": "high"
+    "deepseekv4.reasoningEffort": "high",
+    "chat.agent.enabled": true,
+    "chat.promptFiles": true,
+    "github.copilot.chat.agent.contextPaths": [
+        ".github/copilot-instructions.md",
+        ".github/agents/final-ai-agent.agent.md"
+    ],
+    "terminal.integrated.defaultProfile.windows": "Git Bash",
+    "python.defaultInterpreterPath": "python3"
 }
