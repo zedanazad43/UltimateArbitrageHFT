@@ -33,6 +33,8 @@ jobs:
 
       - name: Build frontend
         working-directory: frontend
+        env:
+          REACT_APP_BACKEND_URL: https://api.ecostamp.net
         run: CI=false npm run build
 
       - name: Add SPA fallback for Cloudflare Pages
