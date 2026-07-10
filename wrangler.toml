@@ -196,4 +196,4 @@ new_classes = ["HFTBackup"]
 
 [[migrations]]
 tag = "v3"
-deleted_classes = ["HFTBackup"]
+# HFTBackup retained — no-op migration (class already active in deployed Worker)
