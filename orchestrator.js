@@ -1,6 +1,5 @@
 ﻿import http from 'http';
 import { execSync } from 'child_process';
-import { readFileSync, existsSync, writeFileSync, readdirSync } from 'fs';
 import os from 'os';
 
 const PORT = 8000;
@@ -67,7 +66,7 @@ const tools = {
         const data = await resp.json();
         return data.response || data.reply || data.choices?.[0]?.message?.content || JSON.stringify(data);
       }
-    } catch (e) {}
+    } catch (_e) {}
     // Fallback to CLI
     try {
       const out = execSync('hermes chat "' + prompt.replace(/"/g, '\\"') + '"', { timeout: 30000, encoding: 'utf8' });
@@ -86,7 +85,7 @@ async function getAIResponse(messages) {
     });
     const data = await resp.json();
     if (data.choices?.[0]?.message?.content) return data.choices[0].message.content;
-  } catch (e) {}
+  } catch (_e) {}
 
   // 2) OpenRouter free
   try {
@@ -97,7 +96,7 @@ async function getAIResponse(messages) {
     });
     const data = await resp.json();
     if (data.choices?.[0]?.message?.content) return data.choices[0].message.content;
-  } catch (e) {}
+  } catch (_e) {}
 
   return 'جميع النماذج غير متاحة حالياً.';
 }

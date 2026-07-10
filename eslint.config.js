@@ -27,6 +27,12 @@ export default [
       // capital-A casing (submodule checkout on Windows CI).
       "arbitragebot/UnifiedArbitrageBot/index.js",
       "ArbitrageBot/UnifiedArbitrageBot/index.js",
+      // Reorg merged reference bots/ and the vendored agents/awesome/ gstack
+      // skill library (~1.7k files of browser-global JS) into the linted tree.
+      // They are not part of the production Worker bundle and cannot pass
+      // no-undef — ignore them like the other vendored dirs above.
+      "bots/**",
+      "agents/awesome/**",
     ],
   },
   // Base rules for all JS files
@@ -63,9 +69,12 @@ export default [
       "**/*.cjs",
       "hero-super-agent/hero-agent/**/*.js",
       "hero-super-agent/packages/**/*.js",
+      "agents/hero-agent/**/*.js",
+      "orchestrator.js",
       "temporal-worker.js",
       "scripts/**/*.js",
       "scripts/**/*.mjs",
+      "agents/api/**/*.js",
       "src/ai-client.js",
       "tests/**/*.js",
       "test-ide-integration.js",

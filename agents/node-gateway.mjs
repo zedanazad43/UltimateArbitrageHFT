@@ -1,4 +1,4 @@
-/* global process, console, Buffer, URL */
+/* global process, Buffer */
 import http from 'node:http';
 import { fetch, ProxyAgent } from 'undici';
 
