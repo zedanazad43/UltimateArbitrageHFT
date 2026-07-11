@@ -59,22 +59,22 @@ jobs:
     - name: Setup Go
       uses: actions/setup-go@v5
       with:
-        go-version-file: hft/go.mod
-        cache-dependency-path: hft/go.sum
+        go-version-file: agents/go.mod
+        cache-dependency-path: agents/go.sum
 
-    - name: Go vet (hft)
+    - name: Go vet (agents)
       run: |
-        cd hft
+        cd agents
         go vet ./...
 
-    - name: Go test (hft)
+    - name: Go test (agents)
       run: |
-        cd hft
+        cd agents
         go test ./...
 
-    - name: Go coverage report (hft)
+    - name: Go coverage report (agents)
       run: |
-        cd hft
+        cd agents
         go test ./... -coverprofile=coverage.out
         total_line=$(go tool cover -func=coverage.out | tail -n1)
         echo "$total_line"
@@ -94,29 +94,29 @@ jobs:
     - name: Upload Go coverage artifact
       uses: actions/upload-artifact@v5
       with:
-        name: hft-go-coverage
-        path: hft/coverage.out
+        name: agents-go-coverage
+        path: agents/coverage.out
         if-no-files-found: error
 
-    - name: Check go.mod/go.sum drift (hft)
+    - name: Check go.mod/go.sum drift (agents)
       run: |
-        cd hft
+        cd agents
         go mod tidy
         git diff --exit-code -- go.mod go.sum
 
     - name: Install govulncheck
       run: |
-        cd hft
+        cd agents
         go install golang.org/x/vuln/cmd/govulncheck@latest
 
     - name: Govulncheck (non-blocking rollout)
       continue-on-error: true
       run: |
-        cd hft
+        cd agents
         govulncheck ./...
 
     - name: Run golangci-lint
       uses: golangci/golangci-lint-action@v8
       with:
         version: v2.12.2
-        working-directory: hft
+        working-directory: agents

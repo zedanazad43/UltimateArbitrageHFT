@@ -86,6 +86,11 @@ describe('scanDEX', () => {
     const prevAlchemyApiKey = process.env.ALCHEMY_API_KEY;
     delete process.env.ALCHEMY_API_KEY;
 
+    // Suppress real network calls: the multi-chain DEXScreener path runs even
+    // without an Alchemy key, so we return empty pairs to ensure no opportunity
+    // is found and the function still returns null.
+    globalThis.fetch = async () => makeResponse({ pairs: [] });
+
     const result = await scanDEX({});
     assert.equal(result, null);
 

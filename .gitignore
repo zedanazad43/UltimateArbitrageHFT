@@ -3,7 +3,6 @@
 .dev.vars
 
 # API Keys – NEVER commit real keys
-api_keys.txt
 upload-secrets.ps1
 *MEXC_API_KEY*
 *_API_KEY=*.txt
@@ -13,8 +12,6 @@ upload-secrets.ps1
 local_filelist.txt
 finalize_project.ps1
 مستند نصي جديد.txt
-.tmp/
-.tmp-dashboard-inline.js
 
 # Node
 node_modules/
@@ -41,33 +38,83 @@ coverage
 metrics.json
 strategy-evaluation.json
 test-exchanges.js
-# Kimi project memory
-.kimi-memory/
 
-# Runtime and generated ops artifacts
-logs/exec-stability-*.jsonl
-logs/exec-stability-*.summary.json
-logs/live-ops-snapshot-*.md
-scripts/.runtime/
+# Artifacts / secrets
+api_keys.txt
+.env.docker
+.env.dhi
+test_reports/
+.archive/
 
-# Local SQLite runtime database (never commit)
-*.db
-ultimate-arbitrage.db
+# Sensitive local configs
+api_keys.txt
+.env.docker
+.env.dhi
+UltimateArbitrageHFT/api_keys.txt
 
-# Generated scan / inventory reports and archived/stray files
-reports/
+# Temp/scratch
+.tmp/
+.ai-code-tracker.json.tmp
+UltimateArbitrageHFT/.tmp/
+UltimateArbitrageHFT/.ai-code-tracker.json.tmp
+
+# removed plaintext secret (keep out of repo)
+api_keys.ini
+
+# build/bytecode artifacts
+__pycache__/
+*.pyc
+*.pyo
+
+# gstack (global install)
+.amazonq/rules/gstack.md
+
+# ── Build/run artifacts (added during cleanup 2026-07-11) ──
+logs/
 archive/
-gitleaks-*.json
-scan-inventory.json
-scripts-catalog.json
+backup*/
+temp-ip/
+temp/
+reports/
+samples/
+deploy/
+"~"/
+
+# Editor/temp
+.tmp/
+*.tmp
+.tmp-*/
+.aider.tags.cache.v4
+.ai-code-tracker.json.tmp
+
+# Windows junk
+Thumbs.db
+Desktop.ini
+
+# ── AI agent histories / local tool state ──
 .aider*
+.amazonq/
+.kimi-memory/
+.claude/
+.codebuddy/
+.emergent/
 
-# Aider virtual environment
-.venv_aider/
+# ── Bundled JDK / binaries accidentally committed ──
+oracleJdk-26/
+*.dll
+*.exe
+*.so
+*.dylib
 
-# Java build artifacts and JDK bundles
-.github/workflows/oracleJdk-26/
-samples/java/target/
-*.jar
-*.class
-backup_*/
+# ── Misc junk ──
+*.log
+*.tmp
+*.bak
+"README (1).md"
+"مستند نصي جديد.txt"
+
+# ── Runtime / local DB ──
+*.db
+*.sqlite
+*.pid
+scripts/.runtime/

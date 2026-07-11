@@ -1,0 +1,12 @@
+version: '3.8'
+services:
+  api:
+    build: ./packages/api
+    ports:
+      - "3001:3001"
+  web:
+    image: httpd:2.4
+    volumes:
+      - ./packages/web:/usr/local/apache2/htdocs/
+    ports:
+      - "8080:80"

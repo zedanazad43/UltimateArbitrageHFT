@@ -4,7 +4,6 @@
  * Tracks endpoint availability and latency for /health and /dashboard.
  * Designed for scheduled execution in CI (GitHub Actions) and local runs.
  */
-/* global AbortSignal, setTimeout */
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';

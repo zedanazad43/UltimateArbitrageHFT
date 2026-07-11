@@ -5,8 +5,10 @@ export default [
     ignores: [
       "node_modules/**",
       ".venv/**",
+      ".vscode/**",
       ".wrangler/**",
       "public/**",
+      "frontend/**",
       "UltimateArbitrageHFT/**",
       "money-transfer-project-template-java/**",
       "backup_*/**",
@@ -20,6 +22,17 @@ export default [
       "aimaster_skills_list/**",
       "aimaster_council_temp/**",
       "aimaster/**",
+      // This file is an INI config template (not JavaScript) that happens to be
+      // named index.js — ESLint cannot parse it. Both paths cover lowercase and
+      // capital-A casing (submodule checkout on Windows CI).
+      "arbitragebot/UnifiedArbitrageBot/index.js",
+      "ArbitrageBot/UnifiedArbitrageBot/index.js",
+      // Reorg merged reference bots/ and the vendored agents/awesome/ gstack
+      // skill library (~1.7k files of browser-global JS) into the linted tree.
+      // They are not part of the production Worker bundle and cannot pass
+      // no-undef — ignore them like the other vendored dirs above.
+      "bots/**",
+      "agents/awesome/**",
     ],
   },
   // Base rules for all JS files
@@ -54,8 +67,14 @@ export default [
   {
     files: [
       "**/*.cjs",
+      "hero-super-agent/hero-agent/**/*.js",
+      "hero-super-agent/packages/**/*.js",
+      "agents/hero-agent/**/*.js",
+      "orchestrator.js",
       "temporal-worker.js",
       "scripts/**/*.js",
+      "scripts/**/*.mjs",
+      "agents/api/**/*.js",
       "src/ai-client.js",
       "tests/**/*.js",
       "test-ide-integration.js",
@@ -94,9 +113,13 @@ export default [
       ],
     },
   },
-  // Cloudflare Worker / browser environment for main files
+  // Cloudflare Worker / browser environment — applies to all JS files so that
+  // Worker scripts in any subdirectory (arbitragebot/ArbitrageBots/, nexus/,
+  // ip-locator/, arbitragebot/UltimateArbitrageBot/, etc.) get the required
+  // globals without per-directory
+  // overrides.
   {
-    files: ["index.js", "src/**/*.js"],
+    files: ["**/*.{js,mjs}"],
     languageOptions: {
       globals: {
         console: "readonly",

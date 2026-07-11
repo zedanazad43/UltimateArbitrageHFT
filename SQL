@@ -1,2 +1,0 @@
--- تحقق إن كان العمود موجودًا
-PRAGMA table_info(trades);

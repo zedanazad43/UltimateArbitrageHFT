@@ -5,16 +5,16 @@ env:
 
 on:
   schedule:
-    - cron: "*/10 * * * *"
-    - cron: "0 2 * * *"
-    - cron: "0 6 * * 1"
+    - cron: '*/10 * * * *'
+    - cron: '0 2 * * *'
+    - cron: '0 6 * * 1'
   workflow_dispatch:
     inputs:
       ops_alert_webhook:
         description: Optional external webhook URL for failure alerts
         required: false
         type: string
-        default: ""
+        default: ''
       run_self_evaluation:
         description: Run strategy self-evaluation during a manual dispatch
         required: false
@@ -49,16 +49,15 @@ jobs:
         run: node scripts/monitor-performance.js
 
       - name: Upload metrics artifact
-        if: always() && steps.monitor.outcome != 'skipped'
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: production-metrics-${{ github.run_id }}
           path: metrics.json
-          if-no-files-found: ignore
           retention-days: 30
 
       - name: Create or update outage issue
-        if: steps.monitor.outcome == 'failure'
+        if: failure()
         uses: actions/github-script@v7
         with:
           script: |
@@ -196,7 +195,7 @@ jobs:
           ADMIN_TOKEN: ${{ secrets.ADMIN_TOKEN }}
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-          SELF_EVAL_BASE_URL: https://api.ecostamp.net
+          SELF_EVAL_BASE_URL: https://ultimatearbitragehft.zedanazad43.workers.dev
 
       - name: Upload evaluation artifact
         if: always()

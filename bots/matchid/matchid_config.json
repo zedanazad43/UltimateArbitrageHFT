@@ -1,0 +1,9 @@
+{
+    "did": "did:matchid:0xYOUR_WALLET_ADDRESS",
+    "address": "0xYOUR_WALLET_ADDRESS",
+    "client_id": "your_client_id_here",
+    "client_secret": "your_client_secret_here",
+    "api_url": "https://api.matchid.ai/v1",
+    "redirect_uri": "http://localhost:3000/callback",
+    "app_name": "ArbitrageBot"
+}

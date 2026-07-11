@@ -6,7 +6,7 @@ on:
   pull_request:
     branches: [main, develop]
   schedule:
-    - cron: "0 2 * * *"
+    - cron: '0 2 * * *'
   workflow_dispatch:
 
 permissions:
@@ -20,7 +20,7 @@ jobs:
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v6
+        uses: actions/checkout@v5
         with:
           fetch-depth: 0
 
@@ -38,7 +38,7 @@ jobs:
         continue-on-error: true
 
       - name: Semgrep SAST scan
-        uses: semgrep/semgrep-action@v1
+        uses: returntocorp/semgrep-action@v1
         with:
           config: >-
             p/security-audit
@@ -47,7 +47,7 @@ jobs:
         continue-on-error: true
 
       - name: Gitleaks pattern detection
-        uses: gitleaks/gitleaks-action@v2.3.7
+        uses: gitleaks/gitleaks-action@v2
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         continue-on-error: true
@@ -55,7 +55,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v6
         with:
-          node-version: "24"
+          node-version: '24'
           cache: npm
 
       - name: Talisman check
@@ -77,16 +77,13 @@ jobs:
         continue-on-error: true
 
       - name: Generate DLP report
-        env:
-          DLP_BRANCH: ${{ github.ref_name }}
-          DLP_COMMIT: ${{ github.sha }}
         run: |
           cat > dlp-report.md << 'EOF'
           # Data Loss Prevention Report
 
           Date: $(date -u)
-          Branch: $DLP_BRANCH
-          Commit: $DLP_COMMIT
+          Branch: ${{ github.ref_name }}
+          Commit: ${{ github.sha }}
 
           Checks:
           - GitHub secret scanning status
@@ -109,20 +106,13 @@ jobs:
       - name: Telegram alert on failure
         if: failure()
         continue-on-error: true
-        env:
-          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-          DLP_REPO: ${{ github.repository }}
-          DLP_BRANCH: ${{ github.ref_name }}
-          DLP_COMMIT: ${{ github.sha }}
-          DLP_RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
-          if [ -z "$TELEGRAM_BOT_TOKEN" ] || [ -z "$TELEGRAM_CHAT_ID" ]; then
+          if [ -z "${{ secrets.TELEGRAM_BOT_TOKEN }}" ] || [ -z "${{ secrets.TELEGRAM_CHAT_ID }}" ]; then
             echo "Telegram secrets not set; skipping alert"
             exit 0
           fi
-          text=$(printf 'DLP workflow failed%%0ARepo: %s%%0ABranch: %s%%0ACommit: %s%%0ARun: %s' "$DLP_REPO" "$DLP_BRANCH" "$DLP_COMMIT" "$DLP_RUN_URL")
-          curl -sS -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
-            -d "chat_id=${TELEGRAM_CHAT_ID}" \
+          text=$(printf 'DLP workflow failed%%0ARepo: %s%%0ABranch: %s%%0ACommit: %s%%0ARun: %s' "${{ github.repository }}" "${{ github.ref_name }}" "${{ github.sha }}" "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}")
+          curl -sS -X POST "https://api.telegram.org/bot${{ secrets.TELEGRAM_BOT_TOKEN }}/sendMessage" \
+            -d "chat_id=${{ secrets.TELEGRAM_CHAT_ID }}" \
             -d "text=${text}" \
             -d "disable_web_page_preview=true"

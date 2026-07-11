@@ -12,10 +12,7 @@ import { runScan } from '../orchestrator.js';
  */
 export const scanMarkets = async (env, config, state = {}, notify = async () => {}) => {
   console.log('[Scanner] Starting market scan (CEX + DEX + Perps)...');
-  const result = await runScan(env, state, notify, {
-    source: 'scanner_bot',
-    trigger: 'src/bots/scanner.js',
-  });
+  const result = await runScan(env, state, notify);
   if (result) {
     const opp = result.opportunity;
     console.log(

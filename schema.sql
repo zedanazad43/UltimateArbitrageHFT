@@ -50,30 +50,3 @@ CREATE TABLE IF NOT EXISTS backtest_runs (
   created_at INTEGER NOT NULL
 );
 
-
--- =====================================================
--- Performance Indexes (added 2026-06-16)
--- =====================================================
-
--- Trades: fast lookups by strategy, date, mode
-CREATE INDEX IF NOT EXISTS idx_trades_strategy ON trades(strategy);
-CREATE INDEX IF NOT EXISTS idx_trades_mode ON trades(mode);
-CREATE INDEX IF NOT EXISTS idx_trades_created ON trades(created_at);
-CREATE INDEX IF NOT EXISTS idx_trades_strategy_mode ON trades(strategy, mode);
-
--- Admin events: lookups by action type and time
-CREATE INDEX IF NOT EXISTS idx_admin_events_action ON admin_events(action);
-CREATE INDEX IF NOT EXISTS idx_admin_events_created ON admin_events(created_at);
-
--- Bot events: fast filtering by event type
-CREATE INDEX IF NOT EXISTS idx_bot_events_type ON bot_events(event_type);
-CREATE INDEX IF NOT EXISTS idx_bot_events_created ON bot_events(created_at);
-
--- Paper positions: find open positions, filter by strategy
-CREATE INDEX IF NOT EXISTS idx_paper_positions_strategy ON paper_positions(strategy);
-CREATE INDEX IF NOT EXISTS idx_paper_positions_symbol ON paper_positions(symbol);
-CREATE INDEX IF NOT EXISTS idx_paper_positions_opened ON paper_positions(opened_at);
-CREATE INDEX IF NOT EXISTS idx_paper_positions_open ON paper_positions(closed_at) WHERE closed_at IS NULL;
-
--- Backtest runs: filter by date
-CREATE INDEX IF NOT EXISTS idx_backtest_runs_created ON backtest_runs(created_at);

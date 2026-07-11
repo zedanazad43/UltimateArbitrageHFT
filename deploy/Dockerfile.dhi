@@ -1,0 +1,62 @@
+# ── UltimateArbitrageHFT Node.js Worker — Docker Hardened Image (DHI) ─────────
+# Multi-stage build using security hardening for Cloudflare Workers API layer
+# Runs the Hono framework server and orchestration logic
+
+# Build stage: install dependencies and prepare app
+FROM --platform=$BUILDPLATFORM node:22-alpine AS builder
+
+# Set npm to production mode (skip dev dependencies during install)
+ENV NODE_ENV=production
+
+WORKDIR /app
+
+# Copy package files only (for layer caching)
+COPY package.json package-lock.json ./
+
+# Install production dependencies only
+RUN npm ci --only=production && \
+    # Prune optional dependencies to reduce size
+    npm prune --production
+
+# ── Runtime stage: Hardened Alpine runtime ────────────────────────────────────────
+# Minimal base image with security hardening:
+# - Alpine Linux: minimal attack surface
+# - Non-root user (1000:1000 standard unprivileged uid/gid)
+# - Read-only filesystem capability
+# - No unnecessary capabilities
+FROM alpine:3.20
+
+# Install runtime dependencies only (Node.js + dumb-init for signal handling)
+RUN apk add --no-cache nodejs dumb-init && \
+    # Create non-root appuser for security hardening
+    addgroup -g 1000 appuser && \
+    adduser -D -u 1000 -G appuser appuser
+
+# Set production environment
+ENV NODE_ENV=production
+
+# Create app directory with correct permissions
+WORKDIR /app
+RUN chown appuser:appuser /app && chmod 755 /app
+
+# Copy production dependencies from builder (with correct ownership)
+COPY --from=builder --chown=appuser:appuser /app/node_modules ./node_modules
+
+# Copy application source code (production files only)
+COPY --chown=appuser:appuser . .
+
+# Security hardening: run as non-root user (uid 1000)
+USER appuser:appuser
+
+# Expose Worker/dashboard port (non-privileged > 1024)
+EXPOSE 8787
+
+# Health check: probe the /health endpoint (public, no auth required)
+HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
+  CMD wget --quiet --tries=1 -O- http://localhost:8787/health || exit 1
+
+# Use dumb-init to properly handle signals (PID 1 problem)
+ENTRYPOINT ["/sbin/dumb-init", "--"]
+
+# Run Node.js with additional security flags
+CMD ["node", "--enable-source-maps", "index.js"]

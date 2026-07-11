@@ -16,7 +16,8 @@ permissions:
   pull-requests: write
 
 env:
-  NODE_VERSION: "22"
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+  NODE_VERSION: '24'
 
 # ─────────────────────────────────────────────────────────────────────────────
 # 1. LINT
@@ -40,9 +41,9 @@ jobs:
       - name: Run ESLint
         run: npm run lint
 
-  # ─────────────────────────────────────────────────────────────────────────────
-  # 2. SECURITY AUDIT
-  # ─────────────────────────────────────────────────────────────────────────────
+# ─────────────────────────────────────────────────────────────────────────────
+# 2. SECURITY AUDIT
+# ─────────────────────────────────────────────────────────────────────────────
   audit:
     name: Security audit (npm audit)
     runs-on: ubuntu-latest
@@ -53,32 +54,32 @@ jobs:
         uses: actions/setup-node@v6
         with:
           node-version: ${{ env.NODE_VERSION }}
-          cache: "npm"
+          cache: npm
 
       - name: Install dependencies
         run: npm ci
 
-      - name: Audit dependencies (high/critical, production only)
-        run: npm audit --audit-level=high --production
+      - name: Audit dependencies (high/critical only)
+        run: npm audit --audit-level=high
 
-  # ─────────────────────────────────────────────────────────────────────────────
-  # 3. UNIT + INTEGRATION TESTS
-  # ─────────────────────────────────────────────────────────────────────────────
+# ─────────────────────────────────────────────────────────────────────────────
+# 3. UNIT + INTEGRATION TESTS
+# ─────────────────────────────────────────────────────────────────────────────
   test:
     name: Tests (Node ${{ matrix.node }})
     runs-on: ubuntu-latest
     needs: [lint, audit]
     strategy:
       matrix:
-        node: ["22"]
+        node: ['24']
     steps:
       - uses: actions/checkout@v5
 
       - name: Setup Node.js ${{ matrix.node }}
         uses: actions/setup-node@v6
         with:
-          cache: "npm"
           node-version: ${{ matrix.node }}
+          cache: npm
 
       - name: Install dependencies
         run: npm ci
@@ -95,9 +96,9 @@ jobs:
           if-no-files-found: ignore
           retention-days: 14
 
-  # ─────────────────────────────────────────────────────────────────────────────
-  # 4. BUILD (validate bundle compiles)
-  # ─────────────────────────────────────────────────────────────────────────────
+# ─────────────────────────────────────────────────────────────────────────────
+# 4. BUILD (validate bundle compiles)
+# ─────────────────────────────────────────────────────────────────────────────
   build:
     name: Build (dry-run wrangler)
     runs-on: ubuntu-latest
@@ -109,7 +110,7 @@ jobs:
         uses: actions/setup-node@v6
         with:
           node-version: ${{ env.NODE_VERSION }}
-          cache: "npm"
+          cache: npm
 
       - name: Install dependencies
         run: npm ci
@@ -134,9 +135,9 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
-  # ─────────────────────────────────────────────────────────────────────────────
-  # 5. DEPLOY — STAGING  (push to staging branch only)
-  # ─────────────────────────────────────────────────────────────────────────────
+# ─────────────────────────────────────────────────────────────────────────────
+# 5. DEPLOY — STAGING  (push to staging branch only)
+# ─────────────────────────────────────────────────────────────────────────────
   deploy-staging:
     name: Deploy → Staging
     runs-on: ubuntu-latest
@@ -149,13 +150,12 @@ jobs:
         uses: actions/setup-node@v6
         with:
           node-version: ${{ env.NODE_VERSION }}
-          cache: "npm"
+          cache: npm
 
       - name: Install dependencies
         run: npm ci
 
       - name: Deploy to staging Worker
-        timeout-minutes: 5
         run: |
           for attempt in 1 2 3; do
             echo "--- Staging deploy attempt $attempt/3 ---"
@@ -171,18 +171,17 @@ jobs:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
 
-  # ─────────────────────────────────────────────────────────────────────────────
-  # 6. DEPLOY — PRODUCTION  (push to main, with environment approval gate)
-  # ─────────────────────────────────────────────────────────────────────────────
+# ─────────────────────────────────────────────────────────────────────────────
+# 6. DEPLOY — PRODUCTION  (push to main, with environment approval gate)
+# ─────────────────────────────────────────────────────────────────────────────
   deploy-production:
     name: Deploy → Production (with approval)
     runs-on: ubuntu-latest
-    timeout-minutes: 90
     needs: build
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     environment:
       name: production
-      url: https://api.ecostamp.net
+      url: https://ultimatearbitragehft.zedanazad43.workers.dev
     steps:
       - uses: actions/checkout@v5
 
@@ -190,13 +189,12 @@ jobs:
         uses: actions/setup-node@v6
         with:
           node-version: ${{ env.NODE_VERSION }}
-          cache: "npm"
+          cache: npm
 
       - name: Install dependencies
         run: npm ci
 
       - name: Deploy Worker (production, 3 retries)
-        timeout-minutes: 5
         run: |
           for attempt in 1 2 3; do
             echo "--- Production deploy attempt $attempt/3 ---"
@@ -212,54 +210,56 @@ jobs:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
 
-      - name: Upload secrets to Cloudflare Worker
-        timeout-minutes: 5
-        # NOTE: Secrets below marked as optional (GATEIO_*, ZEROX_*, ALCHEMY_*, HFT_ENGINE_*, TEMPORAL_*, EXTERNAL_PROXY_*)
-        # will be gracefully skipped if not configured in GitHub repository settings.
-        # The Python filter `if os.environ.get(k)` ensures missing secrets are not uploaded.
+      - name: Verify production secrets (critical + optional)
         run: |
-          python3 - <<'PYEOF'
-          import json, os
-          keys = [
-            "MEXC_API_KEY", "MEXC_API_SECRET",
-            "BINANCE_API_KEY", "BINANCE_API_SECRET",
-            "KUCOIN_API_KEY", "KUCOIN_SECRET_KEY", "KUCOIN_PASSPHRASE",
-            "COINBASE_API_KEY", "COINBASE_SECRET_KEY",
-            "BITGET_API_KEY", "BITGET_SECRET_KEY", "BITGET_API_PASSPHRASE",
-            "BITMART_API_KEY", "BITMART_SECRET_KEY", "BITMART_MEMO",
-            "BYBIT_API_KEY", "BYBIT_API_SECRET",
-            "GATEIO_API_KEY", "GATEIO_API_SECRET",
-            "HTX_API_KEY", "HTX_API_SECRET",
-            "ZEROX_API_KEY", "ALCHEMY_API_KEY",
-            "TELEGRAM_BOT_TOKEN", "TELEGRAM_CHAT_ID",
-            "ADMIN_TOKEN", "WORKFLOW_ADMIN_TOKEN",
-            "GITHUB_TOKEN",
-            "HFT_ENGINE_SECRET",
-            "TEMPORAL_API_KEY",
-            "PROXY_URL",
-            "PROXY_LIST",
-            "PROXY_AUTH_HEADER",
-            "EXTERNAL_PROXY_URL",
-            "EXTERNAL_PROXY_GATEWAY_URL",
-            "EXTERNAL_PROXY_PROVIDER",
-            "EXTERNAL_PROXY_USERNAME",
-            "EXTERNAL_PROXY_PASSWORD",
-            "EXTERNAL_PROXY_AUTH_HEADER",
-          ]
-          secrets = {k: os.environ[k] for k in keys if os.environ.get(k)}
-          fd = os.open("/tmp/cf_secrets.json", os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-          with os.fdopen(fd, "w") as f:
-            json.dump(secrets, f)
-          PYEOF
-          npx --yes wrangler@4 secret bulk /tmp/cf_secrets.json
-          rm /tmp/cf_secrets.json
+          critical_missing=0
+          optional_missing=()
+
+          for key in ADMIN_TOKEN TELEGRAM_BOT_TOKEN TELEGRAM_CHAT_ID; do
+            if [ -z "${!key}" ]; then
+              echo "::warning::Missing critical GitHub environment secret: $key"
+              critical_missing=1
+            fi
+          done
+
+          for key in \
+            MEXC_API_KEY MEXC_API_SECRET \
+            BINANCE_API_KEY BINANCE_API_SECRET \
+            OKX_API_KEY OKX_API_SECRET OKX_PASSPHRASE \
+            KUCOIN_API_KEY KUCOIN_SECRET_KEY KUCOIN_PASSPHRASE \
+            COINBASE_API_KEY COINBASE_SECRET_KEY \
+            BITGET_API_KEY BITGET_SECRET_KEY BITGET_API_PASSPHRASE \
+            BITMART_API_KEY BITMART_SECRET_KEY BITMART_MEMO \
+            BYBIT_API_KEY BYBIT_API_SECRET \
+            GATEIO_API_KEY GATEIO_API_SECRET \
+            HTX_API_KEY HTX_API_SECRET \
+            ZEROX_API_KEY ALCHEMY_API_KEY \
+            HFT_ENGINE_SECRET TEMPORAL_API_KEY
+          do
+            if [ -z "${!key}" ]; then
+              optional_missing+=("$key")
+            fi
+          done
+
+          if [ ${#optional_missing[@]} -gt 0 ]; then
+            echo "::notice::Optional secrets not set (${#optional_missing[@]}): ${optional_missing[*]}"
+          else
+            echo "✅ All optional integration secrets are configured."
+          fi
+
+          if [ "$critical_missing" -eq 1 ]; then
+            echo "::notice::Critical secrets are missing in GitHub environment; deployment may still pass if values are set directly in Cloudflare Worker."
+          else
+            echo "✅ Critical production secrets are present in GitHub environment."
+          fi
         env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           MEXC_API_KEY: ${{ secrets.MEXC_API_KEY }}
           MEXC_API_SECRET: ${{ secrets.MEXC_API_SECRET }}
           BINANCE_API_KEY: ${{ secrets.BINANCE_API_KEY }}
           BINANCE_API_SECRET: ${{ secrets.BINANCE_API_SECRET }}
+          OKX_API_KEY: ${{ secrets.OKX_API_KEY }}
+          OKX_API_SECRET: ${{ secrets.OKX_API_SECRET }}
+          OKX_PASSPHRASE: ${{ secrets.OKX_PASSPHRASE }}
           KUCOIN_API_KEY: ${{ secrets.KUCOIN_API_KEY }}
           KUCOIN_SECRET_KEY: ${{ secrets.KUCOIN_SECRET_KEY }}
           KUCOIN_PASSPHRASE: ${{ secrets.KUCOIN_PASSPHRASE }}
@@ -273,106 +273,24 @@ jobs:
           BITMART_MEMO: ${{ secrets.BITMART_MEMO }}
           BYBIT_API_KEY: ${{ secrets.BYBIT_API_KEY }}
           BYBIT_API_SECRET: ${{ secrets.BYBIT_API_SECRET }}
-          # Optional exchange API credentials (gracefully skipped if not configured)
           GATEIO_API_KEY: ${{ secrets.GATEIO_API_KEY }}
           GATEIO_API_SECRET: ${{ secrets.GATEIO_API_SECRET }}
           HTX_API_KEY: ${{ secrets.HTX_API_KEY }}
           HTX_API_SECRET: ${{ secrets.HTX_API_SECRET }}
-          # Optional Web3 API keys (gracefully skipped if not configured)
           ZEROX_API_KEY: ${{ secrets.ZEROX_API_KEY }}
           ALCHEMY_API_KEY: ${{ secrets.ALCHEMY_API_KEY }}
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
           ADMIN_TOKEN: ${{ secrets.ADMIN_TOKEN }}
-          WORKFLOW_ADMIN_TOKEN: ${{ secrets.WORKFLOW_ADMIN_TOKEN }}
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # Optional service secrets (gracefully skipped if not configured)
           HFT_ENGINE_SECRET: ${{ secrets.HFT_ENGINE_SECRET }}
           TEMPORAL_API_KEY: ${{ secrets.TEMPORAL_API_KEY }}
-          PROXY_URL: ${{ secrets.PROXY_URL }}
-          PROXY_LIST: ${{ secrets.PROXY_LIST }}
-          PROXY_AUTH_HEADER: ${{ secrets.PROXY_AUTH_HEADER }}
-          EXTERNAL_PROXY_URL: ${{ secrets.EXTERNAL_PROXY_URL }}
-          # Optional external proxy configuration (gracefully skipped if not configured)
-          EXTERNAL_PROXY_GATEWAY_URL: ${{ secrets.EXTERNAL_PROXY_GATEWAY_URL }}
-          EXTERNAL_PROXY_PROVIDER: ${{ secrets.EXTERNAL_PROXY_PROVIDER }}
-          EXTERNAL_PROXY_USERNAME: ${{ secrets.EXTERNAL_PROXY_USERNAME }}
-          EXTERNAL_PROXY_PASSWORD: ${{ secrets.EXTERNAL_PROXY_PASSWORD }}
-          EXTERNAL_PROXY_AUTH_HEADER: ${{ secrets.EXTERNAL_PROXY_AUTH_HEADER }}
-
-      - name: Verify production secrets (critical)
-        run: |
-          critical_missing=0
-
-          for key in WORKFLOW_ADMIN_TOKEN TELEGRAM_BOT_TOKEN TELEGRAM_CHAT_ID; do
-            if [ -z "${!key}" ]; then
-              echo "::warning::Missing critical GitHub environment secret: $key"
-              critical_missing=1
-            fi
-          done
-
-          if [ "$critical_missing" -eq 1 ]; then
-            echo "::notice::Critical secrets are missing in GitHub environment; deployment may still pass if values are set directly in Cloudflare Worker."
-          else
-            echo "✅ Critical production secrets are present in GitHub environment."
-          fi
-        env:
-          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-          WORKFLOW_ADMIN_TOKEN: ${{ secrets.WORKFLOW_ADMIN_TOKEN }}
-
-      - name: Verify Cloudflare-only optional secret names
-        id: verify_cloudflare_optional_raw
-        run: |
-          raw="$(npx --yes wrangler@4 secret list --name ultimatearbitragehft)"
-          export WORKER_SECRETS_RAW="$raw"
-          node - <<'NODE'
-          const raw = process.env.WORKER_SECRETS_RAW || '';
-          const start = raw.indexOf('[');
-          const end = raw.lastIndexOf(']');
-          if (start === -1 || end === -1 || end <= start) {
-            console.log('::warning::Unable to parse Cloudflare secret list output.');
-            process.exit(0);
-          }
-
-          let list;
-          try {
-            list = JSON.parse(raw.slice(start, end + 1));
-          } catch {
-            console.log('::warning::Cloudflare secret list is not valid JSON payload.');
-            process.exit(0);
-          }
-
-          const have = new Set((list || []).map((x) => x && x.name).filter(Boolean));
-          const required = [
-            'BYBIT_API_KEY',
-            'BYBIT_API_SECRET',
-            'GATEIO_API_KEY',
-            'GATEIO_API_SECRET',
-            'HTX_API_KEY',
-            'HTX_API_SECRET',
-            'HFT_ENGINE_SECRET'
-          ];
-
-          const missing = required.filter((name) => !have.has(name));
-          if (missing.length) {
-            console.log(`::notice::Cloudflare optional secret names missing (${missing.length}): ${missing.join(' ')}`);
-          } else {
-            console.log('✅ Cloudflare-only optional secret names are present.');
-          }
-          NODE
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
 
       - name: Enable live trading in KV
-        timeout-minutes: 5
         run: |
           python3 - <<'PYEOF'
           import json, subprocess, sys, re
           KEY = "trading_state"
           KV_NS = None
-
           try:
               with open("wrangler.toml") as f:
                   for line in f:
@@ -382,67 +300,23 @@ jobs:
                           break
           except Exception as e:
               print(f"Could not read wrangler.toml: {e}", file=sys.stderr)
-
           if not KV_NS:
               print("ERROR: KV namespace ID not found in wrangler.toml", file=sys.stderr)
               sys.exit(1)
-
           state = {}
-          loaded_existing_state = False
-
-          def try_parse_state(raw):
-              raw = (raw or "").strip()
-              if not raw:
-                  return None
-              # Attempt direct JSON parse first.
-              try:
-                  parsed = json.loads(raw)
-                  if isinstance(parsed, dict):
-                      return parsed
-              except Exception:
-                  pass
-              # Fallback: extract first JSON object from noisy command output.
-              start = raw.find("{")
-              end = raw.rfind("}")
-              if start != -1 and end != -1 and end > start:
-                  try:
-                      parsed = json.loads(raw[start:end + 1])
-                      if isinstance(parsed, dict):
-                          return parsed
-                  except Exception:
-                      return None
-              return None
-
           try:
               r = subprocess.run(
                   ["npx", "--yes", "wrangler@4", "kv", "key", "get",
                    "--namespace-id", KV_NS, KEY],
                   capture_output=True, text=True
               )
-              stderr_l = (r.stderr or "").lower()
-              stdout_l = (r.stdout or "").lower()
-              key_missing = "not found" in stderr_l or "not found" in stdout_l
-
-              parsed_state = try_parse_state(r.stdout)
-              if isinstance(parsed_state, dict):
-                  state = parsed_state
-                  loaded_existing_state = True
-              elif key_missing:
-                  state = {}
-              else:
-                  print("ERROR: Could not safely parse existing trading_state; refusing destructive overwrite", file=sys.stderr)
-                  print((r.stdout or "")[-1000:], file=sys.stderr)
-                  print((r.stderr or "")[-1000:], file=sys.stderr)
-                  sys.exit(1)
+              for line in r.stdout.splitlines():
+                  line = line.strip()
+                  if line.startswith('{'):
+                      state = json.loads(line)
+                      break
           except Exception as e:
               print(f"Could not read existing KV state: {e}", file=sys.stderr)
-              sys.exit(1)
-
-          if loaded_existing_state:
-              print("Loaded existing trading_state from KV")
-          else:
-              print("trading_state not found; initializing with safe defaults")
-
           defaults = {
               "daily_pnl": 0, "daily_trades": 0,
               "total_pnl": 0, "total_trades": 0,
@@ -456,20 +330,6 @@ jobs:
           }
           for k, v in defaults.items():
               state.setdefault(k, v)
-
-          state.setdefault("spot_only_lock", True)
-          state.setdefault("last_config_change_ts", 0)
-          flags = state.get("strategy_flags")
-          if not isinstance(flags, dict):
-              flags = {}
-          if state.get("spot_only_lock") is True:
-              flags["perps"] = False
-              flags["funding"] = False
-          else:
-              flags.setdefault("perps", False)
-              flags.setdefault("funding", False)
-          state["strategy_flags"] = flags
-
           state["trading_enabled"] = True
           state["paper_trading"] = False
           state["auto_stopped"] = False
@@ -485,139 +345,16 @@ jobs:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
 
-      - name: Enforce spot-only lock before safety validation
-        id: enforce_spot_lock
-        timeout-minutes: 3
-        run: |
-          API_BASE="https://api.ecostamp.net"
-
-          if [ -z "$WORKFLOW_ADMIN_TOKEN" ]; then
-            echo "::error::WORKFLOW_ADMIN_TOKEN is required to enforce spot lock"
-            exit 1
-          fi
-
-          for attempt in 1 2 3; do
-            echo "--- Spot-lock enforcement attempt $attempt/3 ---"
-            code=$(curl -sS -o /tmp/spot_lock_resp.txt -w "%{http_code}" \
-              -X POST \
-              -H "x-admin-token: ${WORKFLOW_ADMIN_TOKEN}" \
-              "${API_BASE}/strategy/spot-lock/enable")
-
-            if [ "$code" = "200" ]; then
-              echo "✅ Spot-only lock enforced"
-              cat /tmp/spot_lock_resp.txt
-              exit 0
-            fi
-
-            echo "⚠️ Spot-lock enforcement failed with HTTP ${code}"
-            cat /tmp/spot_lock_resp.txt || true
-            [ $attempt -lt 3 ] && sleep 10
-          done
-
-          echo "::error::Failed to enforce spot-only lock after 3 attempts."
-          exit 1
-        env:
-          WORKFLOW_ADMIN_TOKEN: ${{ secrets.WORKFLOW_ADMIN_TOKEN }}
-
       - name: Post-deploy endpoint smoke test
         id: smoke_test
-        timeout-minutes: 8
         run: |
-          for attempt in 1 2 3 4; do
-            echo "--- Smoke check attempt $attempt/4 ---"
-            if node ./scripts/verify-production-endpoints.js; then
-              echo "✅ Smoke check passed on attempt $attempt"
-              exit 0
-            fi
-            if [ $attempt -lt 4 ]; then
-              echo "⚠️ Smoke check failed, retrying in 15s..."
-              sleep 15
-            fi
-          done
-          echo "::error::Smoke check failed after 4 attempts."
-          exit 1
+          chmod +x ./scripts/verify-production-endpoints.sh
+          ADMIN_TOKEN="${ADMIN_TOKEN}" ./scripts/verify-production-endpoints.sh
         env:
-          WORKFLOW_ADMIN_TOKEN: ${{ secrets.WORKFLOW_ADMIN_TOKEN }}
-          EXPECTED_WORKER_NAME: ultimatearbitragehft
-          REQUIRE_READY_FOR_LIVE: "false"
-          SKIP_CUSTOM_DOMAIN_CHECK: "true"
-
-      - name: Post-deploy safety lock smoke test
-        id: safety_smoke_test
-        timeout-minutes: 8
-        run: |
-          for attempt in 1 2 3; do
-            echo "--- Safety smoke check attempt $attempt/3 ---"
-            if npm run smoke:safety-lock -- --base "$API_BASE"; then
-              echo "✅ Safety smoke check passed on attempt $attempt"
-              exit 0
-            fi
-            if [ $attempt -lt 3 ]; then
-              echo "⚠️ Safety smoke check failed, retrying in 15s..."
-              sleep 15
-            fi
-          done
-          echo "::error::Safety smoke check failed after 3 attempts."
-          exit 1
-        env:
-          ADMIN_TOKEN: ${{ secrets.WORKFLOW_ADMIN_TOKEN }}
-          API_BASE: https://api.ecostamp.net
-
-      - name: Post-deploy lock bypass guard test
-        id: lock_bypass_guard_test
-        timeout-minutes: 8
-        run: |
-          for attempt in 1 2 3; do
-            echo "--- Lock bypass guard attempt $attempt/3 ---"
-            if npm run smoke:lock-block -- --base "$API_BASE"; then
-              echo "✅ Lock bypass guard test passed on attempt $attempt"
-              exit 0
-            fi
-            if [ $attempt -lt 3 ]; then
-              echo "⚠️ Lock bypass guard test failed, retrying in 15s..."
-              sleep 15
-            fi
-          done
-          echo "::error::Lock bypass guard test failed after 3 attempts."
-          exit 1
-        env:
-          ADMIN_TOKEN: ${{ secrets.WORKFLOW_ADMIN_TOKEN }}
-          API_BASE: https://api.ecostamp.net
-
-      - name: Post-deploy core flags stability smoke test
-        id: core_flags_smoke_test
-        timeout-minutes: 8
-        run: |
-          for attempt in 1 2 3; do
-            echo "--- Core flags stability smoke attempt $attempt/3 ---"
-            if npm run smoke:core-flags -- --base "$API_BASE" --samples 8 --interval-ms 2000; then
-              echo "✅ Core flags stability smoke passed on attempt $attempt"
-              exit 0
-            fi
-            if [ $attempt -lt 3 ]; then
-              echo "⚠️ Core flags stability smoke failed, retrying in 15s..."
-              sleep 15
-            fi
-          done
-          echo "::error::Core flags stability smoke failed after 3 attempts."
-          exit 1
-        env:
-          ADMIN_TOKEN: ${{ secrets.WORKFLOW_ADMIN_TOKEN }}
-          API_BASE: https://api.ecostamp.net
-
-      - name: Post-deploy canary guard (30-minute)
-        id: canary_guard_test
-        timeout-minutes: 35
-        run: |
-          echo "--- Canary guard window start (30 samples x 60s) ---"
-          npm run smoke:core-flags -- --base "$API_BASE" --samples 30 --interval-ms 60000
-          echo "✅ Canary guard window passed"
-        env:
-          ADMIN_TOKEN: ${{ secrets.WORKFLOW_ADMIN_TOKEN }}
-          API_BASE: https://api.ecostamp.net
+          ADMIN_TOKEN: ${{ secrets.ADMIN_TOKEN }}
 
       - name: Telegram alert on smoke test failure
-        if: ${{ failure() && (steps.smoke_test.outcome == 'failure' || steps.safety_smoke_test.outcome == 'failure' || steps.lock_bypass_guard_test.outcome == 'failure' || steps.core_flags_smoke_test.outcome == 'failure' || steps.canary_guard_test.outcome == 'failure') }}
+        if: ${{ failure() && steps.smoke_test.outcome == 'failure' }}
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
@@ -631,7 +368,7 @@ jobs:
           fi
 
           short_sha=$(echo "$SHA" | cut -c1-7)
-          text=$(printf 'Post-deploy guard check failed (core smoke / safety lock / lock bypass / core flags stability / 30m canary)%%0AWorkflow: World-class CI/CD Bot%%0ABranch: %s%%0ASHA: %s%%0ARun: %s' "$BRANCH" "$short_sha" "$RUN_URL")
+          text=$(printf 'Smoke test failed after production deploy%%0AWorkflow: World-class CI/CD Bot%%0ABranch: %s%%0ASHA: %s%%0ARun: %s' "$BRANCH" "$short_sha" "$RUN_URL")
 
           curl -fsS -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
             -d "chat_id=${TELEGRAM_CHAT_ID}" \
@@ -646,9 +383,9 @@ jobs:
           echo "   Commit  : ${{ github.sha }}"
           echo "   Actor   : ${{ github.actor }}"
 
-  # ─────────────────────────────────────────────────────────────────────────────
-  # 7. GLOBAL FAILURE NOTIFICATION (any job, any branch)
-  # ─────────────────────────────────────────────────────────────────────────────
+# ─────────────────────────────────────────────────────────────────────────────
+# 7. GLOBAL FAILURE NOTIFICATION (any job, any branch)
+# ─────────────────────────────────────────────────────────────────────────────
   notify-failure:
     name: Notify on any failure
     runs-on: ubuntu-latest

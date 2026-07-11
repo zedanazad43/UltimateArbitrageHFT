@@ -1,0 +1,14 @@
+{
+  "name": "hero-super-agent",
+  "version": "2.2.0",
+  "description": "Hero Super Agent Server — platform status, AI agent proxy, file listing",
+  "type": "module",
+  "main": "server.js",
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "scripts": {
+    "start": "node server.js",
+    "status": "node server.js --status-only"
+  }
+}

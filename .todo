@@ -8,36 +8,8 @@
       "completed": false
     },
     {
-      "id": "1781363973027zzxad7",
-      "title": "Review blocked/reverted work in input-0",
-      "category": "Blocked",
-      "dueDate": null,
-      "completed": false
-    },
-    {
-      "id": "1781365134002ecb1m",
-      "title": "Review blocked/reverted work in input-0",
-      "category": "Blocked",
-      "dueDate": null,
-      "completed": false
-    },
-    {
-      "id": "1781365271982iend3",
-      "title": "Review blocked/reverted work in input-0",
-      "category": "Blocked",
-      "dueDate": null,
-      "completed": false
-    },
-    {
-      "id": "1781439440152g9i37t",
-      "title": "Review blocked/reverted work in input-0",
-      "category": "Blocked",
-      "dueDate": null,
-      "completed": false
-    },
-    {
-      "id": "1781969137760jbwy9c",
-      "title": "Review blocked/reverted work in input-0",
+      "id": "1783539588499r66c3",
+      "title": "Review blocked/reverted work in Dockerfile",
       "category": "Blocked",
       "dueDate": null,
       "completed": false

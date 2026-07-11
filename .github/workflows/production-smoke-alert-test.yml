@@ -2,7 +2,7 @@ name: Production Smoke Alert Test
 
 on:
   schedule:
-    - cron: "*/15 * * * *"
+    - cron: '*/15 * * * *'
   workflow_dispatch:
     inputs:
       simulate_failure:
@@ -14,7 +14,7 @@ on:
         description: Worker base URL
         required: false
         type: string
-        default: https://api.ecostamp.net
+        default: https://ultimatearbitragehft.zedanazad43.workers.dev
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
@@ -41,23 +41,25 @@ jobs:
         id: smoke
         continue-on-error: true
         env:
-          WORKFLOW_ADMIN_TOKEN_SECRET: ${{ secrets.WORKFLOW_ADMIN_TOKEN }}
+          ADMIN_TOKEN_SECRET: ${{ secrets.ADMIN_TOKEN }}
           SIMULATE_FAILURE: ${{ inputs.simulate_failure || 'false' }}
-          BASE_URL: ${{ inputs.base_url || 'https://api.ecostamp.net' }}
+          BASE_URL: ${{ inputs.base_url || 'https://ultimatearbitragehft.zedanazad43.workers.dev' }}
           EVENT_NAME: ${{ github.event_name }}
         run: |
+          chmod +x ./scripts/verify-production-endpoints.sh
+
           # Scheduled runs should always execute a real smoke check.
           if [ "$EVENT_NAME" = "schedule" ]; then
             SIMULATE_FAILURE="false"
           fi
 
-          token="$WORKFLOW_ADMIN_TOKEN_SECRET"
+          token="$ADMIN_TOKEN_SECRET"
           if [ "$SIMULATE_FAILURE" = "true" ]; then
             token="invalid-${GITHUB_RUN_ID:-0}-${GITHUB_RUN_ATTEMPT:-0}"
             echo "Simulating failure with invalid admin token"
           fi
 
-          WORKFLOW_ADMIN_TOKEN="$token" BASE_URL="$BASE_URL" EXPECTED_WORKER_NAME="ultimatearbitragehft" REQUIRE_READY_FOR_LIVE="false" SKIP_CUSTOM_DOMAIN_CHECK="true" node ./scripts/verify-production-endpoints.js
+          ADMIN_TOKEN="$token" ./scripts/verify-production-endpoints.sh "$BASE_URL"
 
       - name: Telegram alert when smoke test fails
         if: steps.smoke.outcome == 'failure'
