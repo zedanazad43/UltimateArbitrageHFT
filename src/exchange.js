@@ -1382,7 +1382,7 @@ export async function getHTXBalance(env, asset = 'usdt') {
   if (!apiSecret) throw new Error('HTX_API_SECRET is not configured');
 
   const method = 'GET';
-  const host = 'api.huobi.pro';
+  const host = 'api.htx.com';
   const path = '/v1/account/accounts';
   const timestamp = new Date().toISOString().replace(/\.\d{3}Z$/, '');
   const params = new URLSearchParams({
