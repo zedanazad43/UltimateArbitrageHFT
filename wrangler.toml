@@ -4,7 +4,7 @@ compatibility_date = "2025-04-18"
 compatibility_flags = ["nodejs_compat"]
 account_id = "652e53f35781522e2745784cc4425d9d"
 
-# â”€â”€ Existing bindings â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ── Existing bindings ──────────────────────────────────────────────
 
 [[kv_namespaces]]
 binding = "BOT_STATE"
@@ -30,7 +30,6 @@ database_id = "cd726538-9c41-456c-b172-15fcc3a63a0c"
 name = "MARKET_STREAMER"
 class_name = "MarketStreamer"
 
-<<<<<<< HEAD
 [[durable_objects.bindings]]
 name = "HFT_BACKUP"
 class_name = "HFTBackup"
@@ -47,21 +46,15 @@ new_classes = ["HFTBackup"]
 [[migrations]]
 tag = "v3"
 new_tables = ["backup_positions", "backup_prices", "backup_opportunities", "hft_state_sync", "failover_events", "railway_metrics"]
-=======
 
-tag = "v1"
-new_classes = ["MarketStreamer"]
-
-# â”€â”€ Analytics Engine â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ── Analytics Engine ──────────────────────────────────────────────
 # Streams trade events, scan results, and errors to Cloudflare Analytics Engine.
-# Dashboard: https://dash.cloudflare.com/ â†’ Workers & Pages â†’ Analytics Engine
->>>>>>> 90678fd1915dbeadfa9dbf3bdc4ac8a5779f5c22
-
+# Dashboard: https://dash.cloudflare.com/ → Workers & Pages → Analytics Engine
 [[analytics_engine_datasets]]
 binding = "ANALYTICS"
 dataset = "arbitrage_events"
 
-# â”€â”€ R2 Bucket â€” trade log archives â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ── R2 Bucket — trade log archives ────────────────────────────────
 # Stores CSV trade exports and daily PDF-style reports.
 # Create: `npx wrangler r2 bucket create ultimate-arbitrage-logs`
 
@@ -74,14 +67,14 @@ bucket_name = "ultimate-arbitrage-logs"
 binding = "R2"
 bucket_name = "ultimate-arbitrage-logs"
 
-# â”€â”€ Workers AI â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ── Workers AI ────────────────────────────────────────────────────
 # Runs LLM-powered opportunity analysis and market summaries entirely on
-# Cloudflare's GPU fleet â€” no external API keys required.
+# Cloudflare's GPU fleet — no external API keys required.
 
 [ai]
 binding = "AIWORKER"
 
-# â”€â”€ Queue â€” async trade-log pipeline â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ── Queue — async trade-log pipeline ──────────────────────────────
 # Producers: enqueue trade-log messages immediately after order execution so
 # the hot path is never blocked by slow DB writes.
 # Create: `npx wrangler queues create ultimate-arbitrage-queue`
@@ -100,7 +93,7 @@ queue = "ultimate-arbitrage-queue"
 max_batch_size = 10
 max_batch_timeout = 30
 
-# â”€â”€ Rate Limiter â€” admin endpoint protection â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ── Rate Limiter — admin endpoint protection ──────────────────────
 # 20 requests per 60 seconds per IP on all admin routes.
 # Uses Cloudflare's built-in rate limiting; no external service needed.
 
@@ -110,14 +103,14 @@ name = "RATE_LIMITER"
 namespace_id = "1001"
 simple = { limit = 20, period = 60 }
 
-# â”€â”€ Version Metadata â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ── Version Metadata ──────────────────────────────────────────────
 # Exposes the current Worker deployment version ID, tag, and timestamp.
 # Accessible at /api/version.
 
 [version_metadata]
 binding = "METADATA"
 
-# â”€â”€ Observability â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ── Observability ─────────────────────────────────────────────────
 
 [observability]
 enabled = false
@@ -137,7 +130,7 @@ head_sampling_rate = 1
 [triggers]
 crons = ["* * * * *"]
 
-# â”€â”€ Temporal Cloud â€” non-sensitive config vars â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ── Temporal Cloud — non-sensitive config vars ────────────────────
 # These are plain (non-secret) configuration values exposed to the Worker.
 # Update TEMPORAL_ADDRESS and TEMPORAL_NAMESPACE to match your Cloud namespace.
 #
@@ -155,7 +148,7 @@ TEMPORAL_ADDRESS    = ""
 # Set to your deployed Worker URL, e.g. https://ultimatearbitragehft.workers.dev
 TEMPORAL_WORKER_URL = ""
 
-# â”€â”€ Go HFT engine â€” non-sensitive connection config â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ── Go HFT engine — non-sensitive connection config ──────────────
 # The Go engine exposes a REST API (GET /api/scan, POST /api/execute) that the
 # Worker calls for WebSocket-fed price data and on-chain DEX execution.
 #
@@ -168,7 +161,7 @@ TEMPORAL_WORKER_URL = ""
 #                    Set the same value as HFT_ENGINE_SECRET env var on the engine.
 HFT_ENGINE_URL = ""
 
-# â”€â”€ Executable ecosystem integrations (non-sensitive endpoint URLs) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ── Executable ecosystem integrations (non-sensitive endpoint URLs) ──
 # Set each URL to enable remote execution from dashboard/API.
 # Tokens for these services should be configured as Worker secrets:
 #   HUMMINGBOT_API_TOKEN, FREQTRADE_API_TOKEN, CREWAI_API_TOKEN, AUTOGPT_API_TOKEN
@@ -181,7 +174,7 @@ CREWAI_STATUS_URL      = ""
 AUTOGPT_EXECUTE_URL    = ""
 AUTOGPT_STATUS_URL     = ""
 
-# â”€â”€ Proxy routing behavior â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ── Proxy routing behavior ────────────────────────────────────────
 # auto: use proxy when configured, fallback to direct requests when proxy fails
 # off: force direct requests (useful for servers outside proxy)
 # required: require proxy; fail request if proxy is unavailable
@@ -191,7 +184,7 @@ PROXY_MODE = "auto"
 # Example: "bitmart,mexc"
 DIRECT_EXCHANGES = ""
 
-# â”€â”€ Exchange feature flags â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ── Exchange feature flags ────────────────────────────────────────
 # bybit and gateio are excluded from live execution (German regulatory law).
 # They remain active as price-data sources only.
 # All other exchanges are enabled for full order execution when credentials are set.
@@ -204,7 +197,6 @@ DIRECT_EXCHANGES = ""
 #   Bitmart: BITMART_API_KEY, BITMART_SECRET_KEY, BITMART_MEMO
 #   HTX:     HTX_API_KEY, HTX_API_SECRET
 
-<<<<<<< HEAD
 # ── Geo-Bypass Proxy Configuration (populated at deploy time) ──────────────────
 BRIGHT_DATA_USER = ""
 BRIGHT_DATA_PASSWORD = ""
@@ -213,17 +205,3 @@ CF_TUNNEL_EU_URL = ""
 CF_TUNNEL_ASIA_URL = ""
 OXYLABS_USER = ""
 OXYLABS_PASSWORD = ""
-=======
-# --- Durable Object migrations ---
-[[migrations]]
-tag = "v1"
-new_classes = ["MarketStreamer"]
-
-[[migrations]]
-tag = "v2"
-new_classes = ["HFTBackup"]
-
-[[migrations]]
-tag = "v3"
-# HFTBackup retained — no-op migration (class already active in deployed Worker)
->>>>>>> 90678fd1915dbeadfa9dbf3bdc4ac8a5779f5c22

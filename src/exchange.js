@@ -167,11 +167,25 @@ function _detectExchangeFromUrl(url) {
 export async function exchangeFetch(url, options = {}, exchange, maxRetries = 2, env = null) {
   const ex = exchange || _detectExchangeFromUrl(url);
 
-  // ── Proxy bypass: try Railway proxy first, then direct for blocked exchanges ──
-  if (env && ex && ['kucoin', 'bitget', 'binance'].includes(ex)) {
+  // ── Proxy bypass for geo-blocked exchanges ──
+  // Route Binance/KuCoin/Bitget through the external proxy manager (non-US
+  // egress + gateway auth). This is the reliable path used by bitgetFetch.
+  if (env && ex && ['kucoin', 'binance'].includes(ex)) {
+    try {
+      const proxyManager = getExternalProxyManager(env);
+      const stats = proxyManager.getStats();
+      if (stats?.enabled) {
+        return proxyManager.fetchWithFallback(url, options, 15000);
+      }
+    } catch (_) {
+      // Fall through to standard path below
+    }
+  }
+
+  // ── Legacy ProxyBypassEngine path (kept for bitget-style fallback) ──
+  if (env && ex && ['bitget'].includes(ex)) {
     try {
       const bypassEngine = new ProxyBypassEngine(env);
-      // Don't wait for health check — try bypass directly with sub-5s timeout
       const result = await bypassEngine.fetchWithBypass(url, ex, {
         method: options.method || 'GET',
         headers: options.headers,

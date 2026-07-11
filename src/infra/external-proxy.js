@@ -117,23 +117,31 @@ export class ExternalProxyManager {
         return false;
       }
 
-      // Simple health check: HEAD request to a stable endpoint
+      // Health check: probe the gateway's own /health endpoint (always 200) so we
+      // verify the gateway+tunnel is reachable WITHOUT depending on a specific
+      // upstream exchange being reachable through the free egress proxy.
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 5000);
 
-      const probeTarget = 'https://www.binance.com';
-      const response = await fetch(`${proxyUrl}?target=${encodeURIComponent(probeTarget)}`, {
+      const probeTarget = `${proxyUrl}/health`;
+      const response = await fetch(probeTarget, {
         method: 'HEAD',
         signal: controller.signal,
         headers: {
-          'X-Proxy-Target': probeTarget,
           ...this.buildAuthHeaders(),
         },
       });
 
       clearTimeout(timeoutId);
       response.body && response.body.cancel();
-      this.isHealthy = response.ok || response.status === 403; // 403 is OK (auth works, endpoint blocked)
+      // 403 from /health means the gateway is reachable but rejected our token.
+      // 200 means healthy. Any other status = tunnel/gateway down.
+      if (response.status === 403) {
+        console.warn('[external-proxy] Gateway /health returned 403 — token missing/invalid');
+        this.isHealthy = false;
+      } else {
+        this.isHealthy = response.ok;
+      }
       this.failureCount = 0;
 
       console.log(`[external-proxy] Health check passed for ${this.provider}`);
