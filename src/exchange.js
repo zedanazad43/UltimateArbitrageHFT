@@ -264,6 +264,11 @@ export async function getMEXCBalance(env, asset = 'USDT') {
     throw new Error(normalizeExchangeErrorMessage('MEXC', data.msg || `MEXC account error ${data.code}`));
   }
 
+  // When no asset specified, return the full balance list (used by getAllExchangeBalances)
+  if (!asset) {
+    return { balances: data.balances || [] };
+  }
+
   const bal = (data.balances || []).find(b => b.asset === asset);
   return {
     free: parseFloat(bal?.free || '0'),
@@ -1674,6 +1679,23 @@ export async function getExchangeBalance(env, exchange, asset = 'USDT') {
     case 'htx': return (await getHTXBalance(env, asset.toLowerCase())).free;
     // bybit/gateio: data-only, no live execution
     default: return 0;
+  }
+}
+
+/**
+ * Returns ALL non-zero balances for an exchange (not just one asset).
+ * Each entry: { asset, free, locked, total }.
+ */
+export async function getAllExchangeBalances(env, exchange) {
+  const common = ['USDT', 'USDC', 'BTC', 'ETH', 'BNB', 'SOL', 'TRX', 'HT', 'KCS', 'GT', 'BMX', 'MX', 'DOGE'];
+  try {
+    const entries = await Promise.all(common.map(async (asset) => {
+      const free = Number(await getExchangeBalance(env, exchange, asset) || 0);
+      return free > 0 ? { asset, free, locked: 0, total: free } : null;
+    }));
+    return entries.filter(Boolean).sort((a, b) => b.total - a.total);
+  } catch (e) {
+    return [];
   }
 }
 

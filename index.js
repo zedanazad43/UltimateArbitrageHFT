@@ -13,7 +13,7 @@ import AnalyticsEngine from './src/analytics-engine.js';
 import { renderDashboard, renderChecklist } from './src/dashboard.js';
 import { runScan, getExecutionLockState, resetCircuitBreaker } from './src/orchestrator.js';
 import { ensureSchema, logAdminEvent, logBotEvent, getRecentTrades, getStrategyPnL, getPerformanceMetrics, exportTrades } from './src/db.js';
-import { hasExchangeCredentials, getExchangeBalance, placeExchangeMarketOrder, getMissingCredentialKeys, getConfiguredExchanges, ACTIVE_EXECUTION_EXCHANGES, DATA_ONLY_EXCHANGES, getMEXCFuturesBalance, getMEXCBalance, getEnabledExecutionExchanges, isExecutionExchangeEnabled, getBitgetAccountEquityUSDT } from './src/exchange.js';
+import { hasExchangeCredentials, getExchangeBalance, getAllExchangeBalances, placeExchangeMarketOrder, getMissingCredentialKeys, getConfiguredExchanges, ACTIVE_EXECUTION_EXCHANGES, DATA_ONLY_EXCHANGES, getMEXCFuturesBalance, getMEXCBalance, getEnabledExecutionExchanges, isExecutionExchangeEnabled, getBitgetAccountEquityUSDT } from './src/exchange.js';
 import { scanDEX } from './src/strategies/dex.js';
 import { isHFTEngineConfigured } from './src/hft-client.js';
 import { runBacktest } from './src/backtest.js';
@@ -441,17 +441,17 @@ async function getExecutionBalancesSnapshot(env, assets = ['USDT']) {
         };
       }
       try {
-        const balances = {};
-        await Promise.all(requestedAssets.map(async (asset) => {
-          const value = await getExchangeBalance(env, ex, asset);
-          balances[asset] = Number(value || 0);
-        }));
+        const allBalances = await getAllExchangeBalances(env, ex);
+        // Primary asset (USDT by default) for backward-compatible `balance` field
+        const primaryEntry = allBalances.find((b) => b.asset === primaryAsset)
+          || allBalances[0];
+        const balancesMap = {};
+        allBalances.forEach((b) => { balancesMap[b.asset] = b.total; });
         let accountEquityUSDT = null;
         if (ex === 'bitget') {
           try {
             accountEquityUSDT = await getBitgetAccountEquityUSDT(env);
           } catch (err) {
-            // Bitget equity lookup is best-effort; fall back to null
             console.error('[balances] bitget equity lookup failed:', err?.message);
             accountEquityUSDT = null;
           }
@@ -460,8 +460,9 @@ async function getExecutionBalancesSnapshot(env, assets = ['USDT']) {
           exchange: ex,
           configured: true,
           asset: primaryAsset,
-          balance: Number(balances[primaryAsset] || 0),
-          balances,
+          balance: Number(primaryEntry?.total || 0),
+          balances: balancesMap,
+          all: allBalances,
           ...(accountEquityUSDT ? { usdt_equity: accountEquityUSDT } : {}),
         };
       } catch (e) {
