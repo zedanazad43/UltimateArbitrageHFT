@@ -10,6 +10,10 @@ SETLOCAL ENABLEDELAYEDEXPANSION
 SET REPO=C:\Users\azadz\UltimateArbitrageHFT
 SET GWTOKEN_FILE=C:\Users\azadz\.gateway_token
 SET LOGDIR=%REPO%\logs
+REM Force IPv4 DNS resolution (ISP blocks IPv6 to Cloudflare) — fixes slow/frozen wrangler
+SET NODE_OPTIONS=--dns-result-order=ipv4first
+REM Use local wrangler binary (fast, no npx fetch)
+SET WRANGLER=%REPO%\node_modules\wrangler\bin\wrangler.js
 IF NOT EXIST "%LOGDIR%" mkdir "%LOGDIR%"
 
 REM Kill any stale ssh/serveo so we don't stack tunnels.
@@ -63,7 +67,7 @@ SET "VAL=!VAL:"=!"
 echo [proxy-stack] syncing %NAME% -^> %VAL%
 (
   echo !VAL!
-) | npx --yes wrangler secret put %NAME% >> "%LOGDIR%\wrangler-sync.log" 2>&1
+) | node "%WRANGLER%" secret put %NAME% >> "%LOGDIR%\wrangler-sync.log" 2>&1
 IF ERRORLEVEL 1 (
   echo [proxy-stack] FAILED to sync %NAME% (see %LOGDIR%\wrangler-sync.log)
 ) ELSE (
