@@ -1174,6 +1174,27 @@ export async function getCrossPairPrices(crossSymbols) {
  * IP-whitelisted API key — accessible from any IP, including Cloudflare Worker IPs.
  */
 export async function getAllSpotPrices(env, symbol, openCircuits = new Set()) {
+  // ── Live WS prices (sub-second, from local ws-feed.cjs) ──
+  if (env?.KV_STORAGE) {
+    try {
+      const live = await env.KV_STORAGE.get(`ws:${symbol}`, 'json');
+      if (live && live.prices && Date.now() - (live.ts || 0) < 3000) {
+        return Object.entries(live.prices).map(([exchange, price]) => ({ exchange, price, fee: 0.001 }));
+      }
+    } catch { /* miss */ }
+  }
+
+  // ── KV cache (REST fallback, <5s fresh) ──
+  const cacheKey = `spot:${symbol}`;
+  if (env?.KV_STORAGE) {
+    try {
+      const cached = await env.KV_STORAGE.get(cacheKey, 'json');
+      if (cached && Date.now() - (cached.ts || 0) < 5000) {
+        return cached.prices;
+      }
+    } catch { /* cache miss */ }
+  }
+
   const proxyUrl = String(env?.PROXY_URL || '').trim() || null;
   const exchangeFetchers = [
     ['mexc', () => getMEXCSpotPrice(symbol, proxyUrl)],
@@ -1195,9 +1216,19 @@ export async function getAllSpotPrices(env, symbol, openCircuits = new Set()) {
   );
 
   const results = await Promise.allSettled(tasks);
-  return results
-    .map(r => (r.status === 'fulfilled' ? r.value : null))
+  const prices = results
+    .map((r, i) => {
+      if (r.status !== 'fulfilled' || !r.value) return null;
+      const [name] = exchangeFetchers[i];
+      return { exchange: name, price: r.value, fee: 0.001 };
+    })
     .filter(Boolean);
+
+  // Write to KV cache (best-effort, non-blocking)
+  if (env?.KV_STORAGE && prices.length) {
+    env.KV_STORAGE.put(cacheKey, JSON.stringify({ ts: Date.now(), prices })).catch(() => {});
+  }
+  return prices;
 }
 
 

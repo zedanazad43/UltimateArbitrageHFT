@@ -1287,6 +1287,25 @@ app.get('/debug-futures', async (c) => {
 });
 
 // ── Admin: Immediate scan ─────────────────────────────────────────────────────
+// ── Admin: Receive live WS prices from local feed ────────────────────────────
+// Local ws-feed.cjs pushes sub-second prices here; we cache them in KV for
+// ultra-fast reads by scanCEX (latency arbitrage).
+app.post('/api/ws-prices', async (c) => {
+  if (!isAuthorized(c.env, c)) return authDenied(c.env, c);
+  try {
+    const body = await c.req.json();
+    const feeds = Array.isArray(body?.feeds) ? body.feeds : [];
+    for (const f of feeds) {
+      if (f.symbol && f.prices) {
+        await c.env.KV_STORAGE.put(`ws:${f.symbol}`, JSON.stringify({ ts: Date.now(), prices: f.prices })).catch(() => {});
+      }
+    }
+    return c.json({ status: 'ok', count: feeds.length });
+  } catch (e) {
+    return c.json({ status: 'error', message: e.message }, 400);
+  }
+});
+
 app.get('/scan', async (c) => {
   const limited = await checkRateLimit(c.env, c);
   if (limited) return limited;
