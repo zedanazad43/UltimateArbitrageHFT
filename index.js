@@ -816,16 +816,7 @@ export class MarketStreamer {
 // Backward-compatible Durable Object class kept for existing deployed migrations.
 // This prevents deploy failures for legacy HFT_BACKUP bindings still referenced
 // by Cloudflare script version history.
-export class HFTBackup {
-  constructor(state, env) {
-    this.state = state;
-    this.env = env;
-  }
-
-  async fetch() {
-    return new Response('HFTBackup OK');
-  }
-}
+// (Definition imported from ./src/durable-objects/hft-backup.js at top of file.)
 
 // ─── Hono App ─────────────────────────────────────────────────────────────────
 const app = new Hono();
