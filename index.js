@@ -1292,28 +1292,20 @@ app.get('/scan', async (c) => {
   if (limited) return limited;
   if (!isAuthorized(c.env, c)) return authDenied(c.env, c);
   const state = await getState(c.env);
-  const result = await runScan(c.env, state, sendTelegramAlert, {
+  // Fire-and-forget: run scan in background, return immediately to avoid timeouts.
+  const scanPromise = runScan(c.env, state, sendTelegramAlert, {
     source: 'manual_api',
     trigger: '/scan',
+  }).catch((err) => {
+    console.error('[scan] background error:', err?.message || err);
   });
-  if (result) {
-    const opp = result.opportunity;
-    if (Array.isArray(result.trades) && result.trades.length > 1) {
-      const lines = result.trades
-        .map(t => `• ${t.symbol} [${String(t.strategy || '').toUpperCase()}] ${t.direction} | ${Number(t.netPct || 0).toFixed(4)}% | $${Number(t.sizeUsd || 0).toFixed(2)}`)
-        .join('\n');
-      return c.text(
-        `✅ مسح اكتمل — تم تنفيذ ${result.trades.length} صفقات في نفس الدورة:\n` +
-        `${lines}`
-      );
-    }
-    return c.text(
-      `✅ مسح اكتمل — أفضل فرصة:\n` +
-      `${opp.symbol} [${opp.strategy.toUpperCase()}] ${opp.direction}\n` +
-      `صافي: ${opp.netPct.toFixed(4)}%  |  حجم: $${result.sizeUsd.toFixed(2)}`
-    );
-  }
-  return c.text('✅ مسح اكتمل — لا توجد فرص مربحة حالياً');
+  // Don't await the full scan — just confirm it started and stash the result.
+  c.executionCtx?.waitUntil?.(scanPromise);
+  return c.json({
+    status: 'scan_started',
+    mode: state.paper_trading === false ? 'live' : 'paper',
+    note: 'Scan running in background. Poll /status or /opportunities for results.',
+  });
 });
 
 // ── Admin: Queue live-deal execution in the background ───────────────────────
