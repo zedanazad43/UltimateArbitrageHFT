@@ -107,6 +107,7 @@ const server = http.createServer(async (req, res) => {
     return res.end('proxy-gateway ok');
   }
 
+
   if (GATEWAY_TOKEN) {
     const provided = req.headers['x-gateway-token'];
     if (provided !== GATEWAY_TOKEN) {
@@ -198,7 +199,7 @@ const server = http.createServer(async (req, res) => {
   }
 });
 
-server.listen(PORT, '0.0.0.0', () => {
-  console.log(`[proxy-gateway] listening on http://0.0.0.0:${PORT} (token ${GATEWAY_TOKEN ? 'required' : 'disabled'})`);
+server.listen(PORT, '::', () => {
+  console.log(`[proxy-gateway] listening on http://[::]:${PORT} (IPv4+IPv6, token ${GATEWAY_TOKEN ? 'required' : 'disabled'})`);
   console.log(`[proxy-gateway] upstream proxies: ${UPSTREAM_PROXIES.length}`);
 });

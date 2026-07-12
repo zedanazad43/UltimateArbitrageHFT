@@ -1198,17 +1198,17 @@ export async function getAllSpotPrices(env, symbol, openCircuits = new Set()) {
   const proxyUrl = String(env?.PROXY_URL || '').trim() || null;
   const exchangeFetchers = [
     ['mexc', () => getMEXCSpotPrice(symbol, proxyUrl)],
-    ['binance', () => getBinancePrice(symbol)],            // (*) public
-    ['kucoin', () => getKuCoinPrice(symbol)],             // (*) public
-    ['bitget', () => getBitgetPrice(symbol, env)],        // (*) public
-    ['bitmart', () => getBitmartPrice(symbol)],            // (*) public
-    ['bybit', () => getBybitSpotPrice(symbol)],          // (*) public
-    ['gateio', () => getGateioPrice(symbol)],             // (*) public
-    ['htx', () => getHTXPrice(symbol)],                // (*) public
-    ['kraken', () => getKrakenPrice(symbol)],             // (*) public — no IP restriction
-    ['coinbase', () => getCoinbasePrice(symbol)],           // (*) public — no IP restriction
-    ['alpha_vantage', () => getAlphaVantagePrice(env, symbol)], // optional free API key
-    ['twelve_data', () => getTwelveDataPrice(env, symbol)],     // optional free API key
+    ['binance', () => getBinancePrice(symbol)],            // routed via proxy-pool when enabled
+    ['kucoin', () => getKuCoinPrice(symbol)],
+    ['bitget', () => getBitgetPrice(symbol, env)],
+    ['bitmart', () => getBitmartPrice(symbol)],
+    ['bybit', () => getBybitSpotPrice(symbol)],
+    ['gateio', () => getGateioPrice(symbol)],
+    ['htx', () => getHTXPrice(symbol)],
+    ['kraken', () => getKrakenPrice(symbol)],
+    ['coinbase', () => getCoinbasePrice(symbol)],
+    ['alpha_vantage', () => getAlphaVantagePrice(env, symbol)],
+    ['twelve_data', () => getTwelveDataPrice(env, symbol)],
   ];
 
   const tasks = exchangeFetchers.map(([name, fetcher]) =>
