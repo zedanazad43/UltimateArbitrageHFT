@@ -117,16 +117,17 @@ export class ExternalProxyManager {
         return false;
       }
 
-      // Simple health check: HEAD request to a stable endpoint
+      // Health check: probe the gateway's own /health endpoint (always 200) so we
+      // verify the gateway+tunnel is reachable WITHOUT depending on a specific
+      // upstream exchange being reachable through the free egress proxy.
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 5000);
 
-      const probeTarget = 'https://www.binance.com';
-      const response = await fetch(`${proxyUrl}?target=${encodeURIComponent(probeTarget)}`, {
+      const probeTarget = `${proxyUrl}/health`;
+      const response = await fetch(probeTarget, {
         method: 'HEAD',
         signal: controller.signal,
         headers: {
-          'X-Proxy-Target': probeTarget,
           ...this.buildAuthHeaders(),
         },
       });

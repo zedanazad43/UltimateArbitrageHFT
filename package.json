@@ -38,6 +38,8 @@
     "test:all": "node --test tests/unit.test.js tests/exchange.integration.test.js tests/prices.test.js tests/exchange-multi.test.js tests/notifier.test.js tests/dex.test.js tests/hft-client.test.js tests/ai-client.test.js tests/db-schema-init.test.js tests/exchange-fill-metrics.test.js tests/security-auth.test.js tests/dashboard-api-wiring.test.js tests/platforms-api.test.js tests/self-evaluation.test.js tests/proxy-pool.test.js tests/auto-executor.test.js tests/bot-memory.test.js tests/orchestrator.atomic.test.js tests/safety-lock.test.js",
     "monitor": "node scripts/monitor-performance.js",
     "monitor:spot-lock": "node scripts/monitor-spot-lock.js",
+    "proxy:gateway": "node tools/proxy-gateway.cjs",
+    "proxy:stack": "tools/start-proxy-stack.bat",
     "monitor:exec": "node scripts/monitor-exec-stability.js --interval-ms 300000 --samples 6 --run-execute-all true",
     "monitor:exec:quick": "node scripts/monitor-exec-stability.js --interval-ms 5000 --samples 3 --run-execute-all true",
     "monitor:critical": "node scripts/monitor-live-critical.js --samples 288 --interval-ms 300000 --auto-stop true",

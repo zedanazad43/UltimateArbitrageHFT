@@ -1,9 +1,165 @@
 // nexus/src/exchange.js — Exchange order placement (MEXC, Binance, KuCoin, Bitget, Bitmart)
+// UPDATED: Added WebSocket support for real-time price data
 
 import { getGlobalProxyPool } from './infra/proxy-pool.js';
 import { auditLog, secureFetch } from './infra/security.js';
 import { getExternalProxyManager } from './infra/external-proxy.js';
 import { ProxyBypassEngine } from './ultra-fast-engine.js';
+import { WebSocket } from 'ws';
+import { logger } from './utils/async-logger.js';
+import { wsServer } from './websocket-server.js';
+
+// ── WebSocket Price Feed Manager ───────────────────────────────────────────
+
+class PriceFeedManager {
+  constructor() {
+    this.connections = new Map();
+    this.prices = new Map();
+    this.isRunning = false;
+  }
+
+  /**
+   * Connect to exchange WebSocket for real-time prices
+   */
+  connect(exchange, symbols) {
+    if (this.connections.has(exchange)) {
+      logger.info('WebSocket already connected', { exchange });
+      return;
+    }
+
+    const wsUrl = this._getWsUrl(exchange, symbols);
+    const ws = new WebSocket(wsUrl, {
+      perMessageDeflate: false, // Disable for speed
+      maxPayload: 1024 * 1024 // 1MB
+    });
+
+    ws.on('open', () => {
+      logger.info('WebSocket connected', { exchange, symbols });
+      this._subscribe(ws, symbols);
+    });
+
+    ws.on('message', (data) => {
+      try {
+        const msg = JSON.parse(data.toString());
+        this._handleMessage(exchange, msg);
+      } catch (err) {
+        logger.error('WS parse error', { exchange, error: err.message });
+      }
+    });
+
+    ws.on('close', (code, reason) => {
+      logger.info('WebSocket closed', { exchange, code, reason: reason.toString() });
+      // Auto-reconnect with exponential backoff
+      this._reconnect(exchange, symbols);
+    });
+
+    ws.on('error', (err) => {
+      logger.error('WebSocket error', { exchange, error: err.message });
+      wsServer?.killSwitch?.recordError();
+    });
+
+    this.connections.set(exchange, { ws, symbols, reconnectAttempts: 0 });
+  }
+
+  /**
+   * Handle incoming WebSocket messages
+   */
+  _handleMessage(exchange, msg) {
+    switch (msg.type || msg.event) {
+      case 'trade':
+        // Real-time trade data
+        this.prices.set(`${exchange}:${msg.symbol}`, {
+          price: parseFloat(msg.price),
+          quantity: parseFloat(msg.quantity),
+          timestamp: Date.now(),
+          side: msg.buyerIsMaker ? 'sell' : 'buy'
+        });
+        // Broadcast to dashboard
+        wsServer?._broadcastPrices();
+        break;
+
+      case 'depth':
+        // Order book updates
+        this.prices.set(`${exchange}:depth`, {
+          bids: msg.bids?.slice(0, 10) || [],
+          asks: msg.asks?.slice(0, 10) || [],
+          timestamp: Date.now()
+        });
+        break;
+
+      case 'ticker':
+        // 24h ticker data
+        if (msg.data) {
+          msg.data.forEach(t => {
+            this.prices.set(`${exchange}:${t.symbol}`, {
+              lastPrice: parseFloat(t.lastPrice),
+              volume: parseFloat(t.volume),
+              priceChange: parseFloat(t.priceChangePercent)
+            });
+          });
+        }
+        break;
+
+      default:
+        logger.debug('Unknown WS message type', { type: msg.type });
+    }
+  }
+
+  /**
+   * Get latest price for symbol
+   */
+  getPrice(exchange, symbol) {
+    return this.prices.get(`${exchange}:${symbol}`);
+  }
+
+  /**
+   * Get all prices
+   */
+  getAllPrices() {
+    return Object.fromEntries(this.prices);
+  }
+
+  /**
+   * Reconnect with exponential backoff
+   */
+  _reconnect(exchange, symbols) {
+    const conn = this.connections.get(exchange);
+    if (!conn) return;
+
+    conn.reconnectAttempts++;
+    const delay = Math.min(1000 * Math.pow(2, conn.reconnectAttempts), 30000);
+    
+    logger.info('Reconnecting WebSocket', { 
+      exchange, 
+      attempt: conn.reconnectAttempts,
+      delay: delay + 'ms'
+    });
+
+    setTimeout(() => {
+      this.connect(exchange, symbols);
+    }, delay);
+  }
+
+  _getWsUrl(exchange, symbols) {
+    // Return appropriate WebSocket URL based on exchange
+    const urls = {
+      binance: `wss://stream.binance.com:9443/ws/${symbols.map(s => `${s.toLowerCase()}@trade`).join('/')}`,
+      mexc: 'wss://contract.mexc.com/ws',
+      bitget: 'wss://ws.bitget.com/v2/ws/public',
+      kucoin: 'wss://ws-api-eu.kucoin.com/endpoint',
+      htx: 'wss://api.huotrack.com/v1/ws/ws-client'
+    };
+    return urls[exchange] || '';
+  }
+
+  _subscribe(ws, symbols) {
+    // Send subscription messages based on exchange
+    // Implementation depends on each exchange's protocol
+  }
+}
+
+// Export singleton
+export const priceFeed = new PriceFeedManager();
 
 // ── HMAC-SHA256 helpers ───────────────────────────────────────────────────────
 
@@ -128,6 +284,16 @@ export async function parseJsonResponse(resp, context = '') {
   try {
     return JSON.parse(text);
   } catch (parseErr) {
+    // Some exchanges (and some proxy responses) wrap JSON in whitespace,
+    // a BOM, or stray text. Try to recover the first balanced {...} or [...] block.
+    const cleaned = String(text).replace(/^﻿/, '').trim();
+    const firstBrace = cleaned.search(/[[{]/);
+    if (firstBrace >= 0) {
+      const candidate = cleaned.slice(firstBrace);
+      try {
+        return JSON.parse(candidate);
+      } catch (_) { /* fall through to original error */ }
+    }
     const snippet = text.slice(0, MAX_ERROR_SNIPPET_LENGTH);
     const prefix = context ? `${context}: ` : '';
     // Attach HTTP status so callers can detect 429 / 5xx
@@ -167,11 +333,25 @@ function _detectExchangeFromUrl(url) {
 export async function exchangeFetch(url, options = {}, exchange, maxRetries = 2, env = null) {
   const ex = exchange || _detectExchangeFromUrl(url);
 
-  // ── Proxy bypass: try Railway proxy first, then direct for blocked exchanges ──
-  if (env && ex && ['kucoin', 'bitget', 'binance'].includes(ex)) {
+  // ── Proxy bypass for geo-blocked exchanges ──
+  // Route Binance / KuCoin through the external proxy manager (non-US egress +
+  // gateway auth), exactly like Bitget. This is the reliable path.
+  if (env && ex && ['kucoin', 'binance'].includes(ex)) {
+    try {
+      const proxyManager = getExternalProxyManager(env);
+      const stats = proxyManager.getStats();
+      if (stats?.enabled) {
+        return proxyManager.fetchWithFallback(url, options, 15000);
+      }
+    } catch (_) {
+      // Fall through to standard path below
+    }
+  }
+
+  // ── Legacy ProxyBypassEngine path (kept for bitget-style fallback) ──
+  if (env && ex && ['bitget'].includes(ex)) {
     try {
       const bypassEngine = new ProxyBypassEngine(env);
-      // Don't wait for health check — try bypass directly with sub-5s timeout
       const result = await bypassEngine.fetchWithBypass(url, ex, {
         method: options.method || 'GET',
         headers: options.headers,

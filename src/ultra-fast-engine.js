@@ -419,10 +419,34 @@ export class ProxyBypassEngine {
             try {
                 const result = await method(url, options);
                 if (result && result.ok) {
-                    this.lastSuccess.set(exchange, { method: method.name, ts: Date.now() });
-                    return result;
+                    // Some exchanges (KuCoin) return HTTP 200 with a geo-restriction
+                    // body instead of 403. Peek at the body; if it's a block notice,
+                    // treat it as a failure and fall through to the proxy method.
+                    try {
+                        const clone = result.clone();
+                        const peek = await clone.text();
+                        const lowered = peek.toLowerCase();
+                        if (lowered.includes('unavailable in the u.s') ||
+                            lowered.includes('restricted country') ||
+                            lowered.includes('not available in your') ||
+                            lowered.includes('access denied') ||
+                            (lowered.includes('cloudflare') && lowered.includes('block'))) {
+                            errors.push(`${method.name}: geo-block body`);
+                            continue;
+                        }
+                        // Re-wrap the consumed body into a fresh Response.
+                        this.lastSuccess.set(exchange, { method: method.name, ts: Date.now() });
+                        return new Response(peek, {
+                            status: result.status,
+                            statusText: result.statusText,
+                            headers: result.headers,
+                        });
+                    } catch (_) {
+                        this.lastSuccess.set(exchange, { method: method.name, ts: Date.now() });
+                        return result;
+                    }
                 }
-                if (result && (result.status === 403 || result.status === 429)) {
+                if (result && (result.status === 403 || result.status === 429 || result.status === 451 || result.status === 456 || result.status === 502)) {
                     errors.push(`${method.name}: ${result.status}`);
                     continue;
                 }
@@ -436,7 +460,18 @@ export class ProxyBypassEngine {
     }
 
     getBypassMethods(exchange) {
-        const gUrl = this.env.EXTERNAL_PROXY_FALLBACK_URL || '';
+        const gUrl = this.env.EXTERNAL_PROXY_FALLBACK_URL || this.env.EXTERNAL_PROXY_URL || this.env.PROXY_URL_1 || '';
+        // Optional shared-secret header for the gateway (format "Header-Name: value").
+        const rawAuth = String(this.env.EXTERNAL_PROXY_AUTH_HEADER || this.env.PROXY_AUTH_HEADER || '').trim();
+        const gwAuthHeaders = {};
+        if (rawAuth) {
+            const sep = rawAuth.indexOf(':');
+            if (sep > 0) {
+                const k = rawAuth.slice(0, sep).trim();
+                const v = rawAuth.slice(sep + 1).trim();
+                if (k && v) gwAuthHeaders[k] = v;
+            }
+        }
 
         return [
             // Method 1: Direct with browser headers (fastest)
@@ -456,7 +491,7 @@ export class ProxyBypassEngine {
                 return resp;
             },
 
-            // Method 2: Via Railway proxy (bypasses Cloudflare WAF)
+            // Method 2: Via gateway proxy (non-US egress, bypasses Cloudflare WAF)
             gUrl ? async (url, opts) => {
                 const proxyUrl = `${gUrl}?target=${encodeURIComponent(url)}`;
                 const resp = await fetch(proxyUrl, {
@@ -464,9 +499,11 @@ export class ProxyBypassEngine {
                     headers: {
                         'Content-Type': 'application/json',
                         ...(opts.headers || {}),
+                        'X-Proxy-Target': url,
+                        ...gwAuthHeaders,
                     },
                     body: opts.body,
-                    signal: AbortSignal.timeout(8000),
+                    signal: AbortSignal.timeout(12000),
                 });
                 return resp;
             } : null,
