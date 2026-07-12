@@ -37,6 +37,13 @@ IF ERRORLEVEL 1 (
   echo [proxy-stack] node gateway already running
 )
 
+REM ── 1b) Start WebSocket live-feed (latency arb) ──────────────────────────────
+SET ADMIN_TOKEN=
+IF EXIST "C:\Users\azadz\.new_admin_token" SET /P ADMIN_TOKEN=<"C:\Users\azadz\.new_admin_token"
+if "%ADMIN_TOKEN%"=="" echo [proxy-stack] WARNING: no admin token at C:\Users\azadz\.new_admin_token
+START "ws-feed" /MIN cmd /c "cd /d %REPO% && set ADMIN_TOKEN=%ADMIN_TOKEN% && node tools\ws-feed.cjs >> %LOGDIR%\ws-feed.log 2>&1"
+timeout /t 2 >nul
+
 REM ── 2) Keep serveo tunnel alive (restart on disconnect, sync URL to Cloudflare) ─
 :serveo_loop
 echo [proxy-stack] starting serveo tunnel...

@@ -78,9 +78,18 @@ function scheduleFlush() {
 
 function connect(name, cfg) {
   const ws = new WebSocket(cfg.url);
+  let alive = true;
+  let pingTimer = null;
+
   ws.on('open', () => {
-    SYMBOLS.forEach((s) => ws.send(JSON.stringify(cfg.sub(s))));
     console.log(`[ws-feed] ${name} connected`);
+    // Keepalive: send ping every 25s to prevent idle disconnect
+    pingTimer = setInterval(() => {
+      if (ws.readyState === WebSocket.OPEN) {
+        try { ws.ping(); } catch {}
+      }
+    }, 25000);
+    SYMBOLS.forEach((s) => ws.send(JSON.stringify(cfg.sub(s))));
   });
   ws.on('message', (raw) => {
     let d; try { d = JSON.parse(raw.toString()); } catch { return; }
@@ -91,8 +100,14 @@ function connect(name, cfg) {
       latest[sym][name] = p.price;
     }
   });
-  ws.on('close', () => { console.log(`[ws-feed] ${name} closed, retrying...`); setTimeout(() => connect(name, cfg), 5000); });
-  ws.on('error', () => {});
+  ws.on('close', () => {
+    if (pingTimer) clearInterval(pingTimer);
+    console.log(`[ws-feed] ${name} closed, retrying in 2s...`);
+    setTimeout(() => connect(name, cfg), 2000);
+  });
+  ws.on('error', () => { try { ws.close(); } catch {} });
+  // Heartbeat: detect dead connections
+  ws.on('pong', () => { alive = true; });
 }
 
 console.log('[ws-feed] starting for', SYMBOLS.join(', '));
