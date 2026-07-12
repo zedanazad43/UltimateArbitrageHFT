@@ -6,6 +6,12 @@ const MIN_SAFETY_FACTOR = 0.20; // net/gross must be >= 20% (aggressive mode)
 // These exchanges are restricted by regulation (BaFin Germany) or lack API credentials.
 const DATA_ONLY_EXCHANGES = new Set(['kraken', 'coinbase']);
 
+// Exchanges that are currently unreachable (e.g. geo-blocked / tunnel down).
+// scanCEX will skip these as execution venues but still use reachable ones.
+const UNREACHABLE_EXCHANGES = new Set(
+  (process.env.UNREACHABLE_EXCHANGES || '').split(',').map((s) => s.trim().toLowerCase()).filter(Boolean)
+);
+
 function addRejection(options, reason, count = 1) {
   if (!options || !options.rejections || !reason || count <= 0) return;
   options.rejections[reason] = Number(options.rejections[reason] || 0) + Number(count || 0);
@@ -48,6 +54,8 @@ function slippagePct(exchange) {
 export function scanCEX(symbol, sources, maxSpreadPct, options = {}) {
   const executionSources = (Array.isArray(sources) ? sources : []).filter(
     (s) => s && !DATA_ONLY_EXCHANGES.has(String(s.exchange || '').toLowerCase())
+  ).filter(
+    (s) => !UNREACHABLE_EXCHANGES.has(String(s.exchange || '').toLowerCase())
   );
 
   if (executionSources.length < 2) {

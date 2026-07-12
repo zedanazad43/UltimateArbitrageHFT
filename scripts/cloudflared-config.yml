@@ -1,0 +1,46 @@
+# ~/.cloudflared/config.yml
+# Cloudflare Tunnel Configuration for Geographic Routing
+# Updated: 2026-06-22
+
+# ─────────────────────────────────────────────────────────────────
+# US Bypass Tunnel (routes Bright Data or direct)
+# ─────────────────────────────────────────────────────────────────
+tunnel: us-bypass
+credentials-file: ~/.cloudflared/us-bypass-uuid.json
+protocol: quic
+
+# US users get routed through this tunnel
+ingress:
+  - hostname: us-bypass-*.tunnel.example.com
+    # Option A: Route to local proxy on port 3000
+    service: http://127.0.0.1:3000
+    # Option B: Route to Bright Data proxy (if available)
+    # service: http://BRIGHT_DATA_USER:BRIGHT_DATA_PASSWORD@proxy.provider.com:PORT
+  - service: http_status:404
+
+# ─────────────────────────────────────────────────────────────────
+# EU Routing Tunnel
+# ─────────────────────────────────────────────────────────────────
+tunnel: eu-routing
+credentials-file: ~/.cloudflared/eu-routing-uuid.json
+protocol: quic
+
+# EU users get routed through this tunnel
+ingress:
+  - hostname: eu-routing-*.tunnel.example.com
+    service: http://127.0.0.1:3001
+    # Or direct to exchange API if in EU region
+  - service: http_status:404
+
+# ─────────────────────────────────────────────────────────────────
+# Asia-Pacific Bypass Tunnel
+# ─────────────────────────────────────────────────────────────────
+tunnel: asia-bypass
+credentials-file: ~/.cloudflared/asia-bypass-uuid.json
+protocol: quic
+
+# Asia users get routed through this tunnel
+ingress:
+  - hostname: asia-bypass-*.tunnel.example.com
+    service: http://127.0.0.1:3002
+  - service: http_status:404

@@ -134,7 +134,14 @@ export class ExternalProxyManager {
 
       clearTimeout(timeoutId);
       response.body && response.body.cancel();
-      this.isHealthy = response.ok || response.status === 403; // 403 is OK (auth works, endpoint blocked)
+      // 403 from /health means the gateway is reachable but rejected our token.
+      // 200 means healthy. Any other status = tunnel/gateway down.
+      if (response.status === 403) {
+        console.warn('[external-proxy] Gateway /health returned 403 — token missing/invalid');
+        this.isHealthy = false;
+      } else {
+        this.isHealthy = response.ok;
+      }
       this.failureCount = 0;
 
       console.log(`[external-proxy] Health check passed for ${this.provider}`);

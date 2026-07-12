@@ -334,8 +334,8 @@ export async function exchangeFetch(url, options = {}, exchange, maxRetries = 2,
   const ex = exchange || _detectExchangeFromUrl(url);
 
   // ── Proxy bypass for geo-blocked exchanges ──
-  // Route Binance / KuCoin through the external proxy manager (non-US egress +
-  // gateway auth), exactly like Bitget. This is the reliable path.
+  // Route Binance/KuCoin/Bitget through the external proxy manager (non-US
+  // egress + gateway auth). This is the reliable path used by bitgetFetch.
   if (env && ex && ['kucoin', 'binance'].includes(ex)) {
     try {
       const proxyManager = getExternalProxyManager(env);
@@ -428,6 +428,11 @@ export async function getMEXCBalance(env, asset = 'USDT') {
 
   if (data.code) {
     throw new Error(normalizeExchangeErrorMessage('MEXC', data.msg || `MEXC account error ${data.code}`));
+  }
+
+  // When no asset specified, return the full balance list (used by getAllExchangeBalances)
+  if (!asset) {
+    return { balances: data.balances || [] };
   }
 
   const bal = (data.balances || []).find(b => b.asset === asset);
@@ -1548,7 +1553,7 @@ export async function getHTXBalance(env, asset = 'usdt') {
   if (!apiSecret) throw new Error('HTX_API_SECRET is not configured');
 
   const method = 'GET';
-  const host = 'api.huobi.pro';
+  const host = 'api.htx.com';
   const path = '/v1/account/accounts';
   const timestamp = new Date().toISOString().replace(/\.\d{3}Z$/, '');
   const params = new URLSearchParams({
@@ -1840,6 +1845,23 @@ export async function getExchangeBalance(env, exchange, asset = 'USDT') {
     case 'htx': return (await getHTXBalance(env, asset.toLowerCase())).free;
     // bybit/gateio: data-only, no live execution
     default: return 0;
+  }
+}
+
+/**
+ * Returns ALL non-zero balances for an exchange (not just one asset).
+ * Each entry: { asset, free, locked, total }.
+ */
+export async function getAllExchangeBalances(env, exchange) {
+  const common = ['USDT', 'USDC', 'BTC', 'ETH', 'BNB', 'SOL', 'TRX', 'HT', 'KCS', 'GT', 'BMX', 'MX', 'DOGE'];
+  try {
+    const entries = await Promise.all(common.map(async (asset) => {
+      const free = Number(await getExchangeBalance(env, exchange, asset) || 0);
+      return free > 0 ? { asset, free, locked: 0, total: free } : null;
+    }));
+    return entries.filter(Boolean).sort((a, b) => b.total - a.total);
+  } catch (e) {
+    return [];
   }
 }
 

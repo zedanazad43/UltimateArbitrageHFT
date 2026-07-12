@@ -13,7 +13,7 @@ import AnalyticsEngine from './src/analytics-engine.js';
 import { renderDashboard, renderChecklist } from './src/dashboard.js';
 import { runScan, getExecutionLockState, resetCircuitBreaker } from './src/orchestrator.js';
 import { ensureSchema, logAdminEvent, logBotEvent, getRecentTrades, getStrategyPnL, getPerformanceMetrics, exportTrades } from './src/db.js';
-import { hasExchangeCredentials, getExchangeBalance, placeExchangeMarketOrder, getMissingCredentialKeys, getConfiguredExchanges, ACTIVE_EXECUTION_EXCHANGES, DATA_ONLY_EXCHANGES, getMEXCFuturesBalance, getMEXCBalance, getEnabledExecutionExchanges, isExecutionExchangeEnabled, getBitgetAccountEquityUSDT } from './src/exchange.js';
+import { hasExchangeCredentials, getExchangeBalance, getAllExchangeBalances, placeExchangeMarketOrder, getMissingCredentialKeys, getConfiguredExchanges, ACTIVE_EXECUTION_EXCHANGES, DATA_ONLY_EXCHANGES, getMEXCFuturesBalance, getMEXCBalance, getEnabledExecutionExchanges, isExecutionExchangeEnabled, getBitgetAccountEquityUSDT } from './src/exchange.js';
 import { scanDEX } from './src/strategies/dex.js';
 import { isHFTEngineConfigured } from './src/hft-client.js';
 import { runBacktest } from './src/backtest.js';
@@ -44,6 +44,13 @@ import { CircuitBreaker } from './src/circuit-breaker.js';
 import { runLiveMonitor } from './src/monitor-live.js';
 import { registerAIMasterRoutes } from './src/routes/aimaster-routes.js';
 import { registerTemporalRoutes } from './src/routes/temporal-routes.js';
+
+// ═══ HFT Resilience Improvements ═══
+import { HFTBackup } from './src/durable-objects/hft-backup.js';
+import { registerResilienceRoutes as _registerResilienceRoutes } from './src/routes/resilience-routes.js';
+
+// ═══ Geo-bypass & Diagnostics ═══
+import { registerGeoBypassRoutes as _registerGeoBypassRoutes } from './src/routes/geo-bypass-routes.js';
 
 
 // ─── Telegram notification helper ────────────────────────────────────────────
@@ -434,17 +441,17 @@ async function getExecutionBalancesSnapshot(env, assets = ['USDT']) {
         };
       }
       try {
-        const balances = {};
-        await Promise.all(requestedAssets.map(async (asset) => {
-          const value = await getExchangeBalance(env, ex, asset);
-          balances[asset] = Number(value || 0);
-        }));
+        const allBalances = await getAllExchangeBalances(env, ex);
+        // Primary asset (USDT by default) for backward-compatible `balance` field
+        const primaryEntry = allBalances.find((b) => b.asset === primaryAsset)
+          || allBalances[0];
+        const balancesMap = {};
+        allBalances.forEach((b) => { balancesMap[b.asset] = b.total; });
         let accountEquityUSDT = null;
         if (ex === 'bitget') {
           try {
             accountEquityUSDT = await getBitgetAccountEquityUSDT(env);
           } catch (err) {
-            // Bitget equity lookup is best-effort; fall back to null
             console.error('[balances] bitget equity lookup failed:', err?.message);
             accountEquityUSDT = null;
           }
@@ -453,8 +460,9 @@ async function getExecutionBalancesSnapshot(env, assets = ['USDT']) {
           exchange: ex,
           configured: true,
           asset: primaryAsset,
-          balance: Number(balances[primaryAsset] || 0),
-          balances,
+          balance: Number(primaryEntry?.total || 0),
+          balances: balancesMap,
+          all: allBalances,
           ...(accountEquityUSDT ? { usdt_equity: accountEquityUSDT } : {}),
         };
       } catch (e) {
@@ -809,16 +817,7 @@ export class MarketStreamer {
 // Backward-compatible Durable Object class kept for existing deployed migrations.
 // This prevents deploy failures for legacy HFT_BACKUP bindings still referenced
 // by Cloudflare script version history.
-export class HFTBackup {
-  constructor(state, env) {
-    this.state = state;
-    this.env = env;
-  }
-
-  async fetch() {
-    return new Response('HFTBackup OK');
-  }
-}
+// (Definition imported from ./src/durable-objects/hft-backup.js at top of file.)
 
 // ─── Hono App ─────────────────────────────────────────────────────────────────
 const app = new Hono();
@@ -956,6 +955,74 @@ app.get('/health', async (c) => {
     db_healthy: dbHealthy,
     timestamp: Date.now(),
   });
+});
+
+// ── Public proxy routes (no auth) — consumed by backend worker_client.py ─────
+// These mirror the auth-gated /api/* equivalents but expose only safe, read-only
+// snapshots that the Python backend polls and re-exposes behind its own auth.
+
+// Shared helper: extract normalised opportunity rows from a nexus_last_scan KV entry.
+// Each returned row has: symbol, pair, spread_pct, buy_exchange, sell_exchange, direction, strategy, timestamp.
+function _lastScanRows(lastScan) {
+  if (!lastScan) return [];
+  const sources = [lastScan.cex, lastScan.triangular, lastScan.statistical, lastScan.dex];
+  const rows = [];
+  for (const opp of sources) {
+    if (!opp) continue;
+    const symbol = opp.symbol || opp.pair || '';
+    rows.push({
+      symbol,
+      pair: opp.pair || symbol,
+      spread_pct: Number(opp.netPct ?? opp.spread_pct ?? 0),
+      buy_exchange: opp.buyExchange || opp.buy_exchange || '',
+      sell_exchange: opp.sellExchange || opp.sell_exchange || '',
+      direction: opp.direction || '',
+      strategy: opp.strategy || '',
+      timestamp: lastScan.timestamp ?? null,
+    });
+  }
+  return rows;
+}
+
+// GET /status — bot state snapshot (shape: dict with status, trading_enabled, mode, …)
+app.get('/status', async (c) => {
+  const [state, lastScan] = await Promise.all([
+    getState(c.env).catch(() => null),
+    c.env.BOT_STATE ? c.env.BOT_STATE.get('nexus_last_scan', 'json').catch(() => null) : null,
+  ]);
+  const summary = state ? getStateSummary(state) : {};
+  return c.json({
+    status: state ? 'ok' : 'degraded',
+    trading_enabled: state?.trading_enabled ?? false,
+    paper_trading: state?.paper_trading ?? true,
+    auto_stopped: state?.auto_stopped ?? false,
+    mode: state?.paper_trading !== false ? 'paper' : 'live',
+    ...summary,
+    lastScanTimestamp: lastScan?.timestamp ?? null,
+    timestamp: new Date().toISOString(),
+  });
+});
+
+// GET /spreads — latest spread rows (shape: dict with "rows" list and "ts" string)
+app.get('/spreads', async (c) => {
+  const lastScan = c.env.BOT_STATE
+    ? await c.env.BOT_STATE.get('nexus_last_scan', 'json').catch(() => null)
+    : null;
+  return c.json({ rows: _lastScanRows(lastScan), ts: new Date().toISOString() });
+});
+
+// GET /opportunities — viable opportunities (shape: list; each item has pair + spread_pct)
+app.get('/opportunities', async (c) => {
+  const lastScan = c.env.BOT_STATE
+    ? await c.env.BOT_STATE.get('nexus_last_scan', 'json').catch(() => null)
+    : null;
+  return c.json(_lastScanRows(lastScan));
+});
+
+// GET /balances — exchange balance list (shape: list; each item has exchange key)
+app.get('/balances', async (c) => {
+  const data = await getExecutionBalancesSnapshot(c.env).catch(() => []);
+  return c.json(data);
 });
 
 // ── WebSocket / HFT Engine Integration: Live Price Feed ───────────────────
@@ -1220,33 +1287,44 @@ app.get('/debug-futures', async (c) => {
 });
 
 // ── Admin: Immediate scan ─────────────────────────────────────────────────────
+// ── Admin: Receive live WS prices from local feed ────────────────────────────
+// Local ws-feed.cjs pushes sub-second prices here; we cache them in KV for
+// ultra-fast reads by scanCEX (latency arbitrage).
+app.post('/api/ws-prices', async (c) => {
+  if (!isAuthorized(c.env, c)) return authDenied(c.env, c);
+  try {
+    const body = await c.req.json();
+    const feeds = Array.isArray(body?.feeds) ? body.feeds : [];
+    for (const f of feeds) {
+      if (f.symbol && f.prices) {
+        await c.env.KV_STORAGE.put(`ws:${f.symbol}`, JSON.stringify({ ts: Date.now(), prices: f.prices })).catch(() => {});
+      }
+    }
+    return c.json({ status: 'ok', count: feeds.length });
+  } catch (e) {
+    return c.json({ status: 'error', message: e.message }, 400);
+  }
+});
+
 app.get('/scan', async (c) => {
   const limited = await checkRateLimit(c.env, c);
   if (limited) return limited;
   if (!isAuthorized(c.env, c)) return authDenied(c.env, c);
   const state = await getState(c.env);
-  const result = await runScan(c.env, state, sendTelegramAlert, {
+  // Fire-and-forget: run scan in background, return immediately to avoid timeouts.
+  const scanPromise = runScan(c.env, state, sendTelegramAlert, {
     source: 'manual_api',
     trigger: '/scan',
+  }).catch((err) => {
+    console.error('[scan] background error:', err?.message || err);
   });
-  if (result) {
-    const opp = result.opportunity;
-    if (Array.isArray(result.trades) && result.trades.length > 1) {
-      const lines = result.trades
-        .map(t => `• ${t.symbol} [${String(t.strategy || '').toUpperCase()}] ${t.direction} | ${Number(t.netPct || 0).toFixed(4)}% | $${Number(t.sizeUsd || 0).toFixed(2)}`)
-        .join('\n');
-      return c.text(
-        `✅ مسح اكتمل — تم تنفيذ ${result.trades.length} صفقات في نفس الدورة:\n` +
-        `${lines}`
-      );
-    }
-    return c.text(
-      `✅ مسح اكتمل — أفضل فرصة:\n` +
-      `${opp.symbol} [${opp.strategy.toUpperCase()}] ${opp.direction}\n` +
-      `صافي: ${opp.netPct.toFixed(4)}%  |  حجم: $${result.sizeUsd.toFixed(2)}`
-    );
-  }
-  return c.text('✅ مسح اكتمل — لا توجد فرص مربحة حالياً');
+  // Don't await the full scan — just confirm it started and stash the result.
+  c.executionCtx?.waitUntil?.(scanPromise);
+  return c.json({
+    status: 'scan_started',
+    mode: state.paper_trading === false ? 'live' : 'paper',
+    note: 'Scan running in background. Poll /status or /opportunities for results.',
+  });
 });
 
 // ── Admin: Queue live-deal execution in the background ───────────────────────
@@ -4354,3 +4432,76 @@ app.get('/api/ultra-fast/ws-status', async (c) => {
   const ws = getWebSocketPriceManager(c.env);
   return c.json({ success: true, ...ws.getStats() });
 });
+
+// ─── Register Resilience Routes ───────────────────────────────────────────
+// These routes provide monitoring and failover capabilities
+app.get('/resilience/health', async (c) => {
+  const { getHFTResilienceManager } = await import('./src/infrastructure/hft-resilience-integration.js');
+  const resilience = getHFTResilienceManager(c.env, {
+    BOT_STATE: c.env.BOT_STATE,
+    DB: c.env.DB,
+    HFT_BACKUP: c.env.HFT_BACKUP,
+    ANALYTICS: c.env.ANALYTICS,
+  });
+  const health = await resilience.getHealthStatus();
+  return c.json(health);
+});
+
+app.get('/resilience/circuit-breaker', async (c) => {
+  const { getHFTResilienceManager } = await import('./src/infrastructure/hft-resilience-integration.js');
+  const resilience = getHFTResilienceManager(c.env, {
+    BOT_STATE: c.env.BOT_STATE,
+    DB: c.env.DB,
+    HFT_BACKUP: c.env.HFT_BACKUP,
+    ANALYTICS: c.env.ANALYTICS,
+  });
+  const status = await resilience.circuitBreaker.getStatus();
+  return c.json(status);
+});
+
+// ─── Register Geo-Bypass Routes ───────────────────────────────────────────
+// Routes for diagnostics and geo-bypass management
+app.get('/geo-bypass/diagnose', async (c) => {
+  const { getStrategyAnalyzer } = await import('./src/infrastructure/strategy-analyzer.js');
+  const analyzer = getStrategyAnalyzer(c.env.DB, c.env);
+  const diagnosis = await analyzer.diagnoseEmptyStreak(10);
+  const performance = await analyzer.getStrategyPerformance(24);
+  const recommendations = await analyzer.recommendTunables();
+  return c.json({ diagnosis, performance, recommendations, timestamp: Date.now() });
+});
+
+app.post('/geo-bypass/spotlock-recover', async (c) => {
+  const { getSpotLockRecovery } = await import('./src/infrastructure/spotlock-recovery.js');
+  const recovery = getSpotLockRecovery(c.env.DB, c.env.BOT_STATE);
+  const result = await recovery.autoRecover();
+  return c.json({ recovery: result, health: await recovery.getHealth(), timestamp: Date.now() });
+});
+
+app.get('/geo-bypass/report', async (c) => {
+  const cfCountry = c.req.header('CF-IPCountry') || 'unknown';
+  const { getStrategyAnalyzer } = await import('./src/infrastructure/strategy-analyzer.js');
+  const { getAdvancedProxyManager } = await import('./src/infrastructure/advanced-proxy-manager.js');
+  const { getCloudFlareTunnelRouter } = await import('./src/infrastructure/cloudflare-tunnel-router.js');
+
+  const analyzer = getStrategyAnalyzer(c.env.DB, c.env);
+  const proxy = getAdvancedProxyManager(c.env);
+  const router = getCloudFlareTunnelRouter(c.env);
+
+  const diagnosis = await analyzer.diagnoseEmptyStreak(10);
+  const proxyStats = proxy.getStats();
+  const tunnelHealth = await router.checkTunnelHealth();
+
+  return c.json({
+    timestamp: Date.now(),
+    userCountry: cfCountry,
+    diagnosis,
+    infrastructure: { proxy: proxyStats, tunnels: tunnelHealth },
+    recommendations: {
+      primary: cfCountry === 'US' ? '🌍 Geo-blocking detected. Enable proxy or tunnel.' : '✅ No geo-blocking detected.',
+      actionItems: diagnosis.recommendations,
+    },
+  });
+});
+
+// ─── Export Durable Objects ───────────────────────────────────────────────
+export { HFTBackup };

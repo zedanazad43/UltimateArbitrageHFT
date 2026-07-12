@@ -11,9 +11,14 @@ export default function Login({ onAuthed }) {
     setBusy(true);
     setErr("");
     try {
-      const res = await nexus.login(token.trim());
+      // Use axios directly to handle cookies properly
+      const res = await axios.post('/api/login', { token: token.trim() }, {
+        withCredentials: true,
+        validateStatus: () => true,
+      });
       if (res.status === 204 || res.status === 200) {
-        setToken(token.trim());
+        // Login succeeded — session cookie is set
+        localStorage.setItem('nexus_admin_token', token.trim());
         onAuthed();
       } else {
         setErr("Invalid admin token");

@@ -65,3 +65,56 @@ api_keys.ini
 __pycache__/
 *.pyc
 *.pyo
+
+# gstack (global install)
+.amazonq/rules/gstack.md
+
+# ── Build/run artifacts (added during cleanup 2026-07-11) ──
+logs/
+archive/
+backup*/
+temp-ip/
+temp/
+reports/
+samples/
+deploy/
+"~"/
+
+# Editor/temp
+.tmp/
+*.tmp
+.tmp-*/
+.aider.tags.cache.v4
+.ai-code-tracker.json.tmp
+
+# Windows junk
+Thumbs.db
+Desktop.ini
+
+# ── AI agent histories / local tool state ──
+.aider*
+.amazonq/
+.kimi-memory/
+.claude/
+.codebuddy/
+.emergent/
+
+# ── Bundled JDK / binaries accidentally committed ──
+oracleJdk-26/
+*.dll
+*.exe
+*.so
+*.dylib
+
+# ── Misc junk ──
+*.log
+*.tmp
+*.bak
+"README (1).md"
+"مستند نصي جديد.txt"
+
+# ── Runtime / local DB ──
+*.db
+*.sqlite
+*.pid
+scripts/.runtime/

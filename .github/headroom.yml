@@ -1,0 +1,23 @@
+# Headroom token-burn policy for GitHub Actions
+# Loaded by CI to skip redundant work and cap token usage.
+
+token_budget:
+  per_run_soft_limit: 50000
+  cancel_redundant: true
+
+cron_policy:
+  # Only these scheduled workflows are allowed to run. All others disabled.
+  allowed:
+    - monitor-production.yml
+    - dlp-scan.yml
+  # Everything else with `schedule:` is skipped unless manually dispatched.
+  disable_others: true
+
+pr_policy:
+  close_stale_after_days: 7
+  require_linked_issue: false
+
+copilot:
+  instructions_file: .copilot-instructions.md
+  max_suggestions_per_file: 5
+  forbid_bulk_refactor: true

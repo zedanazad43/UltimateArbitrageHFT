@@ -5,9 +5,7 @@ env:
 
 on:
   schedule:
-    - cron: '*/10 * * * *'
-    - cron: '0 2 * * *'
-    - cron: '0 6 * * 1'
+    - cron: '*/30 * * * *'
   workflow_dispatch:
     inputs:
       ops_alert_webhook:
