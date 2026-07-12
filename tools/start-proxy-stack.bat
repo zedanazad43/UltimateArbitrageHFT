@@ -64,25 +64,26 @@ echo [proxy-stack] serveo tunnel exited (%TIME%), restarting in 5s...
 timeout /t 5 >nul
 GOTO serveo_loop
 
-REM ── 3) Optional: FRITZ!Box port-forward (German IP → stable egress for Binance) ─
-REM Enables the Worker to reach the local gateway via your German public IP instead
-REM of the US-based serveo tunnel. Requires FRITZ!Box TR-064 enabled + creds in files.
-REM Create C:\Users\azadz\.fritz_user and C:\Users\azadz\.fritz_pass if you want auto-setup.
+REM ── 3) FRITZ!Box port-forward (German IP → stable egress for Binance) ─
+REM MANUAL (2 min): open http://192.168.178.1 → Internet → Permit Access →
+REM   device 192.168.178.68, port 8080 TCP → Apply. Then set PUBLIC_IP below.
+REM AUTO: if C:\Users\azadz\.fritz_user + .fritz_pass exist, TR-064 is attempted.
+SET PUBLIC_IP=92.208.170.216
 SET FRITZ_USER=
 SET FRITZ_PASS=
 IF EXIST "C:\Users\azadz\.fritz_user" SET /P FRITZ_USER=<"C:\Users\azadz\.fritz_user"
 IF EXIST "C:\Users\azadz\.fritz_pass" SET /P FRITZ_PASS=<"C:\Users\azadz\.fritz_pass"
 IF NOT "%FRITZ_USER%"=="" (
-  echo [proxy-stack] attempting FRITZ!Box port-forward (192.168.178.68:8080 → public:8080)...
   curl -4 -s -u "%FRITZ_USER%:%FRITZ_PASS%" "http://192.168.178.1:49000/upnp/control/WANIPConn1" ^
     -H "Content-Type: text/xml; charset=\"utf-8\"" ^
     -H "SOAPAction: \"urn:schemas-upnp-org:service:WANIPConnection:1#AddPortMapping\"" ^
     --data "<?xml version=\"1.0\" encoding=\"utf-8\"?><s:Envelope xmlns:s=\"http://schemas.xmlsoap.org/soap/envelope/\" s:encodingStyle=\"http://schemas.xmlsoap.org/soap/encoding/\"><s:Body><u:AddPortMapping xmlns:u=\"urn:schemas-upnp-org:service:WANIPConnection:1\"><NewRemoteHost></NewRemoteHost><NewExternalPort>8080</NewExternalPort><NewProtocol>TCP</NewProtocol><NewInternalPort>8080</NewInternalPort><NewInternalClient>192.168.178.68</NewInternalClient><NewEnabled>1</NewEnabled><NewPortMappingDescription>Hermes-Gateway</NewPortMappingDescription><NewLeaseDuration>0</NewLeaseDuration></u:AddPortMapping></s:Body></s:Envelope>" ^
     >> "%LOGDIR%\fritz-portforward.log" 2>&1
-  echo [proxy-stack] FRITZ!Box port-forward attempted (see %LOGDIR%\fritz-portforward.log)
+  echo [proxy-stack] FRITZ!Box port-forward attempted
 ) ELSE (
-  echo [proxy-stack] no FRITZ!Box creds — manual port-forward needed: forward 192.168.178.68:8080 TCP on http://192.168.178.1
+  echo [proxy-stack] MANUAL port-forward needed: forward 192.168.178.68:8080 TCP on http://192.168.178.1
 )
+echo [proxy-stack] If port-forward is active, set PROXY_URL_1=http://%PUBLIC_IP%:8080 in Cloudflare Worker.
 
 ENDLOCAL
 GOTO :EOF

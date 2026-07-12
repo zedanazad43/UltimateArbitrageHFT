@@ -135,7 +135,11 @@ const server = http.createServer(async (req, res) => {
     const upstreamHeaders = buildUpstreamHeaders(req);
     upstreamHeaders['accept-encoding'] = 'identity';
 
-    const order = nextProxyOrder();
+    // Exchanges that must use DIRECT egress (German IP) to avoid geo-blocks.
+    // All other targets rotate through the upstream proxy pool.
+    const DIRECT_HOSTS = ['api.binance.com', 'api.binance.us', 'api.kucoin.com', 'api.bitget.com', 'api.htx.com'];
+    const useDirect = DIRECT_HOSTS.some((h) => parsed.hostname.includes(h));
+    const order = useDirect ? [null] : nextProxyOrder();
     const attempts = order.length > 0 ? order : [null];
     let upstream = null;
     let lastErr = null;
