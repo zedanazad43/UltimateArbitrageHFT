@@ -1,0 +1,4 @@
+url: http://localhost:8080
+no-autoupdate: true
+edge-ip-version: "4"
+origin-request-no-happy-eyeballs: true

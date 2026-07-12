@@ -9,7 +9,7 @@ on:
         description: Force smoke test failure to validate Telegram alert delivery
         required: false
         type: boolean
-        default: true
+        default: false
       base_url:
         description: Worker base URL
         required: false
