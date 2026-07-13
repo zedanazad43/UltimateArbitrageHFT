@@ -6,10 +6,7 @@
 # ─── Fill in your tokens here ──────────────────────────────
 $env:CLOUDFLARE_API_TOKEN   = "cf48cfb41422fa4ff25991f72a536da38c490"
 $env:CLOUDFLARE_ACCOUNT_ID  = "652e53f35781522e2745784cc4425d9d"
-$FLY_API_TOKEN              = "FlyV1 fm2_lJPECAAAAAAAEbrkxBA7qPeB8VUa4qMdLj2giECBwrVodHRwczovL2FwaS5mbHkuaW8vdjGUAJLOABa0ux8Lk7lodHRwczovL2FwaS5mbHkuaW8vYWFhL3YxxDyJms1sRMvW1nTVnX1qkdENNYCuyoLuNsDtiD5YP8S7qo2Mo3MNhQNH+v1EEHrUvJn3J6CagDnqOgB+6kzETkGlz/ZYe6p/7rHAM5Z/iGdzCbRgEGw1BKoTnOZ1/PXUSLwUzGevZa6JI4hz5dnfM4mvn9P6BbdzdOvMXOGLVDWOBGTUZxKbzqJe0jlfg8QgS5oKPKkBITwE3g4u+Arvm9+PA6GXH2jbXALGKNbEI0I=,fm2_lJPETkGlz/ZYe6p/7rHAM5Z/iGdzCbRgEGw1BKoTnOZ1/PXUSLwUzGevZa6JI4hz5dnfM4mvn9P6BbdzdOvMXOGLVDWOBGTUZxKbzqJe0jlfg8QQP7qVMWh6dWkdg8Z1hQ7LM8O5aHR0cHM6Ly9hcGkuZmx5LmlvL2FhYS92MZgEks5qQneyzwAAAAEmOpXQF84AFciBCpHOABXIgQzEEBFG1QFAnv651G9WalHqRQvEIAxOe2wfwTTp4o7eZE5P6smqnLFvzFJNzb4qy2ivC5Iv"        # https://fly.io/user/personal_access_tokens
-$RAILWAY_API_TOKEN          = "f2033121-7100-4aae-a899-a485f658e012"    # https://railway.app/account/tokens
 $EMERGENT_API_TOKEN         = "YOUR_EMERGENT_API_TOKEN"   # https://app.emergent.sh/settings
-$RAILWAY_SERVICE_ID         = "ad1edd5e"
 $EMERGENT_JOB_ID            = "2ff01fc9-2713-44b7-a586-84695af5846d"
 # ────────────────────────────────────────────────────────────
 
@@ -86,41 +83,6 @@ if ($filtered.Count -gt 0) {
     WARN "No exchange secrets found in environment — skipping secret upload"
 }
 
-# ── 7. Deploy to Fly.io ──────────────────────────────────────
-Step "Deploying HFT engine to Fly.io"
-if (-not $FLY_API_TOKEN -or $FLY_API_TOKEN -eq "YOUR_FLY_API_TOKEN") {
-    WARN "FLY_API_TOKEN not set — skipping Fly.io deploy"
-} else {
-    $env:FLY_API_TOKEN = $FLY_API_TOKEN
-    # Install flyctl if not present
-    if (-not (Get-Command flyctl -ErrorAction SilentlyContinue)) {
-        Write-Host "   Installing flyctl..." -ForegroundColor Gray
-        iwr https://fly.io/install.ps1 -useb | iex
-    }
-    flyctl deploy --config fly.toml --remote-only
-    if ($LASTEXITCODE -ne 0) { WARN "Fly.io deploy failed — check flyctl output" }
-    else { OK "Fly.io HFT engine deployed → https://ultimatearbitragehft.fly.dev" }
-}
-
-# ── 8. Trigger Railway redeploy ──────────────────────────────
-Step "Triggering Railway redeploy"
-if (-not $RAILWAY_API_TOKEN -or $RAILWAY_API_TOKEN -eq "YOUR_RAILWAY_API_TOKEN") {
-    WARN "RAILWAY_API_TOKEN not set — skipping Railway trigger"
-} else {
-    $mutation = '{"query":"mutation { serviceInstanceRedeploy(serviceId: \"' + $RAILWAY_SERVICE_ID + '\") { id } }"}'
-    try {
-        $r = Invoke-RestMethod `
-            -Uri "https://backboard.railway.app/graphql/v2" `
-            -Method POST `
-            -Headers @{ Authorization = "******"; "Content-Type" = "application/json" } `
-            -Body $mutation
-        OK "Railway redeploy triggered → https://ultimatearbitragehft-production.up.railway.app"
-    } catch {
-        WARN "Railway API error: $_"
-        Write-Host "   → Redeploy manually at https://railway.app" -ForegroundColor Gray
-    }
-}
-
 # ── 9. Trigger Emergent deploy ───────────────────────────────
 Step "Triggering Emergent deploy"
 if (-not $EMERGENT_API_TOKEN -or $EMERGENT_API_TOKEN -eq "YOUR_EMERGENT_API_TOKEN") {
@@ -144,10 +106,8 @@ Write-Host "══════════════════════�
 Write-Host "🎉  All deployment steps complete!" -ForegroundColor Green
 Write-Host "   GitHub     → branch pushed (merge PR #273 to trigger CI)"
 Write-Host "   Cloudflare → https://ultimatearbitragehft.zedanazad43.workers.dev"
-Write-Host "   Fly.io     → https://ultimatearbitragehft.fly.dev"
-Write-Host "   Railway    → https://ultimatearbitragehft-production.up.railway.app"
 Write-Host "   Emergent   → https://app.emergent.sh"
 Write-Host ""
 Write-Host "Next: merge PR #273 → https://github.com/zedanazad43/UltimateArbitrageHFT/pull/273"
-Write-Host "  to trigger the CI/CD pipeline for Cloudflare + Fly.io automatically."
+Write-Host "  to trigger the CI/CD pipeline for Cloudflare automatically."
 Write-Host "═══════════════════════════════════════════════════════" -ForegroundColor Green

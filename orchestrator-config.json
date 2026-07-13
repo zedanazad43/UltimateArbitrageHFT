@@ -15,16 +15,26 @@
       "cost": "free",
       "priority": 1,
       "fallback_to": "codegeex",
-      "best_for": ["code", "general"],
+      "best_for": [
+        "code",
+        "general"
+      ],
       "endpoint": "http://127.0.0.1:11434",
-      "models": ["llama2", "mistral", "neural-chat"]
+      "models": [
+        "llama2",
+        "mistral",
+        "neural-chat"
+      ]
     },
     "codegeex": {
       "type": "local_or_free_tier",
       "cost": "free",
       "priority": 2,
       "fallback_to": "aimaster",
-      "best_for": ["code", "analysis"],
+      "best_for": [
+        "code",
+        "analysis"
+      ],
       "endpoint": "http://127.0.0.1:8000",
       "api_key_env": "CODEGEEX_API_KEY"
     },
@@ -33,8 +43,17 @@
       "cost": "mixed",
       "priority": 3,
       "fallback_to": "cli",
-      "best_for": ["analysis", "reasoning", "critical"],
-      "providers": ["ollama", "deepseek", "codegeex", "github_copilot"],
+      "best_for": [
+        "analysis",
+        "reasoning",
+        "critical"
+      ],
+      "providers": [
+        "ollama",
+        "deepseek",
+        "codegeex",
+        "github_copilot"
+      ],
       "use_free_only": true
     },
     "arbitrage": {
@@ -42,7 +61,10 @@
       "cost": "free",
       "priority": 4,
       "fallback_to": "aimaster",
-      "best_for": ["trading", "arbitrage"],
+      "best_for": [
+        "trading",
+        "arbitrage"
+      ],
       "endpoint": "local_python_module"
     },
     "cli": {
@@ -50,28 +72,61 @@
       "cost": "free",
       "priority": 5,
       "fallback_to": null,
-      "best_for": ["command_execution", "last_resort"]
+      "best_for": [
+        "command_execution",
+        "last_resort"
+      ]
     }
   },
   "routing_rules": {
     "code_task": {
       "primary": "codegeex",
-      "secondary": ["ollama", "aimaster"],
-      "keywords": ["code", "function", "debug", "implement", "test"]
+      "secondary": [
+        "ollama",
+        "aimaster"
+      ],
+      "keywords": [
+        "code",
+        "function",
+        "debug",
+        "implement",
+        "test"
+      ]
     },
     "analysis_task": {
       "primary": "aimaster",
-      "secondary": ["ollama", "codegeex"],
-      "keywords": ["analyze", "report", "summary", "explain", "compare"]
+      "secondary": [
+        "ollama",
+        "codegeex"
+      ],
+      "keywords": [
+        "analyze",
+        "report",
+        "summary",
+        "explain",
+        "compare"
+      ]
     },
     "trading_task": {
       "primary": "arbitrage",
-      "secondary": ["aimaster", "cli"],
-      "keywords": ["trade", "arbitrage", "market", "position", "order"]
+      "secondary": [
+        "aimaster",
+        "cli"
+      ],
+      "keywords": [
+        "trade",
+        "arbitrage",
+        "market",
+        "position",
+        "order"
+      ]
     },
     "budget_tight": {
       "primary": "ollama",
-      "secondary": ["codegeex", "cli"],
+      "secondary": [
+        "codegeex",
+        "cli"
+      ],
       "threshold_percent": 80
     },
     "budget_critical": {
@@ -124,18 +179,17 @@
       "check_token": true,
       "api_endpoint": "https://api.cloudflare.com"
     },
-    "railway": {
-      "enabled": true,
-      "check_token": true,
-      "api_endpoint": "https://backboard.railway.app/graphql/v2"
-    },
     "stripe": {
       "enabled": false,
       "check_token": false
     },
     "arbitrage_exchanges": {
       "enabled": true,
-      "exchanges": ["binance", "kraken", "coinbase"]
+      "exchanges": [
+        "binance",
+        "kraken",
+        "coinbase"
+      ]
     }
   },
   "monitoring": {

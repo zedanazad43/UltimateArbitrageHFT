@@ -17,6 +17,3 @@ jobs:
           echo "PLACEHOLDER: wrangler deploy requires Cloudflare credentials"
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-      - name: Deploy API to Railway (placeholder)
-        run: |
-          echo "This is a scaffold; configure Railway deployment steps with secrets."
