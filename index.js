@@ -1306,7 +1306,7 @@ app.post('/api/ws-prices', async (c) => {
   }
 });
 
-app.get('/scan', async (c) => {
+const scanHandler = async (c) => {
   const limited = await checkRateLimit(c.env, c);
   if (limited) return limited;
   if (!isAuthorized(c.env, c)) return authDenied(c.env, c);
@@ -1325,7 +1325,10 @@ app.get('/scan', async (c) => {
     mode: state.paper_trading === false ? 'live' : 'paper',
     note: 'Scan running in background. Poll /status or /opportunities for results.',
   });
-});
+};
+app.get('/scan', scanHandler);
+// Alias: /api/scan → identical handler (dashboard + external HFT clients expect it).
+app.get('/api/scan', scanHandler);
 
 // ── Admin: Queue live-deal execution in the background ───────────────────────
 // Triggers the same live scan/execution pipeline as /scan, but returns
