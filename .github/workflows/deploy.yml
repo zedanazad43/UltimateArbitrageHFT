@@ -1,4 +1,4 @@
-name: Deploy to Cloudflare Workers & Railway
+name: Deploy to Cloudflare Workers
 
 on:
   workflow_dispatch: {}
