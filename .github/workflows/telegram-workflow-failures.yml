@@ -62,6 +62,7 @@ jobs:
 
           if event_name == "workflow_run":
               run = event["workflow_run"]
+              run_url = run.get("html_url") or f"{server_url}/{repo}/actions/runs/{run.get('id') or os.environ['GITHUB_RUN_ID']}"
               lines = [
                   "UltimateArbitrageHFT alert",
                   "Event: workflow failure",
@@ -69,7 +70,7 @@ jobs:
                   f"Repo: {repo}",
                   f"Branch: {run.get('head_branch') or ref_name}",
                   f"SHA: {(run.get('head_sha') or sha)[:7] or short_sha}",
-                  f"Run: {run.get('html_url') or f'{server_url}/{repo}/actions/runs/{run.get(\"id\", os.environ[\"GITHUB_RUN_ID\"])}'}",
+                  f"Run: {run_url}",
               ]
           elif event_name == "workflow_dispatch":
               note = (event.get("inputs", {}).get("message") or "").strip()
