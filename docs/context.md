@@ -43,3 +43,7 @@ English: Shared context so Hermes + Copilot can collaborate on the same repo.
 - Do NOT run `node index.js` (Worker module).
 - Secrets NEVER in chat/git — local files only (.cf_api_token, .gateway_token, .exchange_keys, .new_admin_token, .hf_api_key, .openai_key).
 - MSYS mangles `//` in Windows commands -> wrap in .bat.
+
+## Hermes handoff / تسليم Hermes
+- Repo refresh + handoff notifications should use `.github/workflows/telegram-workflow-failures.yml`.
+- The workflow now covers three cases for the shared Telegram bot chat: workflow failure alerts, push-based repo refresh notices for Hermes files, and manual `workflow_dispatch` handoffs.

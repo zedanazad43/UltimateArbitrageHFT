@@ -17,7 +17,7 @@
         "task_completion_guidance": true,
         "parallel_tool_call_guidance": true,
         "environment_probe": true,
-        "environment_hint": "",
+        "environment_hint": "UltimateArbitrageHFT repo; shared handoff context lives in docs/context.md and Telegram/Hermes repo notifications live in .github/workflows/telegram-workflow-failures.yml. Prefer repo-safe status handoffs and never commit secrets.",
         "coding_context": "auto",
         "gateway_timeout_warning": 900,
         "clarify_timeout": 600,
