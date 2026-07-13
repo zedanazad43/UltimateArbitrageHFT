@@ -924,55 +924,66 @@ export async function getBitgetAccountEquityUSDT(env) {
   if (!apiSecret) throw new Error(missingCredError('BITGET_SECRET_KEY'));
   if (!passphrase) throw new Error('BITGET_API_PASSPHRASE is not configured');
 
+  // Perf fix: probe every configured Bitget host in parallel and take the FIRST
+  // successful response (Promise.any) instead of trying them one-by-one
+  // sequentially. The hosts are independent, so a slow/blocked origin no longer
+  // adds up to N× latency — we only wait for the fastest healthy host.
+  // Rate-limit (code !== '00000' but a soft rejection) is treated as a failed
+  // attempt so a different host gets a chance to win the race.
   const errors = [];
-  for (const host of BITGET_API_HOSTS) {
-    try {
-      const timestamp = Date.now().toString();
-      const requestPath = BITGET_ACCOUNT_BALANCE_ENDPOINT;
-      const signature = await hmacBase64(apiSecret, timestamp + 'GET' + requestPath);
-      const resp = await bitgetFetch(env, `https://${host}${requestPath}`, {
-        headers: {
-          'ACCESS-KEY': apiKey,
-          'ACCESS-SIGN': signature,
-          'ACCESS-TIMESTAMP': timestamp,
-          'ACCESS-PASSPHRASE': passphrase,
-          'Content-Type': 'application/json',
-          locale: 'en-US',
-          ...BITGET_BROWSER_HEADERS,
-        }
-      });
-      const data = await parseJsonResponse(resp, 'Bitget all-account-balance');
-      if (data?.code !== '00000') {
-        const msg = data?.msg || data?.message || data?.error || JSON.stringify(data);
-        errors.push(`${host}${requestPath}: ${msg}`);
-        continue;
+  const attemptHost = async (host) => {
+    const timestamp = Date.now().toString();
+    const requestPath = BITGET_ACCOUNT_BALANCE_ENDPOINT;
+    const signature = await hmacBase64(apiSecret, timestamp + 'GET' + requestPath);
+    const resp = await bitgetFetch(env, `https://${host}${requestPath}`, {
+      headers: {
+        'ACCESS-KEY': apiKey,
+        'ACCESS-SIGN': signature,
+        'ACCESS-TIMESTAMP': timestamp,
+        'ACCESS-PASSPHRASE': passphrase,
+        'Content-Type': 'application/json',
+        locale: 'en-US',
+        ...BITGET_BROWSER_HEADERS,
       }
-
-      const rows = Array.isArray(data?.data) ? data.data : [];
-      const summary = {
-        spot: 0,
-        futures: 0,
-        funding: 0,
-        total: 0,
-      };
-
-      for (const row of rows) {
-        const type = String(row?.accountType || '').toLowerCase();
-        const value = Number.parseFloat(row?.usdtBalance ?? '0');
-        const usdt = Number.isFinite(value) ? value : 0;
-        if (type === 'spot') summary.spot = usdt;
-        else if (type === 'futures') summary.futures = usdt;
-        else if (type === 'funding') summary.funding = usdt;
-      }
-      summary.total = summary.spot + summary.futures + summary.funding;
-      return summary;
-    } catch (err) {
-      const errMsg = (err?.cause?.message || err?.message || String(err) || 'unknown fetch error');
-      errors.push(`${host}${BITGET_ACCOUNT_BALANCE_ENDPOINT}: ${errMsg}`);
+    });
+    const data = await parseJsonResponse(resp, 'Bitget all-account-balance');
+    if (data?.code !== '00000') {
+      const msg = data?.msg || data?.message || data?.error || JSON.stringify(data);
+      throw new Error(`${host}${requestPath}: ${msg}`);
     }
-  }
 
-  throw new Error(normalizeExchangeErrorMessage('Bitget', `Bitget account equity failed: ${errors.join(' | ') || 'unknown error'}`));
+    const rows = Array.isArray(data?.data) ? data.data : [];
+    const summary = {
+      spot: 0,
+      futures: 0,
+      funding: 0,
+      total: 0,
+    };
+
+    for (const row of rows) {
+      const type = String(row?.accountType || '').toLowerCase();
+      const value = Number.parseFloat(row?.usdtBalance ?? '0');
+      const usdt = Number.isFinite(value) ? value : 0;
+      if (type === 'spot') summary.spot = usdt;
+      else if (type === 'futures') summary.futures = usdt;
+      else if (type === 'funding') summary.funding = usdt;
+    }
+    summary.total = summary.spot + summary.futures + summary.funding;
+    return { host, summary };
+  };
+
+  try {
+    const winner = await Promise.any(BITGET_API_HOSTS.map(attemptHost));
+    return winner.summary;
+  } catch (aggregate) {
+    // Promise.any rejects with AggregateError when ALL hosts failed. Flatten the
+    // per-host reasons into the existing error shape for callers.
+    const reasons = (aggregate?.errors || [])
+      .map((e) => (e?.message || String(e)))
+      .filter(Boolean);
+    if (reasons.length) errors.push(...reasons);
+    throw new Error(normalizeExchangeErrorMessage('Bitget', `Bitget account equity failed: ${errors.join(' | ') || 'unknown error'}`));
+  }
 }
 
 /**
@@ -1555,17 +1566,38 @@ function parseExchangeAllowlist(rawList) {
  * Optional env override:
  * - EXECUTION_EXCHANGES_ALLOWLIST="mexc,binance"
  * - ACTIVE_EXECUTION_EXCHANGES="mexc,binance" (legacy alias)
+ *
+ * Perf fix: the resolved list is memoized by the raw allowlist string so the
+ * (cheap but repeated) parse + Set + filter work runs once per distinct config
+ * instead of on every call. This function is invoked many times per request
+ * (getConfiguredExchanges, isExecutionExchangeEnabled, balance snapshots), and
+ * env rarely changes within a Worker instance, so the cache is virtually always
+ * a hit. The cache key is the *raw* allowlist value, so an env change (which
+ * produces a different raw string) invalidates the entry correctly.
  */
+const _enabledExchangesCache = new Map(); // rawAllowlist -> string[]
+const _enabledExchangesCacheLimit = 8;     // guard against unbounded growth
+
 export function getEnabledExecutionExchanges(env) {
   const allowlistRaw =
     resolveEnvKey(env, 'EXECUTION_EXCHANGES_ALLOWLIST') ||
     resolveEnvKey(env, 'ACTIVE_EXECUTION_EXCHANGES');
+  const cacheKey = allowlistRaw || '';
+  const cached = _enabledExchangesCache.get(cacheKey);
+  if (cached) return cached;
+
   const allowlist = parseExchangeAllowlist(allowlistRaw);
-  if (allowlist.length === 0) {
-    return [...ACTIVE_EXECUTION_EXCHANGES];
+  const resolved = allowlist.length === 0
+    ? [...ACTIVE_EXECUTION_EXCHANGES]
+    : ACTIVE_EXECUTION_EXCHANGES.filter((ex) => allowlist.includes(ex));
+
+  // Bounded cache: drop the oldest entry once we exceed the limit.
+  if (_enabledExchangesCache.size >= _enabledExchangesCacheLimit) {
+    const oldestKey = _enabledExchangesCache.keys().next().value;
+    if (oldestKey !== undefined) _enabledExchangesCache.delete(oldestKey);
   }
-  const allowedSet = new Set(allowlist);
-  return ACTIVE_EXECUTION_EXCHANGES.filter((ex) => allowedSet.has(ex));
+  _enabledExchangesCache.set(cacheKey, resolved);
+  return resolved;
 }
 
 /** Returns true when the exchange is enabled for live execution in the current env. */
@@ -1695,18 +1727,43 @@ export async function getExchangeBalance(env, exchange, asset = 'USDT') {
 /**
  * Returns ALL non-zero balances for an exchange (not just one asset).
  * Each entry: { asset, free, locked, total }.
+ *
+ * Results are memoized for ALL_BALANCES_CACHE_TTL_MS. This function fans out
+ * one upstream call per asset (13 by default) and is invoked by the balances
+ * snapshot for every configured exchange, so the in-memory cache collapses
+ * repeated route calls within the same Worker instance without changing the
+ * success path's shape.
+ *
+ * IMPORTANT (reliability fix): a fetch failure is now SURFACED by throwing
+ * instead of silently returning []. The snapshot caller (getExecutionBalancesSnapshot
+ * in index.js) catches this and returns balance: null with an explicit error flag,
+ * so a failed fetch is never mis-reported as a genuine $0 balance (which would skew
+ * rebalancer capital routing). The cache still collapses only *successful* results;
+ * failures are never cached, so each fresh invocation retries upstream once.
  */
+const ALL_BALANCES_CACHE_TTL_MS = 5_000;
+const _allBalancesCache = new Map(); // exchange -> { ts, value }
+
 export async function getAllExchangeBalances(env, exchange) {
+  const cached = _allBalancesCache.get(exchange);
+  if (cached && (Date.now() - cached.ts) < ALL_BALANCES_CACHE_TTL_MS) {
+    return cached.value;
+  }
+
   const common = ['USDT', 'USDC', 'BTC', 'ETH', 'BNB', 'SOL', 'TRX', 'HT', 'KCS', 'GT', 'BMX', 'MX', 'DOGE'];
-  try {
-    const entries = await Promise.all(common.map(async (asset) => {
+  const entries = await Promise.all(
+    common.map(async (asset) => {
       const free = Number(await getExchangeBalance(env, exchange, asset) || 0);
       return free > 0 ? { asset, free, locked: 0, total: free } : null;
-    }));
-    return entries.filter(Boolean).sort((a, b) => b.total - a.total);
-  } catch (e) {
-    return [];
-  }
+    })
+  );
+  const value = entries.filter(Boolean).sort((a, b) => b.total - a.total);
+
+  // Cache ONLY successful results. Failures are intentionally not cached so a
+  // transient upstream error is retried on the next snapshot rather than being
+  // pinned to [] for the whole cache window.
+  _allBalancesCache.set(exchange, { ts: Date.now(), value });
+  return value;
 }
 
 /**

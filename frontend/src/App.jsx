@@ -94,7 +94,7 @@ function OrderHistory({ orders }) {
               <th>Type</th>
               <th>Side</th>
               <th>Price</th>
-              <quantity>
+              <th>Quantity</th>
               <th>Latency (ms)</th>
               <th>Status</th>
             </tr>

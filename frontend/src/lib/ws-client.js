@@ -1,7 +1,7 @@
 // frontend/src/lib/ws-client.js — WebSocket client for real-time data
 
 export class WebSocketClient {
-  constructor(url = 'ws://localhost:8788') {
+  constructor(url = process.env.REACT_APP_WS_URL || 'ws://localhost:8788') {
     this.url = url;
     this.ws = null;
     this.reconnectAttempts = 0;
@@ -64,6 +64,9 @@ export class WebSocketClient {
           
           console.log(`Reconnecting in ${delay}ms (attempt ${this.reconnectAttempts})`);
           setTimeout(() => this._connect(), delay);
+        } else {
+          // Give up after max attempts so the UI can surface a persistent error.
+          this._emit('reconnect_failed', { url: this.url, attempts: this.reconnectAttempts });
         }
       };
 

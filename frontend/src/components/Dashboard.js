@@ -153,8 +153,8 @@ export default function Dashboard({ onLogout }) {
             </thead>
             <tbody>
               {(data.balances.data || []).map((b) => (
-                <tr key={b.exchange}>
-                  <td style={td}>{b.exchange}</td>
+                <tr key={b.exchange} style={!b.configured ? { opacity: 0.45 } : undefined}>
+                  <td style={{ ...td, textAlign: "left" }}>{b.exchange}</td>
                   <td style={td}>{(+b.balances.USDT || 0).toFixed(2)}</td>
                   <td style={td}>{(+b.balances.USDC || 0).toFixed(2)}</td>
                   <td style={td}>{(+b.balances.ETH || 0).toFixed(4)}</td>
@@ -211,6 +211,6 @@ const panel = { background: "#151a23", padding: "16px", borderRadius: "10px" };
 const panelTitle = { color: "#f0b90b", fontSize: "1em", marginTop: "0" };
 const table = { width: "100%", borderCollapse: "collapse" };
 const th = { textAlign: "left", color: "#888", fontSize: ".8em", padding: "6px", borderBottom: "1px solid #2a2f3a" };
-const td = { padding: "6px", borderBottom: "1px solid #1c2230" };
+const td = { padding: "6px", borderBottom: "1px solid #1c2230", textAlign: "right", fontFamily: "JetBrains Mono, monospace", fontVariantNumeric: "tabular-nums" };
 const row = { margin: "6px 0", fontSize: ".85em" };
 const errBox = { background: "#0b0e14", color: "#ff6b6b", minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "Segoe UI, sans-serif" };

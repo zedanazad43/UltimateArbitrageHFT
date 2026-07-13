@@ -307,6 +307,26 @@ export function isIpAllowed(request, env) {
 export async function secureFetch(exchange, url, options = {}, proxyPool = null, maxRetries = 2) {
   const requestId = generateRequestId();
   const startTime = Date.now();
+
+  // ── Default request timeout (reliability) ──
+  // Worker fetch() has no built-in timeout, so a hanging upstream/proxy would
+  // stall the whole request up to the platform limit. Abort after
+  // SECURE_FETCH_TIMEOUT_MS unless the caller already supplied an AbortSignal
+  // (a caller-provided signal always takes precedence).
+  const SECURE_FETCH_TIMEOUT_MS = 15000;
+  let _timeoutId = null;
+  let _controller = null;
+  let signal = options.signal || null;
+  if (!signal && globalThis.AbortController) {
+    _controller = new globalThis.AbortController();
+    signal = _controller.signal;
+    _timeoutId = setTimeout(() => _controller.abort(), SECURE_FETCH_TIMEOUT_MS);
+  }
+  const clearTimeoutIfAny = () => { if (_timeoutId) clearTimeout(_timeoutId); };
+
+  const fetchOpts = { ...options };
+  if (signal) fetchOpts.signal = signal;
+
   const shouldProxy = !!proxyPool && typeof proxyPool.shouldProxy === 'function'
     ? proxyPool.shouldProxy(exchange)
     : !!proxyPool;
@@ -332,12 +352,13 @@ export async function secureFetch(exchange, url, options = {}, proxyPool = null,
 
   await _globalRateLimiter.waitUntilAllowed(exchange);
 
+  try {
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
     try {
       // Use proxy pool if available, otherwise direct fetch
       const resp = shouldProxy
-        ? await proxyPool.fetchWithProxy(url, options, 2, exchange)
-        : await fetch(url, options);
+        ? await proxyPool.fetchWithProxy(url, fetchOpts, 2, exchange)
+        : await fetch(url, fetchOpts);
 
       const latency = Date.now() - startTime;
 
@@ -423,5 +444,8 @@ export async function secureFetch(exchange, url, options = {}, proxyPool = null,
       // Brief wait before retry
       await new Promise(resolve => setTimeout(resolve, 500 * (attempt + 1)));
     }
+  }
+  } finally {
+    clearTimeoutIfAny();
   }
 }

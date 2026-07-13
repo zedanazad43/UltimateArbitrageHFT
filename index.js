@@ -468,12 +468,19 @@ async function getExecutionBalancesSnapshot(env, assets = ['USDT']) {
       } catch (e) {
         console.error(`[balances] ${ex} fetch failed:`, e.message);
         const message = e.message || 'unknown error';
+        // IMPORTANT: do NOT return balance: 0 on failure. A balance of 0 is a
+        // *valid* state meaning "the exchange genuinely holds nothing", whereas a
+        // failed fetch is "we don't know". Returning 0 here would let the
+        // rebalancer weight this exchange as a real $0 and skew capital routing.
+        // Use balance: null + an explicit error/warning flag instead, which the
+        // rebalancer already filters out via `!b.error`.
         return {
           exchange: ex,
           configured: true,
           asset: primaryAsset,
-          balance: 0,
+          balance: null,
           balances: {},
+          data_available: false,
           ...(isKnownExternalBalanceWarning(message) ? { warning: message } : { error: message }),
         };
       }
@@ -839,7 +846,7 @@ app.onError((err, c) => {
 // ── Auto-schema middleware — ensures D1 tables exist before any route runs ────
 app.use('*', async (c, next) => {
   if (c.req.path === '/control-panel.html') {
-    if (c.env.ADMIN_TOKEN && !isAuthorized(c.env, c)) return c.redirect('/login', 302);
+    if (!isAuthorized(c.env, c)) return c.redirect('/login', 302);
     return c.redirect('/control-panel', 302);
   }
   try { await ensureSchema(c.env); } catch (err) { console.error('[schema] ensureSchema failed:', err?.message); }
@@ -1174,21 +1181,21 @@ app.get('/app/*', async (c) => {
 });
 
 app.get('/dashboard', async (c) => {
-  if (c.env.ADMIN_TOKEN && !isAuthorized(c.env, c)) return c.redirect('/login', 302);
+  if (!isAuthorized(c.env, c)) return c.redirect('/login', 302);
   return renderDashboard(c.env);
 });
 app.get('/checklist', async (c) => {
-  if (c.env.ADMIN_TOKEN && !isAuthorized(c.env, c)) return c.redirect('/login', 302);
+  if (!isAuthorized(c.env, c)) return c.redirect('/login', 302);
   return renderChecklist(c.env);
 });
 
 app.get('/control-panel', async (c) => {
-  if (c.env.ADMIN_TOKEN && !isAuthorized(c.env, c)) return c.redirect('/login', 302);
+  if (!isAuthorized(c.env, c)) return c.redirect('/login', 302);
   return c.html(renderControlPanel());
 });
 
 app.get('/control-panel.html', async (c) => {
-  if (c.env.ADMIN_TOKEN && !isAuthorized(c.env, c)) return c.redirect('/login', 302);
+  if (!isAuthorized(c.env, c)) return c.redirect('/login', 302);
   return c.redirect('/control-panel', 302);
 });
 
