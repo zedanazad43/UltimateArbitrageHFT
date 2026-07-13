@@ -1,4 +1,4 @@
-name: Telegram Workflow Failure Alerts
+name: Telegram Workflow + Hermes Handoff Alerts
 
 'on':
   workflow_run:
@@ -9,33 +9,101 @@ name: Telegram Workflow Failure Alerts
       - "Production Monitoring and Operations"
     types:
       - completed
+  push:
+    paths:
+      - '.github/workflows/telegram-workflow-failures.yml'
+      - 'agents/hermes-config.json'
+      - 'docs/context.md'
+  workflow_dispatch:
+    inputs:
+      message:
+        description: 'Optional note for the Hermes Telegram handoff'
+        required: false
+        type: string
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
   notify:
-    if: github.event.workflow_run.conclusion == 'failure'
+    if: |
+      github.event_name == 'push' ||
+      github.event_name == 'workflow_dispatch' ||
+      github.event.workflow_run.conclusion == 'failure'
     runs-on: ubuntu-latest
 
     steps:
-      - name: Send Telegram failure alert
+      - name: Send Telegram alert
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-          WORKFLOW_NAME: ${{ github.event.workflow_run.name }}
-          RUN_URL: ${{ github.event.workflow_run.html_url }}
-          BRANCH: ${{ github.event.workflow_run.head_branch }}
-          SHA: ${{ github.event.workflow_run.head_sha }}
-          REPO: ${{ github.repository }}
         run: |
           if [ -z "$TELEGRAM_BOT_TOKEN" ] || [ -z "$TELEGRAM_CHAT_ID" ]; then
             echo "Telegram secrets are not set; skipping alert."
             exit 0
           fi
 
-          short_sha=$(echo "$SHA" | cut -c1-7)
-          text=$(printf 'UltimateArbitrageHFT alert%%0AWorkflow failed: %s%%0ARepo: %s%%0ABranch: %s%%0ASHA: %s%%0ARun: %s' "$WORKFLOW_NAME" "$REPO" "$BRANCH" "$short_sha" "$RUN_URL")
+          text=$(python3 - <<'PY'
+          import json
+          import os
+          import urllib.parse
+
+          event_name = os.environ["GITHUB_EVENT_NAME"]
+          with open(os.environ["GITHUB_EVENT_PATH"], "r", encoding="utf-8") as fh:
+              event = json.load(fh)
+
+          repo = os.environ["GITHUB_REPOSITORY"]
+          actor = os.environ["GITHUB_ACTOR"]
+          server_url = os.environ["GITHUB_SERVER_URL"]
+          workflow = os.environ["GITHUB_WORKFLOW"]
+          ref_name = os.environ.get("GITHUB_REF_NAME", "unknown")
+          sha = os.environ.get("GITHUB_SHA", "")
+          short_sha = sha[:7] if sha else "unknown"
+
+          if event_name == "workflow_run":
+              run = event["workflow_run"]
+              run_url = run.get("html_url") or f"{server_url}/{repo}/actions/runs/{run.get('id') or os.environ['GITHUB_RUN_ID']}"
+              lines = [
+                  "UltimateArbitrageHFT alert",
+                  "Event: workflow failure",
+                  f"Workflow: {run.get('name') or workflow}",
+                  f"Repo: {repo}",
+                  f"Branch: {run.get('head_branch') or ref_name}",
+                  f"SHA: {(run.get('head_sha') or sha)[:7] or short_sha}",
+                  f"Run: {run_url}",
+              ]
+          elif event_name == "workflow_dispatch":
+              note = (event.get("inputs", {}).get("message") or "").strip()
+              lines = [
+                  "UltimateArbitrageHFT Hermes handoff",
+                  "Event: manual dispatch",
+                  f"Workflow: {workflow}",
+                  f"Repo: {repo}",
+                  f"Branch: {ref_name}",
+                  f"SHA: {short_sha}",
+                  f"Actor: {actor}",
+                  f"Run: {server_url}/{repo}/actions/runs/{os.environ['GITHUB_RUN_ID']}",
+              ]
+              if note:
+                  lines.append(f"Note: {note}")
+          else:
+              head_commit = event.get("head_commit") or {}
+              commit_message = (head_commit.get("message") or "").splitlines()
+              lines = [
+                  "UltimateArbitrageHFT Hermes handoff",
+                  "Event: repo refresh push",
+                  f"Workflow: {workflow}",
+                  f"Repo: {repo}",
+                  f"Branch: {ref_name}",
+                  f"SHA: {short_sha}",
+                  f"Actor: {actor}",
+                  f"Commit: {commit_message[0] if commit_message else 'n/a'}",
+                  f"Commit URL: {server_url}/{repo}/commit/{sha}",
+              ]
+
+          print(urllib.parse.quote("\\n".join(lines), safe=""))
+          PY
+          )
 
           curl -fsS -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
             -d "chat_id=${TELEGRAM_CHAT_ID}" \

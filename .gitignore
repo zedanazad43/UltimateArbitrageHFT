@@ -118,3 +118,7 @@ oracleJdk-26/
 *.sqlite
 *.pid
 scripts/.runtime/
+
+# Runtime artifacts and generated dirs
+.playwright-mcp/
+.gstack/

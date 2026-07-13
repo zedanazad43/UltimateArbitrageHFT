@@ -254,3 +254,42 @@ Latency note: run the bot and execution services in regions close to exchange in
 Secrets (`api_keys.txt`, `.env`) **must not** be committed — see `.gitignore`.
 `ADMIN_TOKEN` must be set before the worker will accept admin commands.
 Use `ALLOWED_IPS` in production to restrict admin route access to trusted IP ranges.
+
+## Project Structure
+
+```
+UltimateArbitrageHFT/
+├── index.js                    # Cloudflare Worker entry point (fetch / scheduled / queue)
+├── wrangler.toml               # Wrangler config for the main Worker
+├── package.json                # Root npm package
+├── eslint.config.js            # ESLint configuration
+│
+├── src/                        # Worker source modules
+│   ├── integrations/           # Third-party connectors (Bitsgap, Hummingbot)
+│   ├── workers/                # Background/standalone worker scripts (Temporal)
+│   ├── strategies/             # CEX, DEX, perps arbitrage strategies
+│   ├── bridges/                # Exchange bridges (CCXT, etc.)
+│   ├── routes/                 # Hono route registrations
+│   ├── bots/                   # Scanner bots
+│   ├── durable-objects/        # Cloudflare Durable Objects
+│   └── *.js                    # Core engine modules
+│
+├── docs/                       # All documentation
+│   ├── hummingbot/             # Hummingbot setup guides
+│   ├── locales/                # Translated READMEs (cn, es)
+│   ├── status/                 # Status snapshots
+│   └── *.md                    # Setup, deployment, testing, security docs
+│
+├── migrations/                 # D1 SQL schema migrations (numbered, ordered)
+├── scripts/                    # Operational scripts (deploy, monitor, verify)
+├── tests/                      # Test suite
+├── tools/                      # Developer utilities (sign.cjs, orchestrator-node.js)
+├── agents/                     # Hero agent, proxy gateway, orchestrator configs
+├── bots/                       # Python bots + Cloudflare tail-worker
+├── deploy/                     # Deployment helpers and CI configs
+├── frontend/                   # Frontend assets
+├── aimaster/                   # AI master skills
+└── lean-ctx/                   # Lean context tooling
+```
+
+See [`docs/setup.md`](docs/setup.md) for initial setup, [`docs/deployment-guide.md`](docs/deployment-guide.md) for deployment, and [`docs/env-reference.md`](docs/env-reference.md) for all environment variables.
