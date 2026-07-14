@@ -828,7 +828,7 @@ export class MarketStreamer {
 
 // ─── Hono App ─────────────────────────────────────────────────────────────────
 const app = new Hono();
-app.use('*', cors({ origin: ['https://ultimatearbitragehft.zedanazad43.workers.dev', 'https://nexus-arbitrage.pages.dev', 'https://app.ecostamp.net', 'https://api.ecostamp.net', 'https://www.ecostamp.net', 'https://ecostamp.net'], allowMethods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'], allowHeaders: ['Content-Type', 'x-admin-token', 'x-workflow-token', 'x-risk-unlock-token'], maxAge: 86400 }));
+app.use('*', cors({ origin: '*', allowMethods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'], allowHeaders: ['Content-Type', 'x-admin-token', 'x-workflow-token', 'x-risk-unlock-token'], maxAge: 86400 }));
 
 // ── Global error handler ──────────────────────────────────────────────────────
 app.onError((err, c) => {

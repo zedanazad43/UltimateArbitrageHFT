@@ -122,3 +122,10 @@ scripts/.runtime/
 # Runtime artifacts and generated dirs
 .playwright-mcp/
 .gstack/
+
+# runtime artifacts (Hermes)
+.pnl-snapshot.json
+.tg_payload.json
+pnl-report.json
+pnl-report-telegram.txt
+frontend/build/

@@ -1,5 +1,7 @@
 import React, { useState } from "react";
-import { nexus, setToken } from "../lib/api";
+import { setToken } from "../lib/api";
+
+const BACKEND = "https://api.ecostamp.net";
 
 export default function Login({ onAuthed }) {
   const [token, setTokenVal] = useState("");
@@ -11,15 +13,14 @@ export default function Login({ onAuthed }) {
     setBusy(true);
     setErr("");
     try {
-      // Use axios directly to handle cookies properly
-      const res = await axios.post('/api/login', { token: token.trim() }, {
-        withCredentials: true,
-        validateStatus: () => true,
+      const res = await fetch(`${BACKEND}/api/login`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ token: token.trim() }),
       });
       if (res.status === 204 || res.status === 200) {
-        // Login succeeded — session cookie is set
-        localStorage.setItem('nexus_admin_token', token.trim());
-        onAuthed();
+        setToken(token.trim());
+        onAuthed(token.trim());
       } else {
         setErr("Invalid admin token");
       }

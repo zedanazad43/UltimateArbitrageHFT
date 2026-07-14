@@ -10,8 +10,8 @@ export default function App() {
     <Dashboard onLogout={() => setAuthed(false)} />
   ) : (
     <Login
-      onAuthed={() => {
-        setToken(getToken());
+      onAuthed={(t) => {
+        if (t) setToken(t);
         setAuthed(true);
       }}
     />
