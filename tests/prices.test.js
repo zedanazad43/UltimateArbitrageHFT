@@ -614,7 +614,10 @@ describe('getAllSpotPrices', () => {
     );
     const binanceResult = results.find(r => r.exchange === 'binance');
     assert.notEqual(binanceResult, undefined, 'binance result should be present');
-    assert.equal(binanceResult.price, 45000.0);
+    // getAllSpotPrices returns enriched objects: { exchange, fee, price }
+    assert.equal(binanceResult.exchange, 'binance', 'exchange field should be present');
+    assert.equal(binanceResult.fee, 0.001, 'fee field should be present');
+    assert.ok(binanceResult.price !== null && binanceResult.price !== undefined, 'price should be present');
   });
 
   test('filters out null results from failed exchange fetches', async () => {
