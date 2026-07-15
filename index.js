@@ -4638,6 +4638,17 @@ function initDb() {
   } catch (e) { console.error('[DB] init failed:', e.message); }
 }
 initDb();
+app.get('/rocket-verify', async (c) => {
+  return ok(c, {
+    name: 'Rocket HFT',
+    version: '3.0.0',
+    status: 'operational',
+    timestamp: new Date().toISOString(),
+    features: ['proxy-token-guard','admin-timestamp','rate-limit','opportunity-cache','rocket-dashboard']
+  });
+});
+
+
 
 
 app.get('/api/stats', async (c) => {
