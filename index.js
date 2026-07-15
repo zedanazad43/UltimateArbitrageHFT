@@ -766,7 +766,7 @@ async function checkRateLimit(env, c) {
 }
 
 // ─── Durable Object: MarketStreamer ───────────────────────────────────────────
-export class MarketStreamer {
+class MarketStreamer {
   constructor(state, env) {
     this.state = state;
     this.env = env;
@@ -4428,7 +4428,7 @@ app.post('/api/monitor/run', async (c) => {
 });
 
 // ─── Exports ──────────────────────────────────────────────────────────────────
-export default {
+module.exports = {
   fetch: app.fetch.bind(app),
 
   async scheduled(event, env, ctx) {
