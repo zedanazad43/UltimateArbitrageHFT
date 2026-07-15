@@ -45,7 +45,6 @@ new_classes = ["HFTBackup"]
 # D1 resilience backup tables
 [[migrations]]
 tag = "v3"
-new_tables = ["backup_positions", "backup_prices", "backup_opportunities", "hft_state_sync", "failover_events", "railway_metrics"]
 
 # ── Analytics Engine ──────────────────────────────────────────────
 # Streams trade events, scan results, and errors to Cloudflare Analytics Engine.
