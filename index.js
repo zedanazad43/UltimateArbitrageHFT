@@ -1950,6 +1950,17 @@ app.get('/api/scan-rejections', async (c) => {
   });
 });
 
+app.get('/api/opportunities/recent', async (c) => {
+  const limit = Math.min(parseInt(c.req.query('limit') || '50', 10), 200);
+  try {
+    const { getRecentOpportunities } = require('./src/infra/cache.js');
+    const items = getRecentOpportunities(limit);
+    return ok(c, { count: items.length, items });
+  } catch (e) {
+    return err(c, 'OPP_LIST_FAIL', 500, e.message);
+  }
+});
+
 // ── API: Execution lock diagnostics ─────────────────────────────────────────
 app.get('/api/execution-lock', async (c) => {
   if (!isAuthorized(c.env, c)) return authDenied(c.env, c, true);
@@ -4584,3 +4595,46 @@ app.get('/geo-bypass/report', async (c) => {
 
 // ─── Export Durable Objects ───────────────────────────────────────────────
 export { HFTBackup };
+
+// ─── DB init on startup ──────────────────────────────────────────────────────
+function initDb() {
+  try {
+    const { getDb } = require('./src/db/opportunities.cjs');
+    const db = getDb();
+    if (!db) return;
+    db.exec(`CREATE TABLE IF NOT EXISTS opportunities (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      symbol TEXT NOT NULL,
+      buy_exchange TEXT NOT NULL,
+      sell_exchange TEXT NOT NULL,
+      buy_price REAL NOT NULL,
+      sell_price REAL NOT NULL,
+      spread_pct REAL NOT NULL,
+      volume_usdt REAL,
+      detected_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      status TEXT DEFAULT 'pending' CHECK(status IN ('pending','executing','completed','expired','failed'))
+    );`);
+    db.exec(`CREATE TABLE IF NOT EXISTS trades (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      opportunity_id INTEGER,
+      symbol TEXT NOT NULL,
+      side TEXT NOT NULL,
+      buy_exchange TEXT NOT NULL,
+      sell_exchange TEXT NOT NULL,
+      qty REAL NOT NULL,
+      buy_price REAL NOT NULL,
+      sell_price REAL NOT NULL,
+      net_profit_usdt REAL,
+      executed_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      status TEXT DEFAULT 'pending'
+    );`);
+    db.exec(`CREATE TABLE IF NOT EXISTS exchange_health (
+      exchange TEXT PRIMARY KEY,
+      status TEXT DEFAULT 'unknown',
+      latency_ms INTEGER,
+      last_check TEXT DEFAULT CURRENT_TIMESTAMP
+    );`);
+    console.log('[DB] SQLite initialized');
+  } catch (e) { console.error('[DB] init failed:', e.message); }
+}
+initDb();
