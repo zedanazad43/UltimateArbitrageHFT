@@ -610,6 +610,12 @@ function constantTimeEquals(a, b) {
 function isAuthorized(env, c) {
   const token = env.ADMIN_TOKEN;
   const workflowToken = env.WORKFLOW_ADMIN_TOKEN;
+  // IP allowlist: if env.ALLOWED_IPS is set, only allow listed IPs.
+  if (env.ALLOWED_IPS) {
+    const clientIp = c.req.header('cf-connecting-ip') || c.req.header('x-forwarded-for') || '';
+    const allowed = env.ALLOWED_IPS.split(',').map(s => s.trim()).filter(Boolean);
+    if (allowed.length && !allowed.includes(clientIp)) return false;
+  }
   // Setup mode: if neither token is configured, allow access ONLY to /login
   // and /health so the admin can bootstrap. All other routes are denied.
   if (!token && !workflowToken) {
@@ -829,6 +835,33 @@ export class MarketStreamer {
 // ─── Hono App ─────────────────────────────────────────────────────────────────
 const app = new Hono();
 app.use('*', cors({ origin: '*', allowMethods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'], allowHeaders: ['Content-Type', 'x-admin-token', 'x-workflow-token', 'x-risk-unlock-token'], maxAge: 86400 }));
+
+// ─── Security headers (applied to every response) ─────────────────────
+app.use('*', (c, next) => {
+  const h = new Headers(c.res.headers);
+  h.set('x-content-type-options', 'nosniff');
+  h.set('x-frame-options', 'DENY');
+  h.set('x-xss-protection', '1; mode=block');
+  h.set('strict-transport-security', 'max-age=31536000; includeSubDomains');
+  c.res = new Response(c.res.body, { status: c.res.status, headers: h });
+  return next();
+});
+
+// ─── Rate limiter (memory fallback when no RATE_LIMITER binding) ───────
+const RATE_LIMIT_WINDOW_MS = 60_000;
+const RATE_LIMIT_MAX = 60;
+const RATE_STORE = new Map();
+app.use('*', async (c, next) => {
+  if (env.RATE_LIMITER) return next();
+  const ip = c.req.header('cf-connecting-ip') || c.req.header('x-forwarded-for') || 'unknown';
+  const now = Date.now();
+  const bucket = RATE_STORE.get(ip) || { count: 0, ts: now };
+  if (now - bucket.ts > RATE_LIMIT_WINDOW_MS) bucket.count = 0, bucket.ts = now;
+  bucket.count++;
+  RATE_STORE.set(ip, bucket);
+  if (bucket.count > RATE_LIMIT_MAX) return c.text('Too Many Requests', 429);
+  return next();
+});
 
 // ── Global error handler ──────────────────────────────────────────────────────
 app.onError((err, c) => {
