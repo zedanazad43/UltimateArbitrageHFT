@@ -652,7 +652,6 @@ function authDenied(env, c, asJson = false) {
   }
   return c.text(`${adminConfigured ? 'Unauthorized' : 'Service unavailable'}: ${hint}`, status);
 }
-}
 
 // ─── Login page renderer ──────────────────────────────────────────────────────
 function renderLoginPage(showError = false, adminConfigured = true) {
