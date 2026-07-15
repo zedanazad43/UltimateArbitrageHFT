@@ -635,6 +635,23 @@ function isAuthorized(env, c) {
 // Returns a descriptive 401 response that distinguishes "secret not configured" from
 // "wrong token supplied", making it easier to diagnose setup problems.
 // Use `asJson` for API routes that speak JSON; leave false for plain-text admin routes.
+function requireFreshRequest(env, c, maxAgeMs = 300000) {
+  const ts = c.req.header('x-request-ts');
+  if (!ts) return false;
+  const age = Math.abs(Date.now() - Number(ts));
+  return age <= maxAgeMs;
+}
+function authDenied(env, c, asJson = false) {
+  const token = env.ADMIN_TOKEN;
+  const workflowToken = env.WORKFLOW_ADMIN_TOKEN;
+  const adminConfigured = !!token;
+  const hint = adminConfigured ? 'Invalid admin token' : 'ADMIN_TOKEN secret not configured';
+  const status = adminConfigured ? 401 : 503;
+  if (asJson) {
+    return c.json({ error: adminConfigured ? 'Unauthorized' : 'Admin auth not configured', hint }, status);
+  }
+  return c.text(`${adminConfigured ? 'Unauthorized' : 'Service unavailable'}: ${hint}`, status);
+}
 function authDenied(env, c, asJson = false) {
   const adminConfigured = !!env.ADMIN_TOKEN;
   const hint = adminConfigured
@@ -997,9 +1014,17 @@ app.get('/health', async (c) => {
   });
 });
 
-// ── Public proxy routes (no auth) — consumed by backend worker_client.py ─────
-// These mirror the auth-gated /api/* equivalents but expose only safe, read-only
-// snapshots that the Python backend polls and re-exposes behind its own auth.
+function requireProxyToken(env, c) {
+  const expected = env.PROXY_TOKEN;
+  if (!expected) return null;
+  const provided = c.req.header('x-proxy-token') || '';
+  if (!constantTimeEquals(provided, expected)) return c.text('Invalid proxy token', 401);
+  return null;
+}
+
+// ── Public proxy routes (no admin auth, but gated by PROXY_TOKEN for backend polling)
+// NOTE: set PROXY_TOKEN as a Worker secret. The Python backend (worker_client.py) must send
+// it as header `x-proxy-token`. Without it these endpoints return 401.
 
 // Shared helper: extract normalised opportunity rows from a nexus_last_scan KV entry.
 // Each returned row has: symbol, pair, spread_pct, buy_exchange, sell_exchange, direction, strategy, timestamp.
@@ -1026,6 +1051,7 @@ function _lastScanRows(lastScan) {
 
 // GET /status — bot state snapshot (shape: dict with status, trading_enabled, mode, …)
 app.get('/status', async (c) => {
+  if (requireProxyToken(c.env, c)) return c.text('Invalid proxy token', 401);
   const [state, lastScan] = await Promise.all([
     getState(c.env).catch(() => null),
     c.env.BOT_STATE ? c.env.BOT_STATE.get('nexus_last_scan', 'json').catch(() => null) : null,
@@ -1045,6 +1071,7 @@ app.get('/status', async (c) => {
 
 // GET /spreads — latest spread rows (shape: dict with "rows" list and "ts" string)
 app.get('/spreads', async (c) => {
+  if (requireProxyToken(c.env, c)) return c.text('Invalid proxy token', 401);
   const lastScan = c.env.BOT_STATE
     ? await c.env.BOT_STATE.get('nexus_last_scan', 'json').catch(() => null)
     : null;
@@ -1061,6 +1088,7 @@ app.get('/opportunities', async (c) => {
 
 // GET /balances — exchange balance list (shape: list; each item has exchange key)
 app.get('/balances', async (c) => {
+  if (requireProxyToken(c.env, c)) return c.text('Invalid proxy token', 401);
   const data = await getExecutionBalancesSnapshot(c.env).catch(() => []);
   return c.json(data);
 });
@@ -1069,6 +1097,7 @@ app.get('/balances', async (c) => {
 // GET /prices — returns current prices from the WebSocket price book
 // Used by the Go HFT engine and external consumers to get real-time prices
 app.get('/prices', async (c) => {
+  if (requireProxyToken(c.env, c)) return c.text('Invalid proxy token', 401);
   try {
     const { getPriceBook, initHFTFeed } = await import('./src/feeds/ws-price-book.js');
     const book = getPriceBook();
@@ -1368,13 +1397,17 @@ const scanHandler = async (c) => {
 };
 app.get('/scan', scanHandler);
 // Alias: /api/scan → identical handler (dashboard + external HFT clients expect it).
-app.get('/api/scan', scanHandler);
+app.get('/api/scan', async (c) => {
+  if (requireProxyToken(c.env, c)) return c.text('Invalid proxy token', 401);
+  return scanHandler(c);
+});
 
 // ── Admin: Queue live-deal execution in the background ───────────────────────
 // Triggers the same live scan/execution pipeline as /scan, but returns
 // immediately so the dashboard can initiate a trade without waiting for a
 // potentially long-running scan request to finish.
 app.post('/api/live-deal/execute', async (c) => {
+  if (!requireFreshRequest(c.env, c)) return c.text('Stale request', 400);
   const limited = await checkRateLimit(c.env, c);
   if (limited) return limited;
   if (!isAuthorized(c.env, c)) return authDenied(c.env, c);
@@ -1404,6 +1437,7 @@ app.post('/api/live-deal/execute', async (c) => {
 
 // ── Admin: Set mode Paper ─────────────────────────────────────────────────────
 app.post('/mode/paper', async (c) => {
+  if (!requireFreshRequest(c.env, c)) return c.text('Stale request', 400);
   const limited = await checkRateLimit(c.env, c);
   if (limited) return limited;
   if (!isAuthorized(c.env, c)) return authDenied(c.env, c);
@@ -1417,6 +1451,7 @@ app.post('/mode/paper', async (c) => {
 
 // ── Admin: Set mode Live ──────────────────────────────────────────────────────
 app.post('/mode/live', async (c) => {
+  if (!requireFreshRequest(c.env, c)) return c.text('Stale request', 400);
   const limited = await checkRateLimit(c.env, c);
   if (limited) return limited;
   if (!isAuthorized(c.env, c)) return authDenied(c.env, c);
@@ -1832,6 +1867,7 @@ app.get('/api/status', async (c) => {
 
 // ── API: Scan rejection telemetry snapshot ──────────────────────────────────
 app.get('/api/scan-rejections', async (c) => {
+  if (requireProxyToken(c.env, c)) return c.text('Invalid proxy token', 401);
   if (!isAuthorized(c.env, c)) return authDenied(c.env, c, true);
   const snapshot = await c.env.BOT_STATE.get('nexus_scan_rejections_last', 'json').catch(() => null);
   let data = snapshot;
