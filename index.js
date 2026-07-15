@@ -652,19 +652,6 @@ function authDenied(env, c, asJson = false) {
   }
   return c.text(`${adminConfigured ? 'Unauthorized' : 'Service unavailable'}: ${hint}`, status);
 }
-function authDenied(env, c, asJson = false) {
-  const adminConfigured = !!env.ADMIN_TOKEN;
-  const hint = adminConfigured
-    ? 'Invalid admin token'
-    : 'ADMIN_TOKEN secret not configured — run: wrangler secret put ADMIN_TOKEN';
-  const status = adminConfigured ? 401 : 503;
-  if (asJson) {
-    return c.json({
-      error: adminConfigured ? 'Unauthorized' : 'Admin auth not configured',
-      hint
-    }, status);
-  }
-  return c.text(`${adminConfigured ? 'Unauthorized' : 'Service unavailable'}: ${hint}`, status);
 }
 
 // ─── Login page renderer ──────────────────────────────────────────────────────
@@ -4594,7 +4581,7 @@ app.get('/geo-bypass/report', async (c) => {
 });
 
 // ─── Export Durable Objects ───────────────────────────────────────────────
-export { HFTBackup };
+
 
 // ─── DB init on startup ──────────────────────────────────────────────────────
 function initDb() {

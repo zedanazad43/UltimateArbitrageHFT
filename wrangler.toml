@@ -97,7 +97,6 @@ max_batch_timeout = 30
 # 20 requests per 60 seconds per IP on all admin routes.
 # Uses Cloudflare's built-in rate limiting; no external service needed.
 
-[[unsafe.bindings]]
 type = "ratelimit"
 name = "RATE_LIMITER"
 namespace_id = "1001"
