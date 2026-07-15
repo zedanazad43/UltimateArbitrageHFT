@@ -1,31 +1,20 @@
-const DB_PATH = './data/opportunities.db';
 const fs = require('fs');
-if (!fs.existsSync('./data')) fs.mkdirSync('./data', { recursive: true });
-
 function getDb() {
-  try {
-    const Database = require('better-sqlite3');
-    return new Database(DB_PATH, { fileMustExist: false });
-  } catch {
-    return null;
+  // This module is for local dev only. Cloudflare Workers should use D1 binding.
+  if (typeof process !== 'undefined' && process.versions && process.versions.node) {
+    try {
+      const Database = require('better-sqlite3');
+      const DB_PATH = './data/opportunities.db';
+      if (!fs.existsSync('./data')) fs.mkdirSync('./data', { recursive: true });
+      const db = new Database(DB_PATH, { fileMustExist: false });
+      db.exec(`CREATE TABLE IF NOT EXISTS opportunities (id INTEGER PRIMARY KEY AUTOINCREMENT, symbol TEXT NOT NULL, buy_exchange TEXT NOT NULL, sell_exchange TEXT NOT NULL, buy_price REAL NOT NULL, sell_price REAL NOT NULL, spread_pct REAL NOT NULL, volume_usdt REAL, detected_at TEXT DEFAULT CURRENT_TIMESTAMP, status TEXT DEFAULT 'pending');`);
+      db.exec(`CREATE TABLE IF NOT EXISTS trades (id INTEGER PRIMARY KEY AUTOINCREMENT, opportunity_id INTEGER, symbol TEXT NOT NULL, side TEXT NOT NULL, buy_exchange TEXT NOT NULL, sell_exchange TEXT NOT NULL, qty REAL NOT NULL, buy_price REAL NOT NULL, sell_price REAL NOT NULL, net_profit_usdt REAL, executed_at TEXT DEFAULT CURRENT_TIMESTAMP, status TEXT DEFAULT 'pending');`);
+      db.exec(`CREATE TABLE IF NOT EXISTS exchange_health (exchange TEXT PRIMARY KEY, status TEXT DEFAULT 'unknown', latency_ms INTEGER, last_check TEXT DEFAULT CURRENT_TIMESTAMP);`);
+      return db;
+    } catch (e) { console.warn('[DB] SQLite unavailable:', e.message); }
   }
+  return null;
 }
-
-function saveOpportunity(opp) {
-  const db = getDb();
-  if (!db) return;
-  try {
-    db.prepare(`INSERT INTO opportunities (symbol,buy_exchange,sell_exchange,buy_price,sell_price,spread_pct,volume_usdt,status) VALUES (?,?,?,?,?,?,?,?)`)
-      .run(opp.symbol, opp.buy_exchange, opp.sell_exchange, opp.buy_price, opp.sell_price, opp.spread_pct, opp.volume_usdt || 0, opp.status || 'pending');
-  } catch (e) { console.error('DB saveOpportunity:', e.message); }
-}
-
-function getRecentOpportunities(limit = 50) {
-  const db = getDb();
-  if (!db) return [];
-  try {
-    return db.prepare(`SELECT * FROM opportunities ORDER BY detected_at DESC LIMIT ?`).all(limit);
-  } catch { return []; }
-}
-
-module.exports = { saveOpportunity, getRecentOpportunities, getDb };
+function saveOpportunity() {}
+function getRecentOpportunities() { return []; }
+module.exports = { getDb, saveOpportunity, getRecentOpportunities };
