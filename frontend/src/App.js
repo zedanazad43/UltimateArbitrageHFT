@@ -9,9 +9,10 @@ export default function App() {
   const [err, setErr] = useState('');
 
   useEffect(() => {
+    const API = process.env.REACT_APP_BACKEND_URL || '';
     if (!API) return;
     fetch(`${API}/health`).then(r => r.ok ? setAuthed(true) : setAuthed(false)).catch(() => setAuthed(false));
-  }, [API]);
+  }, []);
 
   async function doLogin(e) {
     e.preventDefault();

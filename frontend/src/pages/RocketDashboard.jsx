@@ -4,9 +4,8 @@ import axios from 'axios';
 const API = (process.env.REACT_APP_BACKEND_URL || 'http://localhost:8787').replace(/\/$/,'');
 
 export default function RocketDashboard({ onLogout }) {
-  const [data, setData] = useState({ stats: null, health: {}, opps: [], online: false });
-  const [busy, setBusy] = useState(false);
-
+  const [data, setData] = useState({ stats: null, health: {}, online: false });
+  const [ts, setTs] = useState(Date.now());
   useEffect(() => {
     let t;
     async function load() {
