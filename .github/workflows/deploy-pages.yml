@@ -5,6 +5,7 @@ on:
     paths:
       - 'frontend/**'
       - '.github/workflows/deploy-pages.yml'
+  workflow_dispatch:
 jobs:
   build-and-deploy:
     runs-on: ubuntu-latest
@@ -23,4 +24,3 @@ jobs:
           accountId: 652e53f35781522e2745784cc4425d9d
           projectName: ultimate-arbitrage-frontend
           directory: frontend/build
-trigger ci
