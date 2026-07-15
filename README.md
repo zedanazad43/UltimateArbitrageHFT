@@ -1,3 +1,5 @@
+[![Deploy Worker](https://github.com/zedanazad43/UltimateArbitrageHFT/actions/workflows/deploy-worker.yml/badge.svg)] [![Deploy Pages](https://github.com/zedanazad43/UltimateArbitrageHFT/actions/workflows/deploy-pages.yml/badge.svg)]
+
 # 🚀 Rocket HFT - Ultimate Arbitrage Bot
 
 Next-gen arbitrage engine for Cloudflare Workers. Ultra-low latency, AI-driven, multi-exchange.
