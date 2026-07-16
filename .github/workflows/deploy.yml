@@ -63,6 +63,7 @@ jobs:
             "HFT_ENGINE_SECRET",
             "TEMPORAL_API_KEY",
             "PROXY_URL",
+            "PROXY_URL_1",
             "PROXY_LIST",
             "PROXY_AUTH_HEADER",
             "EXTERNAL_PROXY_URL",
@@ -107,6 +108,7 @@ jobs:
           WORKFLOW_ADMIN_TOKEN: ${{ secrets.WORKFLOW_ADMIN_TOKEN }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           PROXY_URL: ${{ secrets.PROXY_URL }}
+          PROXY_URL_1: ${{ secrets.PROXY_URL_1 }}
           PROXY_LIST: ${{ secrets.PROXY_LIST }}
           PROXY_AUTH_HEADER: ${{ secrets.PROXY_AUTH_HEADER }}
           EXTERNAL_PROXY_URL: ${{ secrets.EXTERNAL_PROXY_URL }}
