@@ -4427,7 +4427,7 @@ app.post('/api/monitor/run', async (c) => {
 });
 
 // ─── Exports ──────────────────────────────────────────────────────────────────
-module.exports = {
+export default {
   fetch: app.fetch.bind(app),
 
   async scheduled(event, env, ctx) {
