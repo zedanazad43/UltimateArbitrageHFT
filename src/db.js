@@ -288,3 +288,152 @@ export async function getRecentBacktestRuns(env, limit = 5) {
     return [];
   }
 }
+
+// ── Profit Engine tables ──────────────────────────────────────────────────────
+
+export async function logOpportunity(env, opp) {
+  if (!env.DB) return;
+  try {
+    await env.DB.prepare(
+      `INSERT INTO opportunities (symbol, strategy, buy_exchange, sell_exchange, gross_pct, net_pct, safety_factor, price_buy, price_sell, est_fee_usd, est_slippage_usd, size_usd, status, created_at, expires_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    ).bind(
+      opp.symbol, opp.strategy, opp.buyExchange, opp.sellExchange,
+      Number(opp.grossPct || 0), Number(opp.netPct || 0),
+      Number(opp.safetyFactor || 0),
+      Number(opp.buyPrice || 0), Number(opp.sellPrice || 0),
+      Number(opp.estFeeUsd || 0), Number(opp.estSlippageUsd || 0),
+      Number(opp.sizeUsd || 0), 'open', Date.now(), Date.now() + 60_000
+    ).run();
+  } catch (e) { console.error('[DB] logOpportunity error:', e.message); }
+}
+
+export async function updateOpportunityStatus(env, id, status, reason = null) {
+  if (!env.DB) return;
+  try {
+    await env.DB.prepare(`UPDATE opportunities SET status=?, rejected_reason=? WHERE id=?`)
+      .bind(status, reason, id).run();
+  } catch (e) { console.error('[DB] updateOpportunityStatus error:', e.message); }
+}
+
+export async function getOpenOpportunities(env, limit = 50) {
+  if (!env.DB) return [];
+  try {
+    const { results } = await env.DB.prepare(
+      `SELECT * FROM opportunities WHERE status='open' ORDER BY created_at DESC LIMIT ?`
+    ).bind(limit).all();
+    return results || [];
+  } catch (e) { console.error('[DB] getOpenOpportunities error:', e.message); return []; }
+}
+
+export async function recordPerformanceSnapshot(env, metrics = {}) {
+  if (!env.DB) return;
+  try {
+    await env.DB.prepare(
+      `INSERT INTO performance_snapshots (total_pnl_usd, equity_usd, daily_pnl_usd, total_trades, win_trades, loss_trades, win_rate, max_drawdown_usd, sharpe, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    ).bind(
+      Number(metrics.total_pnl_usd || 0), Number(metrics.equity_usd || 0),
+      Number(metrics.daily_pnl_usd || 0),
+      Number(metrics.total_trades || 0), Number(metrics.win_trades || 0),
+      Number(metrics.loss_trades || 0), Number(metrics.win_rate || 0),
+      Number(metrics.max_drawdown_usd || 0), Number(metrics.sharpe || 0),
+      Date.now()
+    ).run();
+  } catch (e) { console.error('[DB] recordPerformanceSnapshot error:', e.message); }
+}
+
+export async function getPerformanceHistory(env, limit = 200) {
+  if (!env.DB) return [];
+  try {
+    const { results } = await env.DB.prepare(
+      `SELECT * FROM performance_snapshots ORDER BY created_at DESC LIMIT ?`
+    ).bind(limit).all();
+    return results || [];
+  } catch (e) { console.error('[DB] getPerformanceHistory error:', e.message); return []; }
+}
+
+export async function upsertStrategyInsight(env, insight = {}) {
+  if (!env.DB) return;
+  try {
+    const existing = await env.DB.prepare(
+      `SELECT id, sample_size, avg_net_pct, win_rate FROM strategy_insights WHERE strategy=? AND symbol=? AND exchange_pair=? AND direction=?`
+    ).bind(insight.strategy, insight.symbol, insight.exchange_pair, insight.direction).first();
+
+    if (existing) {
+      const n = Number(existing.sample_size || 0);
+      const avgNet = Number(existing.avg_net_pct || 0);
+      const avgGross = Number(existing.avg_gross_pct || 0);
+      const avgSlip = Number(existing.avg_slippage_pct || 0);
+      const winRate = Number(existing.win_rate || 0);
+      const profitFactor = Number(existing.profit_factor || 0);
+      const sampleSize = n + 1;
+
+      const newAvgNet = (avgNet * n + Number(insight.net_pct || 0)) / sampleSize;
+      const newAvgGross = (avgGross * n + Number(insight.gross_pct || 0)) / sampleSize;
+      const newAvgSlip = (avgSlip * n + Number(insight.slippage_pct || 0)) / sampleSize;
+      const newWinRate = (winRate * n + (insight.outcome === 'win' ? 1 : 0)) / sampleSize;
+      const newProfitFactor = profitFactor > 0 ? profitFactor * 0.95 + Number(insight.net_pct || 0) * 0.05 : Number(insight.net_pct || 0);
+      const confidence = Math.min(0.99, sampleSize / 100);
+      const Kelly = newWinRate > 0 ? Math.max(0, (newWinRate * (1 + newAvgNet / 100) - (1 - newWinRate)) / (1 + newAvgNet / 100)) : 0;
+
+      await env.DB.prepare(
+        `UPDATE strategy_insights SET sample_size=?, avg_net_pct=?, avg_gross_pct=?, avg_slippage_pct=?, win_rate=?, profit_factor=?, confidence=?, Kelly=?, last_updated=?
+         WHERE id=?`
+      ).bind(sampleSize, newAvgNet, newAvgGross, newAvgSlip, newWinRate, newProfitFactor, confidence, Kelly, Date.now(), existing.id).run();
+    } else {
+      const sampleSize = 1;
+      const confidence = 0.1;
+      const Kelly = insight.outcome === 'win' ? 0.01 : 0;
+      await env.DB.prepare(
+        `INSERT INTO strategy_insights (strategy, symbol, exchange_pair, direction, sample_size, avg_net_pct, avg_gross_pct, avg_slippage_pct, win_rate, profit_factor, confidence, Kelly, last_updated)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      ).bind(
+        insight.strategy, insight.symbol, insight.exchange_pair, insight.direction,
+        sampleSize,
+        Number(insight.net_pct || 0), Number(insight.gross_pct || 0), Number(insight.slippage_pct || 0),
+        insight.outcome === 'win' ? 1 : 0,
+        Number(insight.net_pct || 0),
+        confidence, Kelly, Date.now()
+      ).run();
+    }
+  } catch (e) { console.error('[DB] upsertStrategyInsight error:', e.message); }
+}
+
+export async function getStrategyInsights(env, strategy = null, limit = 50) {
+  if (!env.DB) return [];
+  try {
+    const sql = strategy
+      ? `SELECT * FROM strategy_insights WHERE strategy=? ORDER BY last_updated DESC LIMIT ?`
+      : `SELECT * FROM strategy_insights ORDER BY last_updated DESC LIMIT ?`;
+    const { results } = strategy
+      ? await env.DB.prepare(sql).bind(strategy, limit).all()
+      : await env.DB.prepare(sql).bind(limit).all();
+    return results || [];
+  } catch (e) { console.error('[DB] getStrategyInsights error:', e.message); return []; }
+}
+
+export async function auditOpportunity(env, opportunityId, action, reason = null, pnlUsd = null, latencyMs = null) {
+  if (!env.DB) return;
+  try {
+    await env.DB.prepare(
+      `INSERT INTO opportunity_audit (opportunity_id, action, reason, pnl_usd, latency_ms, created_at) VALUES (?, ?, ?, ?, ?, ?)`
+    ).bind(opportunityId, action, reason, pnlUsd, latencyMs, Date.now()).run();
+  } catch (e) { console.error('[DB] auditOpportunity error:', e.message); }
+}
+
+export async function getOpportunityStats(env) {
+  if (!env.DB) return {};
+  try {
+    const byStrategy = await env.DB.prepare(
+      `SELECT strategy, COUNT(*) as cnt, AVG(net_pct) as avg_net_pct, SUM(CASE WHEN executed=1 THEN 1 ELSE 0 END) as executed_count
+       FROM opportunities GROUP BY strategy`
+    ).all();
+    const byPair = await env.DB.prepare(
+      `SELECT exchange_pair, COUNT(*) as cnt, AVG(net_pct) as avg_net_pct
+       FROM (SELECT buy_exchange || '->' || sell_exchange as exchange_pair, net_pct FROM opportunities)
+       GROUP BY exchange_pair ORDER BY cnt DESC LIMIT 10`
+    ).all();
+    return { byStrategy: byStrategy.results || [], byPair: byPair.results || [] };
+  } catch (e) { console.error('[DB] getOpportunityStats error:', e.message); return {}; }
+}
