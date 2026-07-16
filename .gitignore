@@ -13,6 +13,11 @@ local_filelist.txt
 finalize_project.ps1
 مستند نصي جديد.txt
 
+# Env/secrets (catch .env and any suffixes like .env.docker / .env.dhi)
+.env
+.env.*
+*.env
+
 # Node
 node_modules/
 npm-debug.log*

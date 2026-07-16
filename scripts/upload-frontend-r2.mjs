@@ -53,7 +53,7 @@ function uploadOne(filePath) {
 
   const args = [
     '--yes',
-    'wrangler@4.86.0',
+    'wrangler@4.87.0',
     'r2',
     'object',
     'put',

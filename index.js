@@ -746,25 +746,6 @@ function renderPublicLandingPage() {
     { headers: { 'Content-Type': 'text/html; charset=utf-8' } }
   );
 }
-
-// ─── Rate limiter helper ──────────────────────────────────────────────────────
-// Uses the RATE_LIMITER binding (Cloudflare Rate Limiting API).
-// Returns a 429 response if the caller has exceeded the configured threshold;
-// returns null when the request may proceed.
-// Gracefully skips rate limiting when the binding is absent (local dev).
-async function checkRateLimit(env, c) {
-  if (!env.RATE_LIMITER) return null;
-  try {
-    const key = c.req.header('cf-connecting-ip') || c.req.header('x-forwarded-for') || 'unknown';
-    const { success } = await env.RATE_LIMITER.limit({ key });
-    if (!success) return c.text('Too Many Requests', 429);
-  } catch (e) {
-    console.error('[RateLimit] error:', e.message);
-  }
-  return null;
-}
-
-// ─── Durable Object: MarketStreamer ───────────────────────────────────────────
 export class MarketStreamer {
   constructor(state, env) {
     this.state = state;
@@ -842,10 +823,13 @@ app.use('*', cors({ origin: '*', allowMethods: ['GET', 'POST', 'PUT', 'DELETE', 
 // ─── Security headers (applied to every response) ─────────────────────
 app.use('*', (c, next) => {
   const h = new Headers(c.res.headers);
+  h.set('content-security-policy', "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self' data:; connect-src 'self' https:; frame-ancestors 'none'; base-uri 'self'; form-action 'self'; upgrade-insecure-requests");
   h.set('x-content-type-options', 'nosniff');
   h.set('x-frame-options', 'DENY');
+  h.set('referrer-policy', 'no-referrer-when-downgrade');
+  h.set('permissions-policy', 'geolocation=(), microphone=(), camera=(), payment=(), usb=()');
   h.set('x-xss-protection', '1; mode=block');
-  h.set('strict-transport-security', 'max-age=31536000; includeSubDomains');
+  h.set('strict-transport-security', 'max-age=31536000; includeSubDomains; preload');
   c.res = new Response(c.res.body, { status: c.res.status, headers: h });
   return next();
 });
@@ -855,14 +839,19 @@ const RATE_LIMIT_WINDOW_MS = 60_000;
 const RATE_LIMIT_MAX = 60;
 const RATE_STORE = new Map();
 app.use('*', async (c, next) => {
-  if (env.RATE_LIMITER) return next();
+  // Skip circuit-heavy rate limiting for static/health-style probes to avoid
+  // starving admin flows in free-tier 10ms CPU environments.
+  const path = c.req.path;
+  const isLight = path === '/health' || path === '/rocket-verify';
+  if (env.RATE_LIMITER && !isLight) return next();
   const ip = c.req.header('cf-connecting-ip') || c.req.header('x-forwarded-for') || 'unknown';
   const now = Date.now();
   const bucket = RATE_STORE.get(ip) || { count: 0, ts: now };
   if (now - bucket.ts > RATE_LIMIT_WINDOW_MS) bucket.count = 0, bucket.ts = now;
   bucket.count++;
   RATE_STORE.set(ip, bucket);
-  if (bucket.count > RATE_LIMIT_MAX) return c.text('Too Many Requests', 429);
+  const limit = isLight ? RATE_LIMIT_MAX * 5 : RATE_LIMIT_MAX;
+  if (bucket.count > limit) return c.text('Too Many Requests', 429);
   return next();
 });
 
@@ -4631,7 +4620,6 @@ app.get('/rocket-verify', async (c) => {
     version: '3.0.0',
     status: 'operational',
     timestamp: new Date().toISOString(),
-    features: ['proxy-token-guard','admin-timestamp','rate-limit','opportunity-cache','rocket-dashboard']
   });
 });
 

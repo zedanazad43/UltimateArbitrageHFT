@@ -21,6 +21,27 @@ export function ensureSchema(env) {
       .map(s => s.trim())
       .filter(s => s.length > 0);
     await env.DB.batch(stmts.map(s => env.DB.prepare(s)));
+
+    // Resilience indexes may already exist or ship inline/out-of-band in legacy
+    // migration files. Ensure them idempotently so init never hard-fails.
+    try {
+      const indexes = env.DB.prepare(
+        `CREATE INDEX IF NOT EXISTS idx_backup_status ON backup_positions(status);`
+      );
+      await indexes.run().catch(() => {});
+    } catch {}
+    try {
+      const symIdx = env.DB.prepare(
+        `CREATE INDEX IF NOT EXISTS idx_backup_symbol ON backup_positions(symbol);`
+      );
+      await symIdx.run().catch(() => {});
+    } catch {}
+    try {
+      const tsIdx = env.DB.prepare(
+        `CREATE INDEX IF NOT EXISTS idx_backup_timestamp ON backup_prices(timestamp);`
+      );
+      await tsIdx.run().catch(() => {});
+    } catch {}
   })().catch(e => {
     _schemaInitPromise = null; // allow retry on the next request
     console.error('[DB] ensureSchema error:', e.message);
