@@ -18,7 +18,7 @@
 
 const http = require('http');
 const { URL } = require('url');
-const { ProxyAgent, fetch: undiciFetch } = require('undici');
+const fetch = globalThis.fetch || require('node-fetch');
 
 const PORT = Number(process.env.PORT || 8080);
 const GATEWAY_TOKEN = process.env.GATEWAY_TOKEN || '';
@@ -37,17 +37,10 @@ const UPSTREAM_PROXIES = (process.env.UPSTREAM_PROXIES
   ? process.env.UPSTREAM_PROXIES.split(',').map((s) => s.trim()).filter(Boolean)
   : DEFAULT_UPSTREAM_PROXIES);
 
-// Build a ProxyAgent per upstream (lazy cache).
-const _agentCache = new Map();
-function getAgent(hostport) {
-  if (!hostport) return null;
-  if (!_agentCache.has(hostport)) {
-    _agentCache.set(hostport, new ProxyAgent({
-      uri: `http://${hostport}`,
-      requestTls: { rejectUnauthorized: false },
-    }));
-  }
-  return _agentCache.get(hostport);
+// Build a proxy option per upstream host:port
+function proxyOptionFor(hostport) {
+  if (!hostport || !/^\d+\.\d+\.\d+\.\d+:\d+$/.test(hostport)) return undefined;
+  return `http://${hostport}`;
 }
 
 let _rrIndex = 0;
@@ -164,9 +157,9 @@ const server = http.createServer(async (req, res) => {
           signal: controller.signal,
           redirect: 'follow',
         };
-        const agent = getAgent(hostport);
-        if (agent) opts.dispatcher = agent;
-        upstream = await undiciFetch(target, opts);
+        const proxy = proxyOptionFor(hostport);
+        if (proxy) opts.proxy = proxy;
+        upstream = await fetch(target, opts);
         clearTimeout(timeout);
         // 403 / cloudflare-block bodies mean this egress IP is blocked → try next proxy.
         if (upstream.status === 403 || upstream.status === 451 || upstream.status === 456) {
