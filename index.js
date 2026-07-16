@@ -838,9 +838,21 @@ app.use('*', (c, next) => {
 const RATE_LIMIT_WINDOW_MS = 60_000;
 const RATE_LIMIT_MAX = 60;
 const RATE_STORE = new Map();
+async function checkRateLimit(env, c) {
+  const path = c.req.path;
+  const isLight = path === '/health' || path === '/rocket-verify';
+  if (env.RATE_LIMITER && !isLight) return null;
+  const ip = c.req.header('cf-connecting-ip') || c.req.header('x-forwarded-for') || 'unknown';
+  const now = Date.now();
+  const bucket = RATE_STORE.get(ip) || { count: 0, ts: now };
+  if (now - bucket.ts > RATE_LIMIT_WINDOW_MS) bucket.count = 0, bucket.ts = now;
+  bucket.count++;
+  RATE_STORE.set(ip, bucket);
+  const limit = isLight ? RATE_LIMIT_MAX * 5 : RATE_LIMIT_MAX;
+  if (bucket.count > limit) return c.text('Too Many Requests', 429);
+  return null;
+}
 app.use('*', async (c, next) => {
-  // Skip circuit-heavy rate limiting for static/health-style probes to avoid
-  // starving admin flows in free-tier 10ms CPU environments.
   const path = c.req.path;
   const isLight = path === '/health' || path === '/rocket-verify';
   if (env.RATE_LIMITER && !isLight) return next();
