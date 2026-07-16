@@ -117,7 +117,7 @@
     "@temporalio/workflow": "^1.16.1",
     "better-sqlite3": "^12.11.1",
     "dotenv": "^16.6.1",
-    "hono": "^4.12.18",
+    "hono": "^4.12.30",
     "jsonwebtoken": "^9.0.3",
     "openai": "^6.35.0"
   },

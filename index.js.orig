@@ -652,6 +652,20 @@ function authDenied(env, c, asJson = false) {
   }
   return c.text(`${adminConfigured ? 'Unauthorized' : 'Service unavailable'}: ${hint}`, status);
 }
+function authDenied(env, c, asJson = false) {
+  const adminConfigured = !!env.ADMIN_TOKEN;
+  const hint = adminConfigured
+    ? 'Invalid admin token'
+    : 'ADMIN_TOKEN secret not configured — run: wrangler secret put ADMIN_TOKEN';
+  const status = adminConfigured ? 401 : 503;
+  if (asJson) {
+    return c.json({
+      error: adminConfigured ? 'Unauthorized' : 'Admin auth not configured',
+      hint
+    }, status);
+  }
+  return c.text(`${adminConfigured ? 'Unauthorized' : 'Service unavailable'}: ${hint}`, status);
+}
 
 // ─── Login page renderer ──────────────────────────────────────────────────────
 function renderLoginPage(showError = false, adminConfigured = true) {
@@ -1934,17 +1948,6 @@ app.get('/api/scan-rejections', async (c) => {
     data,
     timestamp: new Date().toISOString(),
   });
-});
-
-app.get('/api/opportunities/recent', async (c) => {
-  const limit = Math.min(parseInt(c.req.query('limit') || '50', 10), 200);
-  try {
-    const { getRecentOpportunities } = require('./src/infra/cache.js');
-    const items = getRecentOpportunities(limit);
-    return ok(c, { count: items.length, items });
-  } catch (e) {
-    return err(c, 'OPP_LIST_FAIL', 500, e.message);
-  }
 });
 
 // ── API: Execution lock diagnostics ─────────────────────────────────────────
@@ -4428,7 +4431,7 @@ app.post('/api/monitor/run', async (c) => {
 
 // ─── Exports ──────────────────────────────────────────────────────────────────
 export default {
-  async fetch(request, env, ctx) { return app.fetch(request, env, ctx); },
+  fetch: app.fetch.bind(app),
 
   async scheduled(event, env, ctx) {
     ctx.waitUntil(runScheduledCycle(env));
@@ -4580,7 +4583,6 @@ app.get('/geo-bypass/report', async (c) => {
 });
 
 // ─── Export Durable Objects ───────────────────────────────────────────────
-
 export { HFTBackup };
 
 // ─── DB init on startup ──────────────────────────────────────────────────────
@@ -4625,39 +4627,3 @@ function initDb() {
   } catch (e) { console.error('[DB] init failed:', e.message); }
 }
 initDb();
-app.get('/rocket-verify', async (c) => {
-  return ok(c, {
-    name: 'Rocket HFT',
-    version: '3.0.0',
-    status: 'operational',
-    timestamp: new Date().toISOString(),
-    features: ['proxy-token-guard','admin-timestamp','rate-limit','opportunity-cache','rocket-dashboard']
-  });
-});
-
-
-
-
-app.get('/api/stats', async (c) => {
-  try {
-    const { getRecentOpportunities } = require('./src/infra/cache.js');
-    const opps = getRecentOpportunities(100);
-    const bySymbol = {};
-    for (const o of opps) { bySymbol[o.symbol] = (bySymbol[o.symbol]||0)+1; }
-    return ok(c, { totalOpportunities: opps.length, topSymbols: Object.entries(bySymbol).sort((a,b)=>b[1]-a[1]).slice(0,10), latestSpread: opps[0] ? opps[0].spread_pct : 0, timestamp: new Date().toISOString() });
-  } catch (e) { return err(c,'STATS_FAIL',500,e.message); }
-});
-
-app.get('/api/exchanges/health', async (c) => {
-  try {
-    const { getDb } = require('./src/db/opportunities.cjs');
-    const db = getDb();
-    if (!db) return ok(c, {});
-    const rows = db.prepare('SELECT exchange, status, latency_ms, last_check FROM exchange_health').all();
-    const health = {};
-    for (const r of rows) health[r.exchange] = { status: r.status, latency_ms: r.latency_ms, last_check: r.last_check };
-    return ok(c, health);
-  } catch (e) { return err(c,'HEALTH_FAIL',500,e.message); }
-});
-
-
