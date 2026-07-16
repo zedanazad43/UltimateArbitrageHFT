@@ -607,6 +607,11 @@ function constantTimeEquals(a, b) {
 // Two auth paths are supported:
 //   1. x-admin-token request header  — for programmatic / script access.
 //   2. nexus_session HttpOnly cookie  — for browser sessions after /login.
+function ok(c, data) { return c.json(data, 200); }
+function err(c, code, status, message) {
+  return c.json({ error: code || 'ERROR', status: status || 500, message: message || 'internal_error' }, status || 500);
+}
+
 function isAuthorized(env, c) {
   const token = env.ADMIN_TOKEN;
   const workflowToken = env.WORKFLOW_ADMIN_TOKEN;
@@ -841,7 +846,7 @@ const RATE_STORE = new Map();
 async function checkRateLimit(env, c) {
   const path = c.req.path;
   const isLight = path === '/health' || path === '/rocket-verify';
-  if (env.RATE_LIMITER && !isLight) return null;
+  if (c.env.RATE_LIMITER && !isLight) return null;
   const ip = c.req.header('cf-connecting-ip') || c.req.header('x-forwarded-for') || 'unknown';
   const now = Date.now();
   const bucket = RATE_STORE.get(ip) || { count: 0, ts: now };
@@ -855,7 +860,7 @@ async function checkRateLimit(env, c) {
 app.use('*', async (c, next) => {
   const path = c.req.path;
   const isLight = path === '/health' || path === '/rocket-verify';
-  if (env.RATE_LIMITER && !isLight) return next();
+  if (c.env.RATE_LIMITER && !isLight) return next();
   const ip = c.req.header('cf-connecting-ip') || c.req.header('x-forwarded-for') || 'unknown';
   const now = Date.now();
   const bucket = RATE_STORE.get(ip) || { count: 0, ts: now };
