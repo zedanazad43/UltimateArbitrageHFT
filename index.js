@@ -765,7 +765,7 @@ async function checkRateLimit(env, c) {
 }
 
 // ─── Durable Object: MarketStreamer ───────────────────────────────────────────
-class MarketStreamer {
+export class MarketStreamer {
   constructor(state, env) {
     this.state = state;
     this.env = env;
@@ -4581,6 +4581,7 @@ app.get('/geo-bypass/report', async (c) => {
 
 // ─── Export Durable Objects ───────────────────────────────────────────────
 
+export { HFTBackup };
 
 // ─── DB init on startup ──────────────────────────────────────────────────────
 function initDb() {
