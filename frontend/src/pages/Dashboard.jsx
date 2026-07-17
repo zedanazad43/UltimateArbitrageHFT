@@ -26,28 +26,20 @@ export default function Dashboard() {
 
   const refresh = useCallback(async () => {
     try {
-      const [s, p, o, t, r] = await Promise.all([
-        api.get("/bot/status"),
-        api.get("/pnl"),
-        api.get("/market/opportunities"),
-        api.get("/trades?limit=6"),
-        isAdmin ? api.get("/safety/live-readiness") : Promise.resolve({ data: null }),
+      const [s, p, o] = await Promise.all([
+        api.get("/status"),
+        api.get("/api/pnl"),
+        api.get("/opportunities"),
       ]);
       setStatus(s.data);
       setPnl(p.data);
-      setOpps(o.data);
-      setTrades(t.data);
-      setReadiness(r.data);
-    } catch (e) {
-      console.error("dashboard refresh failed", e);
-    }
+      setOpps(Array.isArray(o.data) ? o.data : (o.data?.items || []));
+      setTrades(Array.isArray(s.data?.recentTrades) ? s.data.recentTrades.slice(0, 10) : []);
+      setReadiness({ live: s.data?.mode === "live", paper: s.data?.paper_trading !== false });
+    } catch (e) { console.error("dashboard refresh failed", e); }
   }, [isAdmin]);
 
-  useEffect(() => {
-    refresh();
-    const id = setInterval(refresh, 2500);
-    return () => clearInterval(id);
-  }, [refresh]);
+  useEffect(() => { refresh(); const id = setInterval(refresh, 5000); return () => clearInterval(id); }, [refresh]);
 
   const action = async (a) => {
     setActionError("");
@@ -70,302 +62,118 @@ export default function Dashboard() {
     }
   };
 
-  const running = status?.status === "running";
+  const running = status?.trading_enabled;
   const live = status?.mode === "live";
 
   return (
     <div className="space-y-5" data-testid="dashboard-page">
-      {/* Master control */}
       <Card className={`${running ? "glow-primary" : "glow-destructive"}`} testid="master-control-card">
         <div className="p-5 flex flex-col lg:flex-row lg:items-center justify-between gap-5">
           <div className="flex items-center gap-5">
-            <div
-              className={`h-16 w-16 rounded-sm border flex items-center justify-center ${
-                running ? "border-primary/60 bg-primary/10" : "border-destructive/60 bg-destructive/10"
-              }`}
-            >
+            <div className={`h-16 w-16 rounded-sm border flex items-center justify-center ${running ? "border-primary/60 bg-primary/10" : "border-destructive/60 bg-destructive/10"}`}>
               <span className={`h-3 w-3 rounded-full ${running ? "bg-primary animate-pulseDot" : "bg-destructive"}`} />
             </div>
             <div>
               <div className="text-[10px] uppercase tracking-[0.22em] text-muted">Bot Status</div>
-              <div className="font-display text-2xl tracking-tight" data-testid="bot-status-text">
-                {running ? "RUNNING" : "STOPPED"}
-              </div>
+              <div className="font-display text-2xl tracking-tight" data-testid="bot-status-text">{running ? "RUNNING" : "STOPPED"}</div>
               <div className="text-xs text-muted font-mono mt-1">
-                uptime <span className="text-white">{uptime(status?.uptime_seconds || 0)}</span> · health{" "}
-                <span className={status?.health === "healthy" ? "text-primary" : "text-yellow-400"}>
-                  {status?.health || "—"}
-                </span>{" "}
-                · feed <span className={status?.source === "worker" ? "text-primary" : "text-yellow-400"} data-testid="feed-source">
-                  {status?.source === "worker" ? "live" : "mock"}
-                </span>{" "}
-                · region <span className="text-white">{status?.worker_region || "—"}</span>
+                region <span className="text-white">{status?.worker_region || "—"}</span>
               </div>
             </div>
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
             <div className="flex items-center gap-2 border border-border rounded-sm p-1 bg-elevated/50" data-testid="mode-switch">
-              <button
-                onClick={() => setMode("paper")}
-                disabled={!isAdmin}
-                data-testid="mode-paper-button"
-                className={`px-3 py-1.5 text-xs uppercase tracking-wider rounded-sm transition-colors disabled:opacity-40 disabled:cursor-not-allowed ${
-                  !live ? "bg-accent text-white" : "text-muted hover:text-white"
-                }`}
-              >
-                Paper
-              </button>
-              <button
-                onClick={() => setMode("live")}
-                disabled={!isAdmin}
-                data-testid="mode-live-button"
-                className={`px-3 py-1.5 text-xs uppercase tracking-wider rounded-sm transition-colors flex items-center gap-1 disabled:opacity-40 disabled:cursor-not-allowed ${
-                  live ? "bg-destructive text-white" : "text-muted hover:text-white"
-                }`}
-              >
-                <ShieldAlert size={12} /> Live
-              </button>
+              <button onClick={() => setMode("paper")} disabled={!isAdmin} data-testid="mode-paper-button" className={`px-3 py-1.5 text-xs uppercase tracking-wider rounded-sm transition-colors disabled:opacity-40 disabled:cursor-not-allowed ${!live ? "bg-accent text-white" : "text-muted hover:text-white"}`}>Paper</button>
+              <button onClick={() => setMode("live")} disabled={!isAdmin} data-testid="mode-live-button" className={`px-3 py-1.5 text-xs uppercase tracking-wider rounded-sm transition-colors flex items-center gap-1 disabled:opacity-40 disabled:cursor-not-allowed ${live ? "bg-destructive text-white" : "text-muted hover:text-white"}`}><ShieldAlert size={12} /> Live</button>
             </div>
 
-            <button
-              onClick={() => action("start")}
-              disabled={running || !isAdmin}
-              data-testid="bot-start-button"
-              className="flex items-center gap-1.5 text-sm bg-primary text-black hover:bg-primary-hover disabled:opacity-30 disabled:cursor-not-allowed px-4 py-2 rounded-sm transition-colors"
-            >
-              <Play size={14} /> Start
-            </button>
-            <button
-              onClick={() => action("stop")}
-              disabled={!running || !isAdmin}
-              data-testid="bot-stop-button"
-              className="flex items-center gap-1.5 text-sm border border-destructive/60 text-destructive hover:bg-destructive/10 disabled:opacity-30 disabled:cursor-not-allowed px-4 py-2 rounded-sm transition-colors"
-            >
-              <Square size={14} /> Stop
-            </button>
-            <button
-              onClick={() => action("restart")}
-              disabled={!isAdmin}
-              data-testid="bot-restart-button"
-              className="flex items-center gap-1.5 text-sm border border-border hover:border-white disabled:opacity-30 disabled:cursor-not-allowed px-4 py-2 rounded-sm transition-colors"
-            >
-              <RotateCcw size={14} /> Restart
-            </button>
+            <button onClick={() => action("start")} disabled={running} className="px-3 py-1.5 text-xs bg-primary/20 border border-primary/40 text-primary rounded-sm hover:bg-primary/30 disabled:opacity-40"><Play size={12} className="mr-1" />Start</button>
+            <button onClick={() => action("stop")} disabled={!running} className="px-3 py-1.5 text-xs bg-destructive/20 border border-destructive/40 text-destructive rounded-sm hover:bg-destructive/30 disabled:opacity-40"><Square size={12} className="mr-1" />Stop</button>
+            <button onClick={refresh} className="px-3 py-1.5 text-xs bg-accent/20 border border-accent/40 text-accent rounded-sm hover:bg-accent/30"><RotateCcw size={12} className="mr-1" />Refresh</button>
           </div>
+          {actionError && <div className="text-xs text-red-400 font-mono">{actionError}</div>}
         </div>
-        {actionError && (
-          <div
-            data-testid="dashboard-action-error"
-            className="mx-5 mb-4 border border-destructive/50 bg-destructive/10 text-destructive text-xs px-3 py-2 rounded-sm"
-          >
-            {actionError}
-          </div>
-        )}
       </Card>
 
-      {/* Go-Live Roadmap (admin only — only shown until everything's green) */}
-      {isAdmin && readiness && !readiness.ready && (
-        <GoLiveRoadmap readiness={readiness} />
-      )}
-
-      {/* PnL chart */}
-      <PnlChart />
-
-      {/* PnL row */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-        <Card testid="pnl-today-card">
-          <Metric
-            testid="pnl-today-value"
-            label="PnL · Today"
-            value={`$${(pnl?.today ?? 0).toFixed(2)}`}
-            change={`${((pnl?.today ?? 0) > 0 ? "+" : "")}${(pnl?.today ?? 0).toFixed(2)} USDT`}
-            changePositive={(pnl?.today ?? 0) >= 0}
-          />
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+        <Card testid="metric-capital">
+          <CardHeader title="Capital / Equity" />
+          <Metric value={`$${(status?.capital || 0).toLocaleString()}`} />
         </Card>
-        <Card testid="pnl-24h-card">
-          <Metric
-            label="PnL · 24h"
-            value={`$${(pnl?.h24 ?? 0).toFixed(2)}`}
-            change={`${((pnl?.h24 ?? 0) > 0 ? "+" : "")}${(pnl?.h24 ?? 0).toFixed(2)} USDT`}
-            changePositive={(pnl?.h24 ?? 0) >= 0}
-          />
+        <Card testid="metric-pnl">
+          <CardHeader title="Total P&L" />
+          <Metric value={`${status?.totalProfit >= 0 ? "+" : ""}$${status?.totalProfit || 0}`} status={status?.totalProfit >= 0 ? "success" : "error"} />
         </Card>
-        <Card testid="pnl-total-card">
-          <Metric label="PnL · Total" value={`$${(pnl?.total ?? 0).toFixed(2)}`} />
+        <Card testid="metric-trades">
+          <CardHeader title="Total Trades" />
+          <Metric value={status?.totalTrades || 0} />
         </Card>
-        <Card testid="winrate-card">
-          <Metric
-            label="Win Rate · Trades"
-            value={`${((pnl?.win_rate ?? 0) * 100).toFixed(1)}%`}
-            change={`${pnl?.trades_total ?? 0} executed`}
-            changePositive
-          />
+        <Card testid="metric-winrate">
+          <CardHeader title="Win Rate" />
+          <Metric value={`${((status?.winRate || 0) * 100).toFixed(1)}%`} />
         </Card>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-3">
-        {/* Opportunities feed */}
-        <Card className="lg:col-span-7" testid="opportunities-card">
-          <CardHeader subtitle="[ Real-Time ]" title="Arbitrage Opportunities" right={<Pill tone="success" testid="opps-live-pill"><Zap size={10} /> live</Pill>} />
-          <div className="divide-y divide-border/60 max-h-[420px] overflow-auto">
-            {opps.length === 0 && (
-              <div className="px-4 py-10 text-center text-xs text-muted font-mono">[ scanning · no opportunities above threshold ]</div>
-            )}
-            {opps.map((o) => (
-              <motion.div
-                key={`${o.symbol}-${o.buy_exchange}-${o.sell_exchange}`}
-                initial={{ opacity: 0, y: -6 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ duration: 0.25 }}
-                className="px-4 py-3 flex items-center justify-between gap-3 hover:bg-elevated/60"
-                data-testid={`opp-row-${o.symbol.replace("/", "-").toLowerCase()}`}
-              >
-                <div className="flex items-center gap-3 min-w-0">
-                  <div className="font-mono text-sm w-24 truncate">{o.symbol}</div>
-                  <div className="text-xs text-muted flex items-center gap-1.5 font-mono">
-                    <span className="text-white">{o.buy_exchange}</span>
-                    <ArrowRight size={11} className="text-primary" />
-                    <span className="text-white">{o.sell_exchange}</span>
-                  </div>
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+        <div className="lg:col-span-2">
+          <Card testid="trades-card">
+            <CardHeader title="Live Trades (D1)" />
+            <div className="p-4">
+              {trades.length === 0 ? <div className="text-xs text-muted">Waiting for trades...</div> : (
+                <div className="space-y-2">
+                  {trades.map(t => (
+                    <div key={t.id} className="flex items-center justify-between text-xs border-b border-border pb-2">
+                      <div className="font-mono text-white">#{t.id} <span className="text-muted">{t.strategy}</span></div>
+                      <div className="text-muted">{new Date(typeof t.created_at === 'number' ? t.created_at : t.created_at).toLocaleString()}</div>
+                    </div>
+                  ))}
                 </div>
-                <div className="flex items-center gap-5">
-                  <div className="text-right">
-                    <div className="text-[10px] uppercase tracking-wider text-muted">Spread</div>
-                    <div className="font-mono text-sm text-primary">{o.spread_pct.toFixed(3)}%</div>
-                  </div>
-                  <div className="text-right">
-                    <div className="text-[10px] uppercase tracking-wider text-muted">Est. Profit</div>
-                    <div className="font-mono text-sm">${o.est_profit_usd.toFixed(2)}</div>
-                  </div>
-                </div>
-              </motion.div>
-            ))}
-          </div>
-        </Card>
-
-        {/* Recent trades */}
-        <Card className="lg:col-span-5" testid="recent-trades-card">
-          <CardHeader subtitle="[ Last 6 ]" title="Recent Trades" right={<Pill tone={live ? "danger" : "accent"}>{live ? "LIVE" : "PAPER"}</Pill>} />
-          <div className="divide-y divide-border/60 max-h-[420px] overflow-auto">
-            {trades.length === 0 && (
-              <div className="px-4 py-10 text-center text-xs text-muted font-mono">[ no trades yet ]</div>
-            )}
-            {trades.map((t) => (
-              <div key={t.id} className="px-4 py-3 flex items-center justify-between" data-testid={`trade-row-${t.id}`}>
-                <div className="min-w-0">
-                  <div className="font-mono text-sm">{t.symbol}</div>
-                  <div className="text-[11px] text-muted font-mono mt-0.5">
-                    {t.buy_exchange} → {t.sell_exchange}
-                  </div>
-                </div>
-                <div className={`font-mono text-sm ${t.pnl_usd >= 0 ? "text-primary" : "text-destructive"}`}>
-                  {t.pnl_usd >= 0 ? "+" : ""}
-                  {t.pnl_usd.toFixed(2)}
-                </div>
-              </div>
-            ))}
-          </div>
-        </Card>
-      </div>
-    </div>
-  );
-}
-
-// Maps each safety check id to a friendly title + an in-app action route.
-const ROADMAP_ACTIONS = {
-  worker: {
-    title: "Deploy your Cloudflare Worker",
-    detail: "Until ecostamp.net is reachable, the dashboard runs on mock data. Real-money trading requires a live worker.",
-    cta: "Open Deploy Helper",
-    to: "/worker",
-  },
-  trade_key: {
-    title: "Add an exchange API key with 'trade' permission",
-    detail: "At least one enabled exchange (Binance / KuCoin / MEXC) must have a key with the 'trade' permission.",
-    cta: "Open API Keys",
-    to: "/keys",
-  },
-  telegram: {
-    title: "Configure Telegram alerts",
-    detail: "Set the bot_token and chat_id so the bot can notify you about fills, errors and circuit-breaker pauses.",
-    cta: "Open Telegram",
-    to: "/telegram",
-  },
-  fast_alert: {
-    title: "Enable a fast alert rule (cooldown ≤ 60s)",
-    detail: "Real-time alerting is required so a runaway spread, latency spike or empty wallet can pause the bot in seconds.",
-    cta: "Open Alerts",
-    to: "/alerts",
-  },
-  paper_track: {
-    title: "Build a positive 24h paper-mode track record",
-    detail: "≥10 paper trades with positive total PnL in the last 24h. This proves the strategy works before risking capital.",
-    cta: "Open Autopilot",
-    to: "/autopilot",
-  },
-};
-
-function GoLiveRoadmap({ readiness }) {
-  const checks = readiness.checks || [];
-  const done = checks.filter((c) => c.ok).length;
-  const total = checks.length;
-  const pct = total === 0 ? 0 : Math.round((done / total) * 100);
-
-  return (
-    <Card className="border-accent/40" testid="go-live-roadmap-card">
-      <div className="px-4 py-3 border-b border-border/60 flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <div className="h-9 w-9 rounded-sm border border-accent/40 bg-accent/10 text-accent flex items-center justify-center">
-            <Rocket size={16} />
-          </div>
-          <div>
-            <div className="text-[10px] uppercase tracking-[0.22em] text-muted">Path to Real-Money Trading</div>
-            <div className="font-display text-sm font-medium">{done}/{total} prerequisites complete · LIVE mode locked until all pass</div>
-          </div>
-        </div>
-        <Pill tone="warn" testid="go-live-progress-pill">{pct}%</Pill>
-      </div>
-      <div className="h-1.5 bg-elevated">
-        <div
-          data-testid="go-live-progress-bar"
-          className="h-full bg-accent transition-[width] duration-500"
-          style={{ width: `${pct}%` }}
-        />
-      </div>
-      <div className="divide-y divide-border/40">
-        {checks.map((c) => {
-          const meta = ROADMAP_ACTIONS[c.id] || { title: c.label, detail: "", cta: null, to: null };
-          return (
-            <div
-              key={c.id}
-              data-testid={`roadmap-step-${c.id}`}
-              className="px-4 py-3 flex items-start gap-3"
-            >
-              <div
-                className={`h-6 w-6 rounded-sm flex items-center justify-center shrink-0 ${
-                  c.ok ? "bg-primary/15 text-primary" : "bg-destructive/15 text-destructive"
-                }`}
-              >
-                {c.ok ? <Check size={13} /> : <X size={13} />}
-              </div>
-              <div className="flex-1 min-w-0">
-                <div className="text-sm font-medium">{meta.title}</div>
-                <div className="text-[11px] text-muted font-mono mt-0.5">{meta.detail}</div>
-              </div>
-              {!c.ok && meta.to && (
-                <Link
-                  to={meta.to}
-                  data-testid={`roadmap-cta-${c.id}`}
-                  className="shrink-0 flex items-center gap-1 text-[11px] uppercase tracking-wider px-2.5 py-1.5 border border-accent/40 text-accent hover:bg-accent/10 rounded-sm"
-                >
-                  {meta.cta} <ChevronRight size={11} />
-                </Link>
               )}
             </div>
-          );
-        })}
+          </Card>
+        </div>
+        <div>
+          <Card testid="pnl-card">
+            <CardHeader title="P&L by Category" />
+            <div className="p-4 space-y-3">
+              {pnl?.data && Object.entries(pnl.data).map(([k, v]) => (
+                <div key={k} className="flex items-center justify-between text-xs"><span className="text-muted uppercase">{k}</span><span className={`font-mono ${(v.pnl || 0) >= 0 ? "text-primary" : "text-destructive"}`}>{(v.pnl || 0).toFixed(4)} USDT ({v.trades || 0})</span></div>
+              ))}
+            </div>
+          </Card>
+        </div>
       </div>
-    </Card>
+
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        <Card testid="opps-card">
+          <CardHeader title="Open Opportunities" />
+          <div className="p-4">
+            {opps.length === 0 ? <div className="text-xs text-muted">Scanning...</div> : (
+              <div className="space-y-2">{opps.slice(0, 10).map((o, i) => (
+                <div key={i} className="flex items-center justify-between text-xs border-b border-border pb-2">
+                  <div className="text-white">{o.pair || o.symbol || o.id}</div>
+                  <div className="text-muted">{o.spread_pct ? `${o.spread_pct.toFixed(2)}%` : o.kind || "—"}</div>
+                </div>
+              ))}</div>
+            )}
+          </div>
+        </Card>
+        <Card testid="safety-card">
+          <CardHeader title="Safety & Readiness" />
+          <div className="p-4 space-y-3 text-xs">
+            <div className="flex items-center justify-between"><span className="text-muted">Live readiness</span><Pill color={readiness?.live ? "success" : "warning"}>{readiness?.live ? "READY" : "PAPER"}</Pill></div>
+            <div className="flex items-center justify-between"><span className="text-muted">Paper trading</span><Pill color={!readiness?.paper ? "success" : "warning"}>{readiness?.paper ? "ON" : "OFF"}</Pill></div>
+            <div className="flex items-center justify-between"><span className="text-muted">Sharpe</span><span className="text-white font-mono">{status?.sharpe || 0}</span></div>
+            <div className="flex items-center justify-between"><span className="text-muted">Max Drawdown</span><span className="text-destructive font-mono">{status?.maxDrawdown || 0} USDT</span></div>
+          </div>
+        </Card>
+      </div>
+
+      <div className="flex items-center gap-3">
+        <Link to="/dashboard" className="text-xs text-muted hover:text-white"><ChevronRight size={12} className="inline mr-1" />Config</Link>
+        <Link to="/logs" className="text-xs text-muted hover:text-white">Logs</Link>
+      </div>
+    </div>
   );
 }

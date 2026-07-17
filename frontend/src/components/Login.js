@@ -1,7 +1,7 @@
 import React, { useState } from "react";
 import { setToken } from "../lib/api";
 
-const BACKEND = "https://api.ecostamp.net";
+const BACKEND = "https://ultimatearbitragehft.zedanazad43.workers.dev";
 
 export default function Login({ onAuthed }) {
   const [token, setTokenVal] = useState("");

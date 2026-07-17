@@ -7,7 +7,7 @@ import axios from "axios";
 // We use the header approach for the SPA — the token is stored in
 // localStorage and attached to every request.
 const BACKEND_URL =
-  process.env.REACT_APP_BACKEND_URL || "https://api.ecostamp.net";
+  process.env.REACT_APP_BACKEND_URL || "https://ultimatearbitragehft.zedanazad43.workers.dev";
 
 const TOKEN_KEY = "nexus_admin_token";
 
@@ -45,7 +45,7 @@ export default api;
 export const nexus = {
   login: (token) => api.post("/api/login", { token }),
   health: () => api.get("/health"),
-  status: () => api.get("/api/status"),
+  status: () => api.get("/status"),
   balances: () => api.get("/api/balances"),
   trades: () => api.get("/api/trades"),
   pnl: () => api.get("/api/pnl"),
