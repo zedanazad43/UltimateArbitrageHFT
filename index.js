@@ -4650,7 +4650,7 @@ app.get('/rocket-verify', async (c) => {
 
 app.get('/api/stats', async (c) => {
   try {
-    const { getRecentOpportunities } = require('./src/infra/cache.js');
+    const { getRecentOpportunities } = require('./src/infra/cache.cjs');
     const opps = getRecentOpportunities(100);
     const bySymbol = {};
     for (const o of opps) { bySymbol[o.symbol] = (bySymbol[o.symbol]||0)+1; }
