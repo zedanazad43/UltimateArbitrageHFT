@@ -2243,16 +2243,6 @@ app.get('/api/readiness', async (c) => {
   });
 });
 
-// ── API: Recent trades ────────────────────────────────────────────────────────
-app.get('/api/trades', async (c) => {
-  if (!isAuthorized(c.env, c)) return authDenied(c.env, c, true);
-  const limit = Math.min(Number.parseInt(c.req.query('limit') || '50', 10), 100);
-  const trades = c.env.DB
-    ? await c.env.DB.prepare(`SELECT id, strategy, size_usd, net_profit_percent, mode, created_at FROM trades ORDER BY created_at DESC LIMIT ?`).bind(limit).all().then(r => r.results || []).catch(() => [])
-    : [];
-  return c.json({ success: true, data: trades, count: trades.length, totalTrades: trades.length });
-});
-
 // ── API: Strategy P&L ─────────────────────────────────────────────────────────
 app.get('/api/pnl', async (c) => {
   if (!isAuthorized(c.env, c)) return authDenied(c.env, c, true);
