@@ -2594,6 +2594,100 @@ app.get('/api/web3/balances', async (c) => {
     return c.json({ ok: false, error: err.message || 'web3 balance failed' }, 500);
   }
 });
+
+app.post('/api/ai/chat', async (c) => {
+  if (!isAuthorized(c.env, c)) return authDenied(c.env, c, true);
+  try {
+    const body = await c.req.json().catch(() => ({}));
+    const prompt = String(body.prompt || '').trim();
+    const provider = String(body.provider || c.env.DEFAULT_LLM_PROVIDER || 'openai').toLowerCase();
+    const model = String(body.model || '').trim();
+    if (!prompt) return c.json({ ok: false, error: 'prompt required' }, 400);
+
+    // Groq: OpenAI-compatible with fast inference
+    if (provider === 'groq') {
+      const key = c.env.GROQ_API_KEY;
+      if (!key) return c.json({ ok: false, error: 'GROQ_API_KEY missing' }, 500);
+      const resp = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${key}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ model: model || 'llama-3.1-8b-instant', messages: [{ role: 'user', content: prompt }] }),
+        cf: { cacheTtl: 2 }
+      });
+      const data = await resp.json();
+      if (!resp.ok) return c.json({ ok: false, error: data.error?.message || 'groq_failed' }, 500);
+      return c.json({ ok: true, provider: 'groq', reply: data.choices?.[0]?.message?.content || '' });
+    }
+
+    if (provider === 'anthropic') {
+      const key = c.env.ANTHROPIC_API_KEY;
+      if (!key) return c.json({ ok: false, error: 'ANTHROPIC_API_KEY missing' }, 500);
+      const resp = await fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST',
+        headers: { 'x-api-key': key, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' },
+        body: JSON.stringify({ model: model || 'claude-3-5-sonnet-20241022', max_tokens: 1024, messages: [{ role: 'user', content: prompt }] }),
+        cf: { cacheTtl: 2 }
+      });
+      const data = await resp.json();
+      if (!resp.ok) return c.json({ ok: false, error: data.error?.message || 'anthropic_failed' }, 500);
+      return c.json({ ok: true, provider: 'anthropic', reply: data.content?.[0]?.text || '' });
+    }
+
+    const key = c.env.OPENAI_API_KEY;
+    if (!key) return c.json({ ok: false, error: 'OPENAI_API_KEY missing' }, 500);
+    const base = String(c.env.OPENAI_BASE_URL || 'https://api.openai.com/v1').replace(/\/$/, '');
+    const resp = await fetch(`${base}/chat/completions`, {
+      method: 'POST',
+      headers: { 'Authorization': `Bearer ${key}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ model: model || 'gpt-4o-mini', messages: [{ role: 'user', content: prompt }] }),
+      cf: { cacheTtl: 2 }
+    });
+    const data = await resp.json();
+    if (!resp.ok) return c.json({ ok: false, error: data.error?.message || 'openai_failed' }, 500);
+    return c.json({ ok: true, provider: 'openai', reply: data.choices?.[0]?.message?.content || '' });
+  } catch (err) {
+    return c.json({ ok: false, error: err.message || 'ai_failed' }, 500);
+  }
+});
+
+
+
+app.post('/api/merlin/chat', async (c) => {
+  if (!isAuthorized(c.env, c)) return authDenied(c.env, c, true);
+  try {
+    const body = await c.req.json().catch(() => ({}));
+    const prompt = String(body.prompt || '').trim();
+    const model = String(body.model || 'claude-2').trim();
+    if (!prompt) return c.json({ ok: false, error: 'prompt required' }, 400);
+
+    const key = c.env.MERLIN_API_KEY;
+    if (!key) return c.json({ ok: false, error: 'MERLIN_API_KEY missing' }, 500);
+
+    const base = String(c.env.MERLIN_API_URL || 'https://endpoints.getmerlin.in/chat/completions').replace(/\/$/, '');
+    const resp = await fetch(base, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Accept': 'application/json', 'x-merlin-key': key },
+      body: JSON.stringify({
+        model,
+        messages: [
+          { role: 'system', content: 'You are a helpful AI assistant integrated into UltimateArbitrageHFT trading bot.' },
+          { role: 'user', content: prompt }
+        ],
+        temperature: 0.7,
+        max_tokens: 1024,
+        stream: false
+      }),
+      cf: { cacheTtl: 2 }
+    });
+    const data = await resp.json();
+    if (!resp.ok) return c.json({ ok: false, error: data.error?.message || 'merlin_failed', status: resp.status }, 500);
+    return c.json({ ok: true, provider: 'merlin', reply: data.choices?.[0]?.message?.content || '' });
+  } catch (err) {
+    return c.json({ ok: false, error: err.message || 'merlin_failed' }, 500);
+  }
+});
+
+
 app.get('/api/rebalance/status', async (c) => {
   if (!isAuthorized(c.env, c)) return authDenied(c.env, c, true);
 
