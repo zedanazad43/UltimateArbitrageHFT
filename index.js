@@ -1117,39 +1117,24 @@ app.get('/balances', async (c) => {
 // Used by the Go HFT engine and external consumers to get real-time prices
 app.get('/prices', async (c) => {
   if (requireProxyToken(c.env, c)) return c.text('Invalid proxy token', 401);
+  const symbols = c.req.query('symbols')?.split(',').map(s => s.trim().toUpperCase()).filter(Boolean) || [];
   try {
-    const { getPriceBook, initHFTFeed } = await import('./src/feeds/ws-price-book.js');
-    const book = getPriceBook();
-
-    // Try to refresh from HFT engine first
-    await initHFTFeed(c.env).catch(() => { /* best-effort */ });
-
-    // Build price map organized by symbol → {exchange: price}
+    const { getAllSpotPrices } = await import('./src/prices.js');
     const prices = {};
-    const symbols = c.req.query('symbols')?.split(',').map(s => s.trim()) || [];
-
-    if (symbols.length > 0) {
-      for (const symbol of symbols) {
-        const all = book.getAll(symbol.toUpperCase());
-        if (all.length > 0) {
-          const exchangeMap = {};
-          for (const { exchange, price } of all) {
-            exchangeMap[exchange] = price;
-          }
-          prices[symbol.toUpperCase()] = exchangeMap;
-        }
-      }
-    } else {
-      // Return all symbols if none specified (limit to avoid huge responses)
-      // This iterates the Map's keys — only available if we expose it
+    if (!symbols.length) {
+      // Default symbol set when none requested
+      symbols.push('BTCUSDT', 'ETHUSDT', 'SOLUSDT', 'BNBUSDT', 'USDTUSDC');
     }
-
-    return c.json({
-      success: true,
-      timestamp: Date.now(),
-      prices,
-      feedStatus: 'active',
-    });
+    for (const symbol of symbols) {
+      prices[symbol] = {};
+      try {
+        const rows = await getAllSpotPrices(c.env, symbol);
+        for (const { exchange, price } of rows) {
+          prices[symbol][exchange] = price;
+        }
+      } catch (_) { /* keep symbol object */ }
+    }
+    return c.json({ success: true, timestamp: Date.now(), prices, feedStatus: 'active' });
   } catch {
     return c.json({ success: false, prices: {}, feedStatus: 'unavailable' }, 503);
   }
@@ -2592,6 +2577,23 @@ app.get('/api/balances', async (c) => {
 // ── API: Rebalance status/plan (auth-protected) ─────────────────────────────
 // Computes an environment-agnostic rebalance plan based on currently fetched
 // exchange balances and returns routing weights used by live execution scoring.
+
+app.get('/api/web3/balances', async (c) => {
+  if (!isAuthorized(c.env, c)) return authDenied(c.env, c, true);
+  const chain = String(c.req.query('chain') || 'ethereum').toLowerCase();
+  const wallet = String(c.req.query('wallet') || '').trim();
+  const asset = String(c.req.query('asset') || 'ETH').toUpperCase();
+  if (!wallet || !/^0x[a-fA-F0-9]{40}$/.test(wallet)) {
+    return c.json({ ok: false, error: 'Valid EVM wallet address required' }, 400);
+  }
+  try {
+    const { getWeb3Balance } = await import('./src/exchange.js');
+    const balance = await getWeb3Balance(chain, wallet, asset);
+    return c.json({ ok: true, chain, wallet, asset, balance: Number(balance || 0), source: 'public-rpc' });
+  } catch (err) {
+    return c.json({ ok: false, error: err.message || 'web3 balance failed' }, 500);
+  }
+});
 app.get('/api/rebalance/status', async (c) => {
   if (!isAuthorized(c.env, c)) return authDenied(c.env, c, true);
 
