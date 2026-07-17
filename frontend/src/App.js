@@ -110,15 +110,14 @@ import { useState, useEffect, useMemo } from 'react';
 function Dashboard() {
   const [status, setStatus] = useState(null);
   const [balances, setBalances] = useState([]);
-  const [trades, setTrades] = useState([]);
-  const [pnl, setPnl] = useState([]);
+  const [pnl, setPnl] = useState({});
   const [spreads, setSpreads] = useState([]);
   const [now, setNow] = useState(Date.now());
 
   useEffect(() => {
     const load = async () => {
       try {
-        const [s, b, t] = await Promise.all([api('/status').then(r=>r.json()), api('/balances').then(r=>r.json()), api('/trades').then(r=>r.json())]);
+        const [s, b, t] = await Promise.all([api('/status').then(r=>r.json()), api('/api/balances').then(r=>r.json()), api('/api/trades').then(r=>r.json())]);
         setStatus(s); setBalances(Array.isArray(b)?b:[]); setTrades(Array.isArray(t)?t:[]);
       } catch (e) { /* keep previous state */ }
     };
@@ -129,7 +128,7 @@ function Dashboard() {
 
   useEffect(() => {
     const loadPnl = async () => {
-      try { setPnl(await api('/pnl').then(r=>r.json())); } catch {}
+      try { setPnl(await api('/api/pnl').then(r=>r.json())); } catch {}
     };
     loadPnl();
     const i = setInterval(loadPnl, 5000);
@@ -138,7 +137,7 @@ function Dashboard() {
 
   useEffect(() => {
     const loadSpreads = async () => {
-      try { setSpreads(await api('/market/spreads').then(r=>r.json())); } catch {}
+      try { setSpreads(await api('/spreads').then(r=>r.json())); } catch {}
     };
     loadSpreads();
     const i = setInterval(loadSpreads, 2000);
