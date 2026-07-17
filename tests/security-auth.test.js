@@ -128,12 +128,6 @@ describe('API auth hardening', () => {
     assert.equal(res.status, 401);
   });
 
-  test('blocks /api/trades without admin token', async () => {
-    const env = { ADMIN_TOKEN: 'secret-token' };
-    const req = new globalThis.Request('https://example.com/api/trades');
-    const res = await worker.fetch(req, env, {});
-    assert.equal(res.status, 401);
-  });
 
   test('blocks /api/pnl without admin token', async () => {
     const env = { ADMIN_TOKEN: 'secret-token' };

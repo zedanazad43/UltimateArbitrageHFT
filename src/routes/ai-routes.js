@@ -282,32 +282,7 @@ export function registerAiRoutes(app, deps) {
     }
   });
 
-  app.get('/api/trades', async (c) => {
-    if (!isAuthorized(c.env, c)) return authDenied(c.env, c, true);
-
-    try {
-      const { getRecentTrades } = await import('../db.js');
-      const limit = parseInt(c.req.query('limit') || '20', 10);
-      const trades = await getRecentTrades(c.env, limit);
-
-      return c.json({
-        ok: true,
-        data: trades || [],
-        count: (trades || []).length,
-        timestamp: new Date().toISOString(),
-      });
-    } catch (err) {
-      console.error('[/api/trades] error:', err.message);
-      return c.json({
-        ok: true,
-        note: 'Trade history unavailable',
-        data: [],
-        count: 0,
-        timestamp: new Date().toISOString(),
-      });
-    }
-  });
-
+  // NOTE: /api/trades removed - use /status.recentTrades instead
   // ── AI Opportunity Filter — scores and filters opportunities via LLM ──────
   // POST /api/ai/filter — accepts array of opportunities, returns scored + filtered list.
   // Controlled by AI_FILTER_ENABLED env var (default: true). Falls back to

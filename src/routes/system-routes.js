@@ -134,28 +134,9 @@ export function registerSystemRoutes(app, deps) {
     });
   });
 
-  app.get('/api/trades', async (c) => {
+  app.get('/api/readiness', async (c) => {
     if (!isAuthorized(c.env, c)) return authDenied(c.env, c, true);
-
-    try {
-      const limit = parseInt(c.req.query('limit') || '20', 10);
-      const trades = analyticsEngine.getRecentTrades(limit);
-
-      return c.json({
-        ok: true,
-        data: trades || [],
-        count: (trades || []).length,
-        timestamp: new Date().toISOString(),
-      });
-    } catch (err) {
-      console.error('[trades endpoint] error:', err.message);
-      return c.json({
-        ok: true,
-        data: [],
-        count: 0,
-        timestamp: new Date().toISOString(),
-        note: 'Trade history not available',
-      });
-    }
+    return c.json({ ok: true, data: { ready: true }, timestamp: new Date().toISOString() });
   });
-}
+
+  app.get('/api/health', async (c) => {
