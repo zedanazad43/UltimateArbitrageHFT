@@ -91,8 +91,12 @@ export async function getRecentTrades(env, limit = 20) {
   if (!env.DB) return [];
   try {
     const { results } = await env.DB.prepare(
-      `SELECT * FROM trades ORDER BY created_at DESC LIMIT ?`
+      `SELECT id, strategy, size_usd, net_profit_percent, mode, created_at FROM trades ORDER BY created_at DESC LIMIT ?`
     ).bind(limit).all();
+    if (!results || results.length === 0) {
+      const count = await env.DB.prepare('SELECT COUNT(*) as cnt FROM trades').first().catch(() => null);
+      console.warn('[DB] getRecentTrades empty, total trades in DB:', count);
+    }
     return results || [];
   } catch (e) { console.error('[DB] getRecentTrades error:', e.message); return []; }
 }

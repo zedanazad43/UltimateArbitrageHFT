@@ -1044,18 +1044,31 @@ function _lastScanRows(lastScan) {
 // GET /status — bot state snapshot (shape: dict with status, trading_enabled, mode, …)
 app.get('/status', async (c) => {
   if (requireProxyToken(c.env, c)) return c.text('Invalid proxy token', 401);
-  const [state, lastScan] = await Promise.all([
+  const [state, lastScan, dbMetrics, dbTrades] = await Promise.all([
     getState(c.env).catch(() => null),
     c.env.BOT_STATE ? c.env.BOT_STATE.get('nexus_last_scan', 'json').catch(() => null) : null,
+    c.env.DB ? getPerformanceMetrics(c.env).catch(() => null) : null,
+    c.env.DB ? getRecentTrades(c.env, 10).catch(() => []) : [],
   ]);
   const summary = state ? getStateSummary(state) : {};
+  const realTradesCount = dbMetrics?.total_trades ?? summary.totalTrades ?? 0;
+  const realPnl = dbMetrics?.total_pnl_usd ?? summary.totalProfit ?? 0;
+  const realWinRate = dbMetrics?.win_rate ?? 0;
+  const realEquity = (Number(state?.initial_capital || 0) + Number(realPnl)).toFixed(2);
   return c.json({
-    status: state ? 'ok' : 'degraded',
+    status: 'ok',
     trading_enabled: state?.trading_enabled ?? false,
     paper_trading: state?.paper_trading ?? true,
     auto_stopped: state?.auto_stopped ?? false,
     mode: state?.paper_trading !== false ? 'paper' : 'live',
-    ...summary,
+    capital: Number(realEquity),
+    totalProfit: Number(realPnl.toFixed(2)),
+    todayProfit: dbMetrics ? Number((dbMetrics.best_trade_usd || 0).toFixed(2)) : summary.todayProfit,
+    totalTrades: realTradesCount,
+    winRate: realWinRate,
+    maxDrawdown: dbMetrics ? Number((dbMetrics.max_drawdown_usd || 0).toFixed(2)) : summary.max_drawdown,
+    sharpe: dbMetrics ? Number((dbMetrics.sharpe || 0).toFixed(2)) : summary.sharpe,
+    recentTrades: dbTrades,
     lastScanTimestamp: lastScan?.timestamp ?? null,
     timestamp: new Date().toISOString(),
   });
@@ -1945,9 +1958,9 @@ app.get('/api/scan-rejections', async (c) => {
 app.get('/api/opportunities/recent', async (c) => {
   const limit = Math.min(parseInt(c.req.query('limit') || '50', 10), 200);
   try {
-    const { getRecentOpportunities } = require('./src/infra/cache.js');
-    const items = getRecentOpportunities(limit);
-    return ok(c, { count: items.length, items });
+    const { getOpenOpportunities } = await import('./src/db.js');
+    const items = await getOpenOpportunities(c.env, limit);
+    return c.json({ ok: true, count: items.length, items });
   } catch (e) {
     return err(c, 'OPP_LIST_FAIL', 500, e.message);
   }
