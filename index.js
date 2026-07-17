@@ -1294,6 +1294,57 @@ app.get('/stop', async (c) => {
   return c.text('✅ تم إيقاف التداول');
 });
 
+// ── Admin: Reset — wipe state + DB for fresh start ───────────────────────────
+app.post('/api/reset', async (c) => {
+  const limited = await checkRateLimit(c.env, c);
+  if (limited) return limited;
+  if (!isAuthorized(c.env, c)) return authDenied(c.env, c, true);
+
+  const results = { kv: false, db: false, do: false };
+
+  // Reset DO state
+  try {
+    if (c.env.BOT_STATE) {
+      await c.env.BOT_STATE.put('nexus_state', JSON.stringify({
+        trading_enabled: false,
+        paper_trading: true,
+        auto_stopped: false,
+        total_pnl: 0,
+        daily_pnl: 0,
+        total_trades: 0,
+        initial_capital: 0,
+        last_reset: Date.now(),
+      }));
+      await c.env.BOT_STATE.delete('nexus_last_scan').catch(() => null);
+      results.do = true;
+    }
+  } catch (e) { console.error('[reset] DO error:', e.message); }
+
+  // Clear D1 trades + metrics
+  try {
+    if (c.env.DB) {
+      await c.env.DB.prepare('DELETE FROM trades').run().catch(() => null);
+      await c.env.DB.prepare('DELETE FROM performance_snapshots').run().catch(() => null);
+      await c.env.DB.prepare('DELETE FROM strategy_insights').run().catch(() => null);
+      await c.env.DB.prepare('DELETE FROM opportunity_audit').run().catch(() => null);
+      results.db = true;
+    }
+  } catch (e) { console.error('[reset] DB error:', e.message); }
+
+  // Clear all KV
+  try {
+    if (c.env.BOT_STATE) {
+      const keys = await c.env.BOT_STATE.list().catch(() => null);
+      if (keys?.keys?.length) {
+        await Promise.all(keys.keys.map(k => c.env.BOT_STATE.delete(k.name).catch(() => null)));
+      }
+      results.kv = true;
+    }
+  } catch (e) { console.error('[reset] KV error:', e.message); }
+
+  return c.json({ ok: true, reset: results, timestamp: new Date().toISOString() });
+});
+
 // ── Admin: Debug MEXC Futures ─────────────────────────────────────────────────
 
 async function makeHmac(secret, msg) {
