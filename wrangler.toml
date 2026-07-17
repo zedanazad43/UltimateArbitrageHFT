@@ -88,6 +88,7 @@ binding = "ULTIMATEARBITRAGEQUEUE"
 queue = "ultimate-arbitrage-queue"
 
 [[queues.consumers]]
+binding = "TRADE_QUEUE_CONSUMER"
 queue = "ultimate-arbitrage-queue"
 max_batch_size = 10
 max_batch_timeout = 30
