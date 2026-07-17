@@ -96,3 +96,5 @@ max_batch_timeout = 30
 [vars]
 PROXY_MODE = "auto"
 PROXY_URL_1 = "https://proxy-gateway.zedanazad43.workers.dev"
+PROXY_URL_2 = "https://a87712824dd4c90c-104-28-159-17.serveousercontent.com"
+PROXY_AUTH_HEADER = "X-Gateway-Token: [REDACTED]"
