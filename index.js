@@ -2246,9 +2246,11 @@ app.get('/api/readiness', async (c) => {
 // ── API: Recent trades ────────────────────────────────────────────────────────
 app.get('/api/trades', async (c) => {
   if (!isAuthorized(c.env, c)) return authDenied(c.env, c, true);
-  const limit = Number.parseInt(c.req.query('limit') || '50', 10);
-  const trades = await getRecentTrades(c.env, Math.min(limit, 100));
-  return c.json({ success: true, data: trades });
+  const limit = Math.min(Number.parseInt(c.req.query('limit') || '50', 10), 100);
+  const state = await getState(c.env).catch(() => null);
+  const summary = state ? getStateSummary(state) : {};
+  const recentTrades = Array.isArray(summary.recentTrades) ? summary.recentTrades.slice(0, limit) : [];
+  return c.json({ success: true, data: recentTrades, count: recentTrades.length, totalTrades: summary.totalTrades || 0 });
 });
 
 // ── API: Strategy P&L ─────────────────────────────────────────────────────────
