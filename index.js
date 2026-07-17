@@ -13,7 +13,7 @@ import AnalyticsEngine from './src/analytics-engine.js';
 import { renderDashboard, renderChecklist } from './src/dashboard.js';
 import { runScan, getExecutionLockState, resetCircuitBreaker } from './src/orchestrator.js';
 import { ensureSchema, logAdminEvent, logBotEvent, getRecentTrades, getStrategyPnL, getPerformanceMetrics, exportTrades } from './src/db.js';
-import { hasExchangeCredentials, getExchangeBalance, getAllExchangeBalances, placeExchangeMarketOrder, getMissingCredentialKeys, getConfiguredExchanges, ACTIVE_EXECUTION_EXCHANGES, DATA_ONLY_EXCHANGES, getMEXCFuturesBalance, getMEXCBalance, getEnabledExecutionExchanges, isExecutionExchangeEnabled, getBitgetAccountEquityUSDT } from './src/exchange.js';
+import { hasExchangeCredentials, getExchangeBalance, getAllExchangeBalances, placeExchangeMarketOrder, getMissingCredentialKeys, getConfiguredExchanges, ACTIVE_EXECUTION_EXCHANGES, DATA_ONLY_EXCHANGES, getMEXCFuturesBalance, getMEXCBalance, getEnabledExecutionExchanges, isExecutionExchangeEnabled, getBitgetAccountEquityUSDT, getWeb3Balance } from './src/exchange.js';
 import { scanDEX } from './src/strategies/dex.js';
 import { isHFTEngineConfigured } from './src/hft-client.js';
 import { runBacktest } from './src/backtest.js';
@@ -2539,11 +2539,11 @@ app.get('/api/balances', async (c) => {
   if (!isAuthorized(c.env, c)) return authDenied(c.env, c, true);
 
   const assets = normalizeRequestedAssets(c.req.query('assets') || 'USDT');
+  const exchangeFilter = c.req.query('exchange');
   const cacheSuffix = (exchangeFilter ? `${exchangeFilter}_` : '') + assets.join('_');
   const CACHE_KEY = `balances_cache_v2_${cacheSuffix}`;
   const CACHE_TTL = 60_000; // 60 s
   const forceFresh = c.req.query('fresh') === '1';
-  const exchangeFilter = c.req.query('exchange');
 
   if (!forceFresh && c.env.BOT_STATE) {
     const cached = await c.env.BOT_STATE.get(CACHE_KEY, 'json').catch(() => null);
@@ -2565,9 +2565,26 @@ app.get('/api/balances', async (c) => {
     );
   }
 
-  const filtered = exchangeFilter
+  let filtered = exchangeFilter
     ? data.filter(item => item.exchange === exchangeFilter)
     : data;
+
+  // Annotate blocked exchanges with clear status
+  const blockedStatuses = new Set(['geo-restricted', '403', '1016', 'waf']);
+  filtered = filtered.map(item => {
+    if (!item.configured) return item;
+    const msg = (item.error || item.warning || '').toLowerCase();
+    if (blockedStatuses.has(item.error) || msg.includes('geo') || msg.includes('403') || msg.includes('1016')) {
+      return { ...item, status: 'geo_blocked', readable: '🌍 محظور جغرافيا' };
+    }
+    if (item.error || item.warning) {
+      return { ...item, status: 'error', readable: '❌ خطأ في الاتصال' };
+    }
+    if (item.balance === null && !item.balances) {
+      return { ...item, status: 'no_data', readable: '⚠️ لا توجد بيانات' };
+    }
+    return item;
+  });
 
   return c.json({ success: true, assets, data: filtered, cached: false });
 });

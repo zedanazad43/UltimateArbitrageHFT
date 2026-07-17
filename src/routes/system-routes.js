@@ -16,10 +16,14 @@ export function registerSystemRoutes(app, deps) {
     try {
       const { getExchangeBalance } = await import('../exchange.js');
       const assets = (c.req.query('assets') || 'USDT,USDC,BTC,ETH,BNB,SOL').split(',').map(a => a.trim().toUpperCase());
+      const exchangeFilter = c.req.query('exchange');
       const exchanges = ['mexc', 'binance', 'kucoin', 'bitget', 'bitmart', 'htx', 'bybit', 'gateio'];
+      const filteredExchanges = exchangeFilter
+        ? exchanges.filter(ex => ex === exchangeFilter.toLowerCase())
+        : exchanges;
 
       const data = await Promise.all(
-        exchanges.map(async (ex) => {
+        filteredExchanges.map(async (ex) => {
           const balances = {};
           const configured = c.env[`${ex.toUpperCase()}_API_KEY`] ? true : false;
 
@@ -134,9 +138,28 @@ export function registerSystemRoutes(app, deps) {
     });
   });
 
-  app.get('/api/readiness', async (c) => {
+  app.get('/api/trades', async (c) => {
     if (!isAuthorized(c.env, c)) return authDenied(c.env, c, true);
-    return c.json({ ok: true, data: { ready: true }, timestamp: new Date().toISOString() });
-  });
 
-  app.get('/api/health', async (c) => {
+    try {
+      const limit = parseInt(c.req.query('limit') || '20', 10);
+      const trades = analyticsEngine.getRecentTrades(limit);
+
+      return c.json({
+        ok: true,
+        data: trades || [],
+        count: (trades || []).length,
+        timestamp: new Date().toISOString(),
+      });
+    } catch (err) {
+      console.error('[trades endpoint] error:', err.message);
+      return c.json({
+        ok: true,
+        data: [],
+        count: 0,
+        timestamp: new Date().toISOString(),
+        note: 'Trade history not available',
+      });
+    }
+  });
+}
