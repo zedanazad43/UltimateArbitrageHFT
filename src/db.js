@@ -90,14 +90,15 @@ export async function logTrade(env, { strategy, sizeUsd, netPct, mode }) {
 export async function getRecentTrades(env, limit = 20) {
   if (!env.DB) return [];
   try {
-    const { results } = await env.DB.prepare(
+    const q = env.DB.prepare(
       `SELECT id, strategy, size_usd, net_profit_percent, mode, created_at FROM trades ORDER BY created_at DESC LIMIT ?`
-    ).bind(limit).all();
+    ).bind(limit);
+    const { results } = await q.all();
     if (!results || results.length === 0) {
       const count = await env.DB.prepare('SELECT COUNT(*) as cnt FROM trades').first().catch(() => null);
       console.warn('[DB] getRecentTrades empty, total trades in DB:', count);
     }
-    return results || [];
+    return Array.isArray(results) ? results : [];
   } catch (e) { console.error('[DB] getRecentTrades error:', e.message); return []; }
 }
 
