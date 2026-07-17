@@ -93,3 +93,6 @@ queue = "ultimate-arbitrage-queue"
 max_batch_size = 10
 max_batch_timeout = 30
 
+[vars]
+PROXY_MODE = "auto"
+PROXY_URL_1 = "https://a87712824dd4c90c-104-28-159-17.serveousercontent.com"

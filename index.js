@@ -1044,31 +1044,45 @@ function _lastScanRows(lastScan) {
 // GET /status — bot state snapshot (shape: dict with status, trading_enabled, mode, …)
 app.get('/status', async (c) => {
   if (requireProxyToken(c.env, c)) return c.text('Invalid proxy token', 401);
-  const [state, lastScan, dbMetrics, dbTrades] = await Promise.all([
+  const [state, lastScan, dbMetrics, dbTrades, liveBalances] = await Promise.all([
     getState(c.env).catch(() => null),
     c.env.BOT_STATE ? c.env.BOT_STATE.get('nexus_last_scan', 'json').catch(() => null) : null,
     c.env.DB ? getPerformanceMetrics(c.env).catch(() => null) : null,
     c.env.DB ? getRecentTrades(c.env, 10).catch(() => []) : [],
+    getExecutionBalancesSnapshot(c.env, ['USDT','USDC','BTC','ETH','BNB','SOL']).catch(() => []),
   ]);
   const summary = state ? getStateSummary(state) : {};
   const realTradesCount = dbMetrics?.total_trades ?? summary.totalTrades ?? 0;
   const realPnl = dbMetrics?.total_pnl_usd ?? summary.totalProfit ?? 0;
   const realWinRate = dbMetrics?.win_rate ?? 0;
-  const realEquity = (Number(state?.initial_capital || 0) + Number(realPnl)).toFixed(2);
+
+  // Compute real equity from live balances
+  let realEquity = 0;
+  if (liveBalances?.length) {
+    for (const item of liveBalances) {
+      if (!item.configured || !item.balances) continue;
+      for (const [asset, amount] of Object.entries(item.balances)) {
+        realEquity += Number(amount || 0);
+      }
+    }
+  }
+  if (!realEquity) realEquity = Number(state?.initial_capital || 1000) + Number(realPnl);
+
   return c.json({
     status: 'ok',
     trading_enabled: state?.trading_enabled ?? false,
     paper_trading: state?.paper_trading ?? true,
     auto_stopped: state?.auto_stopped ?? false,
     mode: state?.paper_trading !== false ? 'paper' : 'live',
-    capital: Number(realEquity),
+    capital: Number(realEquity.toFixed(2)),
     totalProfit: Number(realPnl.toFixed(2)),
     todayProfit: dbMetrics ? Number((dbMetrics.best_trade_usd || 0).toFixed(2)) : summary.todayProfit,
     totalTrades: realTradesCount,
     winRate: realWinRate,
-    maxDrawdown: dbMetrics ? Number((dbMetrics.max_drawdown_usd || 0).toFixed(2)) : summary.max_drawdown,
+    maxDrawdown: dbMetrics ? Number((dbMetrics.max_drawdown_usd || 0).toFixed(2)) : summary.maxDrawdown,
     sharpe: dbMetrics ? Number((dbMetrics.sharpe || 0).toFixed(2)) : summary.sharpe,
     recentTrades: dbTrades,
+    liveBalances,
     lastScanTimestamp: lastScan?.timestamp ?? null,
     timestamp: new Date().toISOString(),
   });
@@ -2525,15 +2539,19 @@ app.get('/api/balances', async (c) => {
   if (!isAuthorized(c.env, c)) return authDenied(c.env, c, true);
 
   const assets = normalizeRequestedAssets(c.req.query('assets') || 'USDT');
-  const cacheSuffix = assets.join('_');
+  const cacheSuffix = (exchangeFilter ? `${exchangeFilter}_` : '') + assets.join('_');
   const CACHE_KEY = `balances_cache_v2_${cacheSuffix}`;
   const CACHE_TTL = 60_000; // 60 s
   const forceFresh = c.req.query('fresh') === '1';
+  const exchangeFilter = c.req.query('exchange');
 
   if (!forceFresh && c.env.BOT_STATE) {
     const cached = await c.env.BOT_STATE.get(CACHE_KEY, 'json').catch(() => null);
     if (cached?._ts && (Date.now() - cached._ts) < CACHE_TTL) {
-      return c.json({ success: true, data: cached.data, cached: true, age_ms: Date.now() - cached._ts });
+      const filtered = exchangeFilter
+        ? cached.data.filter(item => item.exchange === exchangeFilter)
+        : cached.data;
+      return c.json({ success: true, data: filtered, cached: true, age_ms: Date.now() - cached._ts });
     }
   }
 
@@ -2547,7 +2565,11 @@ app.get('/api/balances', async (c) => {
     );
   }
 
-  return c.json({ success: true, assets, data, cached: false });
+  const filtered = exchangeFilter
+    ? data.filter(item => item.exchange === exchangeFilter)
+    : data;
+
+  return c.json({ success: true, assets, data: filtered, cached: false });
 });
 
 // ── API: Rebalance status/plan (auth-protected) ─────────────────────────────
