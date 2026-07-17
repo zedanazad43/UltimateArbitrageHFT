@@ -560,6 +560,60 @@ export async function getDEXScreenerPrice(chainId, tokenAddress) {
   } catch (_) { return null; }
 }
 
+
+// ── CoinMarketCap public simple price ─────────────────────────────────────────
+//
+// CoinMarketCap's /v2/cryptocurrency/quotes/latest endpoint is public — no API key
+// for basic usage, but rate-limited to ~30 req/min. Cached by CF edge (2 s).
+
+/**
+ * Fetches the USD price of a coin from CoinMarketCap API.
+ *
+ * @param {string} symbol  — Coin symbol, e.g. 'BTC', 'ETH', 'BNB'
+ * @param {string} [apiKey] — optional CMC API key for higher limits
+ * @returns {number|null}  price in USD, or null on failure
+ */
+export async function getCoinMarketCapPrice(symbol, apiKey) {
+  try {
+    const headers = { Accept: 'application/json' };
+    if (apiKey) headers['X-CMC_PRO_API_KEY'] = apiKey;
+    const resp = await fetchWithRetry(
+      `https://pro-api.coinmarketcap.com/v2/cryptocurrency/quotes/latest?symbol=${encodeURIComponent(symbol.toUpperCase())}&convert=USD`,
+      { ...FETCH_CF, headers }
+    );
+    if (!resp || !resp.ok) { await resp?.body?.cancel(); return null; }
+    const data = await resp.json();
+    const price = data?.data?.[symbol.toUpperCase()]?.[0]?.quote?.USD?.price;
+    if (price === undefined || price === null) return null;
+    return parseFloat(price);
+  } catch (_) { return null; }
+}
+
+// ── CoinCap public simple price ──────────────────────────────────────────────
+//
+// CoinCap's /v2/assets endpoint is public — no API key, no IP whitelist.
+// Rate-limited to ~200 req/min by IP in the free tier; cached by CF edge (2 s).
+
+/**
+ * Fetches the USD price of a coin from CoinCap API.
+ *
+ * @param {string} coinId  — CoinCap asset ID, e.g. 'bitcoin', 'ethereum', 'binance-coin'
+ * @returns {number|null}  price in USD, or null on failure
+ */
+export async function getCoinCapPrice(coinId) {
+  try {
+    const resp = await fetchWithRetry(
+      `https://api.coincap.io/v2/assets/${encodeURIComponent(coinId)}`,
+      FETCH_CF
+    );
+    if (!resp || !resp.ok) { await resp?.body?.cancel(); return null; }
+    const data = await resp.json();
+    const price = data?.data?.priceUsd;
+    if (price === undefined || price === null) return null;
+    return parseFloat(price);
+  } catch (_) { return null; }
+}
+
 // ── CoinGecko public simple price ─────────────────────────────────────────────
 //
 // CoinGecko's /simple/price endpoint is public — no API key, no IP whitelist.
@@ -1209,6 +1263,9 @@ export async function getAllSpotPrices(env, symbol, openCircuits = new Set()) {
     ['coinbase', () => getCoinbasePrice(symbol)],
     ['alpha_vantage', () => getAlphaVantagePrice(env, symbol)],
     ['twelve_data', () => getTwelveDataPrice(env, symbol)],
+    ['coingecko', () => getCoinGeckoSimplePrice(symbol.replace('USDT','').toLowerCase())],
+    ['coincap', () => getCoinCapPrice(symbol.replace('USDT','').toLowerCase())],
+    ['coinmarketcap', () => getCoinMarketCapPrice(symbol.replace('USDT','').toLowerCase())],
   ];
 
   const tasks = exchangeFetchers.map(([name, fetcher]) =>
