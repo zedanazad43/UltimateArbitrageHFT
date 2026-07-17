@@ -2247,11 +2247,10 @@ app.get('/api/readiness', async (c) => {
 app.get('/api/trades', async (c) => {
   if (!isAuthorized(c.env, c)) return authDenied(c.env, c, true);
   const limit = Math.min(Number.parseInt(c.req.query('limit') || '50', 10), 100);
-  const lastScan = c.env.BOT_STATE
-    ? await c.env.BOT_STATE.get('nexus_last_scan', 'json').catch(() => null)
-    : null;
-  const rows = lastScan && Array.isArray(lastScan.rows) ? lastScan.rows.slice(0, limit) : [];
-  return c.json({ success: true, data: rows, count: rows.length, totalTrades: rows.length });
+  const trades = c.env.DB
+    ? await c.env.DB.prepare(`SELECT id, strategy, size_usd, net_profit_percent, mode, created_at FROM trades ORDER BY created_at DESC LIMIT ?`).bind(limit).all().then(r => r.results || []).catch(() => [])
+    : [];
+  return c.json({ success: true, data: trades, count: trades.length, totalTrades: trades.length });
 });
 
 // ── API: Strategy P&L ─────────────────────────────────────────────────────────
