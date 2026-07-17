@@ -1,18 +1,10 @@
 import React, { useEffect, useState, useCallback } from "react";
 import api from "../lib/api";
 import { Card, CardHeader, Metric, Pill } from "../components/ui/Primitives";
-import { motion } from "framer-motion";
-import { Play, Square, RotateCcw, Zap, ShieldAlert, ArrowRight, Check, X, ChevronRight, Rocket } from "lucide-react";
+import { Play, Square, RotateCcw, ShieldAlert } from "lucide-react";
 import { useAuth } from "../contexts/AuthContext";
-import { Link } from "react-router-dom";
 import PnlChart from "../components/PnlChart";
-
-function uptime(sec) {
-  const h = Math.floor(sec / 3600);
-  const m = Math.floor((sec % 3600) / 60);
-  const s = sec % 60;
-  return `${h.toString().padStart(2, "0")}:${m.toString().padStart(2, "0")}:${s.toString().padStart(2, "0")}`;
-}
+import EquityChart from "../components/EquityChart";
 
 export default function Dashboard() {
   const { user } = useAuth();
@@ -37,7 +29,7 @@ export default function Dashboard() {
       setTrades(Array.isArray(s.data?.recentTrades) ? s.data.recentTrades.slice(0, 10) : []);
       setReadiness({ live: s.data?.mode === "live", paper: s.data?.paper_trading !== false });
     } catch (e) { console.error("dashboard refresh failed", e); }
-  }, [isAdmin]);
+  }, []);
 
   useEffect(() => { refresh(); const id = setInterval(refresh, 5000); return () => clearInterval(id); }, [refresh]);
 
@@ -67,10 +59,11 @@ export default function Dashboard() {
 
   return (
     <div className="space-y-5" data-testid="dashboard-page">
+      {/* Master control */}
       <Card className={`${running ? "glow-primary" : "glow-destructive"}`} testid="master-control-card">
         <div className="p-5 flex flex-col lg:flex-row lg:items-center justify-between gap-5">
           <div className="flex items-center gap-5">
-            <div className={`h-16 w-16 rounded-sm border flex items-center justify-center ${running ? "border-primary/60 bg-primary/10" : "border-destructive/60 bg-destructive/10"}`}>
+            <div className={`h-14 w-14 rounded-sm border flex items-center justify-center ${running ? "border-primary/60 bg-primary/10" : "border-destructive/60 bg-destructive/10"}`}>
               <span className={`h-3 w-3 rounded-full ${running ? "bg-primary animate-pulseDot" : "bg-destructive"}`} />
             </div>
             <div>
@@ -88,22 +81,23 @@ export default function Dashboard() {
               <button onClick={() => setMode("live")} disabled={!isAdmin} data-testid="mode-live-button" className={`px-3 py-1.5 text-xs uppercase tracking-wider rounded-sm transition-colors flex items-center gap-1 disabled:opacity-40 disabled:cursor-not-allowed ${live ? "bg-destructive text-white" : "text-muted hover:text-white"}`}><ShieldAlert size={12} /> Live</button>
             </div>
 
-            <button onClick={() => action("start")} disabled={running} className="px-3 py-1.5 text-xs bg-primary/20 border border-primary/40 text-primary rounded-sm hover:bg-primary/30 disabled:opacity-40"><Play size={12} className="mr-1" />Start</button>
-            <button onClick={() => action("stop")} disabled={!running} className="px-3 py-1.5 text-xs bg-destructive/20 border border-destructive/40 text-destructive rounded-sm hover:bg-destructive/30 disabled:opacity-40"><Square size={12} className="mr-1" />Stop</button>
-            <button onClick={refresh} className="px-3 py-1.5 text-xs bg-accent/20 border border-accent/40 text-accent rounded-sm hover:bg-accent/30"><RotateCcw size={12} className="mr-1" />Refresh</button>
+            <button onClick={() => action("start")} disabled={running || !isAdmin} className="px-3 py-1.5 text-xs bg-primary/20 border border-primary/40 text-primary rounded-sm hover:bg-primary/30 disabled:opacity-40 flex items-center gap-1"><Play size={12} />Start</button>
+            <button onClick={() => action("stop")} disabled={!running || !isAdmin} className="px-3 py-1.5 text-xs bg-destructive/20 border border-destructive/40 text-destructive rounded-sm hover:bg-destructive/30 disabled:opacity-40 flex items-center gap-1"><Square size={12} />Stop</button>
+            <button onClick={refresh} className="px-3 py-1.5 text-xs bg-accent/20 border border-accent/40 text-accent rounded-sm hover:bg-accent/30 flex items-center gap-1"><RotateCcw size={12} />Refresh</button>
           </div>
-          {actionError && <div className="text-xs text-red-400 font-mono">{actionError}</div>}
+          {actionError && <div className="text-xs text-destructive font-mono">{actionError}</div>}
         </div>
       </Card>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+      {/* Key metrics */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         <Card testid="metric-capital">
           <CardHeader title="Capital / Equity" />
           <Metric value={`$${(status?.capital || 0).toLocaleString()}`} />
         </Card>
         <Card testid="metric-pnl">
           <CardHeader title="Total P&L" />
-          <Metric value={`${status?.totalProfit >= 0 ? "+" : ""}$${status?.totalProfit || 0}`} status={status?.totalProfit >= 0 ? "success" : "error"} />
+          <Metric value={`${status?.totalProfit >= 0 ? "+" : ""}$${(status?.totalProfit || 0).toFixed(2)}`} status={status?.totalProfit >= 0 ? "success" : "error"} />
         </Card>
         <Card testid="metric-trades">
           <CardHeader title="Total Trades" />
@@ -115,17 +109,24 @@ export default function Dashboard() {
         </Card>
       </div>
 
+      {/* Charts row */}
+      <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
+        <PnlChart />
+        <EquityChart />
+      </div>
+
+      {/* Trades + PnL by category */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
         <div className="lg:col-span-2">
           <Card testid="trades-card">
             <CardHeader title="Live Trades (D1)" />
             <div className="p-4">
-              {trades.length === 0 ? <div className="text-xs text-muted">Waiting for trades...</div> : (
+              {trades.length === 0 ? <div className="text-xs text-muted font-mono">[ waiting for trades... ]</div> : (
                 <div className="space-y-2">
-                  {trades.map(t => (
-                    <div key={t.id} className="flex items-center justify-between text-xs border-b border-border pb-2">
-                      <div className="font-mono text-white">#{t.id} <span className="text-muted">{t.strategy}</span></div>
-                      <div className="text-muted">{new Date(typeof t.created_at === 'number' ? t.created_at : t.created_at).toLocaleString()}</div>
+                  {trades.map((t, i) => (
+                    <div key={t.id || i} className="flex items-center justify-between text-xs border-b border-border/40 pb-2">
+                      <div className="font-mono text-white">#{t.id || i} <span className="text-muted">{t.strategy}</span></div>
+                      <div className="text-muted">{t.created_at ? new Date(typeof t.created_at === "number" ? t.created_at : t.created_at).toLocaleString() : "—"}</div>
                     </div>
                   ))}
                 </div>
@@ -138,21 +139,30 @@ export default function Dashboard() {
             <CardHeader title="P&L by Category" />
             <div className="p-4 space-y-3">
               {pnl?.data && Object.entries(pnl.data).map(([k, v]) => (
-                <div key={k} className="flex items-center justify-between text-xs"><span className="text-muted uppercase">{k}</span><span className={`font-mono ${(v.pnl || 0) >= 0 ? "text-primary" : "text-destructive"}`}>{(v.pnl || 0).toFixed(4)} USDT ({v.trades || 0})</span></div>
+                <div key={k} className="flex items-center justify-between text-xs">
+                  <span className="text-muted uppercase">{k}</span>
+                  <span className={`font-mono ${(v.pnl || 0) >= 0 ? "text-primary" : "text-destructive"}`}>
+                    {(v.pnl || 0).toFixed(4)} USDT ({v.trades || 0})
+                  </span>
+                </div>
               ))}
+              {(!pnl?.data || Object.keys(pnl.data || {}).length === 0) && (
+                <div className="text-xs text-muted font-mono">[ no category data ]</div>
+              )}
             </div>
           </Card>
         </div>
       </div>
 
+      {/* Opportunities + Safety */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         <Card testid="opps-card">
-          <CardHeader title="Open Opportunities" />
+          <CardHeader title="Open Opportunities" right={<Pill tone="success">{opps.length}</Pill>} />
           <div className="p-4">
-            {opps.length === 0 ? <div className="text-xs text-muted">Scanning...</div> : (
+            {opps.length === 0 ? <div className="text-xs text-muted font-mono">[ scanning... ]</div> : (
               <div className="space-y-2">{opps.slice(0, 10).map((o, i) => (
-                <div key={i} className="flex items-center justify-between text-xs border-b border-border pb-2">
-                  <div className="text-white">{o.pair || o.symbol || o.id}</div>
+                <div key={i} className="flex items-center justify-between text-xs border-b border-border/40 pb-2">
+                  <div className="text-white font-mono">{o.pair || o.symbol || o.id}</div>
                   <div className="text-muted">{o.spread_pct ? `${o.spread_pct.toFixed(2)}%` : o.kind || "—"}</div>
                 </div>
               ))}</div>
@@ -162,17 +172,12 @@ export default function Dashboard() {
         <Card testid="safety-card">
           <CardHeader title="Safety & Readiness" />
           <div className="p-4 space-y-3 text-xs">
-            <div className="flex items-center justify-between"><span className="text-muted">Live readiness</span><Pill color={readiness?.live ? "success" : "warning"}>{readiness?.live ? "READY" : "PAPER"}</Pill></div>
-            <div className="flex items-center justify-between"><span className="text-muted">Paper trading</span><Pill color={!readiness?.paper ? "success" : "warning"}>{readiness?.paper ? "ON" : "OFF"}</Pill></div>
-            <div className="flex items-center justify-between"><span className="text-muted">Sharpe</span><span className="text-white font-mono">{status?.sharpe || 0}</span></div>
+            <div className="flex items-center justify-between"><span className="text-muted">Live readiness</span><Pill tone={readiness?.live ? "success" : "warn"}>{readiness?.live ? "READY" : "PAPER"}</Pill></div>
+            <div className="flex items-center justify-between"><span className="text-muted">Paper trading</span><Pill tone={readiness?.paper ? "warn" : "success"}>{readiness?.paper ? "ON" : "OFF"}</Pill></div>
+            <div className="flex items-center justify-between"><span className="text-muted">Sharpe</span><span className="text-white font-mono">{status?.sharpe || "—"}</span></div>
             <div className="flex items-center justify-between"><span className="text-muted">Max Drawdown</span><span className="text-destructive font-mono">{status?.maxDrawdown || 0} USDT</span></div>
           </div>
         </Card>
-      </div>
-
-      <div className="flex items-center gap-3">
-        <Link to="/dashboard" className="text-xs text-muted hover:text-white"><ChevronRight size={12} className="inline mr-1" />Config</Link>
-        <Link to="/logs" className="text-xs text-muted hover:text-white">Logs</Link>
       </div>
     </div>
   );
