@@ -88,7 +88,6 @@ binding = "ULTIMATEARBITRAGEQUEUE"
 queue = "ultimate-arbitrage-queue"
 
 [[queues.consumers]]
-binding = "TRADE_QUEUE_CONSUMER"
 queue = "ultimate-arbitrage-queue"
 max_batch_size = 10
 max_batch_timeout = 30
@@ -100,5 +99,4 @@ PROXY_URL_2 = "https://a87712824dd4c90c-104-28-159-17.serveousercontent.com"
 PROXY_AUTH_HEADER = "X-Gateway-Token: [REDACTED]"
 
 # Bitget API — set via Dashboard or wrangler secret put
-[vars]
 BITGET_API_KEY = "REPLACE_WITH_YOUR_BITGET_KEY"
