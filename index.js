@@ -4,6 +4,7 @@
 // AI Agent: Autonomous self-learning trading agent v3.0 (Reinforcement Learning + Deep Orchestration)
 
 import { Hono } from 'hono';
+import SDKBridge from './src/sdk-bridge.js';
 import { UnifiedAITradingSystem } from './src/ultimate-ai-engine.js';
 import { RailwayMonitor, CloudflareOptimizer, AIModelRouter } from './src/infrastructure-optimizer.js';
 import { cors } from 'hono/cors';
@@ -45,6 +46,7 @@ import { runLiveMonitor } from './src/monitor-live.js';
 import { registerAIMasterRoutes } from './src/routes/aimaster-routes.js';
 import { registerTemporalRoutes } from './src/routes/temporal-routes.js';
 
+import { registerSdkRoutes } from './src/routes/sdk-routes.js';
 // ═══ HFT Resilience Improvements ═══
 import { HFTBackup } from './src/durable-objects/hft-backup.js';
 import { registerResilienceRoutes as _registerResilienceRoutes } from './src/routes/resilience-routes.js';
@@ -908,6 +910,8 @@ registerSystemRoutes(app, {
   analyticsEngine,
 });
 
+registerSdkRoutes(app, {});
+
 // ── Login / Logout routes ─────────────────────────────────────────────────────
 // GET /login  — render the login form (public)
 app.get('/login', (c) => {
@@ -1339,56 +1343,6 @@ app.post('/api/reset', async (c) => {
 });
 
 // ── Admin: Reset — wipe state + DB for fresh start ───────────────────────────
-app.post('/api/reset', async (c) => {
-  const limited = await checkRateLimit(c.env, c);
-  if (limited) return limited;
-  if (!isAuthorized(c.env, c)) return authDenied(c.env, c, true);
-
-  const results = { kv: false, db: false, do: false };
-
-  // Reset DO state
-  try {
-    if (c.env.BOT_STATE) {
-      await c.env.BOT_STATE.put('nexus_state', JSON.stringify({
-        trading_enabled: false,
-        paper_trading: true,
-        auto_stopped: false,
-        total_pnl: 0,
-        daily_pnl: 0,
-        total_trades: 0,
-        initial_capital: 0,
-        last_reset: Date.now(),
-      }));
-      await c.env.BOT_STATE.delete('nexus_last_scan').catch(() => null);
-      results.do = true;
-    }
-  } catch (e) { console.error('[reset] DO error:', e.message); }
-
-  // Clear D1 trades + metrics
-  try {
-    if (c.env.DB) {
-      await c.env.DB.prepare('DELETE FROM trades').run().catch(() => null);
-      await c.env.DB.prepare('DELETE FROM performance_snapshots').run().catch(() => null);
-      await c.env.DB.prepare('DELETE FROM strategy_insights').run().catch(() => null);
-      await c.env.DB.prepare('DELETE FROM opportunity_audit').run().catch(() => null);
-      results.db = true;
-    }
-  } catch (e) { console.error('[reset] DB error:', e.message); }
-
-  // Clear all KV
-  try {
-    if (c.env.BOT_STATE) {
-      const keys = await c.env.BOT_STATE.list().catch(() => null);
-      if (keys?.keys?.length) {
-        await Promise.all(keys.keys.map(k => c.env.BOT_STATE.delete(k.name).catch(() => null)));
-      }
-      results.kv = true;
-    }
-  } catch (e) { console.error('[reset] KV error:', e.message); }
-
-  return c.json({ ok: true, reset: results, timestamp: new Date().toISOString() });
-});
-
 // ── Admin: Debug MEXC Futures ─────────────────────────────────────────────────
 
 async function makeHmac(secret, msg) {
@@ -3432,233 +3386,6 @@ app.get('/api/symbols/catalog', async (c) => {
   });
 });
 
-// ── API: Perps status ─────────────────────────────────────────────────────────
-// Returns the current perpetuals scan state, active perp exchanges (price feeds),
-// and MEXC Futures execution readiness.  Auth-protected.
-app.get('/api/perps', async (c) => {
-  if (!isAuthorized(c.env, c)) return authDenied(c.env, c, true);
-  const [lastScan, cb] = await Promise.all([
-    c.env.BOT_STATE.get('nexus_last_scan', 'json').catch(() => null),
-    c.env.BOT_STATE.get('nexus_circuit_breaker', 'json').catch(() => null)
-  ]);
-  const cbState = cb || {};
-
-  const perpExchanges = ['mexc_perp', 'binance_perp', 'okx_perp', 'bybit_perp'];
-  const exchangeStatus = perpExchanges.map(ex => {
-    const info = cbState[ex];
-    const now = Date.now();
-    const open = info?.open && (now - (info?.lastFailure || 0)) < 300000;
-    // mexc_perp is the only executable perp feed; others are data-only feeds
-    const isExecutable = ex === 'mexc_perp';
-    return {
-      exchange: ex,
-      status: open ? 'open' : 'ok',
-      failures: info?.failures || 0,
-      dataOnly: !isExecutable,
-      executionVia: isExecutable ? 'mexc_futures' : 'spot_hedge'
-    };
-  });
-
-  const mexcReady = hasExchangeCredentials(c.env, 'mexc');
-
-  return c.json({
-    success: true,
-    perpsEnabled: true,
-    mexcFuturesConfigured: mexcReady,
-    lastPerpsOpp: lastScan?.perps || null,
-    lastFundingOpp: lastScan?.funding || null,
-    exchangeStatus,
-    executionNote: mexcReady
-      ? 'MEXC Futures active — perps orders placed via contract.mexc.com'
-      : 'MEXC credentials missing — perps will run as spot hedge on best available exchange'
-  });
-});
-
-// ── API: Per-exchange status & balance ────────────────────────────────────────
-// GET /api/exchange/:exchange — returns connection status and USDT balance for
-// a single exchange.  Auth-protected.
-app.get('/api/exchange/:exchange', async (c) => {
-  if (!isAuthorized(c.env, c)) return authDenied(c.env, c, true);
-  const exchange = c.req.param('exchange').toLowerCase();
-  const isActive = ACTIVE_EXECUTION_EXCHANGES.includes(exchange);
-  const isDataOnly = DATA_ONLY_EXCHANGES.has(exchange);
-  if (!isActive && !isDataOnly) {
-    return c.json({ error: `Unknown exchange: ${exchange}` }, 404);
-  }
-  if (isDataOnly) {
-    return c.json({
-      exchange,
-      configured: false,
-      balance: null,
-      dataOnly: true,
-      note: 'German regulatory restriction — price feed only, no live execution'
-    });
-  }
-  const configured = hasExchangeCredentials(c.env, exchange);
-  if (!configured) {
-    return c.json({ exchange, configured: false, balance: null });
-  }
-  try {
-    const balance = await getExchangeBalance(c.env, exchange, 'USDT');
-    return c.json({ exchange, configured: true, balance });
-  } catch (e) {
-    return c.json({ exchange, configured: true, balance: null, error: e.message }, 502);
-  }
-});
-
-// ── API: Manual order placement on a specific exchange ────────────────────────
-// POST /api/exchange/:exchange/order — places a market order on the named
-// exchange.  Auth-protected.  Respects paper_trading mode.
-// Body: { symbol, side, quantity, sizeUsd }
-app.post('/api/exchange/:exchange/order', async (c) => {
-  const limited = await checkRateLimit(c.env, c);
-  if (limited) return limited;
-  if (!isAuthorized(c.env, c)) return authDenied(c.env, c, true);
-
-  const exchange = c.req.param('exchange').toLowerCase();
-  if (!ACTIVE_EXECUTION_EXCHANGES.includes(exchange)) {
-    return c.json({ error: `Exchange not available for execution: ${exchange}` }, 400);
-  }
-  if (!hasExchangeCredentials(c.env, exchange)) {
-    return c.json({ error: `${exchange} API credentials not configured` }, 503);
-  }
-
-  let body;
-  try { body = await c.req.json(); } catch (_) { return c.json({ error: 'Invalid JSON body' }, 400); }
-
-  const { symbol, side, quantity, sizeUsd } = body || {};
-  if (symbol == null || side == null || quantity == null || sizeUsd == null) {
-    return c.json({ error: 'Required fields: symbol, side, quantity, sizeUsd' }, 400);
-  }
-  if (!['BUY', 'SELL'].includes(side?.toUpperCase())) {
-    return c.json({ error: 'side must be BUY or SELL' }, 400);
-  }
-  const parsedSizeUsd = parseFloat(sizeUsd);
-  if (isNaN(parsedSizeUsd) || parsedSizeUsd <= 0) {
-    return c.json({ error: 'sizeUsd must be a positive number' }, 400);
-  }
-
-  const state = await getState(c.env);
-  if (state.paper_trading) {
-    return c.json({
-      success: true,
-      paper: true,
-      exchange,
-      symbol,
-      side: side.toUpperCase(),
-      quantity,
-      sizeUsd,
-      note: 'Paper trading mode — no real order placed'
-    });
-  }
-
-  try {
-    const result = await placeExchangeMarketOrder(c.env, exchange, symbol, side.toUpperCase(), quantity, parsedSizeUsd);
-    await logAdminEvent(c.env, 'manual-order', c.req.raw);
-    return c.json({ success: true, paper: false, exchange, symbol, side: side.toUpperCase(), result });
-  } catch (e) {
-    return c.json({ success: false, error: e.message }, 502);
-  }
-});
-
-// ── API: DEX / MetaMask status ────────────────────────────────────────────────
-// GET /api/dex — returns on-chain/DEX trading configuration status:
-//   - whether Alchemy API key is configured (needed for ETH price feeds)
-//   - whether the Go HFT engine is configured (needed for DEX execution)
-//   - last DEX scan result from KV state
-// DEX execution requires the Go HFT engine + a funded wallet.
-// MetaMask integration is handled client-side; this endpoint exposes the
-// server-side readiness.  Auth-protected.
-app.get('/api/dex', async (c) => {
-  if (!isAuthorized(c.env, c)) return authDenied(c.env, c, true);
-
-  const alchemyConfigured = !!(c.env.ALCHEMY_API_KEY || c.env.ALCHEMY_ETHEREUM_ENDPOINT);
-  const hftConfigured = isHFTEngineConfigured(c.env);
-  const lastScan = await c.env.BOT_STATE.get('nexus_last_scan', 'json').catch(() => null);
-
-  let currentOpportunity = null;
-  if (alchemyConfigured) {
-    try {
-      currentOpportunity = await scanDEX(c.env);
-    } catch (_) { }
-  }
-
-  return c.json({
-    success: true,
-    alchemyConfigured,
-    hftEngineConfigured: hftConfigured,
-    executionReady: alchemyConfigured && hftConfigured,
-    lastDexOpp: lastScan?.dex ?? null,
-    currentOpportunity,
-    executionNote: hftConfigured
-      ? 'Go HFT engine active — DEX orders executed via engine wallet'
-      : 'Go HFT engine not configured — set HFT_ENGINE_URL + HFT_ENGINE_SECRET to enable DEX execution',
-    metamaskNote: 'MetaMask wallet connect is handled client-side; server executes via HFT engine private key'
-  });
-});
-
-// ── Admin: Reset daily stats ──────────────────────────────────────────────────
-app.post('/reset-daily', async (c) => {
-  const limited = await checkRateLimit(c.env, c);
-  if (limited) return limited;
-  if (!isAuthorized(c.env, c)) return authDenied(c.env, c);
-  const state = await getState(c.env);
-  state.daily_pnl = 0;
-  state.daily_trades = 0;
-  state.daily_volume_usd = 0;
-  state.last_daily_reset = Date.now();
-  if (state.auto_stopped) {
-    state.auto_stopped = false;
-    state.auto_stop_reason = null;
-  }
-  await saveState(c.env, state);
-  await logAdminEvent(c.env, 'reset-daily', c.req.raw);
-  await sendTelegramAlert(c.env, '🔄 *تم إعادة تعيين إحصائيات اليوم يدوياً*');
-  return c.text('✅ تم إعادة تعيين إحصائيات اليوم');
-});
-
-// ── API: CSV export — also archives to R2 ────────────────────────────────────
-app.get('/api/export', async (c) => {
-  if (!isAuthorized(c.env, c)) return authDenied(c.env, c, true);
-  const from = c.req.query('from');
-  const to = c.req.query('to');
-  const fromMs = from ? new Date(from).getTime() : 0;
-  const toMs = to ? new Date(to).getTime() : Date.now();
-  if (Number.isNaN(fromMs) || Number.isNaN(toMs)) return c.text('Invalid date parameters', 400);
-  const trades = await exportTrades(c.env, fromMs, toMs);
-  const headers = ['id', 'strategy', 'size_usd', 'net_profit_percent', 'mode', 'created_at'];
-  const rows = trades.map(t =>
-    headers.map(h => {
-      const v = t[h] ?? '';
-      // Quote fields that contain commas or quotes
-      const s = String(v);
-      return s.includes(',') || s.includes('"') ? `"${s.replaceAll('"', '""')}"` : s;
-    }).join(',')
-  );
-  const csv = [headers.join(','), ...rows].join('\r\n');
-  const dateStr = new Date().toISOString().slice(0, 10); // YYYY-MM-DD
-
-  // Archive to R2 (non-blocking — failure does not affect the download)
-  if (c.env.TRADE_LOGS) {
-    try {
-      const key = `exports/${dateStr}-${Date.now()}.csv`;
-      await c.env.TRADE_LOGS.put(key, csv, {
-        httpMetadata: { contentType: 'text/csv; charset=utf-8' },
-        customMetadata: { from: String(fromMs), to: String(toMs), rows: String(trades.length) },
-      });
-    } catch (e) {
-      console.error('[R2] export archive error:', e.message);
-    }
-  }
-
-  return new Response(csv, {
-    headers: {
-      'Content-Type': 'text/csv; charset=utf-8',
-      'Content-Disposition': `attachment; filename="trades-${dateStr}.csv"`
-    }
-  });
-});
-
 registerAIMasterRoutes(app);
 
 registerAiRoutes(app, {
@@ -3837,76 +3564,6 @@ app.post('/api/integrations/executive/execute-all', async (c) => {
 });
 
 // ── API: Ecosystem integrations ────────────────────────────────────────────────
-app.get('/api/ecosystem', (c) => {
-  return c.json({
-    updated_at: '2026-05-09',
-    catalog: getEcosystemCatalog()
-  });
-});
-
-app.get('/api/ecosystem/recommendation', (c) => {
-  const goal = c.req.query('goal') || 'quick_start';
-  return c.json(recommendEcosystem(goal));
-});
-
-app.get('/api/security/api-keys', (c) => {
-  return c.json({
-    checklist: getApiKeySecurityChecklist()
-  });
-});
-
-// ── API: Executable integrations (Hummingbot/Freqtrade/CrewAI/AutoGPT) ────────
-app.get('/api/integrations/executive/status', async (c) => {
-  if (!isAuthorized(c.env, c)) return authDenied(c.env, c, true);
-  try {
-    const statuses = await probeExecutableIntegrations(c.env);
-    return c.json({ integrations: statuses });
-  } catch (e) {
-    return c.json({ error: e.message }, 500);
-  }
-});
-
-app.post('/api/integrations/executive/execute', async (c) => {
-  const limited = await checkRateLimit(c.env, c);
-  if (limited) return limited;
-  if (!isAuthorized(c.env, c)) return authDenied(c.env, c, true);
-  try {
-    const { integration, payload } = await c.req.json().catch(() => ({}));
-    const ids = listExecutableIntegrationIds();
-    if (!ids.includes(integration)) {
-      return c.json({ error: `integration must be one of: ${ids.join(', ')}` }, 400);
-    }
-    const result = await executeExecutableIntegration(c.env, integration, payload || {});
-    await logAdminEvent(c.env, `executive:${integration}:execute`, c.req.raw);
-    return c.json({ success: true, ...result });
-  } catch (e) {
-    return c.json({ success: false, error: e.message }, 500);
-  }
-});
-
-app.post('/api/integrations/executive/execute-all', async (c) => {
-  const limited = await checkRateLimit(c.env, c);
-  if (limited) return limited;
-  if (!isAuthorized(c.env, c)) return authDenied(c.env, c, true);
-  try {
-    const body = await c.req.json().catch(() => ({}));
-    const results = await executeAllExecutableIntegrations(
-      c.env,
-      body.payloadByIntegration || {},
-      body.defaultPayload || {}
-    );
-    await logAdminEvent(c.env, 'executive:all:execute', c.req.raw);
-    const successCount = results.filter((item) => item.success).length;
-    return c.json({
-      success: successCount === results.length,
-      success_count: successCount,
-      total: results.length,
-      results,
-    });
-  } catch (e) {
-    return c.json({ success: false, error: e.message }, 500);
-  }
-});
 
 // ── API: Generic AI inference (OpenAI Responses API schema) ──────────────────
 // Accepts a JSON body that conforms to the Responses API request schema and

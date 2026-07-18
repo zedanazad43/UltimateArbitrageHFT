@@ -1,0 +1,266 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>UltimateArbitrageHFT</title>
+<style>
+:root {
+  --bg: #0b0b0d;
+  --panel: #131416;
+  --border: #222328;
+  --muted: #8a8f98;
+  --fg: #ecedee;
+  --accent: #ff5a2f;
+  --accent-dim: #ff5a2f33;
+  --ok: #9ae6b4;
+  --warn: #f6c177;
+  --danger: #fc8181;
+  --mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+}
+* { box-sizing: border-box; }
+html, body { height: 100%; }
+body {
+  margin: 0;
+  font-family: Inter, ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif;
+  background:
+    radial-gradient(1200px 800px at 10% -10%, #ff5a2f0d 0%, transparent 55%),
+    radial-gradient(900px 600px at 110% 10%, #6ee7ff0c 0%, transparent 55%),
+    linear-gradient(180deg, #0b0b0d, #0f0f12);
+  color: var(--fg);
+}
+header, main, footer { max-width: 1200px; margin: 0 auto; padding: 24px; }
+header {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 16px;
+  align-items: end;
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 18px;
+}
+h1 { font-size: 18px; letter-spacing: .2px; margin: 0; }
+h1 span { color: var(--accent); }
+.pill {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--muted);
+  border: 1px solid var(--border);
+  padding: 6px 10px;
+  border-radius: 6px;
+  background: var(--panel);
+}
+.grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; margin-top: 18px; }
+.card {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 14px;
+  min-height: 96px;
+}
+.card h3 { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .12em; margin: 0 0 8px; }
+.card .value { font-size: 22px; font-weight: 700; }
+.card .unit { font-size: 11px; color: var(--muted); margin-left: 6px; }
+.tabs { display: flex; gap: 8px; margin-top: 22px; border-bottom: 1px solid var(--border); }
+.tab {
+  background: transparent;
+  color: var(--muted);
+  border: 1px solid transparent;
+  border-bottom: 2px solid transparent;
+  padding: 10px 12px;
+  border-radius: 8px 8px 0 0;
+  cursor: pointer;
+  font-family: inherit;
+}
+.tab.active { color: var(--fg); border-color: var(--border); border-bottom-color: var(--accent); background: var(--panel); }
+.panel { display: none; margin-top: 16px; }
+.panel.open { display: block; }
+.table { width: 100%; border-collapse: collapse; }
+.table th, .table td { text-align: left; font-size: 13px; padding: 10px 8px; border-bottom: 1px solid var(--border); color: var(--fg); }
+.table th { color: var(--muted); font-weight: 500; }
+.badge { font-family: var(--mono); font-size: 11px; padding: 3px 6px; border-radius: 4px; background: var(--panel); border: 1px solid var(--border); color: var(--fg); }
+.badge.ok { color: var(--ok); border-color: #9ae6b455; background: #9ae6b411; }
+.badge.warn { color: var(--warn); border-color: #f6c17755; background: #f6c17711; }
+.badge.danger { color: var(--danger); border-color: #fc818155; background: #fc818111; }
+.chat { display: grid; grid-template-columns: 1fr; gap: 10px; }
+.msg { background: var(--panel); border: 1px solid var(--border); padding: 10px; border-radius: 8px; font-size: 13px; }
+.msg.user { border-left: 3px solid var(--accent); }
+.msg.system { border-left: 3px solid var(--muted); }
+.actions { display: flex; gap: 8px; margin-top: 14px; flex-wrap: wrap; }
+button.primary {
+  background: var(--accent);
+  color: white;
+  border: none;
+  padding: 10px 14px;
+  border-radius: 8px;
+  cursor: pointer;
+  font-weight: 600;
+}
+button.ghost {
+  background: transparent;
+  color: var(--fg);
+  border: 1px solid var(--border);
+  padding: 10px 14px;
+  border-radius: 8px;
+  cursor: pointer;
+}
+input, select, textarea {
+  background: var(--panel);
+  color: var(--fg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px 12px;
+  font: inherit;
+}
+.mono { font-family: var(--mono); font-size: 12px; color: var(--muted); }
+.kv { display: grid; grid-template-columns: 180px 1fr; gap: 8px 14px; }
+.kv dt { color: var(--muted); font-size: 12px; }
+.kv dd { margin: 0; font-family: var(--mono); font-size: 13px; }
+footer { color: var(--muted); font-size: 12px; border-top: 1px solid var(--border); margin-top: 18px; padding-top: 14px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Ultimate<span>Arbitrage</span>HFT <small class="mono">// live ops</small></h1>
+  <div class="pill" id="clock">--:--:--</div>
+</header>
+<main>
+  <section class="grid">
+    <div class="card">
+      <h3>Mode</h3>
+      <div class="value" id="mode">--</div>
+    </div>
+    <div class="card">
+      <h3>Status</h3>
+      <div class="value" id="status">--</div>
+    </div>
+    <div class="card">
+      <h3>Equity</h3>
+      <div class="value" id="equity">--<span class="unit">USDT</span></div>
+    </div>
+    <div class="card">
+      <h3>P&L</h3>
+      <div class="value" id="pnl">--<span class="unit">USDT</span></div>
+    </div>
+  </section>
+
+  <div class="tabs">
+    <button class="tab active" data-tab="dashboard">Dashboard</button>
+    <button class="tab" data-tab="prices">Prices</button>
+    <button class="tab" data-tab="trades">Trades</button>
+    <button class="tab" data-tab="control">Control</button>
+    <button class="tab" data-tab="ai">AI</button>
+    <button class="tab" data-tab="system">System</button>
+  </div>
+
+  <section id="dashboard" class="panel open">
+    <div class="actions">
+      <button class="primary" id="refresh">Refresh</button>
+      <button class="ghost" id="toggleMode">Toggle Mode</button>
+    </div>
+    <dl class="kv" id="meta"></dl>
+  </section>
+
+  <section id="prices" class="panel">
+    <table class="table">
+      <thead><tr><th>Symbol</th><th>Ask</th><th>Bid</th><th>Spread</th><th>Venue</th></tr></thead>
+      <tbody id="pricesBody"></tbody>
+    </table>
+  </section>
+
+  <section id="trades" class="panel">
+    <table class="table">
+      <thead><tr><th>Time</th><th>Strategy</th><th>Size</th><th>P&L</th><th>Mode</th></tr></thead>
+      <tbody id="tradesBody"></tbody>
+    </table>
+  </section>
+
+  <section id="control" class="panel">
+    <div class="chat">
+      <div class="msg system">Control commands go here. Wire to /mode, /api/execute, /api/scan after deploy.</div>
+    </div>
+  </section>
+
+  <section id="ai" class="panel">
+    <div class="chat">
+      <div class="msg system">AI chat defaults to /api/ai/chat.</div>
+    </div>
+  </section>
+
+  <section id="system" class="panel">
+    <div class="actions">
+      <button class="primary" id="systemRefresh">Refresh System</button>
+    </div>
+    <dl class="kv" id="systemMeta"></dl>
+  </section>
+</main>
+<footer>
+  <div>Worker: <span class="mono" id="workerHost">--</span></div>
+  <div>No cookies. No login.</div>
+</footer>
+<script>
+const API = '';
+function el(id){return document.getElementById(id)}
+function setText(id,v){const e=el(id); if(!e)return; e&&(e.textContent=v);}
+function badge(label, cls){return `<span class="badge ${cls}">${label}</span>`;}
+async function getJSON(path){const res=await fetch(path); if(!res.ok) throw new Error('ERR '+res.status); return res.json();}
+async function postJSON(path, body){const res=await fetch(path,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(body||{})}); if(!res.ok) throw new Error('ERR '+res.status); return res.json();}
+
+async function loadStatus(){
+  try{
+    const data = await getJSON('/api/status');
+    setText('mode', data.tradingEnabled ? (data.paperMode?'paper':'live') : 'disabled');
+    setText('status', data.operational ? 'Operational' : 'Degraded');
+    const equity = (data.equity ?? data.data?.totalEquity ?? null);
+    setText('equity', equity == null ? '--' : equity.toFixed(2));
+    const pnl = (data.todayProfit ?? data.data?.dailyPnl ?? null);
+    setText('pnl', pnl == null ? '--' : pnl.toFixed(2));
+    const meta = el('meta'); if(meta){meta.innerHTML = `<dt>Worker host</dt><dd>${location.host}</dd>` + (data.exchanges ? Object.entries(data.exchanges).map(([k,v])=>`<dt>${k}</dt><dd>${v.configured?badge('configured','ok'):badge('missing','warn')}</dd>`).join('') : '');}
+  }catch(e){ console.warn(e);}
+}
+async function loadPrices(){
+  try{
+    const data = await getJSON('/prices');
+    const rows = Array.isArray(data) ? data : (data.data || []);
+    const tbody = el('pricesBody'); if(!tbody)return;
+    tbody.innerHTML = rows.slice(0,100).map(r=>`<tr><td>${r.symbol||r.pair}</td><td>${r.ask??r.bestAsk??'--'}</td><td>${r.bid??r.bestBid??'--'}</td><td>${r.spreadPct??'--'}</td><td>${r.exchange||r.source||'--'}</td></tr>`).join('');
+  }catch(e){ console.warn(e);}
+}
+async function loadTrades(){
+  try{
+    const data = await getJSON('/api/pnl');
+    const trades = Array.isArray(data) ? data : (data.data || []);
+    const tbody = el('tradesBody'); if(!tbody)return;
+    tbody.innerHTML = trades.slice(0,100).map(t=>`<tr><td>${new Date(t.created_at||t.timestamp).toLocaleString()}</td><td>${t.strategy||'--'}</td><td>${t.size_usd??'--'}</td><td>${t.net_profit_percent??t.pnl_pct??'--'}</td><td>${t.mode||'--'}</td></tr>`).join('');
+  }catch(e){ console.warn(e);}
+}
+async function toggleMode(){
+  try{ const j=await postJSON('/mode',{mode: el('mode').textContent.trim()==='live'?'paper':'live'}); alert(JSON.stringify(j,null,2)); }catch(e){alert(e.message);}
+}
+async function loadSystem(){
+  try{
+    const [rocket,stats,health,infra]=await Promise.all([getJSON('/rocket-verify').catch(()=>({})),getJSON('/api/stats').catch(()=>({})),getJSON('/api/exchanges/health').catch(()=>({})),getJSON('/api/infra/status').catch(()=>({}))]);
+    const meta=el('systemMeta'); if(!meta)return;
+    meta.innerHTML = `<dt>rocket</dt><dd>${rocket.status??'--'} ${rocket.name??''}</dd>`+
+      `<dt>stats</dt><dd>${stats?.totalOpportunities??'--'} opps</dd>`+
+      `<dt>exchanges</dt><dd>${Object.keys(health||{}).length||'--'}</dd>`+
+      `<dt>infra</dt><dd>${infra?.cloudflare?.status??'--'}</dd>`;
+  }catch(e){ console.warn(e);}
+}
+function tick(){ setText('clock', new Date().toLocaleTimeString()); }
+function wireTabs(){
+  document.querySelectorAll('.tab').forEach(btn=>btn.addEventListener('click',()=>{
+    document.querySelectorAll('.tab').forEach(b=>b.classList.remove('active')); btn.classList.add('active');
+    document.querySelectorAll('.panel').forEach(p=>p.classList.remove('open'));
+    el(btn.dataset.tab)?.classList.add('open');
+  }));
+}
+el('refresh')?.addEventListener('click',()=>{ Promise.all([loadStatus(), loadPrices(), loadTrades()]); });
+el('toggleMode')?.addEventListener('click', toggleMode);
+el('systemRefresh')?.addEventListener('click', loadSystem);
+setInterval(tick, 1000);
+wireTabs();
+tick();
+Promise.all([loadStatus(), loadPrices(), loadTrades(), loadSystem()]);
+</script>
+</body>
+</html>
