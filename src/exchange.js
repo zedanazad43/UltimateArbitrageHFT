@@ -180,7 +180,7 @@ export async function exchangeFetch(url, options = {}, exchange, maxRetries = 2,
   // ── Proxy bypass for geo-blocked exchanges ──
   // Route Binance/KuCoin/Bitget through the external proxy manager (non-US
   // egress + gateway auth). This is the reliable path used by bitgetFetch.
-  if (env && ex && ['kucoin', 'binance'].includes(ex)) {
+  if (env && ex && ['kucoin', 'binance', 'bitget'].includes(ex)) {
     try {
       const proxyManager = getExternalProxyManager(env);
       const stats = proxyManager.getStats();
@@ -1950,7 +1950,7 @@ export async function getWeb3Balance(chain, walletAddress, asset = 'ETH') {
 
   if (assetU === 'ETH' || assetU === 'BNB' || assetU === 'MATIC' || assetU === 'OP') {
     const rpc = cfg.rpcs[0];
-    const result = await publicRpcCall('eth_getBalance', [walletAddress, 'latest'], cfg.rpcs);
+    const result = await publicRpcCall('eth_getBalance', [walletAddress, 'latest'], cfg.rpcs.slice(0,2)); // only fastest 2
     if (!result || result === '0x') return 0;
     const raw = parseInt(result, 16);
     if (chain.toLowerCase() === 'bsc') return raw / 1e18;

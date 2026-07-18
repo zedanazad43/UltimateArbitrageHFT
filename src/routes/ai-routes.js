@@ -1,8 +1,6 @@
-﻿// src/routes/ai-routes.js
+// src/routes/ai-routes.js
 
 const DEFAULT_LLM_MODEL = '@cf/meta/llama-3.1-8b-instruct';
-const VALID_EFFORTS = new Set(['none', 'low', 'medium', 'high']);
-const EFFORT_MULTIPLIER = { none: 0.25, low: 0.5, medium: 1, high: 2 };
 
 function getConfiguredLlmModel(env) {
   const model = typeof env.LLM_MODEL === 'string' ? env.LLM_MODEL.trim() : '';
@@ -29,32 +27,6 @@ function resolveAiGatewayChatUrl(env) {
   }
 
   return '';
-}
-
-/**
- * Generate a UUID v4 compatible with Cloudflare Workers runtime.
- * Uses crypto.randomUUID() when available (compat date â‰¥ 2022-01-01),
- * otherwise falls back to crypto.getRandomValues().
- */
-function generateUUID() {
-  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
-    return crypto.randomUUID();
-  }
-  // Fallback for older Workers compat dates â€“ RFC 4122 v4 using 16 random bytes
-  const bytes = new Uint8Array(16);
-  if (typeof crypto !== 'undefined' && typeof crypto.getRandomValues === 'function') {
-    crypto.getRandomValues(bytes);
-  } else {
-    // Last resort: Math.random (not cryptographically secure, but better than nothing)
-    for (let i = 0; i < 16; i++) {
-      bytes[i] = Math.floor(Math.random() * 256);
-    }
-  }
-  // Set version (4) and variant (RFC 4122)
-  bytes[6] = (bytes[6] & 0x0f) | 0x40; // version 4
-  bytes[8] = (bytes[8] & 0x3f) | 0x80; // variant 10xx
-  const hex = Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('');
-  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
 }
 
 async function runConfiguredLlm(env, aiParams) {
@@ -85,7 +57,7 @@ async function runConfiguredLlm(env, aiParams) {
     let data = null;
     try {
       data = responseText ? JSON.parse(responseText) : null;
-    } catch (_) { /* non-JSON response handled below */ }
+    } catch (_) {}
 
     if (!response.ok) {
       const detail = data?.error?.message || data?.error || responseText || `Gateway HTTP ${response.status}`;
@@ -140,6 +112,7 @@ export function registerAiRoutes(app, deps) {
         provider: result.provider,
         model: result.model,
         gatewayConfigured: !!gatewayUrl,
+        gatewayUrl: gatewayUrl || null,
         preview: String(result.text || '').slice(0, 80),
         usage: result.usage,
       });
@@ -174,12 +147,11 @@ export function registerAiRoutes(app, deps) {
       messages.push({ role: 'user', content: body.input });
     } else if (Array.isArray(body.input)) {
       for (const item of body.input) {
-        if (item && typeof item === 'object' && typeof item.role === 'string' && item.role && item.content != null) {
+        if (item && typeof item === 'object' && typeof item.role === 'string' && item.role && item.content !== undefined) {
           messages.push({ role: item.role, content: item.content });
         } else if (typeof item === 'string') {
           messages.push({ role: 'user', content: item });
         }
-        // Silently skip malformed items; they are non-actionable at the API layer
       }
     }
 
@@ -187,6 +159,8 @@ export function registerAiRoutes(app, deps) {
       return c.json({ error: 'input produced no messages' }, 400);
     }
 
+    const VALID_EFFORTS = new Set(['none', 'low', 'medium', 'high']);
+    const effortMultiplier = { none: 0.25, low: 0.5, medium: 1, high: 2 };
     const effort = body.reasoning?.effort ?? 'medium';
     if (!VALID_EFFORTS.has(effort)) {
       return c.json({ error: `Invalid reasoning.effort value: "${effort}". Must be one of: none, low, medium, high` }, 400);
@@ -194,14 +168,14 @@ export function registerAiRoutes(app, deps) {
     const baseMaxTokens = typeof body.max_output_tokens === 'number' && body.max_output_tokens > 0
       ? body.max_output_tokens
       : 512;
-    const max_tokens = Math.round(baseMaxTokens * EFFORT_MULTIPLIER[effort]);
+    const max_tokens = Math.round(baseMaxTokens * effortMultiplier[effort]);
 
     const aiParams = { messages, max_tokens };
     if (typeof body.temperature === 'number') aiParams.temperature = body.temperature;
     if (typeof body.top_p === 'number') aiParams.top_p = body.top_p;
 
     const createdAt = Math.floor(Date.now() / 1000);
-    const responseId = `resp_${generateUUID().replace(/-/g, '')}`;
+    const responseId = `resp_${crypto.randomUUID().replace(/-/g, '')}`;
 
     try {
       const ai = await runConfiguredLlm(c.env, aiParams);
@@ -252,12 +226,12 @@ export function registerAiRoutes(app, deps) {
     const MIN_VIABLE_SPREAD_PCT = 0.3;
 
     const prompt = [
-      'You are an expert crypto arbitrage analyst. Analyze the following trading opportunity and provide a concise recommendation (2â€“4 sentences) covering: whether to execute, key risks, and any concerns about liquidity or timing.',
+      'You are an expert crypto arbitrage analyst. Analyze the following trading opportunity and provide a concise recommendation (2–4 sentences) covering: whether to execute, key risks, and any concerns about liquidity or timing.',
       '',
       'Opportunity:',
-      `- Symbol: ${opp.symbol || 'â€”'}`,
-      `- Strategy: ${opp.strategy || 'â€”'}`,
-      `- Direction: ${opp.direction || 'â€”'}`,
+      `- Symbol: ${opp.symbol || '—'}`,
+      `- Strategy: ${opp.strategy || '—'}`,
+      `- Direction: ${opp.direction || '—'}`,
       `- Buy Price: $${opp.buyPrice || 0}`,
       `- Sell Price: $${opp.sellPrice || 0}`,
       `- Net Profit %: ${opp.netPct || 0}%`,
@@ -282,119 +256,29 @@ export function registerAiRoutes(app, deps) {
     }
   });
 
-  // NOTE: /api/trades removed - use /status.recentTrades instead
-  // ── AI Opportunity Filter — scores and filters opportunities via LLM ──────
-  // POST /api/ai/filter — accepts array of opportunities, returns scored + filtered list.
-  // Controlled by AI_FILTER_ENABLED env var (default: true). Falls back to
-  // heuristic scoring when AI gateway is unavailable or disabled.
-  app.post('/api/ai/filter', async (c) => {
+  app.get('/api/trades', async (c) => {
     if (!isAuthorized(c.env, c)) return authDenied(c.env, c, true);
 
-    const aiEnabled = String(c.env.AI_FILTER_ENABLED || 'true').toLowerCase() !== 'false';
-    const minConfidence = Number(c.env.AI_FILTER_MIN_CONFIDENCE) || 0.7;
+    try {
+      const { getRecentTrades } = await import('../db.js');
+      const limit = parseInt(c.req.query('limit') || '20', 10);
+      const trades = await getRecentTrades(c.env, limit);
 
-    let body;
-    try { body = await c.req.json(); } catch (_) { return c.json({ error: 'Invalid JSON' }, 400); }
-
-    const opportunities = Array.isArray(body.opportunities) ? body.opportunities : [];
-    if (opportunities.length === 0) {
-      return c.json({ success: true, filtered: [], total: 0, passed: 0, mode: 'heuristic' });
+      return c.json({
+        ok: true,
+        data: trades || [],
+        count: (trades || []).length,
+        timestamp: new Date().toISOString(),
+      });
+    } catch (err) {
+      console.error('[/api/trades] error:', err.message);
+      return c.json({
+        ok: true,
+        data: [],
+        count: 0,
+        timestamp: new Date().toISOString(),
+        note: 'Trade history not available',
+      });
     }
-
-    const aiAvailable = !!(c.env.AIWORKER || resolveAiGatewayChatUrl(c.env));
-
-    // Heuristic scoring (always applied as baseline)
-    function heuristicScore(opp) {
-      let score = 0;
-      const netPct = Number(opp.netPct || opp.net_profit_percent || 0);
-      const safety = Number(opp.safetyFactor || opp.safety_factor || 0.5);
-      const spread = Number(opp.spreadPct || opp.spread_pct || 0);
-
-      if (netPct > 1.0) score += 40;
-      else if (netPct > 0.5) score += 25;
-      else if (netPct > 0.2) score += 10;
-
-      if (safety > 0.8) score += 30;
-      else if (safety > 0.5) score += 15;
-
-      if (spread < 2) score += 20;
-      else if (spread < 5) score += 10;
-
-      // Penalize extreme spreads
-      if (spread > 15) score -= 20;
-
-      return Math.max(0, Math.min(100, score));
-    }
-
-    const scored = opportunities.map(opp => ({
-      ...opp,
-      heuristicScore: heuristicScore(opp),
-      aiScore: null,
-      aiRecommendation: null,
-    }));
-
-    // If AI is enabled and available, score top candidates via LLM
-    if (aiEnabled && aiAvailable && scored.length > 0) {
-      const top = scored.sort((a, b) => b.heuristicScore - a.heuristicScore).slice(0, 5);
-      const prompt = [
-        'You are a crypto arbitrage risk analyst. Score each opportunity below from 0-100 and give a one-word verdict (GO/NOGO).',
-        'Consider: net profit %, safety factor, spread %, strategy type, and current market conditions.',
-        '',
-        ...top.map((o, i) =>
-          `#${i + 1}: ${o.symbol || '?'} | ${o.strategy || '?'} | Net: ${o.netPct || 0}% | Safety: ${(o.safetyFactor || 0.5) * 100}% | Spread: ${o.spreadPct || 0}%`
-        ),
-        '',
-        'Respond as JSON array: [{"index":1,"score":85,"verdict":"GO"},...]',
-      ].join('\n');
-
-      try {
-        const ai = await runConfiguredLlm(c.env, { messages: [{ role: 'user', content: prompt }], max_tokens: 256 });
-        const aiText = (ai.text || '').trim();
-        // Try to extract JSON array from response
-        const jsonMatch = aiText.match(/\[[\s\S]*\]/);
-        if (jsonMatch) {
-          const aiScores = JSON.parse(jsonMatch[0]);
-          for (const item of aiScores) {
-            if (item.index >= 1 && item.index <= top.length) {
-              top[item.index - 1].aiScore = item.score;
-              top[item.index - 1].aiRecommendation = item.verdict;
-            }
-          }
-        }
-      } catch (e) {
-        console.error('[AI filter] LLM scoring failed:', e.message);
-        // Fall through to heuristic-only mode
-      }
-
-      // Merge AI scores back into the full list
-      for (const t of top) {
-        const idx = scored.findIndex(s => s.symbol === t.symbol && s.strategy === t.strategy);
-        if (idx >= 0) {
-          scored[idx].aiScore = t.aiScore;
-          scored[idx].aiRecommendation = t.aiRecommendation;
-        }
-      }
-    }
-
-    const mode = aiEnabled && aiAvailable ? 'ai+heuristic' : 'heuristic';
-    const threshold = aiEnabled && aiAvailable ? minConfidence * 100 : 40;
-    const finalScore = (opp) => opp.aiScore ?? opp.heuristicScore;
-    const filtered = scored
-      .filter(opp => finalScore(opp) >= threshold)
-      .sort((a, b) => finalScore(b) - finalScore(a));
-
-    return c.json({
-      success: true,
-      mode,
-      aiEnabled,
-      aiAvailable,
-      threshold,
-      total: scored.length,
-      passed: filtered.length,
-      filtered,
-      all: scored,
-      generatedAt: new Date().toISOString(),
-    });
   });
 }
-

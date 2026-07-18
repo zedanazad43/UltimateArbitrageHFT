@@ -1117,14 +1117,10 @@ app.get('/balances', async (c) => {
 // Used by the Go HFT engine and external consumers to get real-time prices
 app.get('/prices', async (c) => {
   if (requireProxyToken(c.env, c)) return c.text('Invalid proxy token', 401);
-  const symbols = c.req.query('symbols')?.split(',').map(s => s.trim().toUpperCase()).filter(Boolean) || [];
+  const symbols = c.req.query('symbols')?.split(',').map(s => s.trim().toUpperCase()).filter(Boolean) || ['BTCUSDT','ETHUSDT'];
+  const prices = {};
   try {
     const { getAllSpotPrices } = await import('./src/prices.js');
-    const prices = {};
-    if (!symbols.length) {
-      // Default symbol set when none requested
-      symbols.push('BTCUSDT', 'ETHUSDT', 'SOLUSDT', 'BNBUSDT', 'USDTUSDC');
-    }
     for (const symbol of symbols) {
       prices[symbol] = {};
       try {
@@ -1132,12 +1128,10 @@ app.get('/prices', async (c) => {
         for (const { exchange, price } of rows) {
           prices[symbol][exchange] = price;
         }
-      } catch (_) { /* keep symbol object */ }
+      } catch (_) { /* skip failed symbol */ }
     }
-    return c.json({ success: true, timestamp: Date.now(), prices, feedStatus: 'active' });
-  } catch {
-    return c.json({ success: false, prices: {}, feedStatus: 'unavailable' }, 503);
-  }
+  } catch (_) { /* ignore import failure */ }
+  return c.json({ success: true, timestamp: Date.now(), prices, feedStatus: Object.keys(prices).length ? 'active' : 'unavailable' });
 });
 
 // ── WebSocket Live Price Stream ──────────────────────────────────────────────
@@ -2592,6 +2586,27 @@ app.get('/api/web3/balances', async (c) => {
     return c.json({ ok: true, chain, wallet, asset, balance: Number(balance || 0), source: 'public-rpc' });
   } catch (err) {
     return c.json({ ok: false, error: err.message || 'web3 balance failed' }, 500);
+  }
+});
+
+app.post('/ai/chat/completions', async (c) => {
+  if (!isAuthorized(c.env, c)) return authDenied(c.env, c, true);
+  try {
+    const body = await c.req.json().catch(() => ({}));
+    const messages = Array.isArray(body.messages) ? body.messages : [{ role: 'user', content: String(body.prompt || '').trim() }];
+    if (!messages.length) return c.json({ ok: false, error: 'messages required' }, 400);
+    const model = String(body.model || c.env.CF_AI_MODEL || 'llama-3.1-8b-instruct').trim();
+    const resp = await fetch('https://api.cloudflare.com/client/v4/accounts/652e53f35781522e2745784cc4425d9d/ai/chat/completions', {
+      method: 'POST',
+      headers: { 'Authorization': 'Bearer ' + c.env.CLOUDFLARE_API_TOKEN, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ model, messages, stream: false })
+    });
+    const data = await resp.json();
+    if (!resp.ok) return c.json({ ok: false, error: data.errors?.[0]?.message || 'cf_ai_failed', status: resp.status }, 500);
+    const reply = data.choices?.[0]?.message?.content || '';
+    return c.json({ ok: true, provider: 'cf-ai', reply });
+  } catch (err) {
+    return c.json({ ok: false, error: err.message || 'cf_ai_failed' }, 500);
   }
 });
 

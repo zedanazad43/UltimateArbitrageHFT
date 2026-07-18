@@ -1250,9 +1250,14 @@ export async function getAllSpotPrices(env, symbol, openCircuits = new Set()) {
   }
 
   const proxyUrl = String(env?.PROXY_URL || '').trim() || null;
-  const exchangeFetchers = [
+  const publicFetchers = [
+    ['coingecko', () => getCoinGeckoSimplePrice(symbol.replace('USDT','').toLowerCase())],
+    ['coincap', () => getCoinCapPrice(symbol.replace('USDT','').toLowerCase())],
+    ['coinmarketcap', () => getCoinMarketCapPrice(symbol.replace('USDT','').toLowerCase())],
+  ];
+  const cexFetchers = [
     ['mexc', () => getMEXCSpotPrice(symbol, proxyUrl)],
-    ['binance', () => getBinancePrice(symbol)],            // routed via proxy-pool when enabled
+    ['binance', () => getBinancePrice(symbol)],
     ['kucoin', () => getKuCoinPrice(symbol)],
     ['bitget', () => getBitgetPrice(symbol, env)],
     ['bitmart', () => getBitmartPrice(symbol)],
@@ -1263,23 +1268,30 @@ export async function getAllSpotPrices(env, symbol, openCircuits = new Set()) {
     ['coinbase', () => getCoinbasePrice(symbol)],
     ['alpha_vantage', () => getAlphaVantagePrice(env, symbol)],
     ['twelve_data', () => getTwelveDataPrice(env, symbol)],
-    ['coingecko', () => getCoinGeckoSimplePrice(symbol.replace('USDT','').toLowerCase())],
-    ['coincap', () => getCoinCapPrice(symbol.replace('USDT','').toLowerCase())],
-    ['coinmarketcap', () => getCoinMarketCapPrice(symbol.replace('USDT','').toLowerCase())],
   ];
 
-  const tasks = exchangeFetchers.map(([name, fetcher]) =>
-    openCircuits.has(name) ? Promise.resolve(null) : fetcher()
-  );
+  const withTimeout = (fn, ms) => Promise.race([
+    fn(),
+    new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), ms))
+  ]);
 
-  const results = await Promise.allSettled(tasks);
-  const prices = results
-    .map((r, i) => {
-      if (r.status !== 'fulfilled' || !r.value) return null;
-      const [name] = exchangeFetchers[i];
-      return { exchange: name, price: r.value, fee: 0.001 };
-    })
-    .filter(Boolean);
+  const publicResults = (await Promise.allSettled(
+    publicFetchers.map(([name, fetcher]) => openCircuits.has(name) ? Promise.resolve(null) : withTimeout(fetcher, 4000))
+  )).map((r, i) => {
+    if (r.status !== 'fulfilled' || !r.value) return null;
+    const [name] = publicFetchers[i];
+    return { exchange: name, price: r.value, fee: 0.001 };
+  }).filter(Boolean);
+
+  const cexResults = (await Promise.allSettled(
+    cexFetchers.map(([name, fetcher]) => openCircuits.has(name) ? Promise.resolve(null) : withTimeout(fetcher, 7000))
+  )).map((r, i) => {
+    if (r.status !== 'fulfilled' || !r.value) return null;
+    const [name] = cexFetchers[i];
+    return { exchange: name, price: r.value, fee: 0.001 };
+  }).filter(Boolean);
+
+  const prices = [...publicResults, ...cexResults];
 
   // Write to KV cache (best-effort, non-blocking)
   if (env?.KV_STORAGE && prices.length) {
