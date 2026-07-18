@@ -4503,48 +4503,6 @@ app.get('/geo-bypass/report', async (c) => {
 
 export { HFTBackup };
 
-// ─── DB init on startup ──────────────────────────────────────────────────────
-function initDb() {
-  try {
-    const { getDb } = require('./src/db/opportunities.cjs');
-    const db = getDb();
-    if (!db) return;
-    db.exec(`CREATE TABLE IF NOT EXISTS opportunities (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      symbol TEXT NOT NULL,
-      buy_exchange TEXT NOT NULL,
-      sell_exchange TEXT NOT NULL,
-      buy_price REAL NOT NULL,
-      sell_price REAL NOT NULL,
-      spread_pct REAL NOT NULL,
-      volume_usdt REAL,
-      detected_at TEXT DEFAULT CURRENT_TIMESTAMP,
-      status TEXT DEFAULT 'pending' CHECK(status IN ('pending','executing','completed','expired','failed'))
-    );`);
-    db.exec(`CREATE TABLE IF NOT EXISTS trades (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      opportunity_id INTEGER,
-      symbol TEXT NOT NULL,
-      side TEXT NOT NULL,
-      buy_exchange TEXT NOT NULL,
-      sell_exchange TEXT NOT NULL,
-      qty REAL NOT NULL,
-      buy_price REAL NOT NULL,
-      sell_price REAL NOT NULL,
-      net_profit_usdt REAL,
-      executed_at TEXT DEFAULT CURRENT_TIMESTAMP,
-      status TEXT DEFAULT 'pending'
-    );`);
-    db.exec(`CREATE TABLE IF NOT EXISTS exchange_health (
-      exchange TEXT PRIMARY KEY,
-      status TEXT DEFAULT 'unknown',
-      latency_ms INTEGER,
-      last_check TEXT DEFAULT CURRENT_TIMESTAMP
-    );`);
-    console.log('[DB] SQLite initialized');
-  } catch (e) { console.error('[DB] init failed:', e.message); }
-}
-initDb();
 app.get('/rocket-verify', async (c) => {
   return ok(c, {
     name: 'Rocket HFT',
@@ -4558,23 +4516,22 @@ app.get('/rocket-verify', async (c) => {
 
 
 app.get('/api/stats', async (c) => {
+  if (!isAuthorized(c.env, c)) return authDenied(c.env, c, true);
   try {
-    const { getRecentOpportunities } = require('./src/infra/cache.cjs');
-    const opps = getRecentOpportunities(100);
+    const opps = await (c.env.DB?.prepare('SELECT symbol, spread_pct, detected_at FROM opportunities ORDER BY detected_at DESC LIMIT 100').all() ?? []);
+    const rows = opps.results ?? opps ?? [];
     const bySymbol = {};
-    for (const o of opps) { bySymbol[o.symbol] = (bySymbol[o.symbol]||0)+1; }
-    return ok(c, { totalOpportunities: opps.length, topSymbols: Object.entries(bySymbol).sort((a,b)=>b[1]-a[1]).slice(0,10), latestSpread: opps[0] ? opps[0].spread_pct : 0, timestamp: new Date().toISOString() });
+    for (const o of rows) { bySymbol[o.symbol] = (bySymbol[o.symbol]||0)+1; }
+    return ok(c, { totalOpportunities: rows.length, topSymbols: Object.entries(bySymbol).sort((a,b)=>b[1]-a[1]).slice(0,10), latestSpread: rows[0]?.spread_pct ?? 0, timestamp: new Date().toISOString() });
   } catch (e) { return err(c,'STATS_FAIL',500,e.message); }
 });
 
 app.get('/api/exchanges/health', async (c) => {
+  if (!isAuthorized(c.env, c)) return authDenied(c.env, c, true);
   try {
-    const { getDb } = require('./src/db/opportunities.cjs');
-    const db = getDb();
-    if (!db) return ok(c, {});
-    const rows = db.prepare('SELECT exchange, status, latency_ms, last_check FROM exchange_health').all();
+    const rows = await (c.env.DB?.prepare('SELECT exchange, status, latency_ms, last_check FROM exchange_health').all() ?? { results: [] });
     const health = {};
-    for (const r of rows) health[r.exchange] = { status: r.status, latency_ms: r.latency_ms, last_check: r.last_check };
+    for (const r of rows.results ?? []) health[r.exchange] = { status: r.status, latency_ms: r.latency_ms, last_check: r.last_check };
     return ok(c, health);
   } catch (e) { return err(c,'HEALTH_FAIL',500,e.message); }
 });

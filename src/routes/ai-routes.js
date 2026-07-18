@@ -177,38 +177,41 @@ export function registerAiRoutes(app, deps) {
     const createdAt = Math.floor(Date.now() / 1000);
     const responseId = `resp_${crypto.randomUUID().replace(/-/g, '')}`;
 
-    try {
-      const ai = await runConfiguredLlm(c.env, aiParams);
+    const { routeToFreeFallback } = await import('../free-provider-failover.js');
+    const fallbackRoute = routeToFreeFallback(body.input, [
+      body.provider,
+      'openrouter-free',
+      'ollama-local',
+    ]);
+    const providersToTry = [fallbackRoute.primary, ...fallbackRoute.fallbacks.slice(0, 2)];
 
-      const outputItem = {
-        type: 'message',
-        role: 'assistant',
-        content: [{ type: 'output_text', text: ai.text }],
-      };
+    let lastError = null;
+    for (const providerLabel of providersToTry) {
+      try {
+        const ai = await runConfiguredLlm(c.env, aiParams);
 
-      return c.json({
-        id: responseId,
-        object: 'response',
-        created_at: createdAt,
-        model: ai.model,
-        provider: ai.provider,
-        output: [outputItem],
-        output_text: ai.text,
-        status: 'completed',
-        usage: ai.usage,
-      });
-    } catch (e) {
-      console.error('[AI /api/ai] run error:', e.message);
-      return c.json({
-        id: responseId,
-        object: 'response',
-        created_at: createdAt,
-        model: getConfiguredLlmModel(c.env),
-        output: [],
-        status: 'failed',
-        usage: { input_tokens: 0, output_tokens: 0, total_tokens: 0 },
-        error: e.message,
-      }, 500);
+        const outputItem = {
+          type: 'message',
+          role: 'assistant',
+          content: [{ type: 'output_text', text: ai.text }],
+        };
+
+        return c.json({
+          id: responseId,
+          object: 'response',
+          created_at: createdAt,
+          model: ai.model,
+          provider: ai.provider,
+          routedVia: providerLabel,
+          output: [outputItem],
+          output_text: ai.text,
+          status: 'completed',
+          usage: ai.usage,
+        });
+      } catch (e) {
+        lastError = e;
+        console.error(`[AI /api/ai] provider=${providerLabel} failed:`, e.message);
+      }
     }
   });
 
