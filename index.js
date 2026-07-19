@@ -2324,6 +2324,29 @@ app.get('/api/report', async (c) => {
   });
 });
 
+app.get('/api/export', async (c) => {
+  if (!isAuthorized(c.env, c)) return authDenied(c.env, c, true);
+  const from = c.req.query('from');
+  const to = c.req.query('to');
+  const fromMs = from ? new Date(from).getTime() : 0;
+  const toMs = to ? new Date(to).getTime() : Date.now();
+  if (Number.isNaN(fromMs) || Number.isNaN(toMs)) return c.json({ error: 'Invalid date parameters' }, 400);
+  const { exportTrades } = await import('./db.js');
+  const rows = await exportTrades(c.env, fromMs, toMs);
+  if (!rows.length) return c.text('symbol,side,buy_exchange,sell_exchange,qty,buy_price,sell_price,net_profit_usdt,executed_at,status', 200, {
+    'Content-Type': 'text/csv; charset=utf-8'
+  });
+  const cols = ['symbol','side','buy_exchange','sell_exchange','qty','buy_price','sell_price','net_profit_usdt','executed_at','status'];
+  const header = cols.join(',');
+  const body = rows.map(r => cols.map(k => {
+    const v = r[k] == null ? '' : String(r[k]);
+    return v.includes(',') ? `"${v.replace(/"/g, '""')}"` : v;
+  }).join(',')).join('\n');
+  return c.text(`${header}\n${body}`, 200, {
+    'Content-Type': 'text/csv; charset=utf-8'
+  });
+});
+
 // ── API: Detailed Analytics Dashboard ─────────────────────────────────────────
 // GET /api/analytics/detailed — comprehensive trade analytics with strategy breakdown,
 // win rates, PnL charts, drawdown metrics, and performance recommendations.
