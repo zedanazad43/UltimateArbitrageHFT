@@ -66,7 +66,6 @@ binding = "ULTIMATEARBITRAGEQUEUE"
 queue = "ultimate-arbitrage-queue"
 
 [[queues.consumers]]
-binding = "TRADE_QUEUE_CONSUMER"
 queue = "ultimate-arbitrage-queue"
 max_batch_size = 10
 max_batch_timeout = 30
@@ -84,4 +83,4 @@ CF_AI_ENDPOINT = "/ai/chat/completions"
 AI = "true"
 
 # Bitget API — set via Dashboard or wrangler secret put
-BITGET_API_KEY = ""
+BITGET_API_KEY = "REPLACE_WITH_YOUR_BITGET_KEY"

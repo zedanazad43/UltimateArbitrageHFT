@@ -6,7 +6,7 @@
   "main": "index.js",
   "scripts": {
     "lint": "eslint . --ext .js,.jsx,.mjs,.cjs",
-    "build:check": "npx --yes wrangler@4.86.0 deploy --dry-run",
+    "build:check": "npx --yes wrangler@4.87.0 deploy --dry-run",
     "verify:prod": "npm run lint && npm run test:all && npm run build:check",
     "preflight:prod": "npm run verify:prod && npm run check:secrets",
     "ready:prod": "npm run preflight:prod && npm run validate:production",
