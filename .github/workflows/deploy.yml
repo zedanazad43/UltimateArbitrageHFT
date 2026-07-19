@@ -25,7 +25,10 @@ jobs:
           cache: "npm"
 
       - name: Install dependencies
-        run: npm ci
+        run: |
+          corepack enable || true
+          corepack prepare pnpm@latest --activate || true
+          pnpm install --frozen-lockfile=false
       
       - name: Run tests
         continue-on-error: true

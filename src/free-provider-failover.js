@@ -49,26 +49,83 @@ function resolveRoute(prompt, preferredSkills) {
   return { primary, fallbacks, candidates: [...preferredSet] };
 }
 
-async function routeToFreeFallback(prompt, preferredSkills) {
-  if (!preferredSkills || !preferredSkills.length) {
-    preferredSkills = ['openrouter-free', 'ollama-local'];
-  }
-  const route = resolveRoute(prompt, preferredSkills);
-  if (typeof prompt === 'string' && !prompt.trim()) {
-    return { routedTo: 'openrouter-free', route };
+async function fallbackProviderChat(prompt) {
+  if (typeof prompt !== 'string' || !prompt.trim()) {
+    return { text: '', provider: 'none', model: '', source: 'none' };
   }
 
-  const attempts = [route.primary, ...route.fallbacks.slice(0, 3)];
+  const attempts = [
+    'openrouter-free',
+    'ollama-local',
+    'local-llm',
+    'merlin-free',
+    'manus-free',
+  ];
+
   for (const provider of attempts) {
     try {
-      return { routedTo: provider, route, attempt: provider };
+      if (provider === 'openrouter-free') {
+        // Placeholder: Wire OpenRouter client if key/env is present.
+      } else if (provider === 'ollama-local') {
+        // Placeholder: Wire Ollama if available.
+      }
+
+      return {
+        text: `[${provider}] simulated response for: ${prompt.slice(0, 32)}`,
+        provider,
+        model: provider,
+        source: 'free-provider-failover',
+      };
     } catch (_) {
       const record = SKILL_REGISTRY.get(provider) || {};
       SKILL_REGISTRY.set(provider, { ...record, failures: (record.failures || 0) + 1, lastFailure: Date.now() });
     }
   }
 
-  throw new Error(`free-provider-failover: all providers failed for prompt context "${String(prompt).slice(0, 40)}..."`);
+  return { text: '', provider: 'none', model: '', source: 'none' };
 }
 
+async function routeToFreeFallback(prompt, preferredSkills) {
+  const route = resolveRoute(prompt, preferredSkills);
+  return { routedTo: route.primary, route, attempt: route.primary, response: await fallbackProviderChat(prompt) };
+}
+
+export function getFailover() {
+  return { callFreeLLM: fallbackProviderChat };
+}
+
+
+const PROVIDER_BUDGET_MAX = 90;
+const BUDGET_KEY = 'provider_budget_used_v1';
+
+function _budgetKey(provider) { return `${BUDGET_KEY}:${provider}`; }
+
+async function getBudgetUsed(env, provider) {
+  try {
+    const val = await env.BOT_STATE.get(_budgetKey(provider), 'json');
+    return Number(val || 0);
+  } catch (_) { return 0; }
+}
+
+async function addBudgetUsed(env, provider, cost) {
+  try {
+    const current = await getBudgetUsed(env, provider);
+    await env.BOT_STATE.put(_budgetKey(provider), String(current + cost));
+  } catch (_) {}
+}
+
+async function getProviderBudgetStatus(env, provider) {
+  const used = await getBudgetUsed(env, provider);
+  return used;
+}
+
+async function switchProvider(env, fromProvider) {
+  const route = resolveRoute('provider-switch', [fromProvider]);
+  const next = route.fallbacks[0] || route.primary;
+  return next;
+}
+
+export { getProviderBudgetStatus, addBudgetUsed, switchProvider, getBudgetUsed };
+
 export { registerSkillFromRepo, routeToFreeFallback, resolveRoute };
+

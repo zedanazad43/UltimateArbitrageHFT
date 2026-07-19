@@ -27,7 +27,10 @@ jobs:
         cache: npm
 
     - name: Install dependencies
-      run: npm ci
+      run: |
+        corepack enable || true
+        corepack prepare pnpm@latest --activate || true
+        pnpm install --frozen-lockfile=false
       env:
         FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 

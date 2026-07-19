@@ -4,6 +4,7 @@ compatibility_date = "2025-04-18"
 compatibility_flags = ["nodejs_compat"]
 account_id = "652e53f35781522e2745784cc4425d9d"
 
+
 [[kv_namespaces]]
 binding = "BOT_STATE"
 id = "ac954cedbedd48f8aa4452975e5fc2a1"
@@ -74,10 +75,11 @@ max_batch_timeout = 30
 PROXY_MODE = "auto"
 PROXY_URL_1 = "https://proxy-gateway.zedanazad43.workers.dev"
 PROXY_URL_2 = "https://1d7373f11e5c96fb-104-28-162-48.serveousercontent.com"
+PROXY_URL_3 = "https://harper-vintage-interesting-intimate.trycloudflare.com"
 PROXY_AUTH_HEADER = "X-Gateway-Token: REPLACE_WITH_GATEWAY_TOKEN"
 
 # Cloudflare Workers AI
-CF_AI_MODEL = "llama-3.1-8b-instruct"
+CF_AI_MODEL = "@cf/meta/llama-3.1-8b-instruct-fast"
 CF_AI_ENDPOINT = "/ai/chat/completions"
 AI = "true"
 

@@ -4,7 +4,6 @@
 // AI Agent: Autonomous self-learning trading agent v3.0 (Reinforcement Learning + Deep Orchestration)
 
 import { Hono } from 'hono';
-import SDKBridge from './src/sdk-bridge.js';
 import { UnifiedAITradingSystem } from './src/ultimate-ai-engine.js';
 import { RailwayMonitor, CloudflareOptimizer, AIModelRouter } from './src/infrastructure-optimizer.js';
 import { cors } from 'hono/cors';
@@ -46,7 +45,6 @@ import { runLiveMonitor } from './src/monitor-live.js';
 import { registerAIMasterRoutes } from './src/routes/aimaster-routes.js';
 import { registerTemporalRoutes } from './src/routes/temporal-routes.js';
 
-import { registerSdkRoutes } from './src/routes/sdk-routes.js';
 // ═══ HFT Resilience Improvements ═══
 import { HFTBackup } from './src/durable-objects/hft-backup.js';
 import { registerResilienceRoutes as _registerResilienceRoutes } from './src/routes/resilience-routes.js';
@@ -910,7 +908,6 @@ registerSystemRoutes(app, {
   analyticsEngine,
 });
 
-registerSdkRoutes(app, {});
 
 // ── Login / Logout routes ─────────────────────────────────────────────────────
 // GET /login  — render the login form (public)
@@ -1119,7 +1116,7 @@ app.get('/balances', async (c) => {
 // ── WebSocket / HFT Engine Integration: Live Price Feed ───────────────────
 // GET /prices — returns current prices from the WebSocket price book
 // Used by the Go HFT engine and external consumers to get real-time prices
-app.get('/prices', async (c) => {
+const handlerPrices = async (c) => {
   if (requireProxyToken(c.env, c)) return c.text('Invalid proxy token', 401);
   const symbols = c.req.query('symbols')?.split(',').map(s => s.trim().toUpperCase()).filter(Boolean) || ['BTCUSDT','ETHUSDT'];
   const prices = {};
@@ -1136,7 +1133,9 @@ app.get('/prices', async (c) => {
     }
   } catch (_) { /* ignore import failure */ }
   return c.json({ success: true, timestamp: Date.now(), prices, feedStatus: Object.keys(prices).length ? 'active' : 'unavailable' });
-});
+};
+app.get('/prices', handlerPrices);
+app.get('/api/prices', handlerPrices);
 
 // ── WebSocket Live Price Stream ──────────────────────────────────────────────
 // GET /api/prices/stream — upgrades to WebSocket for real-time price streaming.
@@ -3469,7 +3468,7 @@ app.post('/api/ai-analysis', async (c) => {
     `- Net Profit %: ${opp.netPct || 0}%`,
   ].join('\n');
 
-  // Fallback if no AIWORKER binding
+  // Fallback if no AIWORKER binding or the configured model is deprecated.
   if (!c.env.AIWORKER) {
     const fallback = opp.netPct > MIN_VIABLE_SPREAD_PCT
       ? `✅ Potential opportunity: net spread of ${opp.netPct}% is above threshold. Verify liquidity and fee structure before executing. Monitor for slippage — position size should remain small (≤$5 for initial trades).`
@@ -3636,7 +3635,7 @@ app.post('/api/ai', async (c) => {
   if (typeof body.temperature === 'number') aiParams.temperature = body.temperature;
   if (typeof body.top_p === 'number') aiParams.top_p = body.top_p;
 
-  const MODEL = '@cf/meta/llama-3.1-8b-instruct';
+  const MODEL = c.env.CF_AI_MODEL || '@cf/meta/llama-3.1-8b-instruct-fp8-fast';
   const createdAt = Math.floor(Date.now() / 1000);
   const responseId = `resp_${crypto.randomUUID().replace(/-/g, '')}`;
 

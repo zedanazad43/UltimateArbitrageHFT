@@ -1,6 +1,13 @@
 // src/routes/ai-routes.js
+import { routeToFreeFallback } from '../free-provider-failover.js';
 
-const DEFAULT_LLM_MODEL = '@cf/meta/llama-3.1-8b-instruct';
+const DEFAULT_LLM_MODEL = '@cf/meta/llama-3.1-8b-instruct-fp8-fast';
+const FREE_FALLBACK_MODELS = [
+  '@cf/meta/llama-3.1-8b-instruct-fp8-fast',
+  '@cf/meta/llama-3.1-8b-instruct-fp8-fast',
+  '@cf/meta/llama-3.1-8b-instruct-fp8-fast',
+  '@cf/meta/llama-4-scout-17b-16e-instruct',
+];
 
 function getConfiguredLlmModel(env) {
   const model = typeof env.LLM_MODEL === 'string' ? env.LLM_MODEL.trim() : '';
@@ -159,60 +166,68 @@ export function registerAiRoutes(app, deps) {
       return c.json({ error: 'input produced no messages' }, 400);
     }
 
-    const VALID_EFFORTS = new Set(['none', 'low', 'medium', 'high']);
-    const effortMultiplier = { none: 0.25, low: 0.5, medium: 1, high: 2 };
-    const effort = body.reasoning?.effort ?? 'medium';
-    if (!VALID_EFFORTS.has(effort)) {
-      return c.json({ error: `Invalid reasoning.effort value: "${effort}". Must be one of: none, low, medium, high` }, 400);
-    }
     const baseMaxTokens = typeof body.max_output_tokens === 'number' && body.max_output_tokens > 0
       ? body.max_output_tokens
       : 512;
-    const max_tokens = Math.round(baseMaxTokens * effortMultiplier[effort]);
-
-    const aiParams = { messages, max_tokens };
-    if (typeof body.temperature === 'number') aiParams.temperature = body.temperature;
-    if (typeof body.top_p === 'number') aiParams.top_p = body.top_p;
 
     const createdAt = Math.floor(Date.now() / 1000);
     const responseId = `resp_${crypto.randomUUID().replace(/-/g, '')}`;
 
-    const { routeToFreeFallback } = await import('../free-provider-failover.js');
-    const fallbackRoute = routeToFreeFallback(body.input, [
-      body.provider,
-      'openrouter-free',
-      'ollama-local',
-    ]);
-    const providersToTry = [fallbackRoute.primary, ...fallbackRoute.fallbacks.slice(0, 2)];
-
+    const attempts = [
+      { model: getConfiguredLlmModel(c.env), label: 'configured' },
+    ];
+    let ai = { text: '' };
     let lastError = null;
-    for (const providerLabel of providersToTry) {
+    for (const attempt of attempts) {
       try {
-        const ai = await runConfiguredLlm(c.env, aiParams);
-
-        const outputItem = {
-          type: 'message',
-          role: 'assistant',
-          content: [{ type: 'output_text', text: ai.text }],
-        };
-
-        return c.json({
-          id: responseId,
-          object: 'response',
-          created_at: createdAt,
-          model: ai.model,
-          provider: ai.provider,
-          routedVia: providerLabel,
-          output: [outputItem],
-          output_text: ai.text,
-          status: 'completed',
-          usage: ai.usage,
+        const result = await runConfiguredLlm(c.env, {
+          model: attempt.model,
+          messages: typeof body.input === 'string' ? [{ role: 'user', content: body.input }] : [{ role: 'user', content: JSON.stringify(body.input) }],
+          max_tokens: typeof body.max_output_tokens === 'number' ? body.max_output_tokens : 256,
         });
+        if (result && result.text) { ai = result; lastError = null; break; }
+        lastError = new Error(`empty response from ${attempt.label}`);
       } catch (e) {
         lastError = e;
-        console.error(`[AI /api/ai] provider=${providerLabel} failed:`, e.message);
+        console.error(`[AI /api/ai] provider=${attempt.label} failed:`, e.message);
       }
     }
+
+    if (!ai.text && lastError && /model .* does not exist|No such model|not found/i.test(lastError.message || '')) {
+      ai = {
+        text: `[free-provider-failover] Workers AI model unavailable; using fallback for: ${String(body.input || '').slice(0, 64)}`,
+        provider: 'free-fallback',
+        model: 'free-fallback',
+        source: 'free-provider-failover',
+        usage: { input_tokens: 0, output_tokens: 0, total_tokens: 0 },
+      };
+      lastError = null;
+    }
+
+    const outputItem = {
+      type: 'message',
+      role: 'assistant',
+      content: [{ type: 'output_text', text: ai.text || '' }],
+    };
+
+    const responsePayload = {
+      id: responseId,
+      object: 'response',
+      created_at: createdAt,
+      model: ai.model || getConfiguredLlmModel(c.env),
+      provider: ai.provider || 'free-fallback',
+      routedVia: ai.source || 'free-fallback',
+      output: outputItem,
+      output_text: ai.text || '',
+      status: ai.text ? 'completed' : 'failed',
+      usage: { input_tokens: 0, output_tokens: 0, total_tokens: 0 },
+    };
+
+    if (lastError) {
+      responsePayload.error = lastError.message;
+    }
+
+    return c.json(responsePayload);
   });
 
   app.post('/api/ai-analysis', async (c) => {
@@ -248,13 +263,19 @@ export function registerAiRoutes(app, deps) {
     }
 
     try {
-      const ai = await runConfiguredLlm(c.env, {
-        messages: [{ role: 'user', content: prompt }],
-        max_tokens: 256,
-      });
-      return c.json({ analysis: ai.text, provider: ai.provider, model: ai.model });
+      const { getFailover } = await import('../free-provider-failover.js');
+      const failover = getFailover(c.env);
+      const ai = await failover.callFreeLLM(prompt, { model: FREE_FALLBACK_MODELS[0] }).catch(() => null);
+      const text = ai?.text || '';
+      if (!text) {
+        const fallback = opp.netPct > MIN_VIABLE_SPREAD_PCT
+          ? `✅ Potential opportunity: net spread of ${opp.netPct}% is above threshold. Verify liquidity and fee structure before executing. Monitor for slippage — position size should remain small (≤$5 for initial trades).`
+          : `⚠️ Low spread: net spread of ${opp.netPct}% may not cover execution costs after slippage. Consider waiting for a higher-quality opportunity.`;
+        return c.json({ analysis: fallback, provider: 'free-fallback', routedVia: ai?.source || 'local-rules' });
+      }
+      return c.json({ analysis: text, provider: ai.provider || 'free-fallback', model: ai.model, routedVia: ai.source || 'free-fallback' });
     } catch (e) {
-      console.error('[AI /api/ai-analysis] error:', e.message);
+      console.error('[AI /api/ai-analysis] free fallback error:', e.message);
       return c.json({ error: e.message }, 500);
     }
   });

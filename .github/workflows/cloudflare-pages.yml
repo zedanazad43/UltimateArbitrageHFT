@@ -29,7 +29,10 @@ jobs:
 
       - name: Install frontend deps
         working-directory: frontend
-        run: npm ci
+        run: |
+          corepack enable || true
+          corepack prepare pnpm@latest --activate || true
+          pnpm install --frozen-lockfile=false
 
       - name: Build frontend
         working-directory: frontend

@@ -342,8 +342,10 @@ export async function getMEXCFuturesBalance(env, currency = 'USDT') {
     const timestamp = Date.now();
     const recvWindow = 5000;
     const authModes = [
-      { mode: 'with-recv-window', rawSig: `${timestamp}${apiKey}${recvWindow}`, includeRecvWindow: true },
-      { mode: 'no-recv-window', rawSig: `${timestamp}${apiKey}`, includeRecvWindow: false },
+      { mode: 'spot-v3-with-recvent', rawSig: `${timestamp}${apiKey}${recvWindow}`, includeRecvWindow: true, endpoint: 'https://api.mexc.com/api/v3/account' },
+      { mode: 'spot-v3-no-recvent', rawSig: `${timestamp}${apiKey}`, includeRecvWindow: false, endpoint: 'https://api.mexc.com/api/v3/account' },
+      { mode: 'spot-legacy-with-recvent', rawSig: `${timestamp}${apiKey}${recvWindow}`, includeRecvWindow: true, endpoint: 'https://www.mexc.com/open/api/v2/private/account/info' },
+      { mode: 'spot-legacy-no-recvent', rawSig: `${timestamp}${apiKey}`, includeRecvWindow: false, endpoint: 'https://www.mexc.com/open/api/v2/private/account/info' },
     ];
 
     for (const auth of authModes) {
@@ -358,7 +360,7 @@ export async function getMEXCFuturesBalance(env, currency = 'USDT') {
           headers['recv-window'] = recvWindow.toString();
         }
 
-        const resp = await exchangeFetch('https://contract.mexc.com/api/v1/private/account/assets', {
+        const resp = await exchangeFetch(auth.endpoint, {
           headers
         });
         const data = await parseJsonResponse(resp, 'MEXC futures account');
