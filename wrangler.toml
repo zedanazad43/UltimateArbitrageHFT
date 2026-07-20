@@ -85,3 +85,7 @@ AI = "true"
 
 # Bitget API — set via Dashboard or wrangler secret put
 BITGET_API_KEY = ""
+
+# Telegram
+TELEGRAM_BOT_TOKEN = "AAGwL-AAPIzLJ-enkuYdRIKag4qKcZXQRIo"
+TELEGRAM_CHAT_ID = "8770101170"
