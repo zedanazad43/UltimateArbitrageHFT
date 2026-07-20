@@ -45,11 +45,11 @@ import { runLiveMonitor } from './src/monitor-live.js';
 import { registerAIMasterRoutes } from './src/routes/aimaster-routes.js';
 import { registerTemporalRoutes } from './src/routes/temporal-routes.js';
 
-// ═══ HFT Resilience Improvements ═══
+// HFT Resilience Improvements
 import { HFTBackup } from './src/durable-objects/hft-backup.js';
 import { registerResilienceRoutes as _registerResilienceRoutes } from './src/routes/resilience-routes.js';
 
-// ═══ Geo-bypass & Diagnostics ═══
+// Geo-bypass & Diagnostics
 import { registerGeoBypassRoutes as _registerGeoBypassRoutes } from './src/routes/geo-bypass-routes.js';
 
 
@@ -613,28 +613,32 @@ function err(c, code, status, message) {
 }
 
 function isAuthorized(env, c) {
-  const token = env.ADMIN_TOKEN;
+  const adminToken = env.ADMIN_TOKEN;
   const workflowToken = env.WORKFLOW_ADMIN_TOKEN;
+  const hermessToken = env.HERMES_SHARED_SECRET;
   // IP allowlist: if env.ALLOWED_IPS is set, only allow listed IPs.
   if (env.ALLOWED_IPS) {
     const clientIp = c.req.header('cf-connecting-ip') || c.req.header('x-forwarded-for') || '';
     const allowed = env.ALLOWED_IPS.split(',').map(s => s.trim()).filter(Boolean);
     if (allowed.length && !allowed.includes(clientIp)) return false;
   }
-  // Setup mode: if neither token is configured, allow access ONLY to /login
+
+  // Setup mode: if no tokens are configured, allow access ONLY to /login
   // and /health so the admin can bootstrap. All other routes are denied.
-  if (!token && !workflowToken) {
+  if (!adminToken && !workflowToken && !hermessToken) {
     const path = new URL(c.req.url).pathname;
     return path === '/login' || path === '/health';
   }
 
-  const headerToken = c.req.header('x-admin-token') || c.req.header('x-workflow-token') || '';
-  if ((token && constantTimeEquals(headerToken, token)) || (workflowToken && constantTimeEquals(headerToken, workflowToken))) {
+  const headerToken = c.req.header('x-admin-token') || c.req.header('x-workflow-token') || c.req.header('x-agent-secret') || '';
+  if ((adminToken && constantTimeEquals(headerToken, adminToken)) ||
+      (workflowToken && constantTimeEquals(headerToken, workflowToken)) ||
+      (hermessToken && constantTimeEquals(headerToken, hermessToken))) {
     return true;
   }
 
   const cookie = getCookieValue(c, 'nexus_session');
-  return !!token && constantTimeEquals(cookie || '', token);
+  return !!adminToken && constantTimeEquals(cookie || '', adminToken);
 }
 
 // Returns a descriptive 401 response that distinguishes "secret not configured" from
@@ -2331,7 +2335,7 @@ app.get('/api/export', async (c) => {
   const fromMs = from ? new Date(from).getTime() : 0;
   const toMs = to ? new Date(to).getTime() : Date.now();
   if (Number.isNaN(fromMs) || Number.isNaN(toMs)) return c.json({ error: 'Invalid date parameters' }, 400);
-  const { exportTrades } = await import('./db.js');
+  const { exportTrades } = await import('./src/db.js');
   const rows = await exportTrades(c.env, fromMs, toMs);
   if (!rows.length) return c.text('symbol,side,buy_exchange,sell_exchange,qty,buy_price,sell_price,net_profit_usdt,executed_at,status', 200, {
     'Content-Type': 'text/csv; charset=utf-8'
@@ -3822,12 +3826,28 @@ const TELEGRAM_COMMANDS = {
     await saveState(env, state);
     await send('⏸️ *تم إيقاف التداول التلقائي*');
   },
-  '/mode': async (_env, state, send) => {
+  '/mode': async (env, state, send, text) => {
+    const arg = (text || '').trim().split(/\s+/).slice(1).join(' ').toLowerCase();
+    if (arg === 'live' || arg === 'حقيقي') {
+      state.paper_trading = false;
+      state.trading_enabled = true;
+      state.auto_stopped = false;
+      state.auto_stop_reason = null;
+      await saveState(env, state);
+      await send('🔴 *تم التبديل إلى وضع Live Trading*');
+      return;
+    }
+    if (arg === 'paper' || arg === 'تجريبي') {
+      state.paper_trading = true;
+      await saveState(env, state);
+      await send('📄 *تم التبديل إلى وضع Paper Trading*');
+      return;
+    }
     const paperLabel = state.paper_trading === false ? '🔴 Live Trading (حقيقي)' : '📄 Paper Trading (تجريبي)';
     await send(
       `🎛️ *وضع التداول الحالي:*\n` +
       `${paperLabel}\n\n` +
-      `لتغيير الوضع استخدم لوحة التحكم على الإنترنت`
+      `لتغيير الوضع أرسل: /mode live أو /mode paper`
     );
   },
 };
@@ -3853,7 +3873,9 @@ app.post('/telegram/webhook', async (c) => {
   const token = c.env.TELEGRAM_BOT_TOKEN;
   if (!token) return c.json({ ok: true });
   const allowedChat = String(c.env.TELEGRAM_CHAT_ID || '').trim();
-  if (!allowedChat || String(chatId) !== allowedChat) {
+  const isAllowed = !allowedChat || String(chatId) === allowedChat;
+  if (!isAllowed) {
+    console.warn(`[telegram] unauthorized chat ${chatId}, allowed=${allowedChat}`);
     return c.json({ ok: false, error: 'Unauthorized chat' }, 403);
   }
 
@@ -4406,7 +4428,7 @@ export default {
   },
 };
 
-// ── Infrastructure + Ultra-Fast Routes (top-level, not nested) ────────────────
+// ─── Infrastructure + Ultra-Fast Routes (top-level, not nested) ────────────────
 app.get('/api/infra/status', async (c) => {
   if (!isAuthorized(c.env, c)) return authDenied(c.env, c, true);
   const railway = new RailwayMonitor(c.env);
@@ -4426,6 +4448,21 @@ app.get('/api/infra/status', async (c) => {
     aiModels,
     timestamp: new Date().toISOString(),
   });
+});
+
+app.get('/api/telemetry/latency', async (c) => {
+  if (!isAuthorized(c.env, c)) return authDenied(c.env, c, true);
+  const { getUltraFastPriceEngine } = await import('./src/ultra-fast-engine.js');
+  const engine = getUltraFastPriceEngine(c.env);
+  return c.json({ ...engine.getLatency(), timestamp: Date.now() });
+});
+
+app.post('/api/telemetry/latency/reset', async (c) => {
+  if (!isAuthorized(c.env, c)) return authDenied(c.env, c, true);
+  const { getUltraFastPriceEngine } = await import('./src/ultra-fast-engine.js');
+  const engine = getUltraFastPriceEngine(c.env);
+  engine.getLatency().reset();
+  return c.json({ ok: true });
 });
 
 app.get('/api/ultra-fast/status', async (c) => {
@@ -4547,6 +4584,199 @@ app.get('/api/stats', async (c) => {
     return ok(c, { totalOpportunities: rows.length, topSymbols: Object.entries(bySymbol).sort((a,b)=>b[1]-a[1]).slice(0,10), latestSpread: rows[0]?.spread_pct ?? 0, timestamp: new Date().toISOString() });
   } catch (e) { return err(c,'STATS_FAIL',500,e.message); }
 });
+
+app.get('/api/stats', async (c) => {
+  if (!isAuthorized(c.env, c)) return authDenied(c.env, c, true);
+  const { getUltraFastPriceEngine } = await import('./src/ultra-fast-engine.js');
+  const engine = getUltraFastPriceEngine(c.env);
+  return ok(c, engine.getStats());
+});
+
+// ─── Hermes Control Brain ────────────────────────────────────────────────
+const {
+  listZones,
+  createDNSRecord,
+  updateDNSRecord,
+  deleteDNSRecord,
+  listDNSRecords,
+  listWorkers,
+  updateWorker,
+  listVersions,
+  rollbackWorker,
+  getAnalytics,
+  listKVNamespaces,
+  getKVKeys,
+  putKV,
+  listR2Buckets,
+  listR2Objects,
+  listD1Databases,
+  queryD1,
+  getHermesState,
+  accountInfo,
+} = await import('./src/infrastructure/hermes-controller.js');
+
+app.get('/hermes/account', async (c) => {
+  if (!isAuthorized(c.env, c)) return authDenied(c.env, c, true);
+  return ok(c, await accountInfo(c.env));
+});
+
+app.get('/hermes/zones', async (c) => {
+  if (!isAuthorized(c.env, c)) return authDenied(c.env, c, true);
+  return ok(c, await listZones(c.env));
+});
+
+app.get('/hermes/zones/:zoneId/dns', async (c) => {
+  if (!isAuthorized(c.env, c)) return authDenied(c.env, c, true);
+  const zoneId = String(c.req.param('zoneId') || '').trim();
+  const type = String(c.req.query('type') || '').trim();
+  const name = String(c.req.query('name') || '').trim();
+  if (!zoneId) return err(c, 'ZONE_REQUIRED', 400, 'zoneId is required');
+  return ok(c, await listDNSRecords(c.env, zoneId, type, name));
+});
+
+app.post('/hermes/dns', async (c) => {
+  if (!isAuthorized(c.env, c)) return authDenied(c.env, c, true);
+  const body = await c.req.json().catch(() => ({}));
+  const zoneId = String(body.zoneId || '').trim();
+  if (!zoneId) return err(c, 'ZONE_REQUIRED', 400, 'zoneId is required');
+  const type = String(body.type || 'A').trim();
+  const name = String(body.name || '').trim();
+  const content = String(body.content || '').trim();
+  if (!name || !content) return err(c, 'DNS_FIELDS_REQUIRED', 400, 'name and content are required');
+  return ok(c, await createDNSRecord(c.env, zoneId, type, name, content, body.ttl, body.proxied));
+});
+
+app.put('/hermes/dns/:zoneId/records/:recordId', async (c) => {
+  if (!isAuthorized(c.env, c)) return authDenied(c.env, c, true);
+  const zoneId = String(c.req.param('zoneId') || '').trim();
+  const recordId = String(c.req.param('recordId') || '').trim();
+  if (!zoneId || !recordId) return err(c, 'PARAMS_REQUIRED', 400, 'zoneId and recordId are required');
+  const body = await c.req.json().catch(() => ({}));
+  const newContent = String(body.newContent || '').trim();
+  if (!newContent) return err(c, 'NEW_CONTENT_REQUIRED', 400, 'newContent is required');
+  return ok(c, await updateDNSRecord(c.env, zoneId, recordId, newContent));
+});
+
+app.delete('/hermes/dns/:zoneId/records/:recordId', async (c) => {
+  if (!isAuthorized(c.env, c)) return authDenied(c.env, c, true);
+  const zoneId = String(c.req.param('zoneId') || '').trim();
+  const recordId = String(c.req.param('recordId') || '').trim();
+  if (!zoneId || !recordId) return err(c, 'PARAMS_REQUIRED', 400, 'zoneId and recordId are required');
+  return ok(c, await deleteDNSRecord(c.env, zoneId, recordId));
+});
+
+app.get('/hermes/workers', async (c) => {
+  if (!isAuthorized(c.env, c)) return authDenied(c.env, c, true);
+  return ok(c, await listWorkers(c.env));
+});
+
+app.get('/hermes/workers/:scriptName/versions', async (c) => {
+  if (!isAuthorized(c.env, c)) return authDenied(c.env, c, true);
+  const scriptName = String(c.req.param('scriptName') || '').trim();
+  if (!scriptName) return err(c, 'SCRIPT_REQUIRED', 400, 'scriptName is required');
+  return ok(c, await listVersions(c.env, scriptName));
+});
+
+app.post('/hermes/workers/:scriptName/rollback/:versionId', async (c) => {
+  if (!isAuthorized(c.env, c)) return authDenied(c.env, c, true);
+  const scriptName = String(c.req.param('scriptName') || '').trim();
+  const versionId = String(c.req.param('versionId') || '').trim();
+  if (!scriptName || !versionId) return err(c, 'PARAMS_REQUIRED', 400, 'scriptName and versionId are required');
+  return ok(c, await rollbackWorker(c.env, scriptName, versionId));
+});
+
+app.put('/hermes/workers/:scriptName', async (c) => {
+  if (!isAuthorized(c.env, c)) return authDenied(c.env, c, true);
+  const scriptName = String(c.req.param('scriptName') || '').trim();
+  if (!scriptName) return err(c, 'SCRIPT_REQUIRED', 400, 'scriptName is required');
+  const source = await c.req.text();
+  return ok(c, await updateWorker(c.env, scriptName, source));
+});
+
+app.get('/hermes/analytics/:zoneId', async (c) => {
+  if (!isAuthorized(c.env, c)) return authDenied(c.env, c, true);
+  const zoneId = String(c.req.param('zoneId') || '').trim();
+  if (!zoneId) return err(c, 'ZONE_REQUIRED', 400, 'zoneId is required');
+  return ok(c, await getAnalytics(c.env, zoneId));
+});
+
+app.get('/hermes/kv/namespaces', async (c) => {
+  if (!isAuthorized(c.env, c)) return authDenied(c.env, c, true);
+  const accountId = String(c.env.CLOUDFLARE_ACCOUNT_ID || '').trim();
+  if (!accountId) return err(c, 'ACCOUNT_REQUIRED', 400, 'CLOUDFLARE_ACCOUNT_ID missing');
+  return ok(c, await listKVNamespaces(c.env, accountId));
+});
+
+app.get('/hermes/kv/namespaces/:namespaceId/keys', async (c) => {
+  if (!isAuthorized(c.env, c)) return authDenied(c.env, c, true);
+  const accountId = String(c.env.CLOUDFLARE_ACCOUNT_ID || '').trim();
+  const namespaceId = String(c.req.param('namespaceId') || '').trim();
+  const prefix = String(c.req.query('prefix') || '').trim();
+  if (!accountId || !namespaceId) return err(c, 'PARAMS_REQUIRED', 400, 'accountId/namespaceId required');
+  return ok(c, await getKVKeys(c.env, accountId, namespaceId, prefix));
+});
+
+app.put('/hermes/kv/namespaces/:namespaceId/values/:key', async (c) => {
+  if (!isAuthorized(c.env, c)) return authDenied(c.env, c, true);
+  const accountId = String(c.env.CLOUDFLARE_ACCOUNT_ID || '').trim();
+  const namespaceId = String(c.req.param('namespaceId') || '').trim();
+  const key = String(c.req.param('key') || '').trim();
+  const ttlHeader = c.req.header('x-kv-ttl');
+  if (!accountId || !namespaceId || !key) return err(c, 'PARAMS_REQUIRED', 400, 'accountId/namespaceId/key required');
+  const value = await c.req.text();
+  const ttl = ttlHeader ? Number(ttlHeader) : undefined;
+  return ok(c, await putKV(c.env, accountId, namespaceId, key, value, ttl));
+});
+
+app.get('/hermes/r2/buckets', async (c) => {
+  if (!isAuthorized(c.env, c)) return authDenied(c.env, c, true);
+  const accountId = String(c.env.CLOUDFLARE_ACCOUNT_ID || '').trim();
+  if (!accountId) return err(c, 'ACCOUNT_REQUIRED', 400, 'CLOUDFLARE_ACCOUNT_ID missing');
+  return ok(c, await listR2Buckets(c.env, accountId));
+});
+
+app.get('/hermes/r2/buckets/:bucket/objects', async (c) => {
+  if (!isAuthorized(c.env, c)) return authDenied(c.env, c, true);
+  const accountId = String(c.env.CLOUDFLARE_ACCOUNT_ID || '').trim();
+  const bucket = String(c.req.param('bucket') || '').trim();
+  const prefix = String(c.req.query('prefix') || '').trim();
+  if (!accountId || !bucket) return err(c, 'PARAMS_REQUIRED', 400, 'accountId/bucket required');
+  return ok(c, await listR2Objects(c.env, accountId, bucket, prefix));
+});
+
+app.get('/hermes/d1/databases', async (c) => {
+  if (!isAuthorized(c.env, c)) return authDenied(c.env, c, true);
+  const accountId = String(c.env.CLOUDFLARE_ACCOUNT_ID || '').trim();
+  if (!accountId) return err(c, 'ACCOUNT_REQUIRED', 400, 'CLOUDFLARE_ACCOUNT_ID missing');
+  return ok(c, await listD1Databases(c.env, accountId));
+});
+
+app.post('/hermes/d1/databases/:dbId/query', async (c) => {
+  if (!isAuthorized(c.env, c)) return authDenied(c.env, c, true);
+  const accountId = String(c.env.CLOUDFLARE_ACCOUNT_ID || '').trim();
+  const dbId = String(c.req.param('dbId') || '').trim();
+  if (!accountId || !dbId) return err(c, 'PARAMS_REQUIRED', 400, 'accountId/dbId required');
+  const body = await c.req.json().catch(() => ({}));
+  const sql = String(body.sql || '').trim();
+  if (!sql) return err(c, 'SQL_REQUIRED', 400, 'sql is required');
+  return ok(c, await queryD1(c.env, accountId, dbId, sql, Array.isArray(body.params) ? body.params : []));
+});
+
+app.get('/hermes/state', async (c) => {
+  if (!isAuthorized(c.env, c)) return authDenied(c.env, c, true);
+  return ok(c, await getHermesState(c.env));
+});
+
+app.get('/hermes/debug/token', async (c) => {
+  if (!isAuthorized(c.env, c)) return authDenied(c.env, c, true);
+  const token = String(c.env.CLOUDFLARE_API_TOKEN || '').trim();
+  return ok(c, {
+    hasToken: token.length > 0,
+    tokenPrefix: token ? `${token.slice(0, 6)}...${token.slice(-4)}` : null,
+    tokenLength: token.length,
+  });
+});
+
 
 app.get('/api/exchanges/health', async (c) => {
   if (!isAuthorized(c.env, c)) return authDenied(c.env, c, true);
