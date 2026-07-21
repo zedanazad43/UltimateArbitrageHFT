@@ -1,5 +1,5 @@
 // src/routes/ai-routes.js
-import { routeToFreeFallback } from '../free-provider-failover.js';
+
 
 const DEFAULT_LLM_MODEL = '@cf/meta/llama-3.1-8b-instruct-fp8-fast';
 const FREE_FALLBACK_MODELS = [

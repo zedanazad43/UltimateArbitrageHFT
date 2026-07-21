@@ -104,7 +104,7 @@ class PriceFeedManager {
     return urls[exchange] || '';
   }
 
-  _subscribe(ws, symbols) {
+  _subscribe(_ws, _symbols) {
     // Exchange-specific subscription protocol
   }
 }

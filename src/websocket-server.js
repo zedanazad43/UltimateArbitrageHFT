@@ -1,14 +1,14 @@
 // src/websocket-server.js — High-performance WebSocket server for real-time data
 
 import { WebSocketServer, WebSocket } from 'ws';
-import { createWriteStream } from 'fs';
+import { createWriteStream as _createWriteStream } from 'fs';
 import { AsyncLogger } from './utils/async-logger.js';
 import { KillSwitch } from './infra/kill-switch.js';
 
 const PORT = process.env.WS_PORT || 8788;
 const MAX_MESSAGE_SIZE = 1024 * 1024; // 1MB max message
 const HEARTBEAT_INTERVAL = 30000; // 30s
-const CLIENT_TIMEOUT = 60000; // 60s
+const _CLIENT_TIMEOUT = 60000; // 60s
 
 class WebSocketServerClass {
   constructor() {
@@ -36,7 +36,7 @@ class WebSocketServerClass {
         }
       });
 
-      this.wss.on('connection', (ws, req) => {
+      this.wss.on('connection', (ws, _req) => {
         const clientId = Date.now().toString(36) + Math.random().toString(36).substr(2);
         this.clients.set(clientId, {
           ws,
@@ -152,7 +152,7 @@ class WebSocketServerClass {
    * Handle control commands
    */
   _handleCommand(clientId, command) {
-    const { action, params } = command;
+    const { action, _params } = command;
     
     switch (action) {
       case 'start_trading':
