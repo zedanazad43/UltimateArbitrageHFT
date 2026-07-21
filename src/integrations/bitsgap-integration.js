@@ -55,7 +55,7 @@ class BitsgapIntegration {
       console.log(`   User: ${data?.user?.email || 'unknown'}`);
       return data;
     } catch (error) {
-      throw new Error(`Bitsgap validation failed: ${error.message}`);
+      throw new Error(`Bitsgap validation failed: ${error.message}`, { cause: error });
     }
   }
 

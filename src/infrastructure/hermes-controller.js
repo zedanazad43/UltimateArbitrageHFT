@@ -35,17 +35,17 @@ async function persist(env, partial) {
   return next;
 }
 
-async function isAuthorized(env, c) {
+async function _isAuthorized(env, c) {
   const expected = String(env.AUTH_SHARED_SECRET || env.HERMES_SHARED_SECRET || '').trim();
   if (!expected) return true;
   const provided = String(c.req.header('x-agent-secret') || '').trim();
   return provided.length > 0 && provided === expected;
 }
 
-function okJson(c, body) {
+function _okJson(c, body) {
   return c.json({ ok: true, ...body });
 }
-function bad(c, code, msg) {
+function _bad(c, code, msg) {
   return c.json({ ok: false, error: msg }, code !== undefined && code !== null ? code : 400);
 }
 

@@ -1,11 +1,13 @@
 // src/sdk-bridge.js
 // Unified SDK bridge over Cloudflare runtime + GitHub Copilot SDK
+import { createRequire } from 'node:module';
+const nodeRequire = createRequire(import.meta.url);
 export default class SDKBridge {
   constructor(bindings = {}) {
     this.bindings = bindings;
     let imported = null;
     try {
-      imported = require('@github/copilot-sdk');
+      imported = nodeRequire('@github/copilot-sdk');
     } catch {
       imported = null;
     }

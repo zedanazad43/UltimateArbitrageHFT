@@ -63,6 +63,22 @@ export default [
       sourceType: "commonjs",
     },
   },
+  // Test files use ESM imports
+  {
+    files: ["tests/**/*.js", "test-ide-integration.js"],
+    languageOptions: {
+      sourceType: "module",
+      globals: {
+        describe: "readonly",
+        test: "readonly",
+        expect: "readonly",
+        beforeAll: "readonly",
+        afterAll: "readonly",
+        beforeEach: "readonly",
+        afterEach: "readonly",
+      },
+    },
+  },
   // Node.js environment for scripts and temporal worker
   {
     files: [
@@ -76,25 +92,16 @@ export default [
       "scripts/**/*.mjs",
       "agents/api/**/*.js",
       "src/ai-client.js",
-      "tests/**/*.js",
-      "test-ide-integration.js",
+      "tools/**/*.cjs",
     ],
     languageOptions: {
+      sourceType: "commonjs",
       globals: {
-        process: "readonly",
-        __dirname: "readonly",
-        __filename: "readonly",
         require: "readonly",
         module: "readonly",
         exports: "readonly",
-        Buffer: "readonly",
-        console: "readonly",
-        URL: "readonly",
-        URLSearchParams: "readonly",
-        fetch: "readonly",
-        TextEncoder: "readonly",
-        TextDecoder: "readonly",
-        crypto: "readonly",
+        __dirname: "readonly",
+        __filename: "readonly",
       },
     },
   },

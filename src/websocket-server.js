@@ -317,7 +317,7 @@ class WebSocketServerClass {
     while (this.broadcastQueue.length > 0) {
       const { message, filterChannels } = this.broadcastQueue.shift();
       
-      for (const [clientId, client] of this.clients) {
+      for (const [_clientId, client] of this.clients) {
         try {
           if (client.ws.readyState === WebSocket.OPEN) {
             if (filterChannels.includes('all') || client.channels?.has('all') || 
@@ -359,10 +359,10 @@ class WebSocketServerClass {
    */
   _startHeartbeat() {
     setInterval(() => {
-      for (const [clientId, client] of this.clients) {
+      for (const [_clientId, client] of this.clients) {
         if (!client.ws.isAlive) {
-          this.clients.delete(clientId);
-          this.logger.warn('Client timeout', { clientId });
+          this.clients.delete(_clientId);
+          this.logger.warn('Client timeout', { clientId: _clientId });
           continue;
         }
 
@@ -411,7 +411,7 @@ class WebSocketServerClass {
     this.isRunning = false;
     
     // Close all clients
-    for (const [clientId, client] of this.clients) {
+    for (const [_clientId, client] of this.clients) {
       client.ws.close(1000, 'Server shutting down');
     }
 

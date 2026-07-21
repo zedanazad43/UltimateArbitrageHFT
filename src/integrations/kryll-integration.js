@@ -57,7 +57,7 @@ class KryllIntegration {
       console.log(`   User: ${data.user?.email || 'unknown'}`);
       return data;
     } catch (error) {
-      throw new Error(`Kryll validation failed: ${error.message}`);
+      throw new Error(`Kryll validation failed: ${error.message}`, { cause: error });
     }
   }
 

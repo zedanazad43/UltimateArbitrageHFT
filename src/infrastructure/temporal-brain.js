@@ -1,23 +1,4 @@
-import { setTimeout as delay } from 'timers/promises';
-
-const TOPOLOGY = {
-  cloudflareLondon: 'https://london.cloudflare.com',
-  cloudflareFrankfurt: 'https://fra.cloudflare.com/cdn-cgi/trace',
-  exchangeEndpoints: {
-    binance: 'https://api.binance.com/api/v3/ping',
-    mexc: 'https://api.mexc.com/api/v3/ping',
-    bitget: 'https://api.bitget.com/api/v2/public/time',
-    bybit: 'https://api.bybit.com/v5/market/time',
-    okx: 'https://www.okx.com/api/v5/public/time',
-    coinbase: 'https://api.exchange.coinbase.com/time',
-    kraken: 'https://api.kraken.com/0/public/Time',
-    kucoin: 'https://api.kucoin.com/api/v1/timestamp',
-  },
-  thresholds: {
-    londonRttWarnMs: 8,
-    frankfurtRttWarnMs: 12,
-  },
-};
+import { setTimeout as _delay } from 'timers/promises';
 
 export class TopologyMap {
   constructor() {
@@ -25,19 +6,19 @@ export class TopologyMap {
     this.sessions = new Map();
   }
   async measure(endpoint, timeoutMs = 3000) {
-    const start = performance.now();
+    const start = globalThis.performance?.now?.() || Date.now();
     try {
       const controller = new AbortController();
       const id = setTimeout(() => controller.abort(), timeoutMs);
       const res = await fetch(endpoint, { signal: controller.signal, redirect: 'manual', cache: 'no-store' });
       clearTimeout(id);
-      const rtt = performance.now() - start;
-      const mono = performance.now();
+      const rtt = (globalThis.performance?.now?.() || Date.now()) - start;
+      const mono = globalThis.performance?.now?.() || Date.now();
       const entry = { endpoint, rtt, status: res.status, timestamp: Date.now(), mono };
       this.samples.set(endpoint, entry);
       return entry;
     } catch (e) {
-      const entry = { endpoint, rtt: null, status: 'ERR', error: String(e), timestamp: Date.now(), mono: performance.now() };
+      const entry = { endpoint, rtt: null, status: 'ERR', error: String(e), timestamp: Date.now(), mono: globalThis.performance?.now?.() || Date.now() };
       this.samples.set(endpoint, entry);
       return entry;
     }
@@ -69,13 +50,13 @@ export class TriClock {
   constructor() {
     this.offset = 0;
     this.jitter = 0;
-    this.goldenStart = performance.timeOrigin + performance.now();
+    this.goldenStart = (globalThis.performance?.timeOrigin || Date.now()) + (globalThis.performance?.now?.() || 0);
   }
   now() {
-    return performance.timeOrigin + performance.now() + this.offset;
+    return (globalThis.performance?.timeOrigin || Date.now()) + (globalThis.performance?.now?.() || 0) + this.offset;
   }
   monotonic() {
-    return performance.now();
+    return globalThis.performance?.now?.() || Date.now();
   }
   applyKalman(newSampleMs, _noise = 0.1) {
     const kalmanGain = this.jitter / (this.jitter + _noise);
@@ -104,7 +85,7 @@ export class DistributedListener {
     this.wsConnections.set(name, ws);
   }
   ingestHeartbeat(t1, t2, t3, source) {
-    const beat = { t1, t2, t3, source, ts: performance.now() };
+    const beat = { t1, t2, t3, source, ts: globalThis.performance?.now?.() || Date.now() };
     this.heartbeats.push(beat);
     if (this.heartbeats.length > this.maxHeartbeats) this.heartbeats.shift();
     return { beat, drift: t2 - t1 };

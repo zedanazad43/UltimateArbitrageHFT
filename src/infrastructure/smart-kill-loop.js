@@ -1,4 +1,4 @@
-import { setTimeout as delay } from 'timers/promises';
+import { setTimeout as _delay } from 'timers/promises';
 
 export class SmartKillSwitch {
   constructor({ capitalBase = 10000, maxLossBps = 10, maxDriftMicros = 50 } = {}) {
