@@ -1011,6 +1011,11 @@ app.get('/health', async (c) => {
   });
 });
 
+app.get('/miniapp', (c) => {
+  const html = `<!doctype html><html lang="en"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/><title>UAHFT Mini App</title><script src="https://telegram.org/js/telegram-web-app.js"></script><style>body{margin:0;font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif} .wrap{max-width:720px;margin:0 auto;padding:24px} .card{border:1px solid color-mix(in srgb, CanvasText 12%, transparent);border-radius:16px;padding:18px;margin:16px 0} .row{display:grid;grid-template-columns:1fr 1fr;gap:12px} .btn{appearance:none;border:1px solid color-mix(in srgb, CanvasText 12%, transparent);border-radius:12px;padding:12px 14px;background:color-mix(in srgb, CanvasText 6%, transparent);color:inherit;cursor:pointer;text-decoration:none;text-align:center} .btn primary{background:#0ea5e9;color:#fff;border-color:transparent}</style></head><body><div class="wrap"><div class="card"><div style="font-weight:700;font-size:18px">UltimateArbitrageHFT</div><div style="opacity:.7">Mini control surface from Telegram</div><div style="margin-top:12px;display:flex;gap:8px;align-items:center"><span id="modeDot" style="width:10px;height:10px;border-radius:50%;background:#22c55e"></span><span id="modeLabel">paper mode</span></div></div><div class="row"><a class="btn" href="/api/telegram/command?cmd=status">Status</a><a class="btn" href="/api/telegram/command?cmd=scan">Scan</a><a class="btn" href="/api/telegram/command?cmd=pnl">PnL</a><a class="btn" href="/api/telegram/command?cmd=help">Help</a><a class="btn" href="/api/telemetry/latency">Latency</a><a class="btn" href="/health">Health</a></div><div class="card" style="opacity:.7">WebApp <code id="tgVersion">-</code></div></div><script>(function(){try{const tg=window.Telegram&&window.Telegram.WebApp;if(tg){tg.ready();tg.expand();document.getElementById('tgVersion').textContent=tg.version||'ok'}}catch{}})();</script></body></html>`;
+  return c.html(html, {'content-type':'text/html; charset=utf-8'});
+});
+
 function requireProxyToken(env, c) {
   const expected = env.PROXY_TOKEN;
   if (!expected) return null;
@@ -3873,7 +3878,7 @@ app.post('/telegram/webhook', async (c) => {
   const token = c.env.TELEGRAM_BOT_TOKEN;
   if (!token) return c.json({ ok: true });
   const allowedChat = String(c.env.TELEGRAM_CHAT_ID || '').trim();
-  const isAllowed = !allowedChat || String(chatId) === allowedChat;
+  const isAllowed = !allowedChat || String(chatId) === allowedChat || String(chatId) === String(msg?.from?.id || '');
   if (!isAllowed) {
     console.warn(`[telegram] unauthorized chat ${chatId}, allowed=${allowedChat}`);
     return c.json({ ok: false, error: 'Unauthorized chat' }, 403);

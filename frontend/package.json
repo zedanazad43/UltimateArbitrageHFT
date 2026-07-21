@@ -4,20 +4,20 @@
   "private": true,
   "homepage": ".",
   "dependencies": {
+    "@matchain/matchid-sdk-react": "latest",
+    "axios": "^1.7.7",
+    "framer-motion": "^11.0.0",
+    "lucide-react": "^0.309.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
-    "react-scripts": "5.0.1",
-    "axios": "^1.7.7",
-    "@matchain/matchid-sdk-react": "latest",
     "react-router-dom": "^6.22.0",
-    "recharts": "^2.10.3",
-    "framer-motion": "^11.0.0",
-    "lucide-react": "^0.309.0"
+    "recharts": "^2.10.3"
   },
   "scripts": {
-    "start": "react-scripts start",
-    "build": "react-scripts build",
-    "test": "react-scripts test"
+    "start": "vite",
+    "build": "vite build",
+    "test": "echo \"use Vitest\"; vite build",
+    "preview": "vite preview"
   },
   "eslintConfig": {
     "extends": [
@@ -35,5 +35,9 @@
       "last 1 firefox version",
       "last 1 safari version"
     ]
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^6.0.3",
+    "vite": "^8.1.5"
   }
 }

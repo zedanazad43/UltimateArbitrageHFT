@@ -35,7 +35,7 @@ async function persist(env, partial) {
   return next;
 }
 
-async function isAuthorized(c, env) {
+async function isAuthorized(env, c) {
   const expected = String(env.AUTH_SHARED_SECRET || env.HERMES_SHARED_SECRET || '').trim();
   if (!expected) return true;
   const provided = String(c.req.header('x-agent-secret') || '').trim();

@@ -212,6 +212,19 @@ export function renderControlPanel() {
     </div>
 
     <div class="card">
+      <h2>&#9201; Latency & Kill Switch <span class="status-dot status-idle" id="latency-dot"></span></h2>
+      <div class="stat-row"><span class="stat-label">Last RTT</span><span class="stat-value" id="lat-last">---</span></div>
+      <div class="stat-row"><span class="stat-label">Avg RTT</span><span class="stat-value" id="lat-avg">---</span></div>
+      <div class="stat-row"><span class="stat-label">P95 RTT</span><span class="stat-value" id="lat-p95">---</span></div>
+      <div class="stat-row"><span class="stat-label">Kill Switch</span><span class="stat-value" id="lat-kill">---</span></div>
+      <div class="stat-row"><span class="stat-label">Drift Warnings</span><span class="stat-value" id="lat-drift">---</span></div>
+      <div class="button-group">
+        <button onclick="loadLatencyStatus()">&#8635; Refresh</button>
+        <button onclick="resetLatencyKillSwitch()" class="secondary">Reset Kill Switch</button>
+      </div>
+    </div>
+
+    <div class="card">
       <h2>&#10004; Execution Health <span class="status-dot status-idle" id="exec-dot"></span></h2>
       <div class="stat-row"><span class="stat-label">Execution Mode</span><span class="stat-value" id="exec-mode">Loading...</span></div>
       <div class="stat-row"><span class="stat-label">Active Strategies</span><span class="stat-value" id="exec-strategies">Loading...</span></div>
@@ -932,6 +945,29 @@ export function renderControlPanel() {
     setDot('report-dot', 'status-ok');
   }
 
+  async function loadLatencyStatus() {
+    setDot('latency-dot', 'status-warn');
+    var r = await api('/api/telemetry/latency');
+    if (!r.ok) {
+      setDot('latency-dot', 'status-error');
+      showToast('Latency status failed: ' + errMsg(r), 'error');
+      return;
+    }
+    var d = r.data || {};
+    setText('lat-last', d.lastRttMs == null ? '---' : Number(d.lastRttMs).toFixed(0) + ' ms', d.lastRttMs > 50 ? 'warn' : '');
+    setText('lat-avg', d.avgRttMs == null ? '---' : Number(d.avgRttMs).toFixed(0) + ' ms', d.avgRttMs > 40 ? 'warn' : '');
+    setText('lat-p95', d.p95RttMs == null ? '---' : Number(d.p95RttMs).toFixed(0) + ' ms', d.p95RttMs > 60 ? 'warn' : '');
+    setText('lat-kill', d.killTripped ? 'TRIPPED' : 'Armed', d.killTripped ? 'error' : 'ok');
+    setText('lat-drift', String(d.driftWarnings ?? 0), d.driftWarnings > 0 ? 'warn' : '');
+    setDot('latency-dot', d.killTripped ? 'status-error' : 'status-ok');
+  }
+
+  async function resetLatencyKillSwitch() {
+    var r = await api('/api/telemetry/latency/reset', { method: 'POST' });
+    showToast(r.ok ? 'Kill switch reset' : errMsg(r), r.ok ? 'success' : 'error');
+    if (r.ok) loadLatencyStatus();
+  }
+
   async function refreshAll() {
     await Promise.all([
       loadStatus(),
@@ -944,6 +980,7 @@ export function renderControlPanel() {
       checkBitmartStatus(),
       checkProxyStats(),
       checkAllEndpoints(),
+      loadLatencyStatus(),
     ]);
   }
 

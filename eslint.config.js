@@ -119,7 +119,7 @@ export default [
   // globals without per-directory
   // overrides.
   {
-    files: ["**/*.{js,mjs}"],
+    files: ["**/*.{js,mjs,cjs}"],
     languageOptions: {
       globals: {
         console: "readonly",
@@ -176,6 +176,8 @@ export default [
         structuredClone: "readonly",
         queueMicrotask: "readonly",
         self: "readonly",
+        process: "readonly",
+        Buffer: "readonly",
       },
     },
   },

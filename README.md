@@ -4,6 +4,29 @@
 
 Next-gen arbitrage engine for Cloudflare Workers. Ultra-low latency, AI-driven, multi-exchange.
 
+## Hermes brain / repo-time orchestrator
+
+Hermes is the single brain over this repo:
+- sync + conflict resolution across local and GitHub environments
+- time-versioning: each release carries RTT, jitter, and readiness fingerprint
+- CI/CD rewrites for temporal-hardening tests
+- auto-docs: README, Changelog, and time-architecture updates
+- deploy doctrine: tests first, dry-run mandatory, local wrangler, OAuth-only deploy
+- Windows caveat: `CLOUDFLARE_API_TOKEN` overrides wrangler OAuth; always `unset CLOUDFLARE_API_TOKEN && ./node_modules/.bin/wrangler deploy`
+
+## MCP + VSCode integration
+- GitHub Copilot MCP: `https://api.githubcopilot.com/mcp/` with Bearer auth
+- Cloudflare MCP servers wired in VSCode settings
+- Hermes provider: OpenRouter
+- Gateway: cron/webhook runtime
+
+## Trading safety
+- `trading_enabled = false`
+- Phase 0: shadow + evening reports
+- Phase 1: zero orders, measure real time
+- Phase 2: micro capital
+- Phase 3: conditional live trading via readiness indicator
+
 ## Features
 - **Real-time arbitrage scanning** across MEXC, HTX, Bitget, Binance, Bitmart, KuCoin, Coinbase
 - **Rocket HFT Dashboard** - Modern, dark UI with live spreads and exchange health
