@@ -91,6 +91,7 @@ export default [
       "scripts/**/*.js",
       "scripts/**/*.mjs",
       "agents/api/**/*.js",
+      "src/bots/trader.js",
       "tools/**/*.cjs",
     ],
     languageOptions: {

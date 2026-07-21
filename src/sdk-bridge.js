@@ -8,6 +8,7 @@ export default class SDKBridge {
     let imported = null;
     try {
       imported = nodeRequire('@github/copilot-sdk');
+      if (imported) this.copilot = imported;
     } catch {
       imported = null;
     }

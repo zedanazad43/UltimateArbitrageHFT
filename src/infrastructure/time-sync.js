@@ -3,7 +3,9 @@
 // - Provides best-practice network headers for Worker/server requests.
 // - Adds HMAC request signing with local timestamp to detect timejacking.
 
-const crypto = require('node:crypto');
+import { createRequire } from 'node:module';
+const nodeRequire = createRequire(import.meta.url);
+const crypto = nodeRequire('node:crypto');
 
 const DEFAULT_SHARED_SECRET = process.env.HMAC_SHARED_SECRET || '';
 

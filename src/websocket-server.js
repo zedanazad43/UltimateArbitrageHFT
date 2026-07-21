@@ -327,7 +327,7 @@ class WebSocketServerClass {
             }
           }
         } catch (err) {
-          this.logger.error('Send failed', { clientId, error: err.message });
+          this.logger.error('Send failed', { clientId: _clientId, error: err.message });
         }
       }
     }
@@ -350,7 +350,7 @@ class WebSocketServerClass {
       client.ws.send(message);
       client.messageCount++;
     } catch (err) {
-      this.logger.error('Send failed', { clientId, error: err.message });
+      this.logger.error('Send failed', { clientId: _clientId, error: err.message });
     }
   }
 
