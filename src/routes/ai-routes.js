@@ -166,7 +166,7 @@ export function registerAiRoutes(app, deps) {
       return c.json({ error: 'input produced no messages' }, 400);
     }
 
-    const baseMaxTokens = typeof body.max_output_tokens === 'number' && body.max_output_tokens > 0
+    const _baseMaxTokens = typeof body.max_output_tokens === 'number' && body.max_output_tokens > 0
       ? body.max_output_tokens
       : 512;
 

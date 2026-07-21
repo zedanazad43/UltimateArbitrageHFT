@@ -17,7 +17,7 @@ import { scanScalpingReverse } from './strategies/scalping-reverse.js';
 import { scanScalpingParallel } from './strategies/scalping-parallel.js';
 import { scanCexDexBridge, buildCexPriceMap } from './strategies/cex-dex-bridge.js';
 import { scanFromHFT, isHFTEngineConfigured } from './hft-client.js';
-import { logTrade, openPaperPosition, getOpenPaperPositions, closePaperPosition, logBotEvent, logOpportunity, recordPerformanceSnapshot, upsertStrategyInsight, auditOpportunity } from './db.js';
+import { logTrade, openPaperPosition, getOpenPaperPositions, closePaperPosition, logBotEvent, upsertStrategyInsight, auditOpportunity } from './db.js';
 import { calculateAdaptiveLeverage, calculatePositionSize, MAX_POSITION_EQUITY_FRACTION, checkDrawdownGuard, checkExposureLimit } from './risk.js';
 import { logEvent, incrementMetric, observeLatency } from './infra/observability.js';
 import { loadBotMemory, recordStrategyOutcome, recordVenueOutcome } from './bot-memory.js';
@@ -1359,8 +1359,8 @@ export async function runScan(env, state, sendAlert, scanContext = {}) {
         );
 
         await logTrade(env, { strategy: strategyLabel, sizeUsd, netPct: opp.netPct, mode });
-    await upsertStrategyInsight(env, { strategy: opp.strategy, symbol: opp.symbol, exchange_pair: `${opp.buyExchange}->${opp.sellExchange}`, direction: opp.direction, net_pct: Number(opp.netPct || 0), gross_pct: Number(opp.grossPct || 0), slippage_pct: Number(opp.slippagePct || 0), outcome: netPct > 0 ? 'win' : 'loss' });
-    await auditOpportunity(env, opp.id || Date.now(), 'executed', null, sizeUsd * netPct / 100, Date.now() - Number(opp.createdAt || Date.now()));
+    await upsertStrategyInsight(env, { strategy: opp.strategy, symbol: opp.symbol, exchange_pair: `${opp.buyExchange}->${opp.sellExchange}`, direction: opp.direction, net_pct: Number(opp.netPct || 0), gross_pct: Number(opp.grossPct || 0), slippage_pct: Number(opp.slippagePct || 0), outcome: opp.netPct > 0 ? 'win' : 'loss' });
+    await auditOpportunity(env, opp.id || Date.now(), 'executed', null, sizeUsd * (Number(opp.netPct || 0)) / 100, Date.now() - Number(opp.createdAt || Date.now()));
 
         await sendAlert(
           env,

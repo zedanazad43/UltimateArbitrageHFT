@@ -1,10 +1,10 @@
 // src/utils/async-logger.js — High-performance non-blocking async logger
 
-import { createWriteStream, appendFileSync } from 'fs';
+import { createWriteStream, _appendFileSync } from 'fs';
 import { join } from 'path';
 
 const LOG_DIR = join(process.cwd(), 'logs');
-const MAX_LOG_SIZE = 10 * 1024 * 1024; // 10MB
+const _MAX_LOG_SIZE = 10 * 1024 * 1024; // 10MB
 const BATCH_SIZE = 100;
 
 class AsyncLogger {

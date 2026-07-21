@@ -11,7 +11,6 @@
  * Env:  WORKER_URL (default https://api.ecostamp.net), ADMIN_TOKEN, SYMBOLS
  */
 const https = require('https');
-const http = require('http');
 const { WebSocket } = require('ws');
 
 const WORKER_URL = (process.env.WORKER_URL || 'https://api.ecostamp.net').replace(/\/$/, '');
@@ -77,9 +76,10 @@ function scheduleFlush() {
 }
 
 function connect(name, cfg) {
-  const _http = require('http');
+  const ws = new WebSocket(cfg.url);
   let alive = true;
   let pingTimer = null;
+  const _alive = alive;
 
   ws.on('open', () => {
     console.log(`[ws-feed] ${name} connected`);

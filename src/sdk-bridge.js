@@ -17,7 +17,7 @@ export default class SDKBridge {
     return new SDKBridge(bindings);
   }
 
-  _kv(key) {
+  _kv(_key) {
     return this.bindings?.BOT_STATE || this.bindings?.KV_STORAGE;
   }
 
