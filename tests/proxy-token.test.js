@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 function requireProxyToken(env, c) {
   const expected = env.PROXY_TOKEN;
   if (!expected) return null;
-  const provided = c.req.header('x-proxy-token') || '';
+  const provided = typeof c.header === 'function' ? c.header('x-proxy-token') : (c.req?.header?.('x-proxy-token') || '');
   if (provided !== expected) return { status: 401, text: 'Invalid proxy token' };
   return null;
 }
