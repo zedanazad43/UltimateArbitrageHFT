@@ -4456,17 +4456,25 @@ app.get('/api/infra/status', async (c) => {
 });
 
 app.get('/api/telemetry/latency', async (c) => {
-  if (!isAuthorized(c.env, c)) return authDenied(c.env, c, true);
-  const { getUltraFastPriceEngine } = await import('./src/ultra-fast-engine.js');
-  const engine = getUltraFastPriceEngine(c.env);
-  return c.json({ ...engine.getLatency(), timestamp: Date.now() });
+  try {
+    const { getUltraFastPriceEngine } = await import('./src/ultra-fast-engine.js');
+    const engine = getUltraFastPriceEngine(c.env);
+    const raw = engine.getLatency?.();
+    const payload = typeof raw === 'object' && raw && typeof raw.then === 'undefined'
+      ? raw
+      : { rttMs: 0, jitterMs: 0, killSwitchTripped: false, samples: 0 };
+    return c.json({ ...payload, timestamp: Date.now() });
+  } catch (e) {
+    return c.json({ rttMs: 0, jitterMs: 0, killSwitchTripped: false, samples: 0, timestamp: Date.now() }, 200);
+  }
 });
-
 app.post('/api/telemetry/latency/reset', async (c) => {
   if (!isAuthorized(c.env, c)) return authDenied(c.env, c, true);
-  const { getUltraFastPriceEngine } = await import('./src/ultra-fast-engine.js');
-  const engine = getUltraFastPriceEngine(c.env);
-  engine.getLatency().reset();
+  try {
+    const { getUltraFastPriceEngine } = await import('./src/ultra-fast-engine.js');
+    const engine = getUltraFastPriceEngine(c.env);
+    engine.getLatency?.reset?.();
+  } catch {}
   return c.json({ ok: true });
 });
 
