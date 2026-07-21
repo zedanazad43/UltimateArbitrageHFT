@@ -1,4 +1,4 @@
-import { setTimeout as delay } from 'timers/promises';
+import { setTimeout as _delay } from 'timers/promises';
 
 export class AlertDispatcher {
   constructor() {
@@ -11,10 +11,10 @@ export class AlertDispatcher {
     const out = [];
     for (const [, sender] of this.channels) {
       try {
-        const r = await sender(event);
+        const _alertResult = await sender(event);
         out.push({ channel: sender.name || 'unknown', ok: true });
-      } catch (e) {
-        out.push({ channel: sender.name || 'unknown', ok: false, error: String(e) });
+      } catch (err) {
+        out.push({ channel: sender.name || 'unknown', ok: false, error: String(err) });
       }
     }
     return out;

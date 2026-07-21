@@ -1,8 +1,6 @@
-import { setTimeout as delay } from 'timers/promises';
+import { setTimeout as _delay } from 'timers/promises';
 
-const REPLAY_WINDOW_MS = 5 * 60 * 1000; // 5 minutes for simulation
-
-export class PropagationMapper {
+class _PropagationMapper {
   constructor() {
     this.model = new Map(); // eventHash -> ExpectedArrivalModel
     this.rttHistory = new Map(); // exchange -> number[]
@@ -23,9 +21,9 @@ export class PropagationMapper {
     const p99 = sorted[Math.floor(sorted.length * 0.99)] || sorted.at(-1);
     return { avgMs: avg, p95Ms: p95, p99Ms: p99, count: sorted.length };
   }
-  async observeTick(exchangeA, exchangeB, pricesA, pricesB) {
+  observeTick(exchangeA, exchangeB, pricesA, pricesB) {
     const eventHash = `${exchangeA}-${Date.now()}`;
-    const t1 = performance.now();
+    const t1 = Date.now();
     const model = {
       eventHash,
       sourceExchange: exchangeA,
@@ -36,7 +34,7 @@ export class PropagationMapper {
     this.model.set(eventHash, model);
     return model;
   }
-  expectedArrival(from, to) {
+  expectedArrival(from, _to) {
     const stats = this.stats(from);
     return { avgMs: stats.avgMs, p95Ms: stats.p95Ms, p99Ms: stats.p99Ms };
   }
@@ -51,7 +49,7 @@ export class MarketMakerDissector {
   recordMove(exchange, symbol, latencyMs, isTopUpdate) {
     const key = `${exchange}:${symbol}`;
     const arr = this.recentMoves.get(key) || [];
-    arr.push({ t: performance.now(), latencyMs, isTopUpdate });
+    arr.push({ t: Date.now(), latencyMs, isTopUpdate });
     if (arr.length > this.maxRecent) arr.shift();
     this.recentMoves.set(key, arr);
     this.classify(exchange, symbol);

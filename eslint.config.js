@@ -91,7 +91,6 @@ export default [
       "scripts/**/*.js",
       "scripts/**/*.mjs",
       "agents/api/**/*.js",
-      "src/ai-client.js",
       "tools/**/*.cjs",
     ],
     languageOptions: {

@@ -1,5 +1,24 @@
 import { setTimeout as _delay } from 'timers/promises';
 
+const TOPOLOGY = {
+  cloudflareLondon: 'https://london.cloudflare.com',
+  cloudflareFrankfurt: 'https://fra.cloudflare.com/cdn-cgi/trace',
+  exchangeEndpoints: {
+    binance: 'https://api.binance.com/api/v3/ping',
+    mexc: 'https://api.mexc.com/api/v3/ping',
+    bitget: 'https://api.bitget.com/api/v2/public/time',
+    bybit: 'https://api.bybit.com/v5/market/time',
+    okx: 'https://www.okx.com/api/v5/public/time',
+    coinbase: 'https://api.exchange.coinbase.com/time',
+    kraken: 'https://api.kraken.com/0/public/Time',
+    kucoin: 'https://api.kucoin.com/api/v1/timestamp',
+  },
+  thresholds: {
+    londonRttWarnMs: 8,
+    frankfurtRttWarnMs: 12,
+  },
+};
+
 export class TopologyMap {
   constructor() {
     this.samples = new Map();

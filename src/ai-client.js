@@ -3,17 +3,6 @@
 // Uses the AIWORKER binding (Cloudflare Workers AI, model: llama-3.1-8b-instruct)
 // to evaluate and rank arbitrage opportunities before they reach the execution
 // layer, filtering out signals that look suspicious or low-quality.
-//
-// Design:
-//  - Presents up to 5 opportunities to the model in a compact text format.
-//  - Asks the model to return ONLY the 1-based index of the best opportunity.
-//  - Degrades gracefully: if AIWORKER is absent, if the AI call times out, or
-//    if the model returns an unparsable response, the function falls back to
-//    selecting the highest net-profit opportunity unchanged.
-//
-// Required binding (wrangler.toml):
-//   [ai]
-//   binding = "AIWORKER"
 
 const AI_MODEL = '@cf/meta/llama-3.1-8b-instruct';
 const AI_TIMEOUT_MS = 8000; // abort if Workers AI does not respond within 8 s

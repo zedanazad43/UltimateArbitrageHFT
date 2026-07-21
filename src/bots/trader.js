@@ -50,17 +50,17 @@ export const executeTrades = async (env, config, signals = []) => {
       propagation.updateRtt(signal.buyExchange || 'unknown', signalAgeMs || 0);
       propagation.updateRtt(signal.sellExchange || 'unknown', signalAgeMs || 0);
       const result = await _executeOneShootFirst(env, signal, nowMs);
-      const rtt = performance.now() - mono;
-      rttTracker.record({ label: signal.symbol, t1Ms: mono, t2Ms: mono + rtt });
-      listener.ingestHeartbeat(nowMs, nowMs + rtt, Date.now(), 'trader');
-      smartKill.onTrade({ pnlBps: result.pnlBps ?? 0, latencyMicros: rtt * 1000, driftMicros: rtt * 1000 });
-      console.log(`[Trader] ✅ Executed ${signal.symbol} ${signal.direction} in ${rtt.toFixed(2)}ms`);
+      const _rtt = Date.now() - mono;
+      rttTracker.record({ label: signal.symbol, t1Ms: mono, t2Ms: mono + _rtt });
+      listener.ingestHeartbeat(nowMs, nowMs + _rtt, Date.now(), 'trader');
+      smartKill.onTrade({ pnlBps: result.pnlBps ?? 0, latencyMicros: _rtt * 1000, driftMicros: _rtt * 1000 });
+      console.log(`[Trader] ✅ Executed ${signal.symbol} ${signal.direction} in ${_rtt.toFixed(2)}ms`);
       results.push({ signal, status: 'ok', result });
     } catch (err) {
-      const rtt = performance.now() - mono;
-      rttTracker.record({ label: signal.symbol, t1Ms: mono, t2Ms: mono + rtt });
+      const _rtt = Date.now() - mono;
+      rttTracker.record({ label: signal.symbol, t1Ms: mono, t2Ms: mono + _rtt });
       console.error(`[Trader] ❌ Failed ${signal.symbol} ${signal.direction}: ${err.message}`);
-      smartKill.onTrade({ pnlBps: -10, latencyMicros: rtt * 1000, driftMicros: rtt * 1000 });
+      smartKill.onTrade({ pnlBps: -10, latencyMicros: _rtt * 1000, driftMicros: _rtt * 1000 });
       results.push({ signal, status: 'error', error: err.message });
       await alertDispatcher.sendAll({ title: `Trade failed: ${signal.symbol}`, body: `${err.message}\nExchange latency tracker updated.` }).catch(() => {});
     }
@@ -134,11 +134,11 @@ async function _executeOneShootFirst(env, opp, t1) {
 
   return atomicExecutor.executeShootFirst({
     placeFn: async () => placeExchangeMarketOrder(env, buyExch, opp.symbol, 'BUY', amount, sizeUsd),
-    sellFn: async ({ buyResult, timeoutMs }) => atomicExecutor.postOnlyWithIoc({
+    sellFn: async ({ _buyResult: _traderBuyResult, _timeoutMs }) => atomicExecutor.postOnlyWithIoc({
       placeFn: async () => placeExchangeMarketOrder(env, sellExch, opp.symbol, 'SELL', amount, sizeUsd),
       onTimeout: async () => console.warn('[Trader] IOC timeout on sell leg for', opp.symbol)
     }),
-    hedgeFn: async ({ buyResult }) => {
+    hedgeFn: async ({ _buyResult: _traderBuyResultForHedge }) => {
       console.warn('[Trader] Hedging inventory after failed sell leg for', opp.symbol);
       return { hedged: true };
     }

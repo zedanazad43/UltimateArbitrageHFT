@@ -95,7 +95,7 @@ export function getFailover() {
 }
 
 
-const PROVIDER_BUDGET_MAX = 90;
+const _PROVIDER_BUDGET_MAX = 90;
 const BUDGET_KEY = 'provider_budget_used_v1';
 
 function _budgetKey(provider) { return `${BUDGET_KEY}:${provider}`; }
