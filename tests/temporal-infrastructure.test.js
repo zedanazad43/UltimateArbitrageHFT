@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { TopologyMap, TriClock, DistributedListener } from '../src/infrastructure/temporal-brain.js';
 import { PropagationMapper, MarketMakerDissector, ChronoReplay } from '../src/infrastructure/chrono-replay.js';
 import { SmartKillSwitch, UltraFastDecisionLoop, ContinuousRLLoop } from '../src/infrastructure/smart-kill-loop.js';
-import { AlertDispatcher, TelegramAlerter, GitHubNotifier } from '../src/infrastructure/alerting.js';
+import { AlertDispatcher as _AlertDispatcher, TelegramAlerter, GitHubNotifier } from '../src/infrastructure/alerting.js';
 
 describe('TopologyMap', () => {
   test('records a successful measurement', async () => {

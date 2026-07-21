@@ -1,4 +1,5 @@
-const { Hono } = require('hono');
+import { describe, test } from 'node:test';
+import assert from 'node:assert/strict';
 
 function requireProxyToken(env, c) {
   const expected = env.PROXY_TOKEN;
@@ -8,28 +9,27 @@ function requireProxyToken(env, c) {
   return null;
 }
 
+class FakeCtx {
+  constructor(env, headers) {
+    this.env = env;
+    this._headers = headers;
+  }
+  header(name) {
+    return this._headers[name] || '';
+  }
+}
+
 describe('proxy token guard', () => {
-  test('blocks request without token', async () => {
-    const app = new Hono();
-    app.get('/status', async (c) => {
-      const blocked = requireProxyToken(c.env, c);
-      if (blocked) return c.text(blocked.text, blocked.status);
-      return c.json({ ok: true });
-    });
-    const res = await app.request('http://localhost/status', { headers: {} });
-    expect(res.status).toBe(401);
+  test('blocks request without token', () => {
+    const env = { PROXY_TOKEN: 'secret-123' };
+    const blocked = requireProxyToken(env, new FakeCtx(env, {}));
+    assert.equal(blocked.status, 401);
+    assert.equal(blocked.text, 'Invalid proxy token');
   });
 
-  test('allows request with valid token', async () => {
-    const app = new Hono();
-    app.get('/status', async (c) => {
-      const blocked = requireProxyToken(c.env, c);
-      if (blocked) return c.text(blocked.text, blocked.status);
-      return c.json({ ok: true });
-    });
-    const res = await app.request('http://localhost/status', { headers: { 'x-proxy-token': 'secret-123' } });
-    expect(res.status).toBe(200);
-    const j = await res.json();
-    expect(j.ok).toBe(true);
+  test('allows request with valid token', () => {
+    const env = { PROXY_TOKEN: 'secret-123' };
+    const blocked = requireProxyToken(env, new FakeCtx(env, { 'x-proxy-token': 'secret-123' }));
+    assert.equal(blocked, null);
   });
 });

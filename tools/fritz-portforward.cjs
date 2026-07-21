@@ -11,7 +11,7 @@
  */
 const http = require('http');
 const fs = require('fs');
-const path = require('path');
+const _path = require('path');
 
 const BOX = process.env.FRITZ_BOX || '192.168.178.1';
 const LAN_IP = process.env.LAN_IP || '192.168.178.68';
@@ -24,7 +24,7 @@ if (!USER || !PASS) { console.error('[fritz] missing FRITZ_USER/FRITZ_PASS'); pr
 
 const SOAP = `<?xml version="1.0"?><s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/"><s:Body><u:AddPortMapping xmlns:u="urn:dslforum-org:service:WANIPConnection:1"><NewRemoteHost></NewRemoteHost><NewExternalPort>${EXT_PORT}</NewExternalPort><NewProtocol>TCP</NewProtocol><NewInternalPort>${INT_PORT}</NewInternalPort><NewInternalClient>${LAN_IP}</NewInternalClient><NewEnabled>1</NewEnabled><NewPortMappingDescription>Hermes-Gateway</NewPortMappingDescription><NewLeaseDuration>0</NewLeaseDuration></u:AddPortMapping></s:Body></s:Envelope>`;
 
-function digestAuth(path, body, creds, realmNonce) {
+function digestAuth(path, body, _creds, _realmNonce) {
   return new Promise((resolve, reject) => {
     const req = http.request({
       host: BOX, port: 49000, path, method: 'POST',

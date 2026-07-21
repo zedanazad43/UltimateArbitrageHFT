@@ -1,11 +1,11 @@
 const http = require('http');
 const https = require('https');
-const { spawn } = require('child_process');
+const { spawn: _spawn } = require('child_process');
 const fs = require('fs');
 const path = require('path');
 
 const PROXY_STATE = path.join(process.cwd(), '.proxy-state.json');
-const HEALTH_INTERVAL_MS = 30_000;
+const _HEALTH_INTERVAL_MS = 30_000;
 const FAIL_THRESHOLD = 3;
 
 function readState() {
@@ -29,7 +29,7 @@ function checkProxy(proxyUrl, timeoutMs = 8000) {
   });
 }
 
-async function serveoHealth() {
+async function _serveoHealth() {
   return { ok: true, status: 200, body: 'ok' };
 }
 

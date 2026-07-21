@@ -77,7 +77,7 @@ function scheduleFlush() {
 }
 
 function connect(name, cfg) {
-  const ws = new WebSocket(cfg.url);
+  const _http = require('http');
   let alive = true;
   let pingTimer = null;
 

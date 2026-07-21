@@ -106,8 +106,10 @@ describe('operator-facing API contracts', () => {
   });
 
   test('control panel serves x-admin-token based API wiring', async () => {
-    const req = new globalThis.Request('https://example.com/control-panel');
-    const res = await worker.fetch(req, {}, {});
+    const req = new globalThis.Request('https://example.com/control-panel', {
+      headers: { 'x-admin-token': 'secret-token' },
+    });
+    const res = await worker.fetch(req, { ADMIN_TOKEN: 'secret-token' }, {});
     assert.equal(res.status, 200);
 
     const html = await res.text();

@@ -129,7 +129,7 @@ const server = http.createServer(async (req, res) => {
   try {
     parsed = new URL(target);
     if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') throw new Error('bad proto');
-  } catch (e) {
+  } catch (_e) {
     res.writeHead(400, { 'content-type': 'text/plain' });
     return res.end('invalid target url: ' + target);
   }
