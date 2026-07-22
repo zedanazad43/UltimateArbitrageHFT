@@ -95,7 +95,7 @@ export default [
       "tools/**/*.cjs",
     ],
     languageOptions: {
-      sourceType: "commonjs",
+      sourceType: "module",
       globals: {
         require: "readonly",
         module: "readonly",
@@ -105,9 +105,17 @@ export default [
       },
     },
   },
-  // index.js imports many modules for side effects / dynamic usage
+  // CommonJS files that absolutely require commonjs sourceType
   {
-    files: ["index.js"],
+    files: [
+      "**/*.cjs",
+      "hero-super-agent/hero-agent/**/*.js",
+      "hero-super-agent/packages/**/*.js",
+      "agents/hero-agent/**/*.js",
+      "orchestrator.js",
+      "temporal-worker.js",
+      "tools/**/*.cjs",
+    ],
     rules: {
       "no-unused-vars": [
         "warn",
