@@ -60,11 +60,38 @@ async function sendTelegramAlert(env, message) {
   if (!token || !chatId) {
     return { ok: false, error: 'Telegram is not configured' };
   }
+
+  const direct = await _sendTelegramDirect(token, chatId, message);
+  if (direct.ok) return { ok: true };
+
+  const gatewayBase = String(env.HERMES_GATEWAY_URL || 'http://127.0.0.1:3000').replace(/\/$/, '');
+  const gatewayToken = String(env.HERMES_GATEWAY_TOKEN || '').trim();
+  if (!gatewayBase || !gatewayToken) {
+    return { ok: false, error: direct.error || 'Telegram direct failed and no Hermes fallback configured' };
+  }
+
+  try {
+    const resp = await fetch(`${gatewayBase}/telegram/sendMessage`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Gateway-Token': gatewayToken },
+      body: JSON.stringify({ text: message }),
+    });
+    if (!resp.ok) {
+      const detail = await resp.text().catch(() => 'Hermes gateway request failed');
+      return { ok: false, error: `Hermes gateway: ${detail}`, status: resp.status };
+    }
+    return { ok: true, fallback: 'hermes-gateway' };
+  } catch (error) {
+    return { ok: false, error: `Hermes gateway error: ${error.message}` };
+  }
+}
+
+async function _sendTelegramDirect(token, chatId, message) {
   try {
     const resp = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ chat_id: chatId, text: message, parse_mode: 'Markdown' })
+      body: JSON.stringify({ chat_id: chatId, text: message, parse_mode: 'Markdown' }),
     });
     if (!resp.ok) {
       const detail = await resp.text().catch(() => 'Telegram API request failed');
