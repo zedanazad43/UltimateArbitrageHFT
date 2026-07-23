@@ -5,7 +5,6 @@ import path from 'node:path';
 const BASE = 'https://ultimatearbitragehft.zedanazad43.workers.dev';
 const TOKEN = '309400';
 const REPORT_DIR = path.join(process.cwd(), '.archive', 'test_reports');
-const LOG_DIR = path.join(process.cwd(), '.archive');
 
 function httpsGet(urlPath) {
   return new Promise((resolve, reject) => {
@@ -13,10 +12,7 @@ function httpsGet(urlPath) {
     const req = https.request({ hostname: url.hostname, path: url.pathname, method: 'GET', headers: { 'x-admin-token': TOKEN } }, (res) => {
       const chunks = [];
       res.on('data', (c) => chunks.push(c));
-      res.on('end', () => {
-        const text = Buffer.concat(chunks).toString('utf8');
-        resolve({ status: res.statusCode, body: text });
-      });
+      res.on('end', () => resolve({ status: res.statusCode, body: Buffer.concat(chunks).toString('utf8') }));
     });
     req.on('error', reject);
     req.end();
@@ -43,7 +39,74 @@ function httpsPost(urlPath, body) {
   });
 }
 
-async function sleep(ms) { return new Promise((r) => setTimeout(r, ms)); }
+function loadLatestReports(count = 10) {
+  const files = fs.readdirSync(REPORT_DIR)
+    .filter(name => /^iteration_\d+\.json$/.test(name))
+    .sort((a, b) => {
+      const aNum = Number(a.replace('iteration_', '').replace('.json', ''));
+      const bNum = Number(b.replace('iteration_', '').replace('.json', ''));
+      return aNum - bNum;
+    })
+    .slice(-count);
+
+  return files.map(name => {
+    const content = fs.readFileSync(path.join(REPORT_DIR, name), 'utf8');
+    return JSON.parse(content);
+  });
+}
+
+function analyzeExternalWarnings(reports) {
+  const counts = {};
+  let total = 0;
+  for (const report of reports) {
+    const readiness = report.checks?.readiness?.body;
+    if (!readiness) continue;
+    let readinessJson = {};
+    try { readinessJson = JSON.parse(readiness); } catch {}
+    const exchanges = readinessJson.exchanges || {};
+    for (const [exchange, data] of Object.entries(exchanges)) {
+      if (!data?.readinessIgnored && !data?.authValidated) {
+        counts[exchange] = (counts[exchange] || 0) + 1;
+        total++;
+      }
+    }
+  }
+  return { counts, total };
+}
+
+function analyzePaperHealth(reports) {
+  if (!reports.length) return { status: 'insufficient_data' };
+  const latest = reports[reports.length - 1];
+  const summary = latest.summary || {};
+  return {
+    status: summary.paperMode ? 'ok' : 'missing_paper_mode',
+    trades: Number(summary.trades || 0),
+    totalTrades: Number(summary.totalTrades || 0),
+    pnl: Number(summary.pnl || 0),
+    tradingEnabled: !!summary.tradingEnabled,
+  };
+}
+
+function autoFix(analysis, reports) {
+  const actions = [];
+  if (!analysis.paperHealth) return actions;
+
+  if (analysis.paperHealth.status !== 'ok') {
+    actions.push({ type: 'paper_mode_missing', fixable: true });
+  }
+
+  for (const [exchange, count] of Object.entries(analysis.externalWarnings.counts)) {
+    if (count >= 3) {
+      actions.push({ type: 'external_warning_storm', exchange, count, fixable: false });
+    }
+  }
+
+  if (analysis.externalWarnings.total > 0 && analysis.paperHealth.totalTrades === 0) {
+    actions.push({ type: 'no_paper_trades', fixable: true });
+  }
+
+  return actions;
+}
 
 async function runIteration(iteration) {
   const timestamp = Date.now();
@@ -87,20 +150,26 @@ async function runIteration(iteration) {
   }
 
   const any4xxOr5xx = Object.values(report.checks).some((c) => !!(c.status && c.status >= 400));
-  if (any4xxOr5xx) {
-    report.actions.push('endpoint_error_detected');
-  }
-
-  if (report.summary && !report.summary.paperMode) {
-    report.actions.push('paper_mode_missing');
-  }
+  if (any4xxOr5xx) report.actions.push('endpoint_error_detected');
+  if (report.summary && !report.summary.paperMode) report.actions.push('paper_mode_missing');
 
   fs.mkdirSync(REPORT_DIR, { recursive: true });
-  const fileName = `iteration_${iteration}.json`;
-  const filePath = path.join(REPORT_DIR, fileName);
-  fs.writeFileSync(filePath, JSON.stringify(report, null, 2));
+  fs.writeFileSync(path.join(REPORT_DIR, `iteration_${iteration}.json`), JSON.stringify(report, null, 2));
 
-  return report;
+  const recent = loadLatestReports(10);
+  const externalWarnings = analyzeExternalWarnings(recent);
+  const paperHealth = analyzePaperHealth(recent);
+  const analysis = { externalWarnings, paperHealth };
+  const fixes = autoFix(analysis, recent);
+
+  process.stdout.write(`iteration=${iteration} trades=${report.summary?.totalTrades ?? '-'} pnl=${report.summary?.pnl ?? '-'} actions=${(report.actions.length ? report.actions.join(',') : '-') + (fixes.length ? ' fixes=' + fixes.map(f => f.type).join(',') : '')}\n`);
+
+  if (fixes.some(f => f.type === 'paper_mode_missing' && f.fixable)) {
+    console.log(`[auto-fix] paper mode missing at iteration ${iteration}; manual action required: POST /mode/paper`);
+  }
+  if (fixes.some(f => f.type === 'no_paper_trades' && f.fixable)) {
+    console.log(`[auto-fix] no paper trades in recent history at iteration ${iteration}; continue watcher run`);
+  }
 }
 
 async function run() {
@@ -111,12 +180,11 @@ async function run() {
   process.stdout.write(`paper-watcher start-iteration=${startIteration} intervalMs=${intervalMs}\n`);
   for (let i = startIteration; ; i++) {
     try {
-      const report = await runIteration(i);
-      process.stdout.write(`iteration=${i} trades=${report.summary?.totalTrades ?? '-'} pnl=${report.summary?.pnl ?? '-'} actions=${report.actions.join(',') || '-'}\n`);
+      await runIteration(i);
     } catch (e) {
       process.stdout.write(`iteration=${i} error=${String(e.message || e)}\n`);
     }
-    await sleep(intervalMs);
+    await new Promise((r) => setTimeout(r, intervalMs));
   }
 }
 
