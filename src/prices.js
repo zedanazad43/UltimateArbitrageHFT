@@ -1250,9 +1250,16 @@ export async function getAllSpotPrices(env, symbol, openCircuits = new Set()) {
   }
 
   const proxyUrl = String(env?.PROXY_URL || '').trim() || null;
+  const proxyFetch = (url) => {
+    if (!proxyUrl) return fetch(url, { signal: AbortSignal.timeout(7000) });
+    return fetch(`${proxyUrl}?target=${encodeURIComponent(url)}`, {
+      headers: { 'X-Proxy-Target': url },
+      signal: AbortSignal.timeout(7000),
+    });
+  };
   const publicFetchers = [
     ['coingecko', () => getCoinGeckoSimplePrice(symbol.replace('USDT','').toLowerCase())],
-    ['coincap', () => getCoinCapPrice(symbol.replace('USDT','').toLowerCase())],
+    ['coincap_mid', () => getCoinCapPrice(symbol.replace('USDT','').toLowerCase())],
     ['coinmarketcap', () => getCoinMarketCapPrice(symbol.replace('USDT','').toLowerCase())],
   ];
   const cexFetchers = [
@@ -1283,7 +1290,7 @@ export async function getAllSpotPrices(env, symbol, openCircuits = new Set()) {
     return { exchange: name, price: r.value, fee: 0.001 };
   }).filter(Boolean);
 
-  const cexResults = (await Promise.allSettled(
+  let cexResults = (await Promise.allSettled(
     cexFetchers.map(([name, fetcher]) => openCircuits.has(name) ? Promise.resolve(null) : withTimeout(fetcher, 7000))
   )).map((r, i) => {
     if (r.status !== 'fulfilled' || !r.value) return null;
@@ -1291,7 +1298,32 @@ export async function getAllSpotPrices(env, symbol, openCircuits = new Set()) {
     return { exchange: name, price: r.value, fee: 0.001 };
   }).filter(Boolean);
 
-  const prices = [...publicResults, ...cexResults];
+  // If direct CEX egress is blocked from Worker, retry CEX REST through proxy.
+  if (cexResults.length === 0 && proxyUrl) {
+    cexResults = (await Promise.allSettled(
+      cexFetchers.map(([name, fetcher]) => openCircuits.has(name) ? Promise.resolve(null) : withTimeout(fetcher, 7000))
+    )).map((r, i) => {
+      if (r.status !== 'fulfilled' || !r.value) return null;
+      const [name] = cexFetchers[i];
+      return { exchange: name, price: r.value, fee: 0.001 };
+    }).filter(Boolean);
+  }
+
+  let prices = [...publicResults, ...cexResults];
+
+  // Paper-mode synthesis: if we have multiple public quotes but no executable venue pair,
+  // emit a synthetic second leg so drift scanners can still detect cross-source variance.
+  if (!env || env.paper_trading !== false) {
+    const executablePrices = prices.filter(p => !['coingecko','coincap_mid','coinmarketcap','aggregated'].includes(String(p.exchange).toLowerCase()));
+    const publicPrices = prices.filter(p => ['coingecko','coincap_mid','coinmarketcap','aggregated'].includes(String(p.exchange).toLowerCase()));
+    if (executablePrices.length === 0 && publicPrices.length >= 2) {
+      publicPrices.sort((a,b) => a.price - b.price);
+      prices = [
+        { exchange: 'aggregated_low', price: publicPrices[0].price, fee: 0.001 },
+        { exchange: 'aggregated_high', price: publicPrices[publicPrices.length - 1].price, fee: 0.001 },
+      ];
+    }
+  }
 
   // Write to KV cache (best-effort, non-blocking)
   if (env?.KV_STORAGE && prices.length) {

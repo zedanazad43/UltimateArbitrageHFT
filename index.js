@@ -1060,7 +1060,11 @@ function requireProxyToken(env, c) {
 // Each returned row has: symbol, pair, spread_pct, buy_exchange, sell_exchange, direction, strategy, timestamp.
 function _lastScanRows(lastScan) {
   if (!lastScan) return [];
-  const sources = [lastScan.cex, lastScan.triangular, lastScan.statistical, lastScan.dex];
+  const sources = [
+    lastScan.cex, lastScan.triangular, lastScan.statistical, lastScan.dex,
+    lastScan.scalp_forward, lastScan.scalp_reverse, lastScan.scalp_parallel,
+    lastScan.perps, lastScan.funding, lastScan.cex_dex_bridge
+  ];
   const rows = [];
   for (const opp of sources) {
     if (!opp) continue;
@@ -1068,7 +1072,7 @@ function _lastScanRows(lastScan) {
     rows.push({
       symbol,
       pair: opp.pair || symbol,
-      spread_pct: Number(opp.netPct ?? opp.spread_pct ?? 0),
+      spread_pct: Number(opp.netPct ?? opp.spread_pct ?? opp.grossPct ?? 0),
       buy_exchange: opp.buyExchange || opp.buy_exchange || '',
       sell_exchange: opp.sellExchange || opp.sell_exchange || '',
       direction: opp.direction || '',
@@ -1076,7 +1080,7 @@ function _lastScanRows(lastScan) {
       timestamp: lastScan.timestamp ?? null,
     });
   }
-  return rows;
+  return rows.sort((a,b) => (b.spread_pct || 0) - (a.spread_pct || 0));
 }
 
 // GET /status — bot state snapshot (shape: dict with status, trading_enabled, mode, …)
