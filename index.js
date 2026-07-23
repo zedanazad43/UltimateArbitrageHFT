@@ -437,6 +437,7 @@ function isKnownExternalBalanceWarning(message) {
     msg.includes('restricted country') ||
     msg.includes('current ip:') ||
     msg.includes('error code: 1016') ||
+    msg.includes('error code: 1042') ||
     msg.includes('non-json response (http 403)') ||
     msg.includes('non-json response (http 429)') ||
     msg.includes('non-json response (http 502)') ||
