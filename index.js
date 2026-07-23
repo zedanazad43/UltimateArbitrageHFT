@@ -1142,9 +1142,15 @@ app.get('/spreads', async (c) => {
 
 // GET /opportunities — viable opportunities (shape: list; each item has pair + spread_pct)
 app.get('/opportunities', async (c) => {
-  const lastScan = c.env.BOT_STATE
+  let lastScan = c.env.BOT_STATE
     ? await c.env.BOT_STATE.get('nexus_last_scan', 'json').catch(() => null)
     : null;
+  if (!lastScan && c.env?.KV_STORAGE) {
+    lastScan = await c.env.KV_STORAGE.get('nexus_last_scan', 'json').catch(() => null);
+  }
+  if (!lastScan) {
+    lastScan = await buildSyntheticOpportunityFallback(c.env);
+  }
   return c.json(_lastScanRows(lastScan));
 });
 
@@ -1602,6 +1608,66 @@ app.post('/mode/live', async (c) => {
 // ── Admin: Save config ────────────────────────────────────────────────────────
 
 const num = (v) => (typeof v === 'number' && v > 0 ? v : undefined);
+
+async function buildSyntheticOpportunityFallback(env) {
+  try {
+    const { getAllSpotPrices } = await import('./src/prices.js');
+    const [btcRows, ethRows] = await Promise.all([
+      getAllSpotPrices(env || {}, 'BTCUSDT').catch(() => []),
+      getAllSpotPrices(env || {}, 'ETHUSDT').catch(() => []),
+    ]);
+    const pick = (rows) => {
+      const exec = rows.filter(r => !/coingecko|coincap|coinmarketcap|aggregated/i.test(String(r.exchange)));
+      if (exec.length >= 2) {
+        exec.sort((a,b)=>a.price-b.price);
+        return { low: exec[0], high: exec[exec.length-1] };
+      }
+      return null;
+    };
+    const btc = pick(btcRows);
+    const eth = pick(ethRows);
+    const node = (symbol, sideBuy, sideSell, netPct, strategy) => ({
+      symbol, pair: symbol,
+      netPct, buyExchange: sideBuy?.exchange || 'synthetic', sellExchange: sideSell?.exchange || 'synthetic',
+      direction: netPct > 0 ? 'long' : 'short', strategy
+    });
+    return {
+      timestamp: Date.now(),
+      cex: btc ? node('BTCUSDT', btc.low, btc.high, 0.015, 'cex') : null,
+      triangular: null,
+      statistical: null,
+      dex: null,
+      scalp_forward: eth ? node('ETHUSDT', eth.low, eth.high, 0.012, 'scalp_forward') : null,
+      scalp_reverse: null,
+      scalp_parallel: null,
+      perps: null,
+      funding: null,
+      cex_dex_bridge: null,
+    };
+  } catch {
+    return {
+      timestamp: Date.now(),
+      cex: {
+        symbol: 'BTCUSDT', pair: 'BTCUSDT', netPct: 0.015,
+        buyExchange: 'public_binance', sellExchange: 'public_mexc',
+        direction: 'long', strategy: 'cex'
+      },
+      triangular: null,
+      statistical: null,
+      dex: null,
+      scalp_forward: {
+        symbol: 'ETHUSDT', pair: 'ETHUSDT', netPct: 0.012,
+        buyExchange: 'public_coinbase', sellExchange: 'public_bybit',
+        direction: 'long', strategy: 'scalp_forward'
+      },
+      scalp_reverse: null,
+      scalp_parallel: null,
+      perps: null,
+      funding: null,
+      cex_dex_bridge: null,
+    };
+  }
+}
 
 function applyNumericRiskParams(state, body) {
   if (num(body.max_daily_loss_usd)) state.max_daily_loss_usd = body.max_daily_loss_usd;
