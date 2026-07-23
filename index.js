@@ -1065,6 +1065,7 @@ function _lastScanRows(lastScan) {
     lastScan.scalp_forward, lastScan.scalp_reverse, lastScan.scalp_parallel,
     lastScan.perps, lastScan.funding, lastScan.cex_dex_bridge
   ];
+  const ts = lastScan.timestamp || Date.now();
   const rows = [];
   for (const opp of sources) {
     if (!opp) continue;
@@ -1077,7 +1078,7 @@ function _lastScanRows(lastScan) {
       sell_exchange: opp.sellExchange || opp.sell_exchange || '',
       direction: opp.direction || '',
       strategy: opp.strategy || '',
-      timestamp: lastScan.timestamp ?? null,
+      timestamp: ts,
     });
   }
   return rows.sort((a,b) => (b.spread_pct || 0) - (a.spread_pct || 0));
@@ -1537,6 +1538,9 @@ app.post('/mode/paper', async (c) => {
   if (!isAuthorized(c.env, c)) return authDenied(c.env, c);
   const state = await getState(c.env);
   state.paper_trading = true;
+  state.auto_stopped = false;
+  state.auto_stop_reason = null;
+  state.daily_volume_usd = 0;
   await saveState(c.env, state);
   await logAdminEvent(c.env, 'mode:paper', c.req.raw);
   await sendTelegramAlert(c.env, '📄 *تم التبديل إلى وضع Paper Trading*');
