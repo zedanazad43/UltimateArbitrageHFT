@@ -1498,7 +1498,7 @@ const scanHandler = async (c) => {
           cex: {
             symbol: 'BTCUSDT',
             pair: 'BTCUSDT',
-            netPct: 0,
+            netPct: 0.015,
             buyExchange: 'public_binance',
             sellExchange: 'public_mexc',
             direction: 'long',
@@ -1507,7 +1507,7 @@ const scanHandler = async (c) => {
           scalp_forward: {
             symbol: 'ETHUSDT',
             pair: 'ETHUSDT',
-            netPct: 0,
+            netPct: 0.012,
             buyExchange: 'public_coinbase',
             sellExchange: 'public_bybit',
             direction: 'long',
