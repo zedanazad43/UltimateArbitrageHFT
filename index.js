@@ -1568,9 +1568,9 @@ app.post('/api/live-deal/execute', async (c) => {
 
 // ── Integration: N8N webhook scan trigger ───────────────────────────────────
 app.post('/webhook/n8n/scan', async (c) => {
-  const provided = c.req.header('x-admin-token') || '';
-  const expected = c.env.ADMIN_TOKEN || '';
-  const trusted = expected && constantTimeEquals(provided, expected);
+  const header = c.req.header('x-admin-token') || c.req.header('x-n8n-api-token') || '';
+  const expected = c.env.N8N_API_TOKEN || c.env.ADMIN_TOKEN || '';
+  const trusted = expected && constantTimeEquals(header, expected);
   if (!trusted) return c.text('Unauthorized', 401);
   const state = await getState(c.env);
   c.executionCtx?.waitUntil?.(runScan(c.env, state, sendTelegramAlert, {
