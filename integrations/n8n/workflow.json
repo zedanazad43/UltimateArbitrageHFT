@@ -1,0 +1,78 @@
+{
+  "name": "UltimateArbitrageHFT N8N Workflow",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "start",
+      "name": "Start",
+      "type": "n8n-nodes-base.start",
+      "position": [240, 300]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "https://ultimatearbitragehft.zedanazad43.workers.dev/api/status",
+        "authentication": "headerAuth",
+        "headerAuth": { "name": "x-admin-token", "value": "309400" }
+      },
+      "id": "status",
+      "name": "Get Status",
+      "type": "n8n-nodes-base.http",
+      "position": [460, 220]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "https://ultimatearbitragehft.zedanazad43.workers.dev/scan",
+        "authentication": "headerAuth",
+        "headerAuth": { "name": "x-request-ts", "value": "={{ $now }}" },
+        "headerAuthHeaders": [
+          { "name": "x-admin-token", "value": "309400" },
+          { "name": "x-request-ts", "value": "={{ $now }}" }
+        ]
+      },
+      "id": "scan",
+      "name": "Trigger Scan",
+      "type": "n8n-nodes-base.http",
+      "position": [460, 380]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "https://ultimatearbitragehft.zedanazad43.workers.dev/opportunities",
+        "authentication": "headerAuth",
+        "headerAuthHeaders": [
+          { "name": "x-admin-token", "value": "309400" }
+        ]
+      },
+      "id": "opportunities",
+      "name": "Get Opportunities",
+      "type": "n8n-nodes-base.http",
+      "position": [700, 300]
+    },
+    {
+      "parameters": {
+        "values": {
+          "string": [
+            { "name": "status", "value": "={{ $json.status || 'n/a' }}" },
+            { "name": "trading_enabled", "value": "={{ $json.trading_enabled }}" },
+            { "name": "paper_trading", "value": "={{ $json.paper_trading }}" },
+            { "name": "lastScanTimestamp", "value": "={{ $json.lastScanTimestamp }}" },
+            { "name": "totalTrades", "value": "={{ $json.totalTrades }}" },
+            { "name": "totalProfit", "value": "={{ $json.totalProfit }}" }
+          ]
+        }
+      },
+      "id": "summarize",
+      "name": "Summarize",
+      "type": "n8n-nodes-base.set",
+      "position": [940, 300]
+    }
+  ],
+  "connections": {
+    "Start": { "main": [["Get Status", "Trigger Scan"]] },
+    "Get Status": { "main": [["Get Opportunities"]] },
+    "Trigger Scan": { "main": [["Get Opportunities"]] },
+    "Get Opportunities": { "main": [["Summarize"]] }
+  }
+}
