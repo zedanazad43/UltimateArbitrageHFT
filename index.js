@@ -1458,7 +1458,7 @@ app.get('/debug-futures', async (c) => {
 
 // ── Admin: Immediate scan ─────────────────────────────────────────────────────
 // ── Admin: Receive live WS prices from local feed ────────────────────────────
-// Local ws-feed.cjs pushes sub-second prices here; we cache them in KV for
+// Local ws-feed.mjs pushes sub-second prices here; we cache them in KV for
 // ultra-fast reads by scanCEX (latency arbitrage).
 app.post('/api/ws-prices', async (c) => {
   if (!isAuthorized(c.env, c)) return authDenied(c.env, c);

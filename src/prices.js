@@ -1309,7 +1309,7 @@ export async function getAllSpotPrices(env, symbol, openCircuits = new Set()) {
     }).filter(Boolean);
   }
 
-  let prices = [...publicResults, ...cexResults];
+  let prices = [...publicResults, ...publicResults, ...cexResults];
 
   // Paper-mode synthesis: if we have multiple public quotes but no executable venue pair,
   // emit a synthetic second leg so drift scanners can still detect cross-source variance.
