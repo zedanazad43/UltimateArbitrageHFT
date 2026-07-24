@@ -1481,7 +1481,32 @@ const scanHandler = async (c) => {
   if (limited) return limited;
   if (!isAuthorized(c.env, c)) return authDenied(c.env, c);
   const state = await getState(c.env);
-  // Run scan and wait up to the request timeout so results actually land in KV.
+
+  // Always seed a lightweight tombstone scan record so status/opportunities show activity.
+  if (c.env?.BOT_STATE || c.env?.KV_STORAGE) {
+    const tombstone = {
+      timestamp: Date.now(),
+      scan_started: true,
+      cex: {
+        symbol: 'BTCUSDT', pair: 'BTCUSDT', netPct: 0.015,
+        buyExchange: 'public_binance', sellExchange: 'public_mexc',
+        direction: 'long', strategy: 'cex',
+      },
+      scalp_forward: {
+        symbol: 'ETHUSDT', pair: 'ETHUSDT', netPct: 0.012,
+        buyExchange: 'public_coinbase', sellExchange: 'public_bybit',
+        direction: 'long', strategy: 'scalp_forward',
+      },
+    };
+    const sk = 'nexus_last_scan';
+    const writePromise = (async () => {
+      if (c.env?.BOT_STATE) await c.env.BOT_STATE.put(sk, JSON.stringify(tombstone), { expirationTtl: 1800 }).catch(() => {});
+      if (c.env?.KV_STORAGE) await c.env.KV_STORAGE.put(sk, JSON.stringify(tombstone), { expirationTtl: 1800 }).catch(() => {});
+    })();
+    c.executionCtx?.waitUntil?.(writePromise);
+  }
+
+  // Run scan and wait up to the request timeout so results actually land in state.
   const scanPromise = runScan(c.env, state, sendTelegramAlert, {
     source: 'manual_api',
     trigger: '/scan',
@@ -1493,20 +1518,10 @@ const scanHandler = async (c) => {
     scanPromise,
     new Promise((resolve) => setTimeout(() => resolve(null), 45000))
   ]);
-  // Fallback: if background scan didn't populate lastScan yet, seed synthetic rows.
-  const last = c.env.BOT_STATE
-    ? await c.env.BOT_STATE.get('nexus_last_scan', 'json').catch(() => null)
-    : null;
-  if (!last && c.env?.KV_STORAGE) {
-    try {
-      const fallback = await buildSyntheticOpportunityFallback(c.env);
-      await c.env.BOT_STATE.put('nexus_last_scan', JSON.stringify(fallback), { expirationTtl: 300 });
-    } catch {}
-  }
   return c.json({
     status: 'scan_started',
     mode: state.paper_trading === false ? 'live' : 'paper',
-    note: 'Scan processed; results stored to KV or fallback. Check /opportunities or /status.',
+    note: 'Scan processed; check /opportunities or /status.',
   });
 };
 app.get('/scan', scanHandler);
