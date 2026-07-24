@@ -2027,11 +2027,14 @@ app.post('/strategy/perps/:mode', async (c) => {
 app.get('/api/status', async (c) => {
   if (!isAuthorized(c.env, c)) return authDenied(c.env, c, true);
   const forceSpotOnlyLock = ['1', 'true', 'on', 'yes'].includes(String(c.env.SPOT_ONLY_LOCK_FORCE || '').toLowerCase());
-  const [state, lastScan, circuitBreaker] = await Promise.all([
+  const [state, _lastScanBotState, _lastScanKV, _lastScanTombstone, circuitBreaker] = await Promise.all([
     getState(c.env),
     c.env.BOT_STATE.get('nexus_last_scan', 'json').catch(() => null),
+    c.env?.KV_STORAGE ? c.env.KV_STORAGE.get('nexus_last_scan', 'json').catch(() => null) : null,
+    c.env.BOT_STATE.get('nexus_last_scan_tombstone', 'json').catch(() => null),
     c.env.BOT_STATE.get('nexus_circuit_breaker', 'json').catch(() => null)
   ]);
+  const lastScan = _lastScanBotState || _lastScanKV || _lastScanTombstone || null;
   const [summary, metrics] = await Promise.all([
     Promise.resolve(getStateSummary(state)),
     getPerformanceMetrics(c.env).catch(() => null),
@@ -2050,6 +2053,7 @@ app.get('/api/status', async (c) => {
     strategyMode: String(c.env.STRATEGY_MODE || 'multi_exchange').toLowerCase(),
     enabledExecutionExchanges: getEnabledExecutionExchanges(c.env),
     lastScan,
+    lastScanTimestamp: lastScan?.timestamp || null,
     circuitBreaker: cbOut,
     secretBindings: {
       adminTokenConfigured: !!c.env.ADMIN_TOKEN,
