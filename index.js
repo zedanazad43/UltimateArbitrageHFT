@@ -1566,6 +1566,20 @@ app.post('/api/live-deal/execute', async (c) => {
   });
 });
 
+// ── Integration: N8N webhook scan trigger ───────────────────────────────────
+app.post('/webhook/n8n/scan', async (c) => {
+  const provided = c.req.header('x-admin-token') || '';
+  const expected = c.env.ADMIN_TOKEN || '';
+  const trusted = expected && constantTimeEquals(provided, expected);
+  if (!trusted) return c.text('Unauthorized', 401);
+  const state = await getState(c.env);
+  c.executionCtx?.waitUntil?.(runScan(c.env, state, sendTelegramAlert, {
+    source: 'n8n_webhook',
+    trigger: '/webhook/n8n/scan',
+  }).catch((err) => { console.error('[n8n] run error:', err?.message || err); }));
+  return c.json({ status: 'scan_started', source: 'n8n_webhook' });
+});
+
 // ── Admin: Set mode Paper ─────────────────────────────────────────────────────
 app.post('/mode/paper', async (c) => {
   if (!requireFreshRequest(c.env, c)) return c.text('Stale request', 400);
