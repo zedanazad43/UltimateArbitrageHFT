@@ -1,0 +1,37 @@
+{
+  "name": "UltimateArbitrageHFT Omniroute Bridge",
+  "version": "0.1.0",
+  "description": "Bridge between Omniroute automation and the UltimateArbitrageHFT Worker.",
+  "hooks": {
+    "beforeScan": {
+      "url": "https://ultimatearbitragehft.zedanazad43.workers.dev/api/status",
+      "method": "GET",
+      "headers": {
+        "x-admin-token": "309400"
+      },
+      "filters": [
+        { "field": "paper_trading", "op": "==", "value": true },
+        { "field": "trading_enabled", "op": "==", "value": false }
+      ],
+      "outputs": [
+        { "key": "lastScanTimestamp", "source": "lastScanTimestamp" },
+        { "key": "totalTrades", "source": "totalTrades" }
+      ]
+    },
+    "startScan": {
+      "url": "https://ultimatearbitragehft.zedanazad43.workers.dev/webhook/n8n/scan",
+      "method": "POST",
+      "headers": {
+        "x-admin-token": "309400",
+        "content-type": "application/json"
+      },
+      "body": {
+        "source": "omniroute"
+      }
+    },
+    "exportResult": {
+      "format": "json",
+      "path": "C:/Users/azadz/OneDrive/UltimateArbitrageHFT/logs/omniroute.json"
+    }
+  }
+}
