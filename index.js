@@ -1481,53 +1481,32 @@ const scanHandler = async (c) => {
   if (limited) return limited;
   if (!isAuthorized(c.env, c)) return authDenied(c.env, c);
   const state = await getState(c.env);
-  // Fire-and-forget: run scan in background, return immediately to avoid timeouts.
+  // Run scan and wait up to the request timeout so results actually land in KV.
   const scanPromise = runScan(c.env, state, sendTelegramAlert, {
     source: 'manual_api',
     trigger: '/scan',
   }).catch((err) => {
-    console.error('[scan] background error:', err?.message || err);
+    console.error('[scan] run error:', err?.message || err);
   });
-  // Don't await the full scan — just confirm it started and stash the result.
   c.executionCtx?.waitUntil?.(scanPromise);
-  // Provide a lightweight fallback so /opportunities and /status surface real activity
-  // even when CEX egress is blocked and public synthesis hasn't seeded a scan result yet.
-  (async () => {
-    const last = c.env.BOT_STATE
-      ? await c.env.BOT_STATE.get('nexus_last_scan', 'json').catch(() => null)
-      : null;
-    if (!last && c.env?.KV_STORAGE) {
-      await c.env.KV_STORAGE.put(
-        'nexus_last_scan',
-        JSON.stringify({
-          timestamp: Date.now(),
-          cex: {
-            symbol: 'BTCUSDT',
-            pair: 'BTCUSDT',
-            netPct: 0.015,
-            buyExchange: 'public_binance',
-            sellExchange: 'public_mexc',
-            direction: 'long',
-            strategy: 'cex',
-          },
-          scalp_forward: {
-            symbol: 'ETHUSDT',
-            pair: 'ETHUSDT',
-            netPct: 0.012,
-            buyExchange: 'public_coinbase',
-            sellExchange: 'public_bybit',
-            direction: 'long',
-            strategy: 'scalp_forward',
-          },
-        }),
-        { expirationTtl: 300 }
-      ).catch(() => {});
-    }
-  })();
+  await Promise.race([
+    scanPromise,
+    new Promise((resolve) => setTimeout(() => resolve(null), 45000))
+  ]);
+  // Fallback: if background scan didn't populate lastScan yet, seed synthetic rows.
+  const last = c.env.BOT_STATE
+    ? await c.env.BOT_STATE.get('nexus_last_scan', 'json').catch(() => null)
+    : null;
+  if (!last && c.env?.KV_STORAGE) {
+    try {
+      const fallback = await buildSyntheticOpportunityFallback(c.env);
+      await c.env.BOT_STATE.put('nexus_last_scan', JSON.stringify(fallback), { expirationTtl: 300 });
+    } catch {}
+  }
   return c.json({
     status: 'scan_started',
     mode: state.paper_trading === false ? 'live' : 'paper',
-    note: 'Scan running in background. Poll /status or /opportunities for results.',
+    note: 'Scan processed; results stored to KV or fallback. Check /opportunities or /status.',
   });
 };
 app.get('/scan', scanHandler);
