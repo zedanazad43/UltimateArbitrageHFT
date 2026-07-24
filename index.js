@@ -1126,7 +1126,7 @@ app.get('/status', async (c) => {
     sharpe: dbMetrics ? Number((dbMetrics.sharpe || 0).toFixed(2)) : summary.sharpe,
     recentTrades: dbTrades,
     liveBalances,
-    lastScanTimestamp: lastScan?.timestamp ?? null,
+    lastScanTimestamp: lastScan?.timestamp || null,
     timestamp: new Date().toISOString(),
   });
 });
