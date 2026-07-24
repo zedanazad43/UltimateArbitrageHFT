@@ -1151,6 +1151,9 @@ app.get('/opportunities', async (c) => {
   if (!lastScan) {
     lastScan = await buildSyntheticOpportunityFallback(c.env);
   }
+  if (!lastScan && c.env?.BOT_STATE) {
+    lastScan = await c.env.BOT_STATE.get('nexus_last_scan_tombstone', 'json').catch(() => null);
+  }
   return c.json(_lastScanRows(lastScan));
 });
 
