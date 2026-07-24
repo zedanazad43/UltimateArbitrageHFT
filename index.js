@@ -1087,13 +1087,16 @@ function _lastScanRows(lastScan) {
 // GET /status — bot state snapshot (shape: dict with status, trading_enabled, mode, …)
 app.get('/status', async (c) => {
   if (requireProxyToken(c.env, c)) return c.text('Invalid proxy token', 401);
-  const [state, lastScan, dbMetrics, dbTrades, liveBalances] = await Promise.all([
+  const [state, _lastScanBotState, _lastScanKV, dbMetrics, dbTrades, liveBalances] = await Promise.all([
     getState(c.env).catch(() => null),
     c.env.BOT_STATE ? c.env.BOT_STATE.get('nexus_last_scan', 'json').catch(() => null) : null,
+    c.env?.BOT_STATE ? c.env.BOT_STATE.get('nexus_last_scan_tombstone', 'json').catch(() => null) : null,
+    c.env?.KV_STORAGE ? c.env.KV_STORAGE.get('nexus_last_scan', 'json').catch(() => null) : null,
     c.env.DB ? getPerformanceMetrics(c.env).catch(() => null) : null,
     c.env.DB ? getRecentTrades(c.env, 10).catch(() => []) : [],
     getExecutionBalancesSnapshot(c.env, ['USDT','USDC','BTC','ETH','BNB','SOL']).catch(() => []),
   ]);
+  const lastScan = _lastScanBotState || _lastScanKV || null;
   const summary = state ? getStateSummary(state) : {};
   const realTradesCount = dbMetrics?.total_trades ?? summary.totalTrades ?? 0;
   const realPnl = dbMetrics?.total_pnl_usd ?? summary.totalProfit ?? 0;
@@ -1131,30 +1134,26 @@ app.get('/status', async (c) => {
   });
 });
 
-// GET /spreads — latest spread rows (shape: dict with "rows" list and "ts" string)
+// GET /spreads — latest spread rows (shape: dict with rows list and ts string)
 app.get('/spreads', async (c) => {
   if (requireProxyToken(c.env, c)) return c.text('Invalid proxy token', 401);
-  const lastScan = c.env.BOT_STATE
-    ? await c.env.BOT_STATE.get('nexus_last_scan', 'json').catch(() => null)
-    : null;
-  return c.json({ rows: _lastScanRows(lastScan), ts: new Date().toISOString() });
+  const [lastScan, lastScanTombstone] = await Promise.all([
+    c.env?.BOT_STATE ? c.env.BOT_STATE.get('nexus_last_scan', 'json').catch(() => null) : null,
+    c.env?.BOT_STATE ? c.env.BOT_STATE.get('nexus_last_scan_tombstone', 'json').catch(() => null) : null,
+  ]);
+  const scan = lastScan || lastScanTombstone || null;
+  return c.json({ rows: _lastScanRows(scan), ts: new Date().toISOString() });
 });
 
 // GET /opportunities — viable opportunities (shape: list; each item has pair + spread_pct)
 app.get('/opportunities', async (c) => {
-  let lastScan = c.env.BOT_STATE
-    ? await c.env.BOT_STATE.get('nexus_last_scan', 'json').catch(() => null)
-    : null;
-  if (!lastScan && c.env?.KV_STORAGE) {
-    lastScan = await c.env.KV_STORAGE.get('nexus_last_scan', 'json').catch(() => null);
-  }
-  if (!lastScan) {
-    lastScan = await buildSyntheticOpportunityFallback(c.env);
-  }
-  if (!lastScan && c.env?.BOT_STATE) {
-    lastScan = await c.env.BOT_STATE.get('nexus_last_scan_tombstone', 'json').catch(() => null);
-  }
-  return c.json(_lastScanRows(lastScan));
+  const [lastScan, lastScanTombstone, synthetic] = await Promise.all([
+    c.env?.BOT_STATE ? c.env.BOT_STATE.get('nexus_last_scan', 'json').catch(() => null) : null,
+    c.env?.BOT_STATE ? c.env.BOT_STATE.get('nexus_last_scan_tombstone', 'json').catch(() => null) : null,
+    buildSyntheticOpportunityFallback(c.env).catch(() => null),
+  ]);
+  const scan = lastScan || lastScanTombstone || synthetic;
+  return c.json(_lastScanRows(scan));
 });
 
 // GET /balances — exchange balance list (shape: list; each item has exchange key)
