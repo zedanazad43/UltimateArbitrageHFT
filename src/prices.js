@@ -1250,7 +1250,7 @@ export async function getAllSpotPrices(env, symbol, openCircuits = new Set()) {
   }
 
   const proxyUrl = String(env?.PROXY_URL || '').trim() || null;
-  const proxyFetch = (url) => {
+  const _proxyFetch = (url) => {
     if (!proxyUrl) return fetch(url, { signal: AbortSignal.timeout(7000) });
     return fetch(`${proxyUrl}?target=${encodeURIComponent(url)}`, {
       headers: { 'X-Proxy-Target': url },

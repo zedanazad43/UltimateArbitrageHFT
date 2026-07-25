@@ -13,7 +13,7 @@ import AnalyticsEngine from './src/analytics-engine.js';
 import { renderDashboard, renderChecklist } from './src/dashboard.js';
 import { runScan, getExecutionLockState, resetCircuitBreaker } from './src/orchestrator.js';
 import { ensureSchema, logAdminEvent, logBotEvent, getRecentTrades, getStrategyPnL, getPerformanceMetrics, exportTrades } from './src/db.js';
-import { hasExchangeCredentials, getExchangeBalance, getAllExchangeBalances, placeExchangeMarketOrder, getMissingCredentialKeys, getConfiguredExchanges, ACTIVE_EXECUTION_EXCHANGES, DATA_ONLY_EXCHANGES, getMEXCFuturesBalance, getMEXCBalance, getEnabledExecutionExchanges, isExecutionExchangeEnabled, getBitgetAccountEquityUSDT, getWeb3Balance } from './src/exchange.js';
+import { hasExchangeCredentials, getExchangeBalance, getAllExchangeBalances, placeExchangeMarketOrder, getMissingCredentialKeys, getConfiguredExchanges, ACTIVE_EXECUTION_EXCHANGES, DATA_ONLY_EXCHANGES, getMEXCFuturesBalance, getMEXCBalance, getEnabledExecutionExchanges, isExecutionExchangeEnabled, getBitgetAccountEquityUSDT} from './src/exchange.js';
 import { scanDEX } from './src/strategies/dex.js';
 import { isHFTEngineConfigured } from './src/hft-client.js';
 import { runBacktest } from './src/backtest.js';
@@ -680,7 +680,7 @@ function requireFreshRequest(env, c, maxAgeMs = 300000) {
 }
 function authDenied(env, c, asJson = false) {
   const token = env.ADMIN_TOKEN;
-  const workflowToken = env.WORKFLOW_ADMIN_TOKEN;
+  const _workflowToken = env.WORKFLOW_ADMIN_TOKEN;
   const adminConfigured = !!token;
   const hint = adminConfigured ? 'Invalid admin token' : 'ADMIN_TOKEN secret not configured';
   const status = adminConfigured ? 401 : 503;
@@ -1107,7 +1107,7 @@ app.get('/status', async (c) => {
   if (liveBalances?.length) {
     for (const item of liveBalances) {
       if (!item.configured || !item.balances) continue;
-      for (const [asset, amount] of Object.entries(item.balances)) {
+      for (const [_asset, amount] of Object.entries(item.balances)) {
         realEquity += Number(amount || 0);
       }
     }
@@ -4614,7 +4614,7 @@ app.get('/api/telemetry/latency', async (c) => {
       ? raw
       : { rttMs: 0, jitterMs: 0, killSwitchTripped: false, samples: 0 };
     return c.json({ ...payload, timestamp: Date.now() });
-  } catch (e) {
+  } catch (_e) {
     return c.json({ rttMs: 0, jitterMs: 0, killSwitchTripped: false, samples: 0, timestamp: Date.now() }, 200);
   }
 });
@@ -4951,5 +4951,109 @@ app.get('/api/exchanges/health', async (c) => {
   } catch (e) { return err(c,'HEALTH_FAIL',500,e.message); }
 });
 
+// ─── Unified Hermes-Copilot-OmniRoute-OpenRouter API ─────────────────────────
+// Single interface for AI routing across all providers
+
+import { UnifiedRouter, PROVIDER_CONFIG, MODEL_ALIASES } from './src/ai-integration/hermes-unified-router.js';
+
+// Lazy-loaded router instance
+let unifiedRouter = null;
+function getRouter(env, state) {
+  if (!unifiedRouter) {
+    unifiedRouter = new UnifiedRouter(env, state);
+  }
+  return unifiedRouter;
+}
+
+// Provider status endpoint
+app.get('/api/unified/providers', async (c) => {
+  if (!isAuthorized(c.env, c)) return authDenied(c.env, c, true);
+  const router = getRouter(c.env, {});
+  const statuses = await router.getAllProviderStatuses();
+  return ok(c, { providers: statuses, config: PROVIDER_CONFIG, aliases: MODEL_ALIASES });
+});
+
+// Unified LLM chat endpoint - auto-routes to best provider
+app.post('/api/unified/chat', async (c) => {
+  if (!isAuthorized(c.env, c)) return authDenied(c.env, c, true);
+  
+  const body = await c.req.json().catch(() => ({}));
+  const messages = Array.isArray(body.messages) ? body.messages : 
+                   (body.input ? [{ role: 'user', content: body.input }] : []);
+  
+  if (!messages.length) return err(c, 'MESSAGES_REQUIRED', 400, 'messages required');
+
+  const options = {
+    max_tokens: body.max_tokens || 512,
+    temperature: body.temperature !== undefined ? body.temperature : 0.7,
+    paperMode: body.paper_mode !== false,
+    budgetLimit: body.budget_limit || 0,
+    latencyRequirement: body.latency_requirement || 'medium',
+    preferredProvider: body.provider,
+    modelHint: body.model ? (MODEL_ALIASES[body.model] || body.model) : null
+  };
+
+  const router = getRouter(c.env, {});
+  
+  try {
+    const result = await router.routeLLMCall(messages, options);
+    return ok(c, {
+      ...result,
+      routedVia: result.routedVia,
+      route: result.route,
+      provider: result.routedVia,
+      model: result.model,
+      text: result.text
+    });
+  } catch (e) {
+    return err(c, 'ROUTING_FAILED', 500, e.message);
+  }
+});
+
+// Route to specific provider
+app.post('/api/unified/chat/:provider', async (c) => {
+  if (!isAuthorized(c.env, c)) return authDenied(c.env, c, true);
+  
+  const provider = String(c.req.param('provider') || '').toLowerCase();
+  if (!PROVIDER_CONFIG[provider]) {
+    return err(c, 'INVALID_PROVIDER', 400, `Unknown provider: ${provider}. Available: ${Object.keys(PROVIDER_CONFIG).join(', ')}`);
+  }
+
+  const body = await c.req.json().catch(() => ({}));
+  const messages = Array.isArray(body.messages) ? body.messages : 
+                   (body.input ? [{ role: 'user', content: body.input }] : []);
+  
+  if (!messages.length) return err(c, 'MESSAGES_REQUIRED', 400, 'messages required');
+
+  const model = body.model ? (MODEL_ALIASES[body.model] || body.model) : null;
+  const router = getRouter(c.env, {});
+
+  try {
+    const result = await router.executeThroughProvider(
+      { provider, model: model || router.getDefaultModel(provider) },
+      messages,
+      { max_tokens: body.max_tokens || 512, temperature: body.temperature || 0.7 }
+    );
+    return ok(c, { ...result, provider, model: result.model });
+  } catch (e) {
+    return err(c, 'PROVIDER_FAILED', 500, e.message);
+  }
+});
+
+// List available models
+app.get('/api/unified/models', (c) => {
+  if (!isAuthorized(c.env, c)) return authDenied(c.env, c, true);
+  return ok(c, { models: MODEL_ALIASES, providers: PROVIDER_CONFIG });
+});
+
+// Resolve model alias
+app.get('/api/unified/models/resolve/:alias', (c) => {
+  if (!isAuthorized(c.env, c)) return authDenied(c.env, c, true);
+  const alias = String(c.req.param('alias') || '').trim();
+  const resolved = MODEL_ALIASES[alias] || alias;
+  return ok(c, { alias, resolved, provider: Object.entries(PROVIDER_CONFIG).find(([_, cfg]) => 
+    cfg.models.includes(resolved) || Object.values(MODEL_ALIASES).includes(resolved)
+  )?.[0] || 'unknown' });
+});
 
 

@@ -33,6 +33,8 @@ export default [
       // no-undef — ignore them like the other vendored dirs above.
       "bots/**",
       "agents/awesome/**",
+      "agents/node-gateway.mjs",
+      "scripts/paper-watcher.mjs",
     ],
   },
   // Base rules for all JS files
@@ -93,6 +95,7 @@ export default [
       "agents/api/**/*.js",
       "src/bots/trader.js",
       "tools/**/*.cjs",
+      "tools/**/*.mjs",
     ],
     languageOptions: {
       sourceType: "module",

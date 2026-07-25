@@ -5,7 +5,7 @@ const nodeRequire = createRequire(import.meta.url);
 export default class SDKBridge {
   constructor(bindings = {}) {
     this.bindings = bindings;
-    let imported = null;
+    let imported;
     try {
       imported = nodeRequire('@github/copilot-sdk');
       if (imported) this.copilot = imported;

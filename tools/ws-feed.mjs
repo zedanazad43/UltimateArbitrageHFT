@@ -21,7 +21,7 @@ function findCcxt() {
   for (const p of candidates) if (fs.existsSync(p)) return { ccxtIndex: p };
   return null;
 }
-function findWs() {
+function _findWs() {
   const candidates = [
     path.join(__dirname, '..', 'node_modules', '.pnpm', 'ws@8.21.1', 'node_modules', 'ws', 'index.js'),
     path.join(__dirname, '..', 'node_modules', 'ws', 'index.js'),
@@ -148,7 +148,7 @@ async function bootstrapHyperliquidGuarded() {
     const start = Date.now();
     const mod = await import('hyperliquid');
     if (Date.now() - start > HL_TIMEOUT_MS) { console.warn('[ws-feed] hyperliquid load exceeded timeout'); return; }
-    const client = new mod.HyperLanClient?.({}).catch?.(() => {}) || mod;
+    const _client = mod.HyperLanClient ? new mod.HyperLanClient({}) : mod;
     console.log('[ws-feed] Hyperliquid SDK warmed');
   } catch (e) {
     console.warn('[ws-feed] Hyperliquid bootstrap failed:', e?.message || e);
