@@ -146,7 +146,7 @@
   <div class="toast" id="toast" style="display:none"></div>
   <script>
     const API = 'https://ultimatearbitragehft.zedanazad43.workers.dev';
-    const ADMIN = '309400';
+    const ADMIN = localStorage.getItem('nexus_admin_token') || '';
     const toast = (m) => { const t = document.getElementById('toast'); t.textContent = m; t.style.display = 'block'; setTimeout(() => t.style.display = 'none', 3000); };
 
     async function req(path, opts = {}) {
