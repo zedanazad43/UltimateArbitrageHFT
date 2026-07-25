@@ -4,7 +4,7 @@ compatibility_date = "2025-04-18"
 compatibility_flags = ["nodejs_compat"]
 account_id = "652e53f35781522e2745784cc4425d9d"
 
-
+# ===== KV NAMESPACES =====
 [[kv_namespaces]]
 binding = "BOT_STATE"
 id = "ac954cedbedd48f8aa4452975e5fc2a1"
@@ -13,6 +13,7 @@ id = "ac954cedbedd48f8aa4452975e5fc2a1"
 binding = "KV_STORAGE"
 id = "ac954cedbedd48f8aa4452975e5fc2a1"
 
+# ===== D1 DATABASES =====
 [[d1_databases]]
 binding = "DB"
 database_name = "ultimate-arbitrage-db"
@@ -23,6 +24,7 @@ binding = "MY_D1"
 database_name = "ultimate-arbitrage-db"
 database_id = "cd726538-9c41-456c-b172-15fcc3a63a0c"
 
+# ===== DURABLE OBJECTS =====
 [[durable_objects.bindings]]
 name = "MARKET_STREAMER"
 class_name = "MarketStreamer"
@@ -31,6 +33,7 @@ class_name = "MarketStreamer"
 name = "HFT_BACKUP"
 class_name = "HFTBackup"
 
+# ===== MIGRATIONS =====
 [[migrations]]
 tag = "v1"
 new_classes = ["MarketStreamer"]
@@ -42,10 +45,12 @@ new_classes = ["HFTBackup"]
 [[migrations]]
 tag = "v3"
 
+# ===== ANALYTICS ENGINE =====
 [[analytics_engine_datasets]]
 binding = "ANALYTICS"
 dataset = "arbitrage_events"
 
+# ===== R2 BUCKETS =====
 [[r2_buckets]]
 binding = "TRADE_LOGS"
 bucket_name = "ultimate-arbitrage-logs"
@@ -54,10 +59,20 @@ bucket_name = "ultimate-arbitrage-logs"
 binding = "R2"
 bucket_name = "ultimate-arbitrage-logs"
 
+[[r2_buckets]]
+binding = "FRONTEND"
+bucket_name = "ultimate-arbitrage-frontend"
+
+[[r2_buckets]]
+binding = "BACKUPS"
+bucket_name = "ultimate-arbitrage-backups"
+
+# ===== AI =====
 [ai]
 binding = "AIWORKER"
 model = "@cf/meta/llama-3.1-8b-instruct-fast"
 
+# ===== QUEUES =====
 [[queues.producers]]
 binding = "TRADE_QUEUE"
 queue = "ultimate-arbitrage-queue"
@@ -67,11 +82,11 @@ binding = "ULTIMATEARBITRAGEQUEUE"
 queue = "ultimate-arbitrage-queue"
 
 [[queues.consumers]]
-
 queue = "ultimate-arbitrage-queue"
 max_batch_size = 10
 max_batch_timeout = 30
 
+# ===== ENVIRONMENT VARIABLES =====
 [vars]
 PROXY_MODE = "auto"
 PROXY_URL_1 = "https://proxy-gateway.zedanazad43.workers.dev"
@@ -79,13 +94,26 @@ PROXY_URL_2 = "https://1d7373f11e5c96fb-104-28-162-48.serveousercontent.com"
 PROXY_URL_3 = "https://harper-vintage-interesting-intimate.trycloudflare.com"
 PROXY_AUTH_HEADER = "X-Gateway-Token: REPLACE_WITH_GATEWAY_TOKEN"
 
-# Cloudflare Workers AI
+# ===== CLOUDFLARE AI =====
 CF_AI_MODEL = "@cf/meta/llama-3.1-8b-instruct-fast"
 CF_AI_ENDPOINT = "/ai/chat/completions"
 AI = "true"
 
-# Bitget API — set via Dashboard or wrangler secret put
-BITGET_API_KEY = ""
+# ===== TUNNEL HEALTH =====
+TUNNEL_NAME = "ultimatearbitrage-tunnel"
+TUNNEL_HEALTH_CHECK = "https://ultimatearbitragehft.zedanazad43.workers.dev/health"
 
-# Telegram
+# ===== ENVIRONMENT =====
+[env.production.vars]
+NODE_ENV = "production"
 
+[env.preview.vars]
+NODE_ENV = "preview"
+
+# ===== TRAFFIC ROUTING =====
+[triggers]
+crons = [
+  "*/30 * * * *",
+  "0 * * * *",
+  "0 */8 * * *"
+]
