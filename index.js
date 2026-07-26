@@ -635,11 +635,6 @@ function constantTimeEquals(a, b) {
 // Two auth paths are supported:
 //   1. x-admin-token request header  — for programmatic / script access.
 //   2. nexus_session HttpOnly cookie  — for browser sessions after /login.
-function ok(c, data) { return c.json(data, 200); }
-function err(c, code, status, message) {
-  return c.json({ error: code || 'ERROR', status: status || 500, message: message || 'internal_error' }, status || 500);
-}
-
 function isAuthorized(env, c) {
   const adminToken = env.ADMIN_TOKEN;
   const workflowToken = env.WORKFLOW_ADMIN_TOKEN;
@@ -858,8 +853,7 @@ const app = new Hono();
 app.use('*', cors({ origin: '*', allowMethods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'], allowHeaders: ['Content-Type', 'x-admin-token', 'x-workflow-token', 'x-risk-unlock-token'], maxAge: 86400 }));
 
 // ─── Security headers (applied to every response) ─────────────────────
-app.use('*', async (c, next) => {
-  await next();
+app.use('*', (c, next) => {
   const h = new Headers(c.res.headers);
   h.set('content-security-policy', "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self' data:; connect-src 'self' https:; frame-ancestors 'none'; base-uri 'self'; form-action 'self'; upgrade-insecure-requests");
   h.set('x-content-type-options', 'nosniff');
@@ -869,30 +863,19 @@ app.use('*', async (c, next) => {
   h.set('x-xss-protection', '1; mode=block');
   h.set('strict-transport-security', 'max-age=31536000; includeSubDomains; preload');
   c.res = new Response(c.res.body, { status: c.res.status, headers: h });
+  return next();
 });
 
 // ─── Rate limiter (memory fallback when no RATE_LIMITER binding) ───────
 const RATE_LIMIT_WINDOW_MS = 60_000;
 const RATE_LIMIT_MAX = 60;
 const RATE_STORE = new Map();
-async function checkRateLimit(env, c) {
-  const path = c.req.path;
-  const isLight = path === '/health' || path === '/rocket-verify';
-  if (c.env.RATE_LIMITER && !isLight) return null;
-  const ip = c.req.header('cf-connecting-ip') || c.req.header('x-forwarded-for') || 'unknown';
-  const now = Date.now();
-  const bucket = RATE_STORE.get(ip) || { count: 0, ts: now };
-  if (now - bucket.ts > RATE_LIMIT_WINDOW_MS) bucket.count = 0, bucket.ts = now;
-  bucket.count++;
-  RATE_STORE.set(ip, bucket);
-  const limit = isLight ? RATE_LIMIT_MAX * 5 : RATE_LIMIT_MAX;
-  if (bucket.count > limit) return c.text('Too Many Requests', 429);
-  return null;
-}
 app.use('*', async (c, next) => {
+  // Skip circuit-heavy rate limiting for static/health-style probes to avoid
+  // starving admin flows in free-tier 10ms CPU environments.
   const path = c.req.path;
   const isLight = path === '/health' || path === '/rocket-verify';
-  if (c.env.RATE_LIMITER && !isLight) return next();
+  if (env.RATE_LIMITER && !isLight) return next();
   const ip = c.req.header('cf-connecting-ip') || c.req.header('x-forwarded-for') || 'unknown';
   const now = Date.now();
   const bucket = RATE_STORE.get(ip) || { count: 0, ts: now };
@@ -4954,6 +4937,7 @@ app.get('/api/exchanges/health', async (c) => {
 // ─── Unified Hermes-Copilot-OmniRoute-OpenRouter API ─────────────────────────
 // Single interface for AI routing across all providers
 
+<<<<<<< Updated upstream
 import { UnifiedRouter, PROVIDER_CONFIG, MODEL_ALIASES } from './src/ai-integration/hermes-unified-router.js';
 
 // Lazy-loaded router instance
@@ -5057,3 +5041,5 @@ app.get('/api/unified/models/resolve/:alias', (c) => {
 });
 
 
+=======
+>>>>>>> Stashed changes

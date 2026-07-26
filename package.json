@@ -14,6 +14,7 @@
     "upload:frontend": "node scripts/upload-frontend-r2.mjs",
     "build": "npx --yes wrangler@4.87.0 deploy",
     "deploy": "npx --yes wrangler@4.87.0 deploy",
+    "build:check": "npx --yes wrangler@4.87.0 deploy --dry-run",
     "deploy:emergent": "npm run deploy:with-frontend && npm run smoke:prod",
     "dev": "wrangler dev",
     "dev:local-ai": "AI_BACKEND=local LOCAL_AI_ENDPOINT=http://127.0.0.1:8000 wrangler dev --local",
