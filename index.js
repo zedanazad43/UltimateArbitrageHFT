@@ -1,10 +1,59 @@
-﻿/* Temporary fallback added to unblock deploy */
-function checkRateLimit() {
-  return {
-    allowed: true,
-    remaining: Number.MAX_SAFE_INTEGER,
-    reset: Date.now() + 60000
-  };
+﻿
+/* ===== Rate Limiter (KV, fixed window) ===== */
+function getClientIp(c) {
+  return (
+    c?.req?.header?.("cf-connecting-ip") ||
+    c?.req?.header?.("x-forwarded-for")?.split(",")[0]?.trim() ||
+    c?.req?.header?.("x-real-ip") ||
+    "unknown"
+  );
+}
+
+function rateLimitKey(c, windowSec) {
+  const ip = getClientIp(c);
+  const now = Math.floor(Date.now() / 1000);
+  const bucket = Math.floor(now / windowSec);
+  return `rl:${ip}:${bucket}`;
+}
+
+async function checkRateLimit(env, c, opts = {}) {
+  const windowSec = Number(opts.windowSec ?? 60);
+  const maxReq = Number(opts.maxReq ?? 120);
+  const key = rateLimitKey(c, windowSec);
+
+  // prefer KV_STORAGE, fallback BOT_STATE
+  const kv = env?.KV_STORAGE || env?.BOT_STATE;
+  if (!kv) {
+    // fail-open if KV missing, but structured
+    return { allowed: true, remaining: Number.MAX_SAFE_INTEGER, reset: Date.now() + windowSec * 1000 };
+  }
+
+  let current = 0;
+  const raw = await kv.get(key);
+  if (raw) current = Number(raw) || 0;
+
+  current += 1;
+  const ttl = windowSec + 2;
+  await kv.put(key, String(current), { expirationTtl: ttl });
+
+  const allowed = current <= maxReq;
+  const remaining = Math.max(0, maxReq - current);
+
+  const nowMs = Date.now();
+  const resetMs = (Math.floor(nowMs / (windowSec * 1000)) + 1) * windowSec * 1000;
+
+  return { allowed, remaining, reset: resetMs };
+}
+
+function applyRateLimitHeaders(c, info, maxReq = 120) {
+  try {
+    c.header("X-RateLimit-Limit", String(maxReq));
+    c.header("X-RateLimit-Remaining", String(info?.remaining ?? 0));
+    c.header("X-RateLimit-Reset", String(Math.floor((info?.reset ?? Date.now()) / 1000)));
+  } catch {}
+}
+/* ===== End Rate Limiter ===== */
+;
 }
 // ===== NEXUS ARBITRAGE HUB — Final Integrated Bot =====
 // Entry point: ultimate-arbitrage-hft Cloudflare Worker
@@ -1305,7 +1354,11 @@ app.get('/control-panel.html', async (c) => {
 
 // ── Admin: Start ──────────────────────────────────────────────────────────────
 app.get('/start', async (c) => {
-  const limited = await checkRateLimit(c.env, c);
+  const limited = await checkRateLimit(c.env, c, { windowSec: 60, maxReq: 120 });
+applyRateLimitHeaders(c, limited, 120);
+if (!limited.allowed) {
+  return c.json({ ok: false, error: "rate_limited" }, 429);
+}
   if (limited) return limited;
   if (!isAuthorized(c.env, c)) return authDenied(c.env, c);
   const state = await getState(c.env);
@@ -1320,7 +1373,11 @@ app.get('/start', async (c) => {
 
 // ── Admin: Stop ───────────────────────────────────────────────────────────────
 app.get('/stop', async (c) => {
-  const limited = await checkRateLimit(c.env, c);
+  const limited = await checkRateLimit(c.env, c, { windowSec: 60, maxReq: 120 });
+applyRateLimitHeaders(c, limited, 120);
+if (!limited.allowed) {
+  return c.json({ ok: false, error: "rate_limited" }, 429);
+}
   if (limited) return limited;
   if (!isAuthorized(c.env, c)) return authDenied(c.env, c);
   const state = await getState(c.env);
@@ -1333,7 +1390,11 @@ app.get('/stop', async (c) => {
 
 // ── Admin: Reset — wipe state + DB for fresh start ───────────────────────────
 app.post('/api/reset', async (c) => {
-  const limited = await checkRateLimit(c.env, c);
+  const limited = await checkRateLimit(c.env, c, { windowSec: 60, maxReq: 120 });
+applyRateLimitHeaders(c, limited, 120);
+if (!limited.allowed) {
+  return c.json({ ok: false, error: "rate_limited" }, 429);
+}
   if (limited) return limited;
   if (!isAuthorized(c.env, c)) return authDenied(c.env, c, true);
 
@@ -1470,7 +1531,11 @@ app.post('/api/ws-prices', async (c) => {
 });
 
 const scanHandler = async (c) => {
-  const limited = await checkRateLimit(c.env, c);
+  const limited = await checkRateLimit(c.env, c, { windowSec: 60, maxReq: 120 });
+applyRateLimitHeaders(c, limited, 120);
+if (!limited.allowed) {
+  return c.json({ ok: false, error: "rate_limited" }, 429);
+}
   if (limited) return limited;
   if (!isAuthorized(c.env, c)) return authDenied(c.env, c);
   const state = await getState(c.env);
@@ -1530,7 +1595,11 @@ app.get('/api/scan', async (c) => {
 // potentially long-running scan request to finish.
 app.post('/api/live-deal/execute', async (c) => {
   if (!requireFreshRequest(c.env, c)) return c.text('Stale request', 400);
-  const limited = await checkRateLimit(c.env, c);
+  const limited = await checkRateLimit(c.env, c, { windowSec: 60, maxReq: 120 });
+applyRateLimitHeaders(c, limited, 120);
+if (!limited.allowed) {
+  return c.json({ ok: false, error: "rate_limited" }, 429);
+}
   if (limited) return limited;
   if (!isAuthorized(c.env, c)) return authDenied(c.env, c);
 
@@ -1574,7 +1643,11 @@ app.post('/webhook/n8n/scan', async (c) => {
 // ── Admin: Set mode Paper ─────────────────────────────────────────────────────
 app.post('/mode/paper', async (c) => {
   if (!requireFreshRequest(c.env, c)) return c.text('Stale request', 400);
-  const limited = await checkRateLimit(c.env, c);
+  const limited = await checkRateLimit(c.env, c, { windowSec: 60, maxReq: 120 });
+applyRateLimitHeaders(c, limited, 120);
+if (!limited.allowed) {
+  return c.json({ ok: false, error: "rate_limited" }, 429);
+}
   if (limited) return limited;
   if (!isAuthorized(c.env, c)) return authDenied(c.env, c);
   const state = await getState(c.env);
@@ -1591,7 +1664,11 @@ app.post('/mode/paper', async (c) => {
 // ── Admin: Set mode Live ──────────────────────────────────────────────────────
 app.post('/mode/live', async (c) => {
   if (!requireFreshRequest(c.env, c)) return c.text('Stale request', 400);
-  const limited = await checkRateLimit(c.env, c);
+  const limited = await checkRateLimit(c.env, c, { windowSec: 60, maxReq: 120 });
+applyRateLimitHeaders(c, limited, 120);
+if (!limited.allowed) {
+  return c.json({ ok: false, error: "rate_limited" }, 429);
+}
   if (limited) return limited;
   if (!isAuthorized(c.env, c)) return authDenied(c.env, c);
   const state = await getState(c.env);
@@ -1878,7 +1955,11 @@ async function validateConfigAuth(c, state, body, forceManualRiskLock, forceSpot
 }
 
 app.post('/config', async (c) => {
-  const limited = await checkRateLimit(c.env, c);
+  const limited = await checkRateLimit(c.env, c, { windowSec: 60, maxReq: 120 });
+applyRateLimitHeaders(c, limited, 120);
+if (!limited.allowed) {
+  return c.json({ ok: false, error: "rate_limited" }, 429);
+}
   if (limited) return limited;
   if (!isAuthorized(c.env, c)) return authDenied(c.env, c);
   let body;
@@ -1930,7 +2011,11 @@ app.post('/config', async (c) => {
 // ── Admin: Spot-only lock controls ──────────────────────────────────────────
 // Explicit endpoint to toggle lock state. When enabled, perps/funding are forced off.
 app.post('/strategy/spot-lock/:mode', async (c) => {
-  const limited = await checkRateLimit(c.env, c);
+  const limited = await checkRateLimit(c.env, c, { windowSec: 60, maxReq: 120 });
+applyRateLimitHeaders(c, limited, 120);
+if (!limited.allowed) {
+  return c.json({ ok: false, error: "rate_limited" }, 429);
+}
   if (limited) return limited;
   if (!isAuthorized(c.env, c)) return authDenied(c.env, c);
 
@@ -1981,7 +2066,11 @@ app.post('/strategy/spot-lock/:mode', async (c) => {
 // ── Admin: Explicit perps enable/disable endpoint ───────────────────────────
 // Perps can only be enabled from this dedicated route (not generic /config when lock is on).
 app.post('/strategy/perps/:mode', async (c) => {
-  const limited = await checkRateLimit(c.env, c);
+  const limited = await checkRateLimit(c.env, c, { windowSec: 60, maxReq: 120 });
+applyRateLimitHeaders(c, limited, 120);
+if (!limited.allowed) {
+  return c.json({ ok: false, error: "rate_limited" }, 429);
+}
   if (limited) return limited;
   if (!isAuthorized(c.env, c)) return authDenied(c.env, c);
 
@@ -2306,7 +2395,11 @@ app.get('/api/proxy-stats', async (c) => {
 });
 
 app.post('/api/alerts/test', async (c) => {
-  const limited = await checkRateLimit(c.env, c);
+  const limited = await checkRateLimit(c.env, c, { windowSec: 60, maxReq: 120 });
+applyRateLimitHeaders(c, limited, 120);
+if (!limited.allowed) {
+  return c.json({ ok: false, error: "rate_limited" }, 429);
+}
   if (limited) return limited;
   if (!isAuthorized(c.env, c)) return authDenied(c.env, c, true);
 
@@ -2949,7 +3042,11 @@ app.get('/api/venue-performance', async (c) => {
 
 // ── API: Rebalance policy update (auth-protected) ───────────────────────────
 app.post('/api/rebalance/policy', async (c) => {
-  const limited = await checkRateLimit(c.env, c);
+  const limited = await checkRateLimit(c.env, c, { windowSec: 60, maxReq: 120 });
+applyRateLimitHeaders(c, limited, 120);
+if (!limited.allowed) {
+  return c.json({ ok: false, error: "rate_limited" }, 429);
+}
   if (limited) return limited;
   if (!isAuthorized(c.env, c)) return authDenied(c.env, c, true);
 
@@ -3157,7 +3254,11 @@ app.get('/api/market/price/:symbol', async (c) => {
 // exchange.  Auth-protected.  Respects paper_trading mode.
 // Body: { symbol, side, quantity, sizeUsd }
 app.post('/api/exchange/:exchange/order', async (c) => {
-  const limited = await checkRateLimit(c.env, c);
+  const limited = await checkRateLimit(c.env, c, { windowSec: 60, maxReq: 120 });
+applyRateLimitHeaders(c, limited, 120);
+if (!limited.allowed) {
+  return c.json({ ok: false, error: "rate_limited" }, 429);
+}
   if (limited) return limited;
   if (!isAuthorized(c.env, c)) return authDenied(c.env, c, true);
 
@@ -3322,7 +3423,11 @@ app.get('/api/free-sources', async (c) => {
 // POST /api/broker/:broker/order — places a broker market order through unified adapter.
 // Body: { symbol, side, quantity, sizeUsd }
 app.post('/api/broker/:broker/order', async (c) => {
-  const limited = await checkRateLimit(c.env, c);
+  const limited = await checkRateLimit(c.env, c, { windowSec: 60, maxReq: 120 });
+applyRateLimitHeaders(c, limited, 120);
+if (!limited.allowed) {
+  return c.json({ ok: false, error: "rate_limited" }, 429);
+}
   if (limited) return limited;
   if (!isAuthorized(c.env, c)) return authDenied(c.env, c, true);
 
@@ -3693,7 +3798,11 @@ app.get('/api/integrations/executive/status', async (c) => {
 });
 
 app.post('/api/integrations/executive/execute', async (c) => {
-  const limited = await checkRateLimit(c.env, c);
+  const limited = await checkRateLimit(c.env, c, { windowSec: 60, maxReq: 120 });
+applyRateLimitHeaders(c, limited, 120);
+if (!limited.allowed) {
+  return c.json({ ok: false, error: "rate_limited" }, 429);
+}
   if (limited) return limited;
   if (!isAuthorized(c.env, c)) return authDenied(c.env, c, true);
   try {
@@ -3712,7 +3821,11 @@ app.post('/api/integrations/executive/execute', async (c) => {
 });
 
 app.post('/api/integrations/executive/execute-all', async (c) => {
-  const limited = await checkRateLimit(c.env, c);
+  const limited = await checkRateLimit(c.env, c, { windowSec: 60, maxReq: 120 });
+applyRateLimitHeaders(c, limited, 120);
+if (!limited.allowed) {
+  return c.json({ ok: false, error: "rate_limited" }, 429);
+}
   if (limited) return limited;
   if (!isAuthorized(c.env, c)) return authDenied(c.env, c, true);
   try {
@@ -4080,7 +4193,11 @@ app.get('/cron', async (c) => {
 //   run_monte_carlo:  boolean (default: true)
 //   run_param_sweep:  boolean (default: false)
 app.post('/api/backtest', async (c) => {
-  const limited = await checkRateLimit(c.env, c);
+  const limited = await checkRateLimit(c.env, c, { windowSec: 60, maxReq: 120 });
+applyRateLimitHeaders(c, limited, 120);
+if (!limited.allowed) {
+  return c.json({ ok: false, error: "rate_limited" }, 429);
+}
   if (limited) return limited;
   if (!isAuthorized(c.env, c)) return c.json({ error: 'Unauthorized' }, 401);
   try {
@@ -4107,7 +4224,11 @@ app.get('/api/backtest/runs', async (c) => {
 });
 
 app.post('/api/strategies/self-evaluate', async (c) => {
-  const limited = await checkRateLimit(c.env, c);
+  const limited = await checkRateLimit(c.env, c, { windowSec: 60, maxReq: 120 });
+applyRateLimitHeaders(c, limited, 120);
+if (!limited.allowed) {
+  return c.json({ ok: false, error: "rate_limited" }, 429);
+}
   if (limited) return limited;
   if (!isAuthorized(c.env, c)) return c.json({ error: 'Unauthorized' }, 401);
   try {
@@ -4158,7 +4279,11 @@ app.get('/api/memory', async (c) => {
 });
 
 app.post('/api/memory/reset', async (c) => {
-  const limited = await checkRateLimit(c.env, c);
+  const limited = await checkRateLimit(c.env, c, { windowSec: 60, maxReq: 120 });
+applyRateLimitHeaders(c, limited, 120);
+if (!limited.allowed) {
+  return c.json({ ok: false, error: "rate_limited" }, 429);
+}
   if (limited) return limited;
   if (!isAuthorized(c.env, c)) return authDenied(c.env, c, true);
   try {
@@ -5046,6 +5171,7 @@ app.get('/api/unified/models/resolve/:alias', (c) => {
     cfg.models.includes(resolved) || Object.values(MODEL_ALIASES).includes(resolved)
   )?.[0] || 'unknown' });
 });
+
 
 
 
