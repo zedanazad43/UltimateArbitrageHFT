@@ -15,8 +15,4 @@ export class UnifiedRouter {
   }
 }
 
-export default {
-  UnifiedRouter,
-  PROVIDER_CONFIG,
-  MODEL_ALIASES,
-};
+export default { UnifiedRouter, PROVIDER_CONFIG, MODEL_ALIASES };
