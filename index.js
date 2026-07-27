@@ -1,4 +1,5 @@
-﻿
+﻿import { checkRateLimit, applyRateLimitHeaders } from './src/security/rate-limit.js';
+
 /* ===== Rate Limiter (KV, fixed window) ===== */
 function getClientIp(c) {
   return (
@@ -5171,6 +5172,7 @@ app.get('/api/unified/models/resolve/:alias', (c) => {
     cfg.models.includes(resolved) || Object.values(MODEL_ALIASES).includes(resolved)
   )?.[0] || 'unknown' });
 });
+
 
 
 

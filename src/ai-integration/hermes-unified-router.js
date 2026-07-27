@@ -5,12 +5,11 @@ export class UnifiedRouter {
   constructor(options = {}) {
     this.options = options;
   }
-
   route(request = {}) {
     return {
       provider: request.provider || "default",
       model: request.model || "default",
-      request,
+      request
     };
   }
 }

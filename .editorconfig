@@ -1,86 +1,12 @@
-# EditorConfig is awesome: https://EditorConfig.org
+﻿root = true
 
-# Top-most EditorConfig file
-root = true
-
-# Unix-style newlines with a newline ending every file
 [*]
+charset = utf-8
 end_of_line = lf
 insert_final_newline = true
-charset = utf-8
+indent_style = space
+indent_size = 2
 trim_trailing_whitespace = true
 
-# JavaScript / TypeScript / Node.js
-[*.{js,cjs,mjs,ts,jsx,tsx}]
-indent_style = space
-indent_size = 2
-
-# Go
-[*.go]
-indent_style = tab
-indent_size = 4
-
-# Java
-[*.java]
-indent_style = space
-indent_size = 4
-
-# PowerShell
-[*.ps1]
-indent_style = space
-indent_size = 4
-
-# Python
-[*.py]
-indent_style = space
-indent_size = 4
-
-# YAML / TOML / JSON (config files)
-[*.{yml,yaml}]
-indent_style = space
-indent_size = 2
-
-[*.toml]
-indent_style = space
-indent_size = 2
-
-[*.json]
-indent_style = space
-indent_size = 2
-
-# Markdown
-[*.{md,mdx}]
+[*.md]
 trim_trailing_whitespace = false
-
-# Shell scripts
-[*.{sh,bash}]
-indent_style = tab
-indent_size = 4
-
-# SQL
-[*.sql]
-indent_style = space
-indent_size = 2
-
-# HTML / CSS
-[*.{html,css}]
-indent_style = space
-indent_size = 2
-
-# Dotnet / C# / F#
-[*.{cs,fs,csproj,fsproj}]
-indent_style = space
-indent_size = 4
-
-# Docker
-[Dockerfile]
-indent_style = space
-indent_size = 4
-
-[*.dockerignore]
-indent_style = space
-indent_size = 2
-
-# License / plain text
-[LICENSE]
-insert_final_newline = true
