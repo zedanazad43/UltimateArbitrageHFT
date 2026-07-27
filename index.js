@@ -1,4 +1,4 @@
-// ===== NEXUS ARBITRAGE HUB — Final Integrated Bot =====
+﻿// ===== NEXUS ARBITRAGE HUB — Final Integrated Bot =====
 // Entry point: ultimate-arbitrage-hft Cloudflare Worker
 // Integrates: CEX + DEX + Perps strategies, admin dashboard, Telegram bot
 // AI Agent: Autonomous self-learning trading agent v3.0 (Reinforcement Learning + Deep Orchestration)
@@ -4937,7 +4937,6 @@ app.get('/api/exchanges/health', async (c) => {
 // ─── Unified Hermes-Copilot-OmniRoute-OpenRouter API ─────────────────────────
 // Single interface for AI routing across all providers
 
-<<<<<<< Updated upstream
 import { UnifiedRouter, PROVIDER_CONFIG, MODEL_ALIASES } from './src/ai-integration/hermes-unified-router.js';
 
 // Lazy-loaded router instance
@@ -5041,5 +5040,3 @@ app.get('/api/unified/models/resolve/:alias', (c) => {
 });
 
 
-=======
->>>>>>> Stashed changes
