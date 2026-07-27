@@ -20,7 +20,52 @@ export interface RoutingDecision {
   compressed_context?: string;
 }
 
-export type AgentType = "ollama" | "codegeex" | "cli" | "aimaster" | "arbitrage";
+export type AgentType =
+  | "ollama"
+  | "codegeex"
+  | "cli"
+  | "aimaster"
+  | "arbitrage"
+  | "hermes"
+  | "merlin"
+  | "omni"
+  | "manus"
+  | "cloudflare";
+
+/** Endpoint config for cloud agents */
+export interface AgentEndpoint {
+  url: string;
+  api_key_env?: string;
+  model?: string;
+}
+
+const AGENT_ENDPOINTS: Partial<Record<AgentType, AgentEndpoint>> = {
+  hermes: {
+    url: "https://hermes-agent.nousresearch.com/v1",
+    api_key_env: "HERMES_API_KEY",
+    model: "openrouter/auto",
+  },
+  merlin: {
+    url: "https://merlin.foyer.work/api/chat",
+    api_key_env: "MERLIN_API_KEY",
+    model: "auto",
+  },
+  omni: {
+    url: "https://openrouter.ai/api/v1",
+    api_key_env: "OPENROUTER_API_KEY",
+    model: "openrouter/auto",
+  },
+  manus: {
+    url: "http://127.0.0.1:8788/api/manus",
+    api_key_env: "MANUS_API_KEY",
+    model: "auto",
+  },
+  cloudflare: {
+    url: "${CLOUDFLARE_AI_GATEWAY_URL}",
+    api_key_env: "CLOUDFLARE_API_TOKEN",
+    model: "@cf/meta/llama-3.1-8b-instruct",
+  },
+};
 
 export class UniversalRouter {
   private tokenManager: TokenManager;
@@ -30,6 +75,11 @@ export class UniversalRouter {
     ["cli", true],
     ["aimaster", true],
     ["arbitrage", true],
+    ["hermes", true],
+    ["merlin", true],
+    ["omni", true],
+    ["manus", true],
+    ["cloudflare", true],
   ]);
 
   constructor(tokenManager: TokenManager) {
@@ -73,6 +123,12 @@ export class UniversalRouter {
       case "trading":
         decision = this.routeTrading(compressed, priority);
         break;
+      case "research":
+        decision = this.routeResearch(compressed, priority);
+        break;
+      case "automation":
+        decision = this.routeAutomation(compressed, priority);
+        break;
       default:
         decision = this.routeDefault(compressed, priority);
     }
@@ -89,18 +145,18 @@ export class UniversalRouter {
    */
   private classifyTask(
     task: string
-  ): "code" | "analysis" | "trading" | "general" {
+  ): "code" | "analysis" | "trading" | "research" | "automation" | "general" {
     const lower = task.toLowerCase();
-    if (
-      lower.includes("code") ||
-      lower.includes("function") ||
-      lower.includes("debug")
-    )
+    if (lower.includes("code") || lower.includes("function") || lower.includes("debug"))
       return "code";
     if (lower.includes("analyze") || lower.includes("report"))
       return "analysis";
     if (lower.includes("trade") || lower.includes("arbitrage"))
       return "trading";
+    if (lower.includes("search") || lower.includes("research") || lower.includes("web") || lower.includes("browse"))
+      return "research";
+    if (lower.includes("automate") || lower.includes("browser") || lower.includes("click") || lower.includes("form"))
+      return "automation";
     return "general";
   }
 
@@ -199,12 +255,28 @@ export class UniversalRouter {
     }
 
     // Default priority-based routing
-    if (priority === "critical" && this.agentHealth.get("aimaster")) {
-      return {
-        agent: "aimaster",
-        reason: "critical_priority",
-        tokens_available: this.tokenManager.getStatus().remaining,
-      };
+    if (priority === "critical") {
+      if (this.agentHealth.get("hermes")) {
+        return {
+          agent: "hermes",
+          reason: "critical_long_context",
+          tokens_available: this.tokenManager.getStatus().remaining,
+        };
+      }
+      if (this.agentHealth.get("omni")) {
+        return {
+          agent: "omni",
+          reason: "critical_multi_model",
+          tokens_available: this.tokenManager.getStatus().remaining,
+        };
+      }
+      if (this.agentHealth.get("aimaster")) {
+        return {
+          agent: "aimaster",
+          reason: "critical_priority",
+          tokens_available: this.tokenManager.getStatus().remaining,
+        };
+      }
     }
 
     // Use cheapest available
@@ -229,6 +301,72 @@ export class UniversalRouter {
       reason: "fallback",
       tokens_available: this.tokenManager.getStatus().remaining,
     };
+  }
+
+  /**
+   * Route research/web tasks
+   * Prefer: Merlin (web research) → Omni (multi-model) → Hermes → AIMaster
+   */
+  private routeResearch(context: string, priority: string): RoutingDecision {
+    if (this.agentHealth.get("merlin")) {
+      return {
+        agent: "merlin",
+        reason: "web_research_specialist",
+        tokens_available: this.tokenManager.getStatus().remaining,
+      };
+    }
+    if (this.agentHealth.get("omni")) {
+      return {
+        agent: "omni",
+        reason: "multi_model_research",
+        tokens_available: this.tokenManager.getStatus().remaining,
+      };
+    }
+    if (this.agentHealth.get("hermes")) {
+      return {
+        agent: "hermes",
+        reason: "long_context_fallback",
+        tokens_available: this.tokenManager.getStatus().remaining,
+      };
+    }
+    return {
+      agent: "aimaster",
+      reason: "local_fallback",
+      tokens_available: this.tokenManager.getStatus().remaining,
+    };
+  }
+
+  /**
+   * Route automation/browser tasks
+   * Prefer: Manus (browser automation) → Hermes (long task) → CLI
+   */
+  private routeAutomation(context: string, priority: string): RoutingDecision {
+    if (this.agentHealth.get("manus")) {
+      return {
+        agent: "manus",
+        reason: "browser_automation_specialist",
+        tokens_available: this.tokenManager.getStatus().remaining,
+      };
+    }
+    if (this.agentHealth.get("hermes")) {
+      return {
+        agent: "hermes",
+        reason: "long_task_fallback",
+        tokens_available: this.tokenManager.getStatus().remaining,
+      };
+    }
+    return {
+      agent: "cli",
+      reason: "last_resort",
+      tokens_available: this.tokenManager.getStatus().remaining,
+    };
+  }
+
+  /**
+   * Get endpoint config for a cloud agent
+   */
+  getEndpoint(agent: AgentType): AgentEndpoint | undefined {
+    return AGENT_ENDPOINTS[agent];
   }
 
   /**

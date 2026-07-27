@@ -1,7 +1,43 @@
 {
-    "model": "",
-    "providers": {},
-    "fallback_providers": [],
+    "model": "openrouter/auto",
+    "providers": {
+        "openrouter": {
+            "base_url": "https://openrouter.ai/api/v1",
+            "api_key_env": "OPENROUTER_API_KEY",
+            "default_model": "openrouter/auto",
+            "free_models": [
+                "meta-llama/llama-3.1-8b-instruct:free",
+                "mistralai/mistral-7b-instruct:free",
+                "google/gemma-2-9b-it:free"
+            ]
+        },
+        "ollama": {
+            "base_url": "http://127.0.0.1:11434/v1",
+            "api_key_env": "",
+            "default_model": "llama3.1",
+            "free_models": [
+                "llama3.1",
+                "mistral",
+                "phi3"
+            ]
+        },
+        "cloudflare_ai": {
+            "base_url": "${CLOUDFLARE_AI_GATEWAY_URL}",
+            "api_key_env": "CLOUDFLARE_API_TOKEN",
+            "default_model": "@cf/meta/llama-3.1-8b-instruct",
+            "free_models": [
+                "@cf/meta/llama-3.1-8b-instruct",
+                "@cf/mistral/mistral-7b-instruct-v0.2",
+                "@cf/google/gemma-2b-it-lora"
+            ]
+        }
+    },
+    "fallback_providers": [
+        "meta-llama/llama-3.1-8b-instruct:free",
+        "mistralai/mistral-7b-instruct:free",
+        "google/gemma-2-9b-it:free",
+        "ollama/llama3.1"
+    ],
     "credential_pool_strategies": {},
     "toolsets": [
         "hermes-cli"
