@@ -1,7 +1,4 @@
-﻿# Default owner for all files
-* @zedanazad43
-
-# Critical runtime + deploy surfaces
+﻿* @zedanazad43
 /index.js @zedanazad43
 /package.json @zedanazad43
 /wrangler.toml @zedanazad43
