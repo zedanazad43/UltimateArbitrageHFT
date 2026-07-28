@@ -366,3 +366,55 @@ All CEX requirements above, plus:
 | `PROXY_URL` renamed → `PROXY_FALLBACK_URL` | Both names still work. Use `PROXY_FALLBACK_URL` going forward. |
 | `EXTERNAL_PROXY_URL` renamed → `EXTERNAL_PROXY_FALLBACK_URL` | Both names still work. Use the canonical name. |
 | `wrangler.toml.backup` removed | Stale backup of old wrangler.toml. All content is in `wrangler.toml`. |
+
+---
+
+## 9 — Multi-Agent Cooperation Stack
+
+These variables wire together Hermes, OmniRoute, Merlin, Manus, and Cloudflare Workers AI.
+Set them as **wrangler secrets** for the Worker, or as local `.env` / system env vars for Hermes/Omni.
+
+### 9.1 OpenRouter / OmniRoute
+
+| Variable | Required | Description |
+|---|---|---|
+| `OPENROUTER_API_KEY` | ✅ Yes | API key from https://openrouter.ai → free tier available |
+| `OPENROUTER_BASE_URL` | Optional | Override base URL (default: `https://openrouter.ai/api/v1`) |
+| `OPENROUTER_DEFAULT_MODEL` | Optional | Default model (default: `openrouter/auto`) |
+
+### 9.2 Hermes Agent
+
+| Variable | Required | Description |
+|---|---|---|
+| `HERMES_API_KEY` | ✅ Yes | Hermes API key from Nous Research portal |
+| `HERMES_MODEL` | Optional | Model override (default: `openrouter/auto`) |
+| `HERMES_BASE_URL` | Optional | Override endpoint (default: `https://hermes-agent.nousresearch.com/v1`) |
+
+### 9.3 Merlin AI
+
+| Variable | Required | Description |
+|---|---|---|
+| `MERLIN_API_KEY` | ✅ Yes | Merlin API key from https://merlin.foyer.work |
+
+### 9.4 Manus Agent
+
+| Variable | Required | Description |
+|---|---|---|
+| `MANUS_API_KEY` | Optional | API key for Manus automation agent |
+| `MANUS_ENDPOINT` | Optional | Override endpoint (default: `http://127.0.0.1:8788/api/manus`) |
+
+### 9.5 Cloudflare Workers AI Gateway
+
+| Variable | Required | Description |
+|---|---|---|
+| `CLOUDFLARE_AI_GATEWAY_URL` | ✅ Yes | AI Gateway URL from Cloudflare dashboard → AI Gateway |
+| `CLOUDFLARE_API_TOKEN` | ✅ Yes | CF API token with Workers AI permission |
+| `WORKER_AUTH_TOKEN` | Recommended | ****** to authenticate calls to `hero-super-agent` |
+| `DEFAULT_CF_MODEL` | Optional | Default Workers AI model (default: `@cf/meta/llama-3.1-8b-instruct`) |
+
+### 9.6 Alias map for multi-agent stack
+
+| Canonical name | Notes |
+|---|---|
+| `OPENROUTER_API_KEY` | Used by both Hermes config and OmniRoute |
+| `CLOUDFLARE_AI_GATEWAY_URL` | Must include full URL with account ID |

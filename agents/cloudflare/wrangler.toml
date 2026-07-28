@@ -1,4 +1,13 @@
-﻿name = "hero-super-agent"
+name = "hero-super-agent"
 main = "index.js"
 compatibility_date = "2026-01-01"
 workers_dev = true
+
+[ai]
+binding = "AI"
+
+[vars]
+DEFAULT_CF_MODEL = "@cf/meta/llama-3.1-8b-instruct"
+
+# Set via: wrangler secret put WORKER_AUTH_TOKEN
+# Set via: wrangler secret put CLOUDFLARE_API_TOKEN

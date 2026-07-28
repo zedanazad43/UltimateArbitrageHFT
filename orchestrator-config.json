@@ -56,7 +56,72 @@
       ],
       "use_free_only": true
     },
-    "arbitrage": {
+    "hermes": {
+      "type": "cloud_agent",
+      "cost": "mixed",
+      "priority": 3,
+      "fallback_to": "omni",
+      "best_for": ["long_tasks", "complex_reasoning", "multi_turn", "coding"],
+      "endpoint": "https://hermes-agent.nousresearch.com/v1",
+      "api_key_env": "HERMES_API_KEY",
+      "model_env": "HERMES_MODEL",
+      "default_model": "openrouter/auto",
+      "use_free_only": true,
+      "free_models": [
+        "meta-llama/llama-3.1-8b-instruct:free",
+        "mistralai/mistral-7b-instruct:free",
+        "google/gemma-2-9b-it:free"
+      ]
+    },
+    "omni": {
+      "type": "cloud_router",
+      "cost": "mixed",
+      "priority": 4,
+      "fallback_to": "merlin",
+      "best_for": ["multi_model", "routing", "general", "analysis"],
+      "endpoint": "https://openrouter.ai/api/v1",
+      "api_key_env": "OPENROUTER_API_KEY",
+      "default_model": "openrouter/auto",
+      "use_free_only": true,
+      "free_models": [
+        "meta-llama/llama-3.1-8b-instruct:free",
+        "mistralai/mistral-7b-instruct:free"
+      ]
+    },
+    "merlin": {
+      "type": "cloud_research",
+      "cost": "mixed",
+      "priority": 5,
+      "fallback_to": "aimaster",
+      "best_for": ["web_research", "live_search", "browsing", "synthesis"],
+      "endpoint": "https://merlin.foyer.work/api/chat",
+      "api_key_env": "MERLIN_API_KEY",
+      "default_model": "auto"
+    },
+    "manus": {
+      "type": "automation_agent",
+      "cost": "free",
+      "priority": 6,
+      "fallback_to": "cli",
+      "best_for": ["browser_automation", "form_filling", "scraping", "clicking"],
+      "endpoint": "http://127.0.0.1:8788/api/manus",
+      "api_key_env": "MANUS_API_KEY",
+      "default_model": "auto"
+    },
+    "cloudflare": {
+      "type": "edge_ai",
+      "cost": "free",
+      "priority": 7,
+      "fallback_to": "ollama",
+      "best_for": ["edge_inference", "low_latency", "workers_ai"],
+      "endpoint": "${CLOUDFLARE_AI_GATEWAY_URL}",
+      "api_key_env": "CLOUDFLARE_API_TOKEN",
+      "default_model": "@cf/meta/llama-3.1-8b-instruct",
+      "free_models": [
+        "@cf/meta/llama-3.1-8b-instruct",
+        "@cf/mistral/mistral-7b-instruct-v0.2"
+      ]
+    },
       "type": "specialized",
       "cost": "free",
       "priority": 4,
@@ -121,7 +186,26 @@
         "order"
       ]
     },
-    "budget_tight": {
+    "research_task": {
+      "primary": "merlin",
+      "secondary": ["omni", "hermes"],
+      "keywords": ["search", "research", "web", "browse", "find", "latest"]
+    },
+    "automation_task": {
+      "primary": "manus",
+      "secondary": ["hermes", "cli"],
+      "keywords": ["automate", "browser", "click", "form", "scrape"]
+    },
+    "long_task": {
+      "primary": "hermes",
+      "secondary": ["omni", "aimaster"],
+      "keywords": ["long", "complex", "multi-step", "plan", "refactor"]
+    },
+    "edge_task": {
+      "primary": "cloudflare",
+      "secondary": ["ollama", "omni"],
+      "keywords": ["edge", "worker", "deploy", "wrangler", "fast"]
+    },
       "primary": "ollama",
       "secondary": [
         "codegeex",
@@ -150,9 +234,10 @@
       "command": "python3 orchestrator/cli.py"
     },
     "vscode": {
-      "enabled": false,
+      "enabled": true,
       "extension_id": "orchestrator.universal-agent",
-      "port": 3000
+      "port": 3000,
+      "mcp_config": ".vscode/mcp.json"
     },
     "web": {
       "enabled": false,
@@ -164,8 +249,9 @@
       "action_name": "@orchestrator/run"
     },
     "cloudflare_worker": {
-      "enabled": false,
-      "endpoint": "orchestrator.workers.dev"
+      "enabled": true,
+      "endpoint": "hero-super-agent.workers.dev",
+      "wrangler_dir": "agents/cloudflare"
     }
   },
   "integrations": {

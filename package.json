@@ -1,4 +1,4 @@
-﻿{
+{
   "name": "ultimate-arbitrage-hft",
   "version": "2.0.0",
   "description": "Unified Arbitrage Hub - Real Trading Engine",
@@ -123,5 +123,18 @@
   "overrides": {
     "jsonwebtoken": "^9.0.3",
     "protobufjs": "^7.5.6"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "@swc/core",
+      "better-sqlite3",
+      "ccxt",
+      "esbuild",
+      "hyperliquid",
+      "koffi",
+      "protobufjs",
+      "sharp",
+      "workerd"
+    ]
   }
 }

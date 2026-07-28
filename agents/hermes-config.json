@@ -1,7 +1,48 @@
 {
-    "model": "",
-    "providers": {},
-    "fallback_providers": [],
+    "model": "openrouter/auto",
+    "providers": {
+        "ollama": {
+            "base_url": "http://127.0.0.1:11434/v1",
+            "api_key_env": "",
+            "default_model": "llama3.1",
+            "free_models": [
+                "llama3.1",
+                "mistral",
+                "phi3"
+            ]
+        },
+        "cloudflare_ai": {
+            "base_url": "${CLOUDFLARE_AI_GATEWAY_URL}",
+            "api_key_env": "CLOUDFLARE_API_TOKEN",
+            "default_model": "@cf/meta/llama-3.1-8b-instruct",
+            "free_models": [
+                "@cf/meta/llama-3.1-8b-instruct",
+                "@cf/mistral/mistral-7b-instruct-v0.2",
+                "@cf/google/gemma-2b-it-lora"
+            ]
+        },
+        "openrouter": {
+            "base_url": "https://openrouter.ai/api/v1",
+            "api_key_env": "OPENROUTER_API_KEY",
+            "default_model": "openrouter/auto",
+            "free_models": [
+                "meta-llama/llama-3.1-8b-instruct:free",
+                "mistralai/mistral-7b-instruct:free",
+                "google/gemma-2-9b-it:free"
+            ]
+        }
+    },
+    "fallback_providers": [
+        "ollama/llama3.1",
+        "ollama/mistral",
+        "ollama/phi3",
+        "@cf/meta/llama-3.1-8b-instruct",
+        "@cf/mistral/mistral-7b-instruct-v0.2",
+        "meta-llama/llama-3.1-8b-instruct:free",
+        "mistralai/mistral-7b-instruct:free",
+        "google/gemma-2-9b-it:free",
+        "openrouter/auto"
+    ],
     "credential_pool_strategies": {},
     "toolsets": [
         "hermes-cli"
@@ -17,7 +58,7 @@
         "task_completion_guidance": true,
         "parallel_tool_call_guidance": true,
         "environment_probe": true,
-        "environment_hint": "UltimateArbitrageHFT repo; shared handoff context lives in docs/context.md and Telegram/Hermes repo notifications live in .github/workflows/telegram-workflow-failures.yml. Prefer repo-safe status handoffs and never commit secrets.",
+        "environment_hint": "UltimateArbitrageHFT repo; shared handoff context lives in docs/context.md and Telegram/Hermes repo notifications live in .github/workflows/telegram-workflow-failures.yml. Prefer repo-safe status handoffs and never commit secrets. Use skills.sh for all tool dispatch (free-first: ollama \u2192 CF AI \u2192 openrouter:free \u2192 paid). Lean-ctx (lean-ctx/ctx.py) is the shell context compressor \u2014 always call it before raw file reads.",
         "coding_context": "auto",
         "gateway_timeout_warning": 900,
         "clarify_timeout": 600,
@@ -31,9 +72,14 @@
         "modal_mode": "auto",
         "cwd": ".",
         "timeout": 180,
-        "env_passthrough": [],
+        "env_passthrough": [
+            "LEAN_CTX_PATH",
+            "HERMES_SKILLS_DIR"
+        ],
         "home_mode": "auto",
-        "shell_init_files": [],
+        "shell_init_files": [
+            "lean-ctx/ctx.py"
+        ],
         "auto_source_bashrc": true,
         "modal_image": "nikolaik/python-nodejs:python3.11-nodejs20",
         "daytona_image": "nikolaik/python-nodejs:python3.11-nodejs20",
@@ -434,7 +480,9 @@
         "max_turns": 20
     },
     "skills": {
-        "external_dirs": [],
+        "external_dirs": [
+            "${REPO_ROOT}/agents/awesome"
+        ],
         "template_vars": true,
         "inline_shell": false,
         "inline_shell_timeout": 10,
