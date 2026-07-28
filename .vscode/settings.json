@@ -8,5 +8,17 @@
         ".github/agents/final-ai-agent.agent.md"
     ],
     "terminal.integrated.defaultProfile.windows": "Git Bash",
-    "python.defaultInterpreterPath": "python3"
+    "python.defaultInterpreterPath": "python3",
+    "mcp": {
+        "servers": {
+            "wrangler": {
+                "command": "npx",
+                "args": ["-y", "wrangler@latest", "mcp"],
+                "env": {
+                    "CLOUDFLARE_API_TOKEN": "${env:CLOUDFLARE_API_TOKEN}",
+                    "CLOUDFLARE_ACCOUNT_ID": "${env:CLOUDFLARE_ACCOUNT_ID}"
+                }
+            }
+        }
+    }
 }
