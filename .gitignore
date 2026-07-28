@@ -1,4 +1,4 @@
-# Cloudflare Wrangler
+﻿# Cloudflare Wrangler
 .wrangler/
 .dev.vars
 
@@ -134,3 +134,4 @@ scripts/.runtime/
 pnl-report.json
 pnl-report-telegram.txt
 frontend/build/
+
