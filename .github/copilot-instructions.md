@@ -1,4 +1,4 @@
-﻿You are in Advisor Mode.
+You are in Advisor Mode.
 1. Plan first: before writing code, analyze the whole task and produce a detailed plan (files, order, dependencies, edge cases).
 2. Show the plan and wait for explicit approval.
 3. Execute minimally: use file path references, output only new/changed code, compress output.
@@ -26,4 +26,10 @@ When available, run these before fallbacks.
 CLI (repo-local): `python3 lean-ctx/ctx.py read|search|tree|shell ...`
 Canonical agent: `.github/agents/final-ai-agent.agent.md` (aimaster + Super-Agent + llm-council).
 Cloud runs: `.github/workflows/agent-run.yml`.
+
+# skills.sh dispatch rule
+
+**All agents (Hermes, Merlin, Omni, Copilot, wrangler MCP) MUST check `bash skills.sh --list` before invoking any tool directly.**
+Use `skills.sh <skill>` as the unified entry point for every repo operation.
+**Free-first priority is mandatory**: always try free/local tools first (lean-ctx → Ollama → Cloudflare AI → OpenRouter:free) before any paid API call.
 

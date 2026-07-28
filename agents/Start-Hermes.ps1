@@ -70,10 +70,28 @@ Write-Host "`n[5] Starting Hermes Gateway..." -ForegroundColor Yellow
 Write-Host "Command: hermes gateway" -ForegroundColor White
 Write-Host "Press Ctrl+C to stop.`n" -ForegroundColor Cyan
 
-# Optional: If you need to ensure all components are enabled, you can add environment variables here.
-# For example:
-# $env:HERMES_ENABLE_SKILLS = "true"
-# $env:HERMES_ENABLE_MODELS = "true"
-# $env:HERMES_ENABLE_AGENTS = "true"
+# --- skills.sh + lean-ctx wiring ---
+$repoRoot = Split-Path -Parent $PSScriptRoot
+$env:HERMES_SKILLS_DIR   = Join-Path $repoRoot "skills.sh"
+$env:LEAN_CTX_PATH       = Join-Path $repoRoot "lean-ctx\ctx.py"
+
+# Free-model-first provider order: Ollama → Cloudflare AI → OpenRouter:free → OpenRouter:paid
+$env:HERMES_PROVIDER_ORDER = "ollama,cloudflare_ai,openrouter_free,openrouter"
+
+# Validate skills.sh is present
+if (-not (Test-Path $env:HERMES_SKILLS_DIR)) {
+    Write-Host "⚠ skills.sh not found at $($env:HERMES_SKILLS_DIR). Some skills may be unavailable." -ForegroundColor Yellow
+} else {
+    Write-Host "✔ skills.sh: $($env:HERMES_SKILLS_DIR)" -ForegroundColor Green
+}
+
+# Validate lean-ctx
+if (-not (Test-Path $env:LEAN_CTX_PATH)) {
+    Write-Host "⚠ lean-ctx not found at $($env:LEAN_CTX_PATH). Context compression disabled." -ForegroundColor Yellow
+} else {
+    Write-Host "✔ lean-ctx: $($env:LEAN_CTX_PATH)" -ForegroundColor Green
+}
+
+Write-Host "✔ Provider order: $($env:HERMES_PROVIDER_ORDER)" -ForegroundColor Cyan
 
 hermes gateway
