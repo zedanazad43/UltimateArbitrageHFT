@@ -1,4 +1,4 @@
-﻿<#
+<#
 .SYNOPSIS
     Hermes Telegram Gateway Setup & Launch – all-in-one script.
 #>
@@ -60,4 +60,14 @@ Write-Host "`n[5/5] Starting Hermes Gateway..." -ForegroundColor Yellow
 Write-Host "Command: hermes gateway"
 Write-Host "Press Ctrl+C to stop.`n"
 $env:TELEGRAM_TOKEN = $BotToken
+
+# skills.sh + lean-ctx wiring (free-model-first)
+$repoRoot = Split-Path -Parent $PSScriptRoot
+$env:HERMES_SKILLS_DIR   = Join-Path $repoRoot "skills.sh"
+$env:LEAN_CTX_PATH       = Join-Path $repoRoot "lean-ctx\ctx.py"
+$env:HERMES_PROVIDER_ORDER = "ollama,cloudflare_ai,openrouter_free,openrouter"
+if (Test-Path $env:HERMES_SKILLS_DIR) { Write-Host "✔ skills.sh: $($env:HERMES_SKILLS_DIR)" -ForegroundColor Green }
+if (Test-Path $env:LEAN_CTX_PATH)     { Write-Host "✔ lean-ctx:  $($env:LEAN_CTX_PATH)"     -ForegroundColor Green }
+Write-Host "✔ Provider order: $($env:HERMES_PROVIDER_ORDER)" -ForegroundColor Cyan
+
 hermes gateway

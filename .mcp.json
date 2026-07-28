@@ -32,6 +32,13 @@
         "OPENROUTER_API_KEY": "${OPENROUTER_API_KEY}"
       }
     },
+    "skills": {
+      "command": "bash",
+      "args": ["${workspaceFolder}/skills.sh", "mcp-serve"],
+      "env": {
+        "LEAN_CTX_PATH": "${workspaceFolder}/lean-ctx/ctx.py"
+      }
+    },
     "wrangler": {
       "command": "npx",
       "args": ["-y", "wrangler@latest", "mcp"],
