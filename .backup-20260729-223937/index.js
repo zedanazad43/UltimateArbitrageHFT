@@ -1,4 +1,4 @@
-﻿import { checkRateLimit, applyRateLimitHeaders } from './src/security/rate-limit.js';
+import { checkRateLimit, applyRateLimitHeaders } from './src/security/rate-limit.js';
 // ===== NEXUS ARBITRAGE HUB — Final Integrated Bot =====
 // Entry point: ultimate-arbitrage-hft Cloudflare Worker
 // Integrates: CEX + DEX + Perps strategies, admin dashboard, Telegram bot
