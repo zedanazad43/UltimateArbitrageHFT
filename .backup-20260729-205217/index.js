@@ -1,4 +1,4 @@
-import { checkRateLimit, applyRateLimitHeaders } from './src/security/rate-limit.js';
+﻿import { checkRateLimit, applyRateLimitHeaders } from './src/security/rate-limit.js';
 // ===== NEXUS ARBITRAGE HUB — Final Integrated Bot =====
 // Entry point: ultimate-arbitrage-hft Cloudflare Worker
 // Integrates: CEX + DEX + Perps strategies, admin dashboard, Telegram bot
@@ -52,6 +52,7 @@ import { registerResilienceRoutes as _registerResilienceRoutes } from './src/rou
 
 // Geo-bypass & Diagnostics
 import { registerGeoBypassRoutes as _registerGeoBypassRoutes } from './src/routes/geo-bypass-routes.js';
+
 
 // ─── Telegram notification helper ────────────────────────────────────────────
 async function sendTelegramAlert(env, message) {
@@ -922,6 +923,7 @@ registerSystemRoutes(app, {
   reliabilityMgr,
   analyticsEngine,
 });
+
 
 // ── Login / Logout routes ─────────────────────────────────────────────────────
 // GET /login  — render the login form (public)
@@ -2826,6 +2828,8 @@ app.post('/api/ai/chat', async (c) => {
   }
 });
 
+
+
 app.post('/api/merlin/chat', async (c) => {
   if (!isAuthorized(c.env, c)) return authDenied(c.env, c, true);
   try {
@@ -2860,6 +2864,7 @@ app.post('/api/merlin/chat', async (c) => {
     return c.json({ ok: false, error: err.message || 'merlin_failed' }, 500);
   }
 });
+
 
 app.get('/api/rebalance/status', async (c) => {
   if (!isAuthorized(c.env, c)) return authDenied(c.env, c, true);
@@ -4789,6 +4794,9 @@ app.get('/rocket-verify', async (c) => {
   });
 });
 
+
+
+
 app.get('/api/stats', async (c) => {
   if (!isAuthorized(c.env, c)) return authDenied(c.env, c, true);
   try {
@@ -4992,6 +5000,7 @@ app.get('/hermes/debug/token', async (c) => {
   });
 });
 
+
 app.get('/api/exchanges/health', async (c) => {
   if (!isAuthorized(c.env, c)) return authDenied(c.env, c, true);
   try {
@@ -5106,5 +5115,8 @@ app.get('/api/unified/models/resolve/:alias', (c) => {
     cfg.models.includes(resolved) || Object.values(MODEL_ALIASES).includes(resolved)
   )?.[0] || 'unknown' });
 });
+
+
+
 
 
