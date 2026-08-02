@@ -1,0 +1,75 @@
+{
+  "name": "coops-agent",
+  "displayName": "COOPS Agent",
+  "description": "Full cooperation agent with desktop, CLI, VS Code, and cloud integrations",
+  "type": "copilot",
+  "commands": {
+    "status": {
+      "title": "Show COOPS Status",
+      "description": "Display COOPS agent status and memory summary",
+      "command": "python3 cooperation/coops_desktop_agent.py status"
+    },
+    "tasks": {
+      "title": "List COOPS Tasks",
+      "description": "List all tracked tasks",
+      "command": "python3 cooperation/coops_desktop_agent.py tasks"
+    },
+    "balances": {
+      "title": "Show Exchange Balances",
+      "description": "Display exchange balances",
+      "command": "python3 cooperation/coops_desktop_agent.py balances"
+    },
+    "tokens": {
+      "title": "Show Token Catalog",
+      "description": "Display token definitions",
+      "command": "python3 cooperation/coops_desktop_agent.py tokens"
+    },
+    "route": {
+      "title": "Show Model Routing",
+      "description": "Display model routing configuration",
+      "command": "python3 cooperation/coops_desktop_agent.py route"
+    },
+    "init": {
+      "title": "Initialize COOPS Memory",
+      "description": "Initialize COOPS memory system",
+      "command": "python3 cooperation/lean_ctx_coops.py"
+    },
+    "deploy": {
+      "title": "Deploy to Cloudflare Workers",
+      "description": "Deploy current configuration to Cloudflare Workers",
+      "command": "node wrangler.mjs deploy"
+    },
+    "whoami": {
+      "title": "Show System Identity",
+      "description": "Display system identity and environment info",
+      "command": "node wohami.mjs whoami"
+    }
+  },
+  "skills": [
+    {
+      "id": "code-analysis",
+      "name": "Code Analysis",
+      "description": "Analyze, debug, and optimize code"
+    },
+    {
+      "id": "trade-analysis",
+      "name": "Trade Analysis",
+      "description": "Analyze trading opportunities and performance"
+    },
+    {
+      "id": "deployment",
+      "name": "Deployment",
+      "description": "Deploy and manage cloud infrastructure"
+    },
+    {
+      "id": "memory-management",
+      "name": "Memory Management",
+      "description": "Manage persistent context and memory"
+    }
+  ],
+  "providers": {
+    "primary": "ollama",
+    "secondary": ["codegeex", "aimaster"],
+    "fallback": ["cli"]
+  }
+}
