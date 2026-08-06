@@ -1,4 +1,61 @@
-import { checkRateLimit, applyRateLimitHeaders } from './src/security/rate-limit.js';
+﻿import { checkRateLimit, applyRateLimitHeaders } from './src/security/rate-limit.js';
+
+/* ===== Rate Limiter (KV, fixed window) ===== */
+function getClientIp(c) {
+  return (
+    c?.req?.header?.("cf-connecting-ip") ||
+    c?.req?.header?.("x-forwarded-for")?.split(",")[0]?.trim() ||
+    c?.req?.header?.("x-real-ip") ||
+    "unknown"
+  );
+}
+
+function rateLimitKey(c, windowSec) {
+  const ip = getClientIp(c);
+  const now = Math.floor(Date.now() / 1000);
+  const bucket = Math.floor(now / windowSec);
+  return `rl:${ip}:${bucket}`;
+}
+
+async function checkRateLimit(env, c, opts = {}) {
+  const windowSec = Number(opts.windowSec ?? 60);
+  const maxReq = Number(opts.maxReq ?? 120);
+  const key = rateLimitKey(c, windowSec);
+
+  // prefer KV_STORAGE, fallback BOT_STATE
+  const kv = env?.KV_STORAGE || env?.BOT_STATE;
+  if (!kv) {
+    // fail-open if KV missing, but structured
+    return { allowed: true, remaining: Number.MAX_SAFE_INTEGER, reset: Date.now() + windowSec * 1000 };
+  }
+
+  let current = 0;
+  const raw = await kv.get(key);
+  if (raw) current = Number(raw) || 0;
+
+  current += 1;
+  const ttl = windowSec + 2;
+  await kv.put(key, String(current), { expirationTtl: ttl });
+
+  const allowed = current <= maxReq;
+  const remaining = Math.max(0, maxReq - current);
+
+  const nowMs = Date.now();
+  const resetMs = (Math.floor(nowMs / (windowSec * 1000)) + 1) * windowSec * 1000;
+
+  return { allowed, remaining, reset: resetMs };
+}
+
+function applyRateLimitHeaders(c, info, maxReq = 120) {
+  try {
+    c.header("X-RateLimit-Limit", String(maxReq));
+    c.header("X-RateLimit-Remaining", String(info?.remaining ?? 0));
+    c.header("X-RateLimit-Reset", String(Math.floor((info?.reset ?? Date.now()) / 1000)));
+  } catch {}
+}
+/* ===== End Rate Limiter ===== */
+;
+}
 // ===== NEXUS ARBITRAGE HUB — Final Integrated Bot =====
 // Entry point: ultimate-arbitrage-hft Cloudflare Worker
 // Integrates: CEX + DEX + Perps strategies, admin dashboard, Telegram bot
@@ -52,6 +109,7 @@ import { registerResilienceRoutes as _registerResilienceRoutes } from './src/rou
 
 // Geo-bypass & Diagnostics
 import { registerGeoBypassRoutes as _registerGeoBypassRoutes } from './src/routes/geo-bypass-routes.js';
+
 
 // ─── Telegram notification helper ────────────────────────────────────────────
 async function sendTelegramAlert(env, message) {
@@ -922,6 +980,7 @@ registerSystemRoutes(app, {
   reliabilityMgr,
   analyticsEngine,
 });
+
 
 // ── Login / Logout routes ─────────────────────────────────────────────────────
 // GET /login  — render the login form (public)
@@ -2826,6 +2885,8 @@ app.post('/api/ai/chat', async (c) => {
   }
 });
 
+
+
 app.post('/api/merlin/chat', async (c) => {
   if (!isAuthorized(c.env, c)) return authDenied(c.env, c, true);
   try {
@@ -2860,6 +2921,7 @@ app.post('/api/merlin/chat', async (c) => {
     return c.json({ ok: false, error: err.message || 'merlin_failed' }, 500);
   }
 });
+
 
 app.get('/api/rebalance/status', async (c) => {
   if (!isAuthorized(c.env, c)) return authDenied(c.env, c, true);
@@ -4789,6 +4851,9 @@ app.get('/rocket-verify', async (c) => {
   });
 });
 
+
+
+
 app.get('/api/stats', async (c) => {
   if (!isAuthorized(c.env, c)) return authDenied(c.env, c, true);
   try {
@@ -4992,6 +5057,7 @@ app.get('/hermes/debug/token', async (c) => {
   });
 });
 
+
 app.get('/api/exchanges/health', async (c) => {
   if (!isAuthorized(c.env, c)) return authDenied(c.env, c, true);
   try {
@@ -5106,5 +5172,8 @@ app.get('/api/unified/models/resolve/:alias', (c) => {
     cfg.models.includes(resolved) || Object.values(MODEL_ALIASES).includes(resolved)
   )?.[0] || 'unknown' });
 });
+
+
+
 
 
