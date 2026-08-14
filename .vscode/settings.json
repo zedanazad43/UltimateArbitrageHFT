@@ -9,6 +9,11 @@
     ],
     "terminal.integrated.defaultProfile.windows": "Git Bash",
     "python.defaultInterpreterPath": "python3",
+    "github.copilot.chat.codesearch.enabled": true,
+    "github.copilot.chat.agent.runTasks": true,
+    "github.copilot.chat.generateTests.codeLens": true,
+    "github.copilot.chat.fixTestFailure.enabled": true,
+    "github.copilot.nextEditSuggestions.enabled": true,
     "mcp": {
         "servers": {
             "wrangler": {
