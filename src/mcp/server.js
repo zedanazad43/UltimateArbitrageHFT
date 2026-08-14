@@ -76,7 +76,7 @@ export async function mcpRequestHandler(req, env) {
 
   // Handle batch requests (array)
   if (Array.isArray(body)) {
-    const responses = await Promise.all(body.map(req => handleMCPRequest(req, env)));
+    const responses = await Promise.all(body.map(rpcReq => handleMCPRequest(rpcReq, env)));
     return jsonResponse(responses);
   }
 

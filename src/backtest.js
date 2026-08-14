@@ -410,8 +410,8 @@ export async function runBacktest(env, config = {}) {
   for (const trade of trades) {
     // Convert trade size to base_currency if the trade has a currency field
     const tradeCurrency = (trade.currency || 'USD').toUpperCase();
-    const sizeInBase = convertCurrency(equity * position_frac, base_currency, tradeCurrency, fxMap);
-    const tradePnlInTradeCurrency = sizeInBase * trade.net_profit_percent / 100;
+    const sizeInTradeCurrency = convertCurrency(equity * position_frac, base_currency, tradeCurrency, fxMap);
+    const tradePnlInTradeCurrency = sizeInTradeCurrency * trade.net_profit_percent / 100;
     const tradePnl = convertCurrency(tradePnlInTradeCurrency, tradeCurrency, base_currency, fxMap);
 
     equity += tradePnl;

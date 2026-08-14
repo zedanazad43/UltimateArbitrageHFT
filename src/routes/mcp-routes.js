@@ -15,8 +15,8 @@ export function registerMCPRoutes(router, env) {
   router.post('/mcp', async (req) => mcpRequestHandler(req, env));
 
   // Convenience: GET /mcp/tools returns the tool manifest as JSON
-  router.get('/mcp/tools', () => {
-    const { listMCPTools } = require('../mcp/tools.js');
+  router.get('/mcp/tools', async () => {
+    const { listMCPTools } = await import('../mcp/tools.js');
     return new Response(JSON.stringify(listMCPTools(), null, 2), {
       headers: { 'Content-Type': 'application/json' }
     });
