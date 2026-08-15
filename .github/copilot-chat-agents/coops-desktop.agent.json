@@ -31,6 +31,19 @@
       }
     },
     "cloud": {
+      "bytez": {
+        "endpoint": "https://api.bytez.com/models/v2",
+        "apiKeySecret": "BYTEZ_API_KEY",
+        "models": [
+          "meta-llama/Llama-3.2-1B-Instruct",
+          "Qwen/Qwen2.5-Coder-32B-Instruct",
+          "mistralai/Mistral-7B-Instruct-v0.3",
+          "microsoft/phi-4",
+          "deepseek-ai/DeepSeek-R1-Distill-Qwen-7B"
+        ],
+        "priority": 2,
+        "type": "cloud"
+      },
       "huggingface": {
         "endpoint": "https://api-inference.huggingface.co/models",
         "models": ["moonshot/kimi-v1-adapter", "openchat/OpenChat-3.5-7B"],
@@ -65,9 +78,9 @@
   },
   "modelRouting": {
     "primary": "local",
-    "secondary": ["cloud.huggingface", "cloud.openrouter"],
+    "secondary": ["cloud.bytez", "cloud.huggingface", "cloud.openrouter"],
     "fallback": ["local.ollama", "local.codegeex"],
-    "freeOnly": true,
+    "freeOnly": false,
     "paperMode": true
   },
   "tools": {
@@ -81,14 +94,14 @@
     "memory": true
   },
   "skills": {
-    "code": ["ollama", "codegeex", "copilot"],
-    "analysis": ["aimaster", "ollama", "huggingface"],
-    "trading": ["arbitrage", "manus", "merlin"],
+    "code": ["bytez", "ollama", "codegeex", "copilot"],
+    "analysis": ["bytez", "aimaster", "ollama", "huggingface"],
+    "trading": ["bytez", "arbitrage", "manus", "merlin"],
     "build": ["codegeex", "ollama", "cli"],
     "test": ["cli", "ollama"],
     "deploy": ["wrangler", "cli", "omniroute"],
-    "research": ["huggingface", "openrouter", "manus"],
-    "planning": ["hermes", "copilot", "manus"]
+    "research": ["bytez", "huggingface", "openrouter", "manus"],
+    "planning": ["bytez", "hermes", "copilot", "manus"]
   },
   "memory": {
     "local": "C:/Users/azadz/AppData/Local/hermes/coops_memory",

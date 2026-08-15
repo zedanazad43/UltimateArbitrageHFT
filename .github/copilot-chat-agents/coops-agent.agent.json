@@ -49,12 +49,14 @@
     {
       "id": "code-analysis",
       "name": "Code Analysis",
-      "description": "Analyze, debug, and optimize code"
+      "description": "Analyze, debug, and optimize code",
+      "providers": ["bytez", "codegeex", "ollama"]
     },
     {
       "id": "trade-analysis",
       "name": "Trade Analysis",
-      "description": "Analyze trading opportunities and performance"
+      "description": "Analyze trading opportunities and performance",
+      "providers": ["bytez", "aimaster", "ollama"]
     },
     {
       "id": "deployment",
@@ -65,11 +67,28 @@
       "id": "memory-management",
       "name": "Memory Management",
       "description": "Manage persistent context and memory"
+    },
+    {
+      "id": "bytez-inference",
+      "name": "Bytez Inference",
+      "description": "Run LLM inference via Bytez cloud API using BYTEZ_API_KEY secret",
+      "providers": ["bytez"]
     }
   ],
   "providers": {
     "primary": "ollama",
-    "secondary": ["codegeex", "aimaster"],
-    "fallback": ["cli"]
+    "secondary": ["codegeex", "aimaster", "bytez"],
+    "fallback": ["cli"],
+    "bytez": {
+      "endpoint": "https://api.bytez.com/models/v2",
+      "apiKeySecret": "BYTEZ_API_KEY",
+      "models": [
+        "meta-llama/Llama-3.2-1B-Instruct",
+        "Qwen/Qwen2.5-Coder-32B-Instruct",
+        "mistralai/Mistral-7B-Instruct-v0.3"
+      ],
+      "priority": 3,
+      "type": "cloud"
+    }
   }
 }
