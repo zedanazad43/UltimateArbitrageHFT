@@ -1,0 +1,59 @@
+# ─── UltimateArbitrageHFT Go Engine — Docker Compose ─────────────────────────
+# One-command deployment:
+#   docker compose up -d
+#
+# Requires a .env file (copy .env.example and fill in exchange credentials).
+# Without real credentials the engine starts in paper-trading mode.
+version: "3.9"
+
+services:
+  hft-engine:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: ultimate-hft-engine
+    restart: unless-stopped
+    ports:
+      - "9090:9090" # Prometheus metrics
+    env_file:
+      - .env
+    environment:
+      # Safe defaults (override in .env for live trading)
+      - PAPER_TRADING=${PAPER_TRADING:-true}
+      - TRADING_ENABLED=${TRADING_ENABLED:-false}
+      - SCAN_INTERVAL_MS=${SCAN_INTERVAL_MS:-500}
+      - METRICS_ADDR=:9090
+      - MIN_NET_PROFIT_PCT=${MIN_NET_PROFIT_PCT:-0.05}
+      - MAX_SPREAD_PCT=${MAX_SPREAD_PCT:-5.0}
+      - INITIAL_CAPITAL_USD=${INITIAL_CAPITAL_USD:-1000}
+      - MAX_DAILY_LOSS_USD=${MAX_DAILY_LOSS_USD:-25}
+      - MIN_SECONDS_BETWEEN_TX=${MIN_SECONDS_BETWEEN_TX:-30}
+      - WIN_RATE=${WIN_RATE:-0.55}
+      - RISK_REWARD_RATIO=${RISK_REWARD_RATIO:-2.0}
+      - MAX_GAS_COST_PCT=${MAX_GAS_COST_PCT:-0.30}
+      # PostgreSQL connection
+      - DATABASE_URL=${DATABASE_URL:-postgres://hft:hft@localhost:5432/hft}
+      # Exchange API credentials (set in .env)
+      - BINANCE_API_KEY=${BINANCE_API_KEY:-}
+      - BINANCE_API_SECRET=${BINANCE_API_SECRET:-}
+      - MEXC_API_KEY=${MEXC_API_KEY:-}
+      - MEXC_API_SECRET=${MEXC_API_SECRET:-}
+      - BYBIT_API_KEY=${BYBIT_API_KEY:-}
+      - BYBIT_API_SECRET=${BYBIT_API_SECRET:-}
+      # Ethereum RPC for DEX/Flashbots
+      - ETH_RPC_URL=${ETH_RPC_URL:-https://eth.llamarpc.com}
+      - BSC_RPC_URL=${BSC_RPC_URL:-https://bsc-dataseed.binance.org}
+      # Telegram alerts
+      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN:-}
+      - TELEGRAM_CHAT_ID=${TELEGRAM_CHAT_ID:-}
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:9090/metrics"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"

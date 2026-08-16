@@ -1,0 +1,25 @@
+{
+  "name": "ultimate-arbitrage-hft",
+  "version": "2.0.0",
+  "description": "Unified Arbitrage Hub - Real Trading Engine on Railway",
+  "builder": "nixpacks",
+  "deploy": {
+    "startCommand": "node index.js",
+    "restartPolicyMaxRetries": 3
+  },
+  "buildCommand": "npm install",
+  "envs": {
+    "ENVIRONMENT": "production",
+    "NODE_ENV": "production",
+    "PAPER_TRADING": "true",
+    "TRADING_ENABLED": "false"
+  },
+  "services": [
+    {
+      "name": "arbitrage-bot",
+      "plan": "starter",
+      "rootDirectory": ".",
+      "sourceRepo": "github.com/zedanazad43/UltimateArbitrageHFT"
+    }
+  ]
+}

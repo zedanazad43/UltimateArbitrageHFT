@@ -130,7 +130,7 @@ export async function parseJsonResponse(resp, context = '') {
   } catch (parseErr) {
     // Some exchanges (and some proxy responses) wrap JSON in whitespace,
     // a BOM, or stray text. Try to recover the first balanced {...} or [...] block.
-    const cleaned = String(text).trim();
+    const cleaned = String(text).replace(/^﻿/, '').trim();
     const firstBrace = cleaned.search(/[[{]/);
     if (firstBrace >= 0) {
       const candidate = cleaned.slice(firstBrace);
@@ -180,7 +180,7 @@ export async function exchangeFetch(url, options = {}, exchange, maxRetries = 2,
   // ── Proxy bypass for geo-blocked exchanges ──
   // Route Binance/KuCoin/Bitget through the external proxy manager (non-US
   // egress + gateway auth). This is the reliable path used by bitgetFetch.
-  if (env && ex && ['kucoin', 'binance', 'bitget'].includes(ex)) {
+  if (env && ex && ['kucoin', 'binance'].includes(ex)) {
     try {
       const proxyManager = getExternalProxyManager(env);
       const stats = proxyManager.getStats();
@@ -342,10 +342,8 @@ export async function getMEXCFuturesBalance(env, currency = 'USDT') {
     const timestamp = Date.now();
     const recvWindow = 5000;
     const authModes = [
-      { mode: 'spot-v3-with-recvent', rawSig: `${timestamp}${apiKey}${recvWindow}`, includeRecvWindow: true, endpoint: 'https://api.mexc.com/api/v3/account' },
-      { mode: 'spot-v3-no-recvent', rawSig: `${timestamp}${apiKey}`, includeRecvWindow: false, endpoint: 'https://api.mexc.com/api/v3/account' },
-      { mode: 'spot-legacy-with-recvent', rawSig: `${timestamp}${apiKey}${recvWindow}`, includeRecvWindow: true, endpoint: 'https://www.mexc.com/open/api/v2/private/account/info' },
-      { mode: 'spot-legacy-no-recvent', rawSig: `${timestamp}${apiKey}`, includeRecvWindow: false, endpoint: 'https://www.mexc.com/open/api/v2/private/account/info' },
+      { mode: 'with-recv-window', rawSig: `${timestamp}${apiKey}${recvWindow}`, includeRecvWindow: true },
+      { mode: 'no-recv-window', rawSig: `${timestamp}${apiKey}`, includeRecvWindow: false },
     ];
 
     for (const auth of authModes) {
@@ -360,7 +358,7 @@ export async function getMEXCFuturesBalance(env, currency = 'USDT') {
           headers['recv-window'] = recvWindow.toString();
         }
 
-        const resp = await exchangeFetch(auth.endpoint, {
+        const resp = await exchangeFetch('https://contract.mexc.com/api/v1/private/account/assets', {
           headers
         });
         const data = await parseJsonResponse(resp, 'MEXC futures account');
@@ -984,8 +982,7 @@ export async function getBitgetAccountEquityUSDT(env) {
       .map((e) => (e?.message || String(e)))
       .filter(Boolean);
     if (reasons.length) errors.push(...reasons);
-    const bitgetError = new Error(normalizeExchangeErrorMessage('Bitget', `Bitget account equity failed: ${reasons.join(' | ') || 'unknown error'}`), { cause: aggregate });
-    throw bitgetError;
+    throw new Error(normalizeExchangeErrorMessage('Bitget', `Bitget account equity failed: ${errors.join(' | ') || 'unknown error'}`));
   }
 }
 
@@ -1413,7 +1410,7 @@ export async function getHTXBalance(env, asset = 'usdt') {
   const method = 'GET';
   const host = 'api.htx.com';
   const path = '/v1/account/accounts';
-  const timestamp = new Date().toISOString(); // Keep full ISO with milliseconds for HTX compatibility
+  const timestamp = new Date().toISOString().replace(/\.\d{3}Z$/, '');
   const params = new URLSearchParams({
     AccessKeyId: apiKey,
     SignatureMethod: 'HmacSHA256',
@@ -1471,8 +1468,8 @@ export async function placeMarketOrderHTX(env, symbol, side, quantity, sizeUsd) 
   if (!apiSecret) throw new Error('HTX_API_SECRET is not configured');
 
   const method = 'POST';
-  const host = 'api.htx.com';
-  const timestamp = new Date().toISOString(); // Keep full ISO with milliseconds for HTX compatibility
+  const host = 'api.huobi.pro';
+  const timestamp = new Date().toISOString().replace(/\.\d{3}Z$/, '');
   const htxSymbol = symbol.toLowerCase();  // BTCUSDT → btcusdt
 
   // Determine order type: buy-market or sell-market
@@ -1868,115 +1865,4 @@ export function extractFillMetrics(orderResult) {
   };
 }
 
-
-
-
-
-// ── Web3 EVM public RPC balance checker ────────────────────────────────────
-//
-// Uses public RPC endpoints to query ETH/BSC/ARB/POLYGON/OP balances.
-// No API key required — fallback to multiple public RPCs if one fails.
-
-const PUBLIC_RPCS = [
-  'https://ethereum-rpc.publicnode.com',
-  'https://1rpc.io/eth',
-  'https://rpc.ankr.com/eth',
-  'https://eth.drpc.org',
-  'https://eth-mainnet.g.alchemy.com/public'
-];
-
-async function rpcFetch(url, body, timeoutMs = 8000) {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
-  try {
-    const resp = await fetch(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
-      body: JSON.stringify(body),
-      signal: controller.signal,
-      keepalive: false,
-      cf: { cacheTtl: 2, cacheEverything: false }
-    });
-    if (!resp.ok) return null;
-    return await resp.json();
-  } catch (_) {
-    return null;
-  } finally {
-    clearTimeout(timer);
-  }
-}
-
-async function publicRpcCall(method, params, fallbacks = PUBLIC_RPCS) {
-  const body = { jsonrpc: '2.0', id: 1, method, params };
-  for (const rpc of fallbacks) {
-    const result = await rpcFetch(rpc, body);
-    if (result && result.result) return result.result;
-  }
-  return null;
-}
-
-const TOKEN_DECIMALS = {
-  '0xdac17f958d2ee523a2206206994597c13d831ec7': 6,   // USDT
-  '0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48': 6,   // USDC
-  '0x6b175474e89094c44da98b954eedeac495271d0f': 18,  // DAI
-  '0x8ac76a51cc950d9822d68b83fe1ad97b32cd580d': 18,  // USDC BSC
-  '0x55d398326f99059ff775485246999027b3197955': 18,  // USDT BSC
-  '0x2791bca1f2de4661ed88a30c99a7a9449aa84174': 6,   // USDC Polygon
-  '0xc2132d05d31c914a87c6611c10748aeb04b58e8f': 6,   // USDT Polygon
-};
-
-async function getErc20Balance(rpcUrl, tokenAddress, walletAddress) {
-  const data = '0x70a08231' + walletAddress.slice(2).padStart(64, '0');
-  const result = await publicRpcCall('eth_call', [
-    { to: tokenAddress, data },
-    'latest'
-  ], [rpcUrl]);
-  if (!result || result === '0x') return null;
-  const raw = parseInt(result, 16);
-  const decimals = TOKEN_DECIMALS[tokenAddress.toLowerCase()] || 18;
-  return raw / Math.pow(10, decimals);
-}
-
-export async function getWeb3Balance(chain, walletAddress, asset = 'ETH') {
-  const chainConfig = {
-    'ethereum': { rpcs: ['https://ethereum-rpc.publicnode.com', 'https://1rpc.io/eth'] },
-    'bsc':      { rpcs: ['https://bsc-rpc.publicnode.com', 'https://1rpc.io/bsc'] },
-    'polygon':  { rpcs: ['https://polygon-rpc.publicnode.com', 'https://1rpc.io/polygon'] },
-    'arbitrum': { rpcs: ['https://arbitrum-rpc.publicnode.com', 'https://1rpc.io/arb'] },
-    'optimism': { rpcs: ['https://optimism-rpc.publicnode.com', 'https://1rpc.io/opt'] },
-  };
-
-  const cfg = chainConfig[chain?.toLowerCase()];
-  if (!cfg) throw new Error(`Unsupported chain: ${chain}`);
-
-  const assetU = asset.toUpperCase();
-
-  if (assetU === 'ETH' || assetU === 'BNB' || assetU === 'MATIC' || assetU === 'OP') {
-    const _rpc = cfg.rpcs[0];
-    const result = await publicRpcCall('eth_getBalance', [walletAddress, 'latest'], cfg.rpcs.slice(0,2)); // only fastest 2
-    if (!result || result === '0x') return 0;
-    const raw = parseInt(result, 16);
-    if (chain.toLowerCase() === 'bsc') return raw / 1e18;
-    if (assetU === 'MATIC') return raw / 1e18;
-    return raw / 1e18;
-  }
-
-  if (assetU === 'USDT' || assetU === 'USDC' || assetU === 'DAI') {
-    const tokenMap = {
-      'ethereum': { USDT: '0xdac17f958d2ee523a2206206994597c13d831ec7', USDC: '0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48', DAI: '0x6b175474e89094c44da98b954eedeac495271d0f' },
-      'bsc':      { USDT: '0x55d398326f99059ff775485246999027b3197955', USDC: '0x8ac76a51cc950d9822d68b83fe1ad97b32cd580d' },
-      'polygon':  { USDT: '0xc2132d05d31c914a87c6611c10748aeb04b58e8f', USDC: '0x2791bca1f2de4661ed88a30c99a7a9449aa84174' },
-      'arbitrum': { USDC: '0xaf88d065e77c8cc2239327c5edb3a432268e5831', USDT: '0xff970a61a04b1ca14834a43f5de4533ebddb5cc8' },
-      'optimism': { USDC: '0x0b2c639c533813f4aa9d7837caf62653d097ffc7', USDT: '0x94b008aa00558c879f3fe814534da8a173912da5' },
-    };
-    const tokenAddress = tokenMap[chain.toLowerCase()]?.[assetU];
-    if (!tokenAddress) return 0;
-    const balances = await Promise.all(
-      cfg.rpcs.map(rpc => getErc20Balance(rpc, tokenAddress, walletAddress))
-    );
-    return balances.find(b => b !== null && b > 0) || 0;
-  }
-
-  return 0;
-}
 
