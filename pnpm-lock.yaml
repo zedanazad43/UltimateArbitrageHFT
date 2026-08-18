@@ -13,7 +13,7 @@ importers:
     dependencies:
       '@ai-sdk/openai':
         specifier: ^4.0.42
-        version: 4.0.42(zod@3.25.76)
+        version: 4.0.42(zod@4.4.3)
       '@base-ui/react':
         specifier: ^1.5.0
         version: 1.5.0(@date-fns/tz@1.4.1)(@types/react@19.2.14)(date-fns@4.1.0)(react-dom@19.2.4(react@19.2.4))(react@19.2.4)
@@ -22,7 +22,7 @@ importers:
         version: 1.6.1(next@16.3.0(@babel/core@7.29.7)(@types/node@24.10.4)(react-dom@19.2.4(react@19.2.4))(react@19.2.4))(react@19.2.4)
       ai:
         specifier: ^7.0.67
-        version: 7.0.67(zod@3.25.76)
+        version: 7.0.67(zod@4.4.3)
       class-variance-authority:
         specifier: ^0.7.1
         version: 0.7.1
@@ -53,6 +53,9 @@ importers:
       tw-animate-css:
         specifier: ^1.4.0
         version: 1.4.0
+      zod:
+        specifier: ^4.4.3
+        version: 4.4.3
     devDependencies:
       '@tailwindcss/postcss':
         specifier: ^4.3.3
@@ -2257,29 +2260,32 @@ packages:
   zod@3.25.76:
     resolution: {integrity: sha512-gzUt/qt81nXsFGKIFcC3YnfEAx5NkunCfnDlvuBSSFS02bcXu4Lmea0AFIUwbLWxWPx3d9p8S5QoaujKcNQxcQ==}
 
+  zod@4.4.3:
+    resolution: {integrity: sha512-ytENFjIJFl2UwYglde2jchW2Hwm4GJFLDiSXWdTrJQBIN9Fcyp7n4DhxJEiWNAJMV1/BqWfW/kkg71UDcHJyTQ==}
+
 snapshots:
 
-  '@ai-sdk/gateway@4.0.53(zod@3.25.76)':
+  '@ai-sdk/gateway@4.0.53(zod@4.4.3)':
     dependencies:
       '@ai-sdk/provider': 4.0.7
-      '@ai-sdk/provider-utils': 5.0.27(zod@3.25.76)
+      '@ai-sdk/provider-utils': 5.0.27(zod@4.4.3)
       '@vercel/oidc': 3.2.0
-      zod: 3.25.76
+      zod: 4.4.3
 
-  '@ai-sdk/openai@4.0.42(zod@3.25.76)':
+  '@ai-sdk/openai@4.0.42(zod@4.4.3)':
     dependencies:
       '@ai-sdk/provider': 4.0.7
-      '@ai-sdk/provider-utils': 5.0.27(zod@3.25.76)
-      zod: 3.25.76
+      '@ai-sdk/provider-utils': 5.0.27(zod@4.4.3)
+      zod: 4.4.3
 
-  '@ai-sdk/provider-utils@5.0.27(zod@3.25.76)':
+  '@ai-sdk/provider-utils@5.0.27(zod@4.4.3)':
     dependencies:
       '@ai-sdk/provider': 4.0.7
       '@standard-schema/spec': 1.1.0
       '@workflow/serde': 4.1.0
       eventsource-parser: 3.1.0
       undici: 7.29.0
-      zod: 3.25.76
+      zod: 4.4.3
 
   '@ai-sdk/provider@4.0.7':
     dependencies:
@@ -2949,12 +2955,12 @@ snapshots:
 
   agent-base@7.1.4: {}
 
-  ai@7.0.67(zod@3.25.76):
+  ai@7.0.67(zod@4.4.3):
     dependencies:
-      '@ai-sdk/gateway': 4.0.53(zod@3.25.76)
+      '@ai-sdk/gateway': 4.0.53(zod@4.4.3)
       '@ai-sdk/provider': 4.0.7
-      '@ai-sdk/provider-utils': 5.0.27(zod@3.25.76)
-      zod: 3.25.76
+      '@ai-sdk/provider-utils': 5.0.27(zod@4.4.3)
+      zod: 4.4.3
 
   ajv-formats@3.0.1(ajv@8.20.0):
     optionalDependencies:
@@ -4306,3 +4312,5 @@ snapshots:
       zod: 3.25.76
 
   zod@3.25.76: {}
+
+  zod@4.4.3: {}
