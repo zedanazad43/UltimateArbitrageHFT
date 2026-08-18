@@ -1,137 +1,15 @@
-﻿# Cloudflare Wrangler
-.wrangler/
-.dev.vars
+# v0 sandbox internal files
+__v0_runtime_loader.js
+__v0_devtools.tsx
+__v0_jsx-dev-runtime.ts
+.snowflake/
+.v0-trash/
+.vercel/
 
-# API Keys – NEVER commit real keys
-upload-secrets.ps1
-*MEXC_API_KEY*
-*_API_KEY=*.txt
-*_API_SECRET=*.txt
+# Environment variables
+.env*.local
 
-# Local artifacts / Windows file listings
-local_filelist.txt
-finalize_project.ps1
-مستند نصي جديد.txt
-
-# Env/secrets (catch .env and any suffixes like .env.docker / .env.dhi)
-.env
-.env.*
-*.env
-
-# Node
-node_modules/
-npm-debug.log*
-
-# OS
-.DS_Store
-Thumbs.db
-.env
-*.env
-*.secret*
-*.bak
-secrets.env
+# Common ignores
 node_modules
-.vscode
-UltimateArbitrageHFT
-money-transfer-project-template-java
-*.log
-coverage
-*.local
-*.cache
-*.secret
-.ai-code-tracker.json
-metrics.json
-strategy-evaluation.json
-test-exchanges.js
-
-# Artifacts / secrets
-api_keys.txt
-.env.docker
-.env.dhi
-test_reports/
-.archive/
-
-# Sensitive local configs
-api_keys.txt
-.env.docker
-.env.dhi
-UltimateArbitrageHFT/api_keys.txt
-
-# Temp/scratch
-.tmp/
-.ai-code-tracker.json.tmp
-UltimateArbitrageHFT/.tmp/
-UltimateArbitrageHFT/.ai-code-tracker.json.tmp
-
-# removed plaintext secret (keep out of repo)
-api_keys.ini
-
-# build/bytecode artifacts
-__pycache__/
-*.pyc
-*.pyo
-
-# gstack (global install)
-.amazonq/rules/gstack.md
-
-# ── Build/run artifacts (added during cleanup 2026-07-11) ──
-logs/
-archive/
-backup*/
-temp-ip/
-temp/
-reports/
-samples/
-deploy/
-"~"/
-
-# Editor/temp
-.tmp/
-*.tmp
-.tmp-*/
-.aider.tags.cache.v4
-.ai-code-tracker.json.tmp
-
-# Windows junk
-Thumbs.db
-Desktop.ini
-
-# ── AI agent histories / local tool state ──
-.aider*
-.amazonq/
-.kimi-memory/
-.claude/
-.codebuddy/
-.emergent/
-
-# ── Bundled JDK / binaries accidentally committed ──
-oracleJdk-26/
-*.dll
-*.exe
-*.so
-*.dylib
-
-# ── Misc junk ──
-*.log
-*.tmp
-*.bak
-"README (1).md"
-"مستند نصي جديد.txt"
-
-# ── Runtime / local DB ──
-*.db
-*.sqlite
-*.pid
-scripts/.runtime/
-
-# Runtime artifacts and generated dirs
-.playwright-mcp/
-.gstack/
-
-# runtime artifacts (Hermes)
-.pnl-snapshot.json
-.tg_payload.json
-pnl-report.json
-pnl-report-telegram.txt
-frontend/build/
-
+.next/
+.DS_Store

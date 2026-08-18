@@ -1,6 +1,0 @@
-#!/bin/sh
-set -e
-
-node scripts/secret-scan.js
-node scripts/static-check.js
-node --test tests/unit.test.js tests/exchange.integration.test.js

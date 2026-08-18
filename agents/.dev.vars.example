@@ -1,5 +1,0 @@
-# Copy this file to .dev.vars and fill in your actual values.
-# .dev.vars is gitignored and used by `wrangler dev` for local secrets.
-# For production, set secrets with: wrangler secret put ALCHEMY_API_KEY
-
-ALCHEMY_API_KEY=your_alchemy_api_key_here

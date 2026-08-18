@@ -1,6 +1,0 @@
-﻿"Folder","WorkerName","Cron","Features"
-"ip-locator","ip-locator","","KuCoin, DEX"
-"MegaArbitrageBot","arbitrage-bot","*/10 * * * *","MEXC, Bitget, KuCoin, Perps, KV, D1"
-"temp-ip","ip-worker3","",""
-"ultimate-arbitrage-hft","ultimate-arbitrage-hft","*/1 * * * *","MEXC, KuCoin, 0x, DEX, KV, D1"
-"UltimateArbitrageBot","ultimate-arbitrage-hft","*/1 * * * *","MEXC, ParaSwap, 0x, Perps, DEX, CEX, KV, D1"

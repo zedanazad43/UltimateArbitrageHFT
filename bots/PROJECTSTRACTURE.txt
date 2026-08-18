@@ -1,8 +1,0 @@
-[Oracle Cloud Free Tier] - 24/7
-    ├── Bot Runner (Python)
-    ├── Flask Web Server (لوحة تحكم)
-    └── Telegram Bot (واجهة تحكم)
-           ↓
-    [مزامنة الحالة مع MetaMask/MEXC]
-           ↓
-    [تسجيل الصفقات في قاعدة بيانات SQLite]
