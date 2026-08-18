@@ -1,47 +1,69 @@
+"use client"
+
+import { useTradingEngine } from "@/hooks/use-trading-engine"
+import { TopBar } from "@/components/dashboard/top-bar"
+import { KpiCards } from "@/components/dashboard/kpi-cards"
+import { EquityChart } from "@/components/dashboard/equity-chart"
+import { AgentPanel } from "@/components/dashboard/agent-panel"
+import { Opportunities } from "@/components/dashboard/opportunities"
+import { ExecutionFeed } from "@/components/dashboard/execution-feed"
+import { Strategies } from "@/components/dashboard/strategies"
+import { Venues } from "@/components/dashboard/venues"
+
 export default function Page() {
+  const { state, actions } = useTradingEngine()
+
   return (
-    <main
-      style={{
-        colorScheme: 'light dark',
-        position: 'relative',
-        display: 'flex',
-        minHeight: '100vh',
-        alignItems: 'center',
-        justifyContent: 'center',
-        backgroundColor: 'light-dark(#fff, #000)',
-        color: 'light-dark(#000, #fff)',
-      }}
-    >
-      <svg
-        aria-hidden="true"
-        style={{ width: 80, height: 80 }}
-        width={80}
-        height={80}
-        fill="none"
-        viewBox="0 0 20 20"
-        xmlns="http://www.w3.org/2000/svg"
-        stroke="currentColor"
-        strokeWidth="0.5"
-      >
-        <path
-          d="M14.2 14.2H17V6.9375C17 4.76288 15.2371 3 13.0625 3H5.8V5.8M14.2 14.2V7.79063L7.79062 14.2H14.2ZM14.2 14.2V17H6.9375C4.76288 17 3 15.2371 3 13.0625V5.8H5.8M5.8 5.8V12.2313L12.2313 5.8H5.8Z"
-          strokeLinejoin="round"
-        />
-      </svg>
-      <p
-        style={{
-          position: 'absolute',
-          left: '50%',
-          top: 'calc(50% + 56px)',
-          transform: 'translateX(-50%)',
-          whiteSpace: 'nowrap',
-          fontSize: '14px',
-          fontWeight: 500,
-          color: 'light-dark(#71717a, #a1a1aa)',
-        }}
-      >
-        Your v0 generation will show here.
-      </p>
+    <main className="flex min-h-screen flex-col">
+      <TopBar
+        running={state.running}
+        venues={state.venues}
+        onToggleRun={actions.setRunning}
+        onKill={actions.killSwitch}
+      />
+
+      <div className="flex flex-1 flex-col gap-3 p-3 lg:p-4">
+        <KpiCards state={state} />
+
+        <div className="grid grid-cols-1 gap-3 lg:grid-cols-3">
+          <div className="h-[320px] lg:col-span-2">
+            <EquityChart data={state.equity} />
+          </div>
+          <div className="h-[320px]">
+            <Venues data={state.venues} />
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 gap-3 lg:grid-cols-3">
+          <div className="h-[440px] lg:col-span-1">
+            <AgentPanel
+              auto={state.agentAuto}
+              aggressiveness={state.aggressiveness}
+              maxExposure={state.maxExposure}
+              decisions={state.decisions}
+              onAuto={actions.setAgentAuto}
+              onAggressiveness={actions.setAggressiveness}
+              onMaxExposure={actions.setMaxExposure}
+            />
+          </div>
+          <div className="h-[440px] lg:col-span-2">
+            <Opportunities data={state.opportunities} />
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
+          <div className="h-[380px]">
+            <Strategies data={state.strategies} onToggle={actions.toggleStrategy} />
+          </div>
+          <div className="h-[380px]">
+            <ExecutionFeed data={state.executions} />
+          </div>
+        </div>
+      </div>
+
+      <footer className="border-t border-border px-5 py-3 text-center font-mono text-[11px] text-muted-foreground">
+        QUANTUMHFT — simulated market data for demonstration · not financial advice
+      </footer>
     </main>
   )
 }
