@@ -2,39 +2,32 @@ import React, { useState } from "react";
 import { useAuth } from "../contexts/AuthContext";
 import { motion } from "framer-motion";
 
-const AUTH_BG = "https://images.pexels.com/photos/30547584/pexels-photo-30547584.jpeg";
-
 export default function Login() {
   const { login, error } = useAuth();
-  const [email, setEmail] = useState("zedanazad43@gmail.com");
-  const [password, setPassword] = useState("");
+  const [token, setToken] = useState("");
   const [loading, setLoading] = useState(false);
 
   const onSubmit = async (e) => {
     e.preventDefault();
     setLoading(true);
-    await login(email, password);
+    await login(token);
     setLoading(false);
   };
 
   return (
     <div
-      className="min-h-screen w-full flex items-center justify-center px-4"
-      style={{
-        backgroundImage: `linear-gradient(rgba(5,5,5,0.85),rgba(5,5,5,0.92)), url(${AUTH_BG})`,
-        backgroundSize: "cover",
-        backgroundPosition: "center",
-      }}
+      className="min-h-screen w-full flex items-center justify-center px-4 grid-bg"
+      style={{ background: "#050505" }}
       data-testid="login-screen"
     >
       <motion.div
         initial={{ opacity: 0, y: 12 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.45, ease: "easeOut" }}
-        className="w-full max-w-md backdrop-blur-xl bg-surface/80 border border-white/10 rounded-sm p-8"
+        className="w-full max-w-md bg-surface border border-border/60 rounded-sm p-8"
       >
         <div className="flex items-center gap-3 mb-8">
-          <div className="h-9 w-9 rounded-sm bg-primary/15 border border-primary/40 flex items-center justify-center">
+          <div className="h-10 w-10 rounded-sm bg-primary/15 border border-primary/40 flex items-center justify-center">
             <span className="font-display font-bold text-primary text-lg">U</span>
           </div>
           <div>
@@ -50,24 +43,15 @@ export default function Login() {
 
         <form onSubmit={onSubmit} className="space-y-4" data-testid="login-form">
           <div>
-            <label className="block text-xs uppercase tracking-wider text-muted mb-2">Email</label>
-            <input
-              type="email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              required
-              data-testid="login-email-input"
-              className="w-full bg-elevated border border-border rounded-sm px-3 py-2.5 text-sm focus:border-primary focus:outline-none transition-colors"
-            />
-          </div>
-          <div>
-            <label className="block text-xs uppercase tracking-wider text-muted mb-2">Password</label>
+            <label className="block text-xs uppercase tracking-wider text-muted mb-2">Admin Token</label>
             <input
               type="password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
+              value={token}
+              onChange={(e) => setToken(e.target.value)}
+              placeholder="ADMIN_TOKEN"
               required
-              data-testid="login-password-input"
+              autoFocus
+              data-testid="login-token-input"
               className="w-full bg-elevated border border-border rounded-sm px-3 py-2.5 text-sm focus:border-primary focus:outline-none transition-colors font-mono"
             />
           </div>
@@ -92,8 +76,8 @@ export default function Login() {
         </form>
 
         <div className="mt-6 pt-5 border-t border-border/60 text-[11px] text-muted font-mono leading-relaxed">
-          first-time access? check the credentials your operator gave you.
-          <br />change your password on the Users page right after sign-in.
+          first-time access? check the <span className="text-white">ADMIN_TOKEN</span> your operator configured.
+          <br />set it as the <span className="text-white">ADMIN_TOKEN</span> environment variable in the Worker.
         </div>
       </motion.div>
     </div>

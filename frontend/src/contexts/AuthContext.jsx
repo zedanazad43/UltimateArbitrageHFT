@@ -1,22 +1,28 @@
 import React, { createContext, useContext, useEffect, useState, useCallback } from "react";
-import api from "../lib/api";
+import { getToken, setToken, nexus } from "../lib/api";
 
 const AuthCtx = createContext(null);
 
 export const AuthProvider = ({ children }) => {
-  const [user, setUser] = useState(null); // null=checking, false=guest, object=user
+  const [user, setUser] = useState(null); // null=checking, false=guest, object=authed user
   const [error, setError] = useState("");
 
+  // Verify a stored token is still valid by hitting /health
   const refreshMe = useCallback(async () => {
+    const token = getToken();
+    if (!token) { setUser(false); return; }
     try {
-      const { data } = await api.get("/auth/me");
-      setUser(data);
+      await nexus.health();
+      setUser({ role: "admin", authed: true });
     } catch (err) {
-      if (err.response?.status !== 401) {
-        // 401 = expected "no session yet"; anything else worth logging
-        console.error("auth/me failed", err);
+      if (err.response?.status === 401) {
+        setToken("");
+        setUser(false);
+      } else {
+        // Network hiccup — assume token still valid to avoid spurious logouts
+        console.warn("health check failed (network?):", err.message || err);
+        setUser((prev) => prev ?? { role: "admin", authed: true });
       }
-      setUser(false);
     }
   }, []);
 
@@ -24,25 +30,30 @@ export const AuthProvider = ({ children }) => {
     refreshMe();
   }, [refreshMe]);
 
-  const login = async (email, password) => {
+  // login(token) — accepts the ADMIN_TOKEN sent as x-admin-token
+  const login = async (token) => {
     setError("");
+    const t = String(token || "").trim();
+    if (!t) { setError("Admin token is required"); return false; }
     try {
-      const { data } = await api.post("/auth/login", { email, password });
-      setUser(data.user);
+      setToken(t);
+      await nexus.health();
+      setUser({ role: "admin", authed: true });
       return true;
     } catch (e) {
-      const detail = e.response?.data?.detail;
-      setError(typeof detail === "string" ? detail : "Login failed");
+      setToken("");
+      const status = e.response?.status;
+      setError(
+        status === 401
+          ? "Invalid admin token"
+          : "Connection error — is the backend reachable?"
+      );
       return false;
     }
   };
 
-  const logout = async () => {
-    try {
-      await api.post("/auth/logout");
-    } catch (err) {
-      console.error("logout failed", err);
-    }
+  const logout = () => {
+    setToken("");
     setUser(false);
   };
 
