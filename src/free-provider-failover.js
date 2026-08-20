@@ -25,6 +25,7 @@ function resolveRoute(prompt, preferredSkills) {
   const all = [
     { key: 'openrouter-free', provider: 'openrouter', weight: 10 },
     { key: 'ollama-local', provider: 'ollama', weight: 8 },
+    { key: 'modelscope', provider: 'modelscope', weight: 7 },
     { key: 'local-llm', provider: 'local', weight: 6 },
     { key: 'merlin-free', provider: 'merlin', weight: 5 },
     { key: 'manus-free', provider: 'manus', weight: 4 },
@@ -57,6 +58,7 @@ async function fallbackProviderChat(prompt) {
   const attempts = [
     'openrouter-free',
     'ollama-local',
+    'modelscope',
     'local-llm',
     'merlin-free',
     'manus-free',

@@ -47,6 +47,14 @@ export class UnifiedAIIntegration {
         free: true,
         priority: 4,
         check: () => !!(this.env.OPENROUTER_API_KEY || this.env.OPENAI_API_KEY)
+      }],
+      ['modelscope', {
+        name: 'ModelScope',
+        type: 'openai-compatible',
+        models: ['Qwen/Qwen3.5-27B', 'Qwen/Qwen2.5-72B-Instruct', 'Qwen/Qwen2.5-7B-Instruct'],
+        free: true,
+        priority: 2,
+        check: () => !!(this.env.MODELSCOPE_API_KEY)
       }]
     ]);
 
@@ -62,7 +70,10 @@ export class UnifiedAIIntegration {
       ['or:gpt4o', 'openai/gpt-4o-mini'],
       ['or:gemini', 'google/gemini-2.0-flash'],
       ['or:deepseek', 'deepseek/deepseek-chat'],
-      ['or:llama', 'meta/llama-3.1-405b']
+      ['or:llama', 'meta/llama-3.1-405b'],
+      ['ms:qwen27b', 'Qwen/Qwen3.5-27B'],
+      ['ms:qwen72b', 'Qwen/Qwen2.5-72B-Instruct'],
+      ['ms:qwen7b',  'Qwen/Qwen2.5-7B-Instruct']
     ]);
 
     this.skills = new Map([
