@@ -1,4 +1,4 @@
-﻿{
+{
     "trading": {
         "min_profit_percent": 0.15,
         "trade_amount_usd": 100,
@@ -8,8 +8,8 @@
     },
     "telegram": {
         "enabled": true,
-        "bot_token": "YOUR_TELEGRAM_BOT_TOKEN",
-        "chat_id": "YOUR_TELEGRAM_CHAT_ID"
+        "bot_token_env": "TELEGRAM_BOT_TOKEN",
+        "chat_id_env": "TELEGRAM_CHAT_ID"
     },
     "notifications": {
         "send_on_trade": true,
@@ -21,5 +21,32 @@
         "use_websocket": true,
         "enable_backtesting": false,
         "log_level": "INFO"
+    },
+    "ai_providers": {
+        "priority_order": ["ollama", "cloudflare_ai", "openrouter"],
+        "free_first": true,
+        "ollama": {
+            "base_url_env": "OLLAMA_BASE_URL",
+            "default_model": "llama3.1"
+        },
+        "cloudflare_ai": {
+            "base_url_env": "CLOUDFLARE_AI_GATEWAY_URL",
+            "api_key_env": "CLOUDFLARE_API_TOKEN",
+            "default_model": "@cf/meta/llama-3.1-8b-instruct"
+        },
+        "openrouter": {
+            "base_url": "https://openrouter.ai/api/v1",
+            "api_key_env": "OPENROUTER_API_KEY",
+            "default_model": "openrouter/auto"
+        },
+        "hermes": {
+            "base_url": "https://hermes-agent.nousresearch.com/v1",
+            "api_key_env": "HERMES_API_KEY",
+            "model_env": "HERMES_MODEL"
+        },
+        "merlin": {
+            "base_url": "https://merlin.foyer.work/api/chat",
+            "api_key_env": "MERLIN_API_KEY"
+        }
     }
 }

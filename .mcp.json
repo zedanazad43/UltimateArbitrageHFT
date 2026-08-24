@@ -25,6 +25,25 @@
     },
     "cloudflare-observability": {
       "url": "https://observability.mcp.cloudflare.com/mcp"
+    },
+    "openrouter": {
+      "command": "npx",
+      "args": ["-y", "@openrouter/mcp-server"],
+      "env": {
+        "OPENROUTER_API_KEY": "${OPENROUTER_API_KEY}"
+      }
+    },
+    "hermes": {
+      "url": "https://hermes-agent.nousresearch.com/v1/mcp",
+      "env": {
+        "HERMES_API_KEY": "${HERMES_API_KEY}"
+      }
+    },
+    "merlin": {
+      "url": "https://merlin.foyer.work/api/mcp",
+      "env": {
+        "MERLIN_API_KEY": "${MERLIN_API_KEY}"
+      }
     }
   }
 }
