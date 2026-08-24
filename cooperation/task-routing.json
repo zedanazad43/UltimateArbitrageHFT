@@ -1,12 +1,22 @@
-﻿{
+{
   "orchestrator": "hermes",
   "members": [
-    {"name":"hermes","role":"manager/planner"},
-    {"name":"ruflo","role":"flow-runner/integration"},
-    {"name":"wrangler","role":"cloudflare-deploy"},
-    {"name":"gh","role":"github-ops"},
-    {"name":"ollama","role":"local-inference-optional"}
+    {"name": "hermes",   "role": "manager/planner",           "api_key_env": "HERMES_API_KEY",     "endpoint": "https://hermes-agent.nousresearch.com/v1"},
+    {"name": "omni",     "role": "router/multi-model",        "api_key_env": "OPENROUTER_API_KEY", "endpoint": "https://openrouter.ai/api/v1"},
+    {"name": "merlin",   "role": "research/web-search",       "api_key_env": "MERLIN_API_KEY",     "endpoint": "https://merlin.foyer.work/api/chat"},
+    {"name": "ruflo",    "role": "flow-runner/integration"},
+    {"name": "wrangler", "role": "cloudflare-deploy",         "api_key_env": "CLOUDFLARE_API_TOKEN"},
+    {"name": "gh",       "role": "github-ops",                "api_key_env": "GITHUB_TOKEN"},
+    {"name": "ollama",   "role": "local-inference-optional",  "endpoint": "http://127.0.0.1:11434"}
   ],
+  "routing": {
+    "long_task":       {"primary": "hermes",  "fallback": "omni"},
+    "research_task":   {"primary": "merlin",  "fallback": "omni"},
+    "routing_task":    {"primary": "omni",    "fallback": "hermes"},
+    "code_task":       {"primary": "hermes",  "fallback": "ollama"},
+    "deploy_task":     {"primary": "wrangler","fallback": "gh"},
+    "default":         {"primary": "hermes",  "fallback": "omni"}
+  },
   "strategy": [
     "discover",
     "analyze",

@@ -103,6 +103,7 @@
         "@cf/mistral/mistral-7b-instruct-v0.2"
       ]
     },
+    "arbitrage": {
       "type": "specialized",
       "cost": "free",
       "priority": 4,
@@ -154,6 +155,7 @@
       "secondary": ["ollama", "omni"],
       "keywords": ["edge", "worker", "deploy", "wrangler", "fast"]
     },
+    "budget_warning": {
       "primary": "ollama",
       "secondary": ["codegeex", "cli"],
       "threshold_percent": 80

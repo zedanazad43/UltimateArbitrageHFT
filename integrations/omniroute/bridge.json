@@ -1,13 +1,97 @@
 {
   "name": "UltimateArbitrageHFT Omniroute Bridge",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "description": "Bridge between Omniroute automation and the UltimateArbitrageHFT Worker.",
+
+  "providers": {
+    "openrouter": {
+      "base_url": "https://openrouter.ai/api/v1",
+      "api_key_env": "OPENROUTER_API_KEY",
+      "default_model": "openrouter/auto",
+      "free_models": [
+        "meta-llama/llama-3.1-8b-instruct:free",
+        "mistralai/mistral-7b-instruct:free",
+        "google/gemma-2-9b-it:free"
+      ]
+    },
+    "ollama": {
+      "base_url": "http://127.0.0.1:11434/v1",
+      "api_key_env": "",
+      "default_model": "llama3.1",
+      "free_models": ["llama3.1", "mistral", "phi3"]
+    },
+    "cloudflare_ai": {
+      "base_url": "${CLOUDFLARE_AI_GATEWAY_URL}",
+      "api_key_env": "CLOUDFLARE_API_TOKEN",
+      "default_model": "@cf/meta/llama-3.1-8b-instruct",
+      "free_models": [
+        "@cf/meta/llama-3.1-8b-instruct",
+        "@cf/mistral/mistral-7b-instruct-v0.2",
+        "@cf/google/gemma-2b-it-lora"
+      ]
+    }
+  },
+
+  "connections": {
+    "hermes": {
+      "type": "cloud_agent",
+      "endpoint": "https://hermes-agent.nousresearch.com/v1",
+      "api_key_env": "HERMES_API_KEY",
+      "model_env": "HERMES_MODEL",
+      "default_model": "openrouter/auto",
+      "fallback_provider": "openrouter",
+      "best_for": ["long_tasks", "complex_reasoning", "multi_turn", "coding"],
+      "free_models": [
+        "meta-llama/llama-3.1-8b-instruct:free",
+        "mistralai/mistral-7b-instruct:free",
+        "google/gemma-2-9b-it:free"
+      ]
+    },
+    "omni": {
+      "type": "cloud_router",
+      "endpoint": "https://openrouter.ai/api/v1",
+      "api_key_env": "OPENROUTER_API_KEY",
+      "default_model": "openrouter/auto",
+      "fallback_provider": "openrouter",
+      "best_for": ["multi_model", "routing", "general", "analysis"],
+      "free_models": [
+        "meta-llama/llama-3.1-8b-instruct:free",
+        "mistralai/mistral-7b-instruct:free"
+      ]
+    },
+    "merlin": {
+      "type": "cloud_research",
+      "endpoint": "https://merlin.foyer.work/api/chat",
+      "api_key_env": "MERLIN_API_KEY",
+      "default_model": "auto",
+      "fallback_provider": "openrouter",
+      "best_for": ["web_research", "live_search", "browsing", "synthesis"]
+    },
+    "worker": {
+      "type": "cloudflare_worker",
+      "base_url": "https://ultimatearbitragehft.zedanazad43.workers.dev",
+      "admin_token_env": "WORKER_ADMIN_TOKEN"
+    }
+  },
+
+  "routing": {
+    "priority_order": ["ollama", "cloudflare_ai", "openrouter"],
+    "free_first": true,
+    "fallback_chain": [
+      "ollama/llama3.1",
+      "@cf/meta/llama-3.1-8b-instruct",
+      "meta-llama/llama-3.1-8b-instruct:free",
+      "mistralai/mistral-7b-instruct:free",
+      "openrouter/auto"
+    ]
+  },
+
   "hooks": {
     "beforeScan": {
-      "url": "https://ultimatearbitragehft.zedanazad43.workers.dev/api/status",
+      "url": "${WORKER_BASE_URL}/api/status",
       "method": "GET",
       "headers": {
-        "x-admin-token": "309400"
+        "x-admin-token": "${WORKER_ADMIN_TOKEN}"
       },
       "filters": [
         { "field": "paper_trading", "op": "==", "value": true },
@@ -19,10 +103,10 @@
       ]
     },
     "startScan": {
-      "url": "https://ultimatearbitragehft.zedanazad43.workers.dev/webhook/n8n/scan",
+      "url": "${WORKER_BASE_URL}/webhook/n8n/scan",
       "method": "POST",
       "headers": {
-        "x-admin-token": "309400",
+        "x-admin-token": "${WORKER_ADMIN_TOKEN}",
         "content-type": "application/json"
       },
       "body": {
@@ -31,7 +115,12 @@
     },
     "exportResult": {
       "format": "json",
-      "path": "C:/Users/azadz/OneDrive/UltimateArbitrageHFT/logs/omniroute.json"
+      "path": "${LOG_DIR}/omniroute.json"
     }
+  },
+
+  "env_defaults": {
+    "WORKER_BASE_URL": "https://ultimatearbitragehft.zedanazad43.workers.dev",
+    "LOG_DIR": "logs"
   }
 }

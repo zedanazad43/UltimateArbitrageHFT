@@ -4,6 +4,44 @@
     "cloudflare-docs": { "url": "https://docs.mcp.cloudflare.com/mcp" },
     "cloudflare-bindings": { "url": "https://bindings.mcp.cloudflare.com/mcp" },
     "cloudflare-builds": { "url": "https://builds.mcp.cloudflare.com/mcp" },
-    "cloudflare-observability": { "url": "https://observability.mcp.cloudflare.com/mcp" }
+    "cloudflare-observability": { "url": "https://observability.mcp.cloudflare.com/mcp" },
+    "wrangler": {
+      "command": "npx",
+      "args": ["-y", "wrangler@latest", "mcp"],
+      "env": {
+        "CLOUDFLARE_API_TOKEN": "${env:CLOUDFLARE_API_TOKEN}",
+        "CLOUDFLARE_ACCOUNT_ID": "${env:CLOUDFLARE_ACCOUNT_ID}"
+      }
+    },
+    "github": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-github"],
+      "env": {
+        "GITHUB_PERSONAL_ACCESS_TOKEN": "${env:GITHUB_TOKEN}"
+      }
+    },
+    "filesystem": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-filesystem", "."]
+    },
+    "openrouter": {
+      "command": "npx",
+      "args": ["-y", "@openrouter/mcp-server"],
+      "env": {
+        "OPENROUTER_API_KEY": "${env:OPENROUTER_API_KEY}"
+      }
+    },
+    "hermes": {
+      "url": "https://hermes-agent.nousresearch.com/v1/mcp",
+      "env": {
+        "HERMES_API_KEY": "${env:HERMES_API_KEY}"
+      }
+    },
+    "merlin": {
+      "url": "https://merlin.foyer.work/api/mcp",
+      "env": {
+        "MERLIN_API_KEY": "${env:MERLIN_API_KEY}"
+      }
+    }
   }
 }
