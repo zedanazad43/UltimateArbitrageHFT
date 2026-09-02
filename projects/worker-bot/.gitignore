@@ -1,0 +1,9 @@
+# Local credential files — never commit real keys.
+# Templates live in templates/; fill real values into keys/ locally only.
+keys/
+*.key
+*.pem
+.env
+.env.*
+!.env.example
+wrangler.secret.toml
