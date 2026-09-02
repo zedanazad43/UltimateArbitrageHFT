@@ -5,6 +5,9 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "dev": "npm --prefix projects/dashboard run start -- --host 0.0.0.0 --port ${PORT:-5173}",
+    "start": "npm run dev",
+    "build": "npm --prefix projects/dashboard run build",
     "worker:dev": "npm --prefix projects/worker-bot run dev",
     "worker:lint": "npm --prefix projects/worker-bot run lint",
     "worker:test": "npm --prefix projects/worker-bot run test:all",
