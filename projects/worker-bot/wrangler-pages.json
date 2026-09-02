@@ -1,0 +1,9 @@
+{
+  "name": "ultimate-arbitrage-pages",
+  "pages_build_output_dir": "public",
+  "compatibility_date": "2025-04-18",
+  "compatibility_flags": ["nodejs_compat"],
+  "placement": {
+    "mode": "smart"
+  }
+}

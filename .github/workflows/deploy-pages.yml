@@ -3,7 +3,7 @@ on:
   push:
     branches: [ main ]
     paths:
-      - 'frontend/**'
+      - 'projects/dashboard/**'
       - '.github/workflows/deploy-pages.yml'
   workflow_dispatch:
 jobs:
@@ -14,11 +14,11 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
-      - run: cd frontend && npm ci || npm install
-      - run: cd frontend && npm run build
+      - run: cd projects/dashboard && npm ci || npm install
+      - run: cd projects/dashboard && npm run build
       - uses: cloudflare/pages-action@v1
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: 652e53f35781522e2745784cc4425d9d
           projectName: ultimate-arbitrage-frontend
-          directory: frontend/build
+          directory: projects/dashboard/build

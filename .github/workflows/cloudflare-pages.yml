@@ -25,23 +25,20 @@ jobs:
         with:
           node-version: 24
           cache: npm
-          cache-dependency-path: frontend/package-lock.json
+          cache-dependency-path: projects/dashboard/package-lock.json
 
       - name: Install frontend deps
-        working-directory: frontend
-        run: |
-          corepack enable || true
-          corepack prepare pnpm@latest --activate || true
-          pnpm install --frozen-lockfile=false
+        working-directory: projects/dashboard
+        run: npm ci || npm install
 
       - name: Build frontend
-        working-directory: frontend
+        working-directory: projects/dashboard
         env:
           REACT_APP_BACKEND_URL: https://api.ecostamp.net
         run: CI=false npm run build
 
       - name: Add SPA fallback for Cloudflare Pages
-        run: printf '/*    /index.html   200\n' > frontend/build/_redirects
+        run: printf '/*    /index.html   200\n' > projects/dashboard/build/_redirects
 
       - name: Create Cloudflare Pages project (if missing)
         uses: cloudflare/wrangler-action@v3
@@ -56,4 +53,4 @@ jobs:
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: 652e53f35781522e2745784cc4425d9d
-          command: pages deploy frontend/build --project-name=ultimate-arbitrage-frontend --commit-dirty=true
+          command: pages deploy projects/dashboard/build --project-name=ultimate-arbitrage-frontend --commit-dirty=true

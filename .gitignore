@@ -20,6 +20,12 @@ finalize_project.ps1
 
 # Node
 node_modules/
+# Python lab venv (superbot/python-lab)
+.venv/
+superbot/python-lab/.venv/
+superbot/python-lab/user_data/
+superbot/python-lab/*.json.tmp
+projects/dashboard/build/
 npm-debug.log*
 
 # OS
@@ -78,6 +84,9 @@ __pycache__/
 logs/
 archive/
 backup*/
+.backup-*/
+*.rej
+*.orig
 temp-ip/
 temp/
 reports/

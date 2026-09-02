@@ -21,21 +21,19 @@ jobs:
     steps:
     - uses: actions/checkout@v5
     - name: Use Node.js ${{ matrix.node_version }}
-      uses: actions/setup-node@v6
-      with:
-        node-version: ${{ matrix.node_version }}
-        cache: npm
+      uses: actions/setup-node@v6        with:
+          node-version: ${{ matrix.node_version }}
+          cache: npm
+          cache-dependency-path: projects/worker-bot/package-lock.json
 
     - name: Install dependencies
-      run: |
-        corepack enable || true
-        corepack prepare pnpm@latest --activate || true
-        pnpm install --frozen-lockfile=false
+      run: npm ci --prefix projects/worker-bot
       env:
         FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
     - name: Verify production baseline (lint + tests + dry-run build)
       run: npm run verify:prod
+      working-directory: projects/worker-bot
       if: matrix.os == 'ubuntu-latest'
       env:
         CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
@@ -44,13 +42,16 @@ jobs:
     - name: Lint (Windows parity)
       if: matrix.os == 'windows-latest'
       run: npm run lint
+      working-directory: projects/worker-bot
 
     - name: Test (Windows parity)
       if: matrix.os == 'windows-latest'
       run: npm run test:all
+      working-directory: projects/worker-bot
 
     - name: Check hardcoded secrets
       run: npm run check:secrets
+      working-directory: projects/worker-bot
 
   go-lint:
     name: Go lint (hft)
@@ -62,22 +63,22 @@ jobs:
     - name: Setup Go
       uses: actions/setup-go@v5
       with:
-        go-version-file: agents/go.mod
-        cache-dependency-path: agents/go.sum
+        go-version-file: projects/go-engine/go.mod
+        cache-dependency-path: projects/go-engine/go.sum
 
     - name: Go vet (agents)
       run: |
-        cd agents
+        cd projects/go-engine
         go vet ./...
 
     - name: Go test (agents)
       run: |
-        cd agents
+        cd projects/go-engine
         go test ./...
 
     - name: Go coverage report (agents)
       run: |
-        cd agents
+        cd projects/go-engine
         go test ./... -coverprofile=coverage.out
         total_line=$(go tool cover -func=coverage.out | tail -n1)
         echo "$total_line"
@@ -98,12 +99,12 @@ jobs:
       uses: actions/upload-artifact@v5
       with:
         name: agents-go-coverage
-        path: agents/coverage.out
+        path: projects/go-engine/coverage.out
         if-no-files-found: error
 
     - name: Check go.mod/go.sum drift (agents)
       run: |
-        cd agents
+        cd projects/go-engine
         go mod tidy
         git diff --exit-code -- go.mod go.sum
 
@@ -122,4 +123,4 @@ jobs:
       uses: golangci/golangci-lint-action@v8
       with:
         version: v2.12.2
-        working-directory: agents
+        working-directory: projects/go-engine

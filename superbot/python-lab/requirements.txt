@@ -1,0 +1,9 @@
+# SuperBot Python lab — external quant stack, isolated from Node/Go projects
+# Install: sh ./setup.sh   (creates .venv here)
+freqtrade>=2024.1
+backtrader>=1.9.78.123
+nautilus_trader>=1.2
+openbb>=4.1
+pandas>=2.1
+numpy>=1.26
+ccxt>=4.2

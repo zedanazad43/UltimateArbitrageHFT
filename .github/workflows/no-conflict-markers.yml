@@ -12,7 +12,7 @@ jobs:
       - uses: actions/checkout@v4
       - name: Fail if conflict markers exist
         run: |
-          if git grep -n -E "^(<<<<<<< (Updated upstream|HEAD|.+)|=======|>>>>>>> (Stashed changes|.+))$" -- index.js src package.json .github; then
+          if git grep -n -E "^(<<<<<<< (Updated upstream|HEAD|.+)|=======|>>>>>>> (Stashed changes|.+))$" -- projects/worker-bot/index.js projects/worker-bot/src projects/worker-bot/package.json .github; then
             echo "❌ Merge conflict markers found."
             exit 1
           else

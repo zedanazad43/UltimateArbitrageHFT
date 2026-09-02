@@ -1,72 +1,60 @@
-[![Deploy Worker](https://github.com/zedanazad43/UltimateArbitrageHFT/actions/workflows/deploy-worker.yml/badge.svg)] [![Deploy Pages](https://github.com/zedanazad43/UltimateArbitrageHFT/actions/workflows/deploy-pages.yml/badge.svg)]
+# 🚀 SuperBot — Ultimate Arbitrage HFT Monorepo
 
-# 🚀 Rocket HFT - Ultimate Arbitrage Bot
+One control plane over **three isolated trading projects**, plus an optional
+**freqtrade / backtrader / OpenBB quant lab**.
 
-Next-gen arbitrage engine for Cloudflare Workers. Ultra-low latency, AI-driven, multi-exchange.
+| Project | Path | Stack | Purpose |
+|---|---|---|---|
+| Worker Bot | [`projects/worker-bot`](projects/worker-bot) | Node 22 · Hono · Cloudflare Workers | arbitrage scanning, execution, Telegram, admin API |
+| Go Engine | [`projects/go-engine`](projects/go-engine) | Go 1.25 | sub-ms HFT engine: WS feeds, MEV-protected execution, Kelly sizing |
+| Dashboard | [`projects/dashboard`](projects/dashboard) | React 18 · Vite · Recharts | control center UI |
+| Control Plane | [`superbot/`](superbot) | Node (zero deps) | orchestration + cross-exchange data adapter |
 
-## Hermes brain / repo-time orchestrator
+Full architecture: **[SUPERBOT.md](SUPERBOT.md)**
 
-Hermes is the single brain over this repo:
-- sync + conflict resolution across local and GitHub environments
-- time-versioning: each release carries RTT, jitter, and readiness fingerprint
-- CI/CD rewrites for temporal-hardening tests
-- auto-docs: README, Changelog, and time-architecture updates
-- deploy doctrine: tests first, dry-run mandatory, local wrangler, OAuth-only deploy
-- Windows caveat: `CLOUDFLARE_API_TOKEN` overrides wrangler OAuth; always `unset CLOUDFLARE_API_TOKEN && ./node_modules/.bin/wrangler deploy`
+## Quick start
 
-## MCP + VSCode integration
-- GitHub Copilot MCP: `https://api.githubcopilot.com/mcp/` with Bearer auth
-- Cloudflare MCP servers wired in VSCode settings
-- Hermes provider: OpenRouter
-- Gateway: cron/webhook runtime
+```bash
+# 1. Worker bot (Cloudflare Worker)
+npm ci --prefix projects/worker-bot
+npm run worker:test          # 422 tests
+npm run worker:dev           # wrangler dev
+
+# 2. Go engine
+cd projects/go-engine && go run ./cmd/hft
+
+# 3. Dashboard
+npm run dashboard:build
+
+# 4. SuperBot control plane
+node superbot/cli.mjs status
+node superbot/cli.mjs scan BTC/USDT        # live cross-exchange spread scan
+node superbot/cli.mjs build                # build all three projects
+```
+
+## External quant stack (optional)
+
+```bash
+cd superbot/python-lab
+sh ./setup.sh                              # isolated venv: freqtrade, backtrader, OpenBB
+node ../../superbot/cli.mjs backtest backtrader
+```
 
 ## Trading safety
-- `trading_enabled = false`
-- Phase 0: shadow + evening reports
-- Phase 1: zero orders, measure real time
-- Phase 2: micro capital
-- Phase 3: conditional live trading via readiness indicator
 
-## Features
-- **Real-time arbitrage scanning** across MEXC, HTX, Bitget, Binance, Bitmart, KuCoin, Coinbase
-- **Rocket HFT Dashboard** - Modern, dark UI with live spreads and exchange health
-- **Secure proxy layer** - Token-guarded routes, admin timestamp anti-replay, rate limiting
-- **AI fallback** - OpenRouter team (DeepSeek, Kimi, Qwen) + GitHub Models fallback
-- **GitHub-native coordination** - Manus integration via Issues/PRs
-
-## Architecture
-- **Worker**: `index.js` (Hono, 4586 lines)
-- **Frontend**: React dashboard with Rocket HFT UI
-- **Database**: SQLite schema + in-memory cache for opportunities
-- **Proxy**: Local gateway + serveo tunnel for geo-blocked exchanges
-
-## Quick Start
-```bash
-npm install
-npm test
-npm run dev
-```
+- `trading_enabled = false` by default — paper mode first
+- daily loss caps, position clamps ($1–$500), risk profiles, kill switches
+- Phase 0 shadow → Phase 1 measurement → Phase 2 micro capital → live only
+  via readiness indicator
 
 ## Deploy
-```bash
-# Pages (via GitHub Actions)
-git push origin main
 
-# Worker
-bash deploy-worker.sh
-```
-
-## Security
-- Proxy token guard on all public endpoints
-- Admin timestamp validation (anti-replay)
-- IP allowlist + security headers
-- Memory rate-limit fallback
-
-## Team
-- **Hermes** - Primary orchestrator
-- **Manus** - GitHub-connected agent
-- **OpenRouter** - AI team (DeepSeek, Kimi, Qwen)
-- **GitHub Models** - Free fallback (gpt-4o-mini)
+| Target | Command |
+|---|---|
+| Worker | `npm run worker:deploy` (or GitHub Action on `projects/worker-bot/**` changes) |
+| Dashboard | GitHub Action → Cloudflare Pages on `projects/dashboard/**` changes |
+| Go engine | `cd projects/go-engine && docker build -f Dockerfile.dhi .` |
 
 ## License
+
 MIT

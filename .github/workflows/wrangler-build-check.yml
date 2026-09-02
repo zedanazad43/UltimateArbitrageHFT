@@ -14,6 +14,7 @@ jobs:
         with:
           node-version: 22
       - name: Install deps
-        run: npm ci || npm i
+        run: npm ci --prefix projects/worker-bot || npm i --prefix projects/worker-bot
       - name: Wrangler dry-run
         run: npx --yes wrangler@4.112.0 deploy --dry-run --env=""
+        working-directory: projects/worker-bot

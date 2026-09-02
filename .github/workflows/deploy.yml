@@ -25,29 +25,14 @@ jobs:
           cache: "npm"
 
       - name: Install dependencies
-        run: npm ci
+        run: npm ci --prefix projects/worker-bot
       
       - name: Run tests
-        run: npm run test:all --if-present
+        run: npm --prefix projects/worker-bot run test:all
       
-      - name: Deploy to Cloudflare
-        uses: cloudflare/wrangler-action@v3
-        with:
-          name: worker-build
-          path: |
-            index.js
-            src/
-            migrations/
-            wrangler.toml
-            package.json
-          if-no-files-found: error
-          retention-days: 7
-          compression-level: 6
-          overwrite: true
-          include-hidden-files: false
-
       - name: Deploy Worker
         timeout-minutes: 5
+        working-directory: projects/worker-bot
         # Retry up to 3 times: Cloudflare's Workers API occasionally returns transient
         # 10500 errors. For API auth failures (for example 10013), ensure
         # CLOUDFLARE_API_TOKEN has "Account > Workers Scripts > Edit" and no
@@ -77,6 +62,7 @@ jobs:
 
       - name: Upload secrets to Cloudflare Worker
         timeout-minutes: 5
+        working-directory: projects/worker-bot
         # NOTE: Secrets below marked as optional (GATEIO_*, ZEROX_*, ALCHEMY_*, HFT_ENGINE_*, TEMPORAL_*, EXTERNAL_PROXY_*)
         # will be gracefully skipped if not configured in GitHub repository settings.
         # The Python filter `if os.environ.get(k)` ensures missing secrets are not uploaded.
@@ -115,7 +101,7 @@ jobs:
             json.dump(secrets, f)
           PYEOF
           npx --yes wrangler@4 secret bulk /tmp/cf_secrets.json
-          rm /tmp/cf_secrets.json
+          rm -f /tmp/cf_secrets.json
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
@@ -157,6 +143,7 @@ jobs:
         timeout-minutes: 5
         run: |
           node ./scripts/verify-production-endpoints.js
+        working-directory: projects/worker-bot
         env:
           WORKFLOW_ADMIN_TOKEN: ${{ secrets.WORKFLOW_ADMIN_TOKEN }}
           EXPECTED_WORKER_NAME: ultimatearbitragehft

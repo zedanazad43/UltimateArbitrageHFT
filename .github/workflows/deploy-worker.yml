@@ -3,10 +3,7 @@ on:
   push:
     branches: [ main ]
     paths:
-      - 'index.js'
-      - 'src/**'
-      - 'wrangler.toml'
-      - 'package.json'
+      - 'projects/worker-bot/**'
       - '.github/workflows/deploy-worker.yml'
   workflow_dispatch:
 jobs:
@@ -17,7 +14,8 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
-      - run: npm install --include=dev
+      - run: npm install --include=dev --prefix projects/worker-bot
       - run: npx --yes wrangler@4.87.0 deploy
+        working-directory: projects/worker-bot
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
