@@ -69,16 +69,20 @@ queue = "ultimate-arbitrage-queue"
 max_batch_size = 10
 max_batch_timeout = 30
 
+# NOTE: Do NOT declare PROXY_AUTH_HEADER or BITGET_API_KEY in [vars].
+# These are uploaded as Worker secrets via `wrangler secret bulk` in CI; a
+# [vars] binding with the same name makes that upload fail with Cloudflare
+# error 10053 ("Binding name already in use").
 [vars]
 PROXY_MODE = "auto"
 PROXY_URL_1 = "https://proxy-gateway.zedanazad43.workers.dev"
 PROXY_URL_2 = "https://1d7373f11e5c96fb-104-28-162-48.serveousercontent.com"
-PROXY_AUTH_HEADER = "X-Gateway-Token: REPLACE_WITH_GATEWAY_TOKEN"
 
 # Cloudflare Workers AI
 CF_AI_MODEL = "llama-3.1-8b-instruct"
 CF_AI_ENDPOINT = "/ai/chat/completions"
 AI = "true"
 
-# Bitget API — set via Dashboard or wrangler secret put
-BITGET_API_KEY = "REPLACE_WITH_YOUR_BITGET_KEY"
+# Bitget credentials — set via Dashboard or `wrangler secret put`.
+# Never put a real key in [vars]; a placeholder here also collides with the
+# CI secret upload (error 10053).
