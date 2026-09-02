@@ -33,3 +33,22 @@ Cloud runs: `.github/workflows/agent-run.yml`.
 Use `skills.sh <skill>` as the unified entry point for every repo operation.
 **Free-first priority is mandatory**: always try free/local tools first (lean-ctx → Ollama → Cloudflare AI → OpenRouter:free) before any paid API call.
 
+# Workspace Monorepo Rules for CI/CD
+
+Layout: `projects/worker-bot` (Cloudflare Worker), `projects/go-engine` (Go HFT),
+`projects/dashboard` (React/Vite), `superbot/` (control plane). The root
+`package.json` is NOT an npm workspace — each project owns its manifest/lockfile.
+
+1. **Wrangler & Worker Workflows**:
+   - Target subdirectories explicitly via `working-directory:` on `run:` steps
+     (wrangler-action has no `workingDirectory` input).
+   - Primary Worker directory: `projects/worker-bot`.
+2. **Secrets & DLP**:
+   - Never commit raw tokens, credentials, or `.env` files.
+   - Inject Cloudflare credentials exclusively via GitHub repository secrets
+     (`CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID`).
+3. **Dependencies**:
+   - Install per project: `npm ci --prefix projects/worker-bot` (or
+     `npm --prefix projects/...` / `working-directory` + `npm ci`).
+   - `--include-workspace-root` is not applicable — this is not an npm workspace.
+

@@ -18,6 +18,11 @@ finalize_project.ps1
 .env.*
 *.env
 
+# Private keys / certs / Wrangler secret config
+*.pem
+*.key
+wrangler.secret.toml
+
 # Node
 node_modules/
 # Python lab venv (superbot/python-lab)
