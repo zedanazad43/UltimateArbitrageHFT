@@ -1,8 +1,6 @@
 // src/data/institutions.js — Institutional holdings: SEC 13F analysis
 // Uses SEC EDGAR XBRL API (free, no API key required).
 
-import { tickerToCIK, getCompanyFacts } from './fundamentals.js';
-
 const EDGAR_BASE = 'https://data.sec.gov';
 const EDGAR_SUBMISSIONS = `${EDGAR_BASE}/submissions`;
 

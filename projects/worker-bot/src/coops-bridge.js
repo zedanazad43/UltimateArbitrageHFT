@@ -3,10 +3,8 @@
  * Enables automatic routing of commands to appropriate AI providers
  */
 
-const express = require('express');
-const { exec } = require('child_process');
-const fs = require('fs');
-const path = require('path');
+import express from 'express';
+import { exec } from 'child_process';
 
 const app = express();
 app.use(express.json());
@@ -103,7 +101,7 @@ app.post('/route', async (req, res) => {
 
 // Get status
 app.get('/status', (req, res) => {
-  exec('python3 cooperation/coops_desktop_agent.py status', (error, stdout, stderr) => {
+  exec('python3 cooperation/coops_desktop_agent.py status', (error, stdout, _stderr) => {
     if (error) {
       res.json({ error: error.message });
     } else {
@@ -122,4 +120,4 @@ app.listen(PORT, '0.0.0.0', () => {
   console.log(`COOPS Bridge running on port ${PORT}`);
 });
 
-module.exports = app;
+export default app;

@@ -57,7 +57,7 @@ class BitsgapIntegration {
       console.log(`   User: ${data.user?.email}`);
       return data;
     } catch (error) {
-      throw new Error(`Bitsgap validation failed: ${error.message}`);
+      throw new Error(`Bitsgap validation failed: ${error.message}`, { cause: error });
     }
   }
 
@@ -139,7 +139,7 @@ class BitsgapIntegration {
         timestamp: new Date().toISOString(),
       };
     } catch (error) {
-      throw new Error(`Backtest failed: ${error.message}`);
+      throw new Error(`Backtest failed: ${error.message}`, { cause: error });
     }
   }
 

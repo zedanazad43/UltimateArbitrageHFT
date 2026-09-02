@@ -5,8 +5,6 @@
  */
 
 import { execSync } from 'child_process';
-import fs from 'fs';
-import path from 'path';
 import { fileURLToPath } from 'url';
 import { dirname } from 'path';
 
@@ -70,7 +68,7 @@ class WranglerRunner {
       });
       
       return { success: true, output: result };
-    } catch (error) {
+    } catch (_error) {
       // Dev server runs until killed, so this is expected
       return { success: true, output: 'Dev server running' };
     }

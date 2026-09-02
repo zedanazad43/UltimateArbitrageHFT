@@ -2,7 +2,6 @@
 // No API key required for Yahoo Finance quote data.
 
 const YAHOO_BASE = 'https://query1.finance.yahoo.com/v1/finance';
-const ISHARES_BASE = 'https://www.ishares.com/us/products';
 
 /**
  * Fetch ETF quote summary from Yahoo Finance.

@@ -3,7 +3,6 @@
 // Bridges Hummingbot to Railway HFT Engine via geo-bypassed Cloudflare Worker
 
 import fetch from 'node-fetch';
-import { WebSocket } from 'ws';
 
 const CONFIG = {
   WORKER_URL: 'https://ultimatearbitragehft.zedanazad43.workers.dev',

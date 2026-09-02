@@ -21,10 +21,11 @@ jobs:
     steps:
     - uses: actions/checkout@v5
     - name: Use Node.js ${{ matrix.node_version }}
-      uses: actions/setup-node@v6        with:
-          node-version: ${{ matrix.node_version }}
-          cache: npm
-          cache-dependency-path: projects/worker-bot/package-lock.json
+      uses: actions/setup-node@v6
+      with:
+        node-version: ${{ matrix.node_version }}
+        cache: npm
+        cache-dependency-path: projects/worker-bot/package-lock.json
 
     - name: Install dependencies
       run: npm ci --prefix projects/worker-bot
@@ -110,13 +111,13 @@ jobs:
 
     - name: Install govulncheck
       run: |
-        cd agents
+        cd projects/go-engine
         go install golang.org/x/vuln/cmd/govulncheck@latest
 
     - name: Govulncheck (non-blocking rollout)
       continue-on-error: true
       run: |
-        cd agents
+        cd projects/go-engine
         govulncheck ./...
 
     - name: Run golangci-lint

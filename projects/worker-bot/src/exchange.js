@@ -130,7 +130,7 @@ export async function parseJsonResponse(resp, context = '') {
   } catch (parseErr) {
     // Some exchanges (and some proxy responses) wrap JSON in whitespace,
     // a BOM, or stray text. Try to recover the first balanced {...} or [...] block.
-    const cleaned = String(text).replace(/^﻿/, '').trim();
+    const cleaned = String(text).replace(/^\uFEFF/, '').trim();
     const firstBrace = cleaned.search(/[[{]/);
     if (firstBrace >= 0) {
       const candidate = cleaned.slice(firstBrace);
@@ -982,7 +982,7 @@ export async function getBitgetAccountEquityUSDT(env) {
       .map((e) => (e?.message || String(e)))
       .filter(Boolean);
     if (reasons.length) errors.push(...reasons);
-    throw new Error(normalizeExchangeErrorMessage('Bitget', `Bitget account equity failed: ${errors.join(' | ') || 'unknown error'}`));
+    throw new Error(normalizeExchangeErrorMessage('Bitget', `Bitget account equity failed: ${errors.join(' | ') || 'unknown error'}`), { cause: aggregate });
   }
 }
 

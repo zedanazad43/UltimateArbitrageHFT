@@ -5,7 +5,6 @@ const EDGAR_BASE = 'https://data.sec.gov';
 const EDGAR_COMPANY_FACTS = `${EDGAR_BASE}/api/xbrl/companyfacts`;
 const EDGAR_COMPANY_CONCEPT = `${EDGAR_BASE}/api/xbrl/companyconcept`;
 const EDGAR_SUBMISSIONS = `${EDGAR_BASE}/submissions`;
-const SEARCH_BASE = 'https://efts.sec.gov/LATEST/search-index';
 
 /**
  * Pads CIK to 10 digits as EDGAR requires.

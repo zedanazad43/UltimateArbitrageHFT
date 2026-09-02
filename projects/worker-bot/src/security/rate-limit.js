@@ -56,13 +56,12 @@ export async function checkRateLimit(env, c, opts = {}) {
   }
 
   const key = buildRateKey({ prefix, id: keyId, route, bucket });
-  let used = 0;
+  let used;
   try {
     const raw = await kv.get(key);
-    used = raw ? (Number(raw) || 0) : 0;
-    used += 1;
+    used = (raw ? (Number(raw) || 0) : 0) + 1;
     await kv.put(key, String(used), { expirationTtl: windowSec + 2 });
-  } catch (e) {
+  } catch (_e) {
     if (failOpen) {
       return {
         allowed: true,
