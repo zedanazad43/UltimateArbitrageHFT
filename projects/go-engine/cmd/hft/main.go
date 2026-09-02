@@ -83,9 +83,9 @@ func init() {
 // ─── Circuit breaker (in-memory) ─────────────────────────────────────────────
 
 type cbState struct {
-	failures   int
-	lastFail   time.Time
-	open       bool
+	failures int
+	lastFail time.Time
+	open     bool
 }
 
 type circuitBreaker struct {
@@ -135,10 +135,10 @@ type engine struct {
 	notifier *notify.Notifier
 	cb       *circuitBreaker
 
-	equity       float64 // tracks running P&L
-	dailyPnL     float64
-	dailyTrades  int
-	lastTrade    time.Time
+	equity      float64 // tracks running P&L
+	dailyPnL    float64
+	dailyTrades int
+	lastTrade   time.Time
 }
 
 func newEngine(cfg *config.Config, database *db.DB) *engine {
@@ -403,6 +403,23 @@ type executeRequest struct {
 func newAPIServer(eng *engine, secret string) *http.Server {
 	mux := http.NewServeMux()
 
+	// ── CORS middleware ───────────────────────────────────────────────────────
+	// Allows the React dashboard (Cloudflare Pages / localhost dev) to call the
+	// engine directly. Preflight handled without touching auth.
+	withCORS := func(next http.HandlerFunc) http.HandlerFunc {
+		return func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Access-Control-Allow-Origin", "*")
+			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+			w.Header().Set("Access-Control-Allow-Headers", "Authorization, Content-Type")
+			w.Header().Set("Access-Control-Max-Age", "86400")
+			if r.Method == http.MethodOptions {
+				w.WriteHeader(http.StatusNoContent)
+				return
+			}
+			next(w, r)
+		}
+	}
+
 	// ── Auth middleware ───────────────────────────────────────────────────────
 	requireAuth := func(next http.HandlerFunc) http.HandlerFunc {
 		return func(w http.ResponseWriter, r *http.Request) {
@@ -428,7 +445,7 @@ func newAPIServer(eng *engine, secret string) *http.Server {
 	}
 
 	// ── GET /api/health ───────────────────────────────────────────────────────
-	mux.HandleFunc("/api/health", func(w http.ResponseWriter, _ *http.Request) {
+	healthHandler := func(w http.ResponseWriter, _ *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]any{
 			"status":       "ok",
 			"paper":        eng.cfg.PaperTrading,
@@ -438,10 +455,11 @@ func newAPIServer(eng *engine, secret string) *http.Server {
 			"daily_trades": eng.dailyTrades,
 			"timestamp_ms": time.Now().UnixMilli(),
 		})
-	})
+	}
+	mux.HandleFunc("/api/health", withCORS(healthHandler))
 
 	// ── GET /api/scan ─────────────────────────────────────────────────────────
-	mux.HandleFunc("/api/scan", requireAuth(func(w http.ResponseWriter, r *http.Request) {
+	scanHandler := requireAuth(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {
 			writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
 			return
@@ -467,10 +485,11 @@ func newAPIServer(eng *engine, secret string) *http.Server {
 				IsPerp:       b.IsPerp,
 			},
 		})
-	}))
+	})
+	mux.HandleFunc("/api/scan", withCORS(scanHandler))
 
 	// ── POST /api/execute ─────────────────────────────────────────────────────
-	mux.HandleFunc("/api/execute", requireAuth(func(w http.ResponseWriter, r *http.Request) {
+	executeHandler := requireAuth(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
 			return
@@ -496,7 +515,8 @@ func newAPIServer(eng *engine, secret string) *http.Server {
 		}
 		eng.execute(r.Context(), opp)
 		writeJSON(w, http.StatusOK, map[string]bool{"success": true})
-	}))
+	})
+	mux.HandleFunc("/api/execute", withCORS(executeHandler))
 
 	return &http.Server{
 		Addr:         eng.cfg.APIAddr,
