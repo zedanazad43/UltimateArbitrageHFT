@@ -3,12 +3,15 @@
 // The container boots with safe paper-trading defaults; exchange credentials
 // and ENGINE_SECRET are passed via envVars below when live trading is enabled.
 
-import { Container } from "cloudflare:workers";
+import { Container, getContainer } from "@cloudflare/containers";
 
 export class HftEngine extends Container {
   defaultPort = 8080;
+  // Health-check the container against the engine API's /health during startup.
+  pingEndpoint = "localhost/health";
   // Keep the engine warm: 6h idle timeout (continuous WS feeds keep it busy).
   sleepAfter = "21600s";
+  enableInternet = true;
   envVars = {
     // Safe defaults — paper trading only until credentials are provided.
     PAPER_TRADING: "true",
@@ -29,7 +32,6 @@ export class HftEngine extends Container {
 
 export default {
   async fetch(request, env) {
-    const container = env.HFT_ENGINE.getByName("engine");
-    return container.fetch(request);
+    return getContainer(env.HFT_ENGINE, "engine").fetch(request);
   },
 };

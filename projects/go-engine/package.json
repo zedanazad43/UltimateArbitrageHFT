@@ -1,0 +1,17 @@
+{
+  "name": "hft-engine-container",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Cloudflare Containers wrapper for the Go HFT engine",
+  "type": "module",
+  "scripts": {
+    "deploy": "wrangler deploy",
+    "containers:list": "wrangler containers list"
+  },
+  "dependencies": {
+    "@cloudflare/containers": "^0.3.7"
+  },
+  "devDependencies": {
+    "wrangler": "^4.129.0"
+  }
+}

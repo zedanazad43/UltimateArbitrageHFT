@@ -19,6 +19,11 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
+          cache: 'npm'
+          cache-dependency-path: projects/go-engine/package-lock.json
+
+      - name: Install wrapper worker deps
+        run: npm ci --prefix projects/go-engine
 
       - name: Deploy engine container
         id: deploy
@@ -28,7 +33,7 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: |
           echo "--- Building image + deploying container (first build is slow) ---"
-          npx --yes wrangler@4 deploy 2>&1 | tee /tmp/wrangler-deploy.log
+          npx wrangler deploy 2>&1 | tee /tmp/wrangler-deploy.log
           if ! grep -q "Uploaded" /tmp/wrangler-deploy.log && ! grep -qi "success" /tmp/wrangler-deploy.log; then
             echo "::error::Engine container deploy did not report success"
             exit 1
