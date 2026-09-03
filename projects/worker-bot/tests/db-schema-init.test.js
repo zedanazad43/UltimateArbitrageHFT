@@ -37,7 +37,7 @@ test('ensureSchema executes the full schema via batch of prepared statements', a
   assert.equal(batchArgs.length, expected.length);
   // The CREATE INDEX statement must be included
   assert.ok(
-    preparedSqls.some(s => /CREATE INDEX IF NOT EXISTS idx_trades_created_at ON trades\(created_at DESC\)/.test(s)),
+    preparedSqls.some(s =>    /CREATE INDEX IF NOT EXISTS idx_trades_created_at\s+ON trades\(created_at DESC\)/.test(s)),
     'idx_trades_created_at statement must be batched'
   );
 });

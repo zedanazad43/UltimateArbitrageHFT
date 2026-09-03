@@ -61,6 +61,18 @@ jobs:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
 
+      - name: Apply D1 migrations
+        timeout-minutes: 5
+        working-directory: projects/worker-bot
+        # Idempotent: all statements use CREATE TABLE/INDEX IF NOT EXISTS and
+        # INSERT OR IGNORE, so re-running on every deploy is safe. Keeps the
+        # remote schema in sync with migrations/schema.sql (single source of
+        # truth for the runtime ensureSchema() too).
+        run: npx --yes wrangler@4 d1 execute ultimate-arbitrage-db --remote --file=./migrations/schema.sql
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+
       - name: Upload secrets to Cloudflare Worker
         timeout-minutes: 5
         working-directory: projects/worker-bot

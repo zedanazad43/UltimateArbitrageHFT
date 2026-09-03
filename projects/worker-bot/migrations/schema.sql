@@ -1,5 +1,7 @@
--- Nexus Arbitrage Hub — canonical D1 schema (combined migrations 0001 + 0002 + 0003)
+-- Nexus Arbitrage Hub — canonical D1 schema (combined migrations 0001 + 0002 + 0003 + nexus tables)
 -- Run: wrangler d1 execute ultimate-arbitrage-db --file=./migrations/schema.sql --remote
+-- NOTE: migrations/schema.js is AUTO-GENERATED from this file by `npm run db:schema:sync`.
+--       Edit ONLY this file, then regenerate.
 
 CREATE TABLE IF NOT EXISTS trades (
   id                 INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -87,17 +89,69 @@ CREATE TABLE IF NOT EXISTS backtest_runs (
   created_at INTEGER NOT NULL
 );
 
--- Indices for time-range queries and filtering
-CREATE INDEX IF NOT EXISTS idx_trades_created_at
-  ON trades(created_at DESC);
-CREATE INDEX IF NOT EXISTS idx_trades_strategy
-  ON trades(strategy);
-CREATE INDEX IF NOT EXISTS idx_trades_mode
-  ON trades(mode);
-CREATE INDEX IF NOT EXISTS idx_admin_events_created_at
-  ON admin_events(created_at DESC);
-CREATE INDEX IF NOT EXISTS idx_bot_events_created_at
-  ON bot_events(created_at DESC);
+-- Arbitrage opportunities tracked per scan cycle (nexus tables)
+CREATE TABLE IF NOT EXISTS opportunities (
+  id              INTEGER PRIMARY KEY AUTOINCREMENT,
+  symbol          TEXT    NOT NULL,
+  strategy        TEXT    NOT NULL,
+  buy_exchange    TEXT    NOT NULL,
+  sell_exchange   TEXT    NOT NULL,
+  gross_pct       REAL    NOT NULL,
+  net_pct         REAL    NOT NULL,
+  safety_factor   REAL,
+  price_buy       REAL    NOT NULL,
+  price_sell      REAL    NOT NULL,
+  est_fee_usd     REAL    DEFAULT 0,
+  est_slippage_usd REAL   DEFAULT 0,
+  size_usd        REAL,
+  status          TEXT    DEFAULT 'open',
+  executed        INTEGER DEFAULT 0,
+  rejected_reason TEXT,
+  created_at      INTEGER NOT NULL,
+  expires_at      INTEGER
+);
+
+CREATE TABLE IF NOT EXISTS performance_snapshots (
+  id               INTEGER PRIMARY KEY AUTOINCREMENT,
+  total_pnl_usd    REAL NOT NULL,
+  equity_usd       REAL NOT NULL,
+  daily_pnl_usd    REAL NOT NULL,
+  total_trades     INTEGER DEFAULT 0,
+  win_trades       INTEGER DEFAULT 0,
+  loss_trades      INTEGER DEFAULT 0,
+  win_rate         REAL    DEFAULT 0,
+  max_drawdown_usd REAL    DEFAULT 0,
+  sharpe           REAL    DEFAULT 0,
+  created_at       INTEGER NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS strategy_insights (
+  id             INTEGER PRIMARY KEY AUTOINCREMENT,
+  strategy       TEXT NOT NULL,
+  symbol         TEXT,
+  exchange_pair  TEXT,
+  direction      TEXT,
+  sample_size    INTEGER DEFAULT 0,
+  avg_net_pct    REAL    DEFAULT 0,
+  avg_gross_pct  REAL    DEFAULT 0,
+  avg_slippage_pct REAL DEFAULT 0,
+  win_rate       REAL    DEFAULT 0,
+  profit_factor  REAL    DEFAULT 0,
+  confidence     REAL    DEFAULT 0,
+  Kelly          REAL    DEFAULT 0,
+  last_updated   INTEGER NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS opportunity_audit (
+  id             INTEGER PRIMARY KEY AUTOINCREMENT,
+  opportunity_id INTEGER,
+  action         TEXT NOT NULL,
+  reason         TEXT,
+  pnl_usd        REAL,
+  latency_ms     INTEGER,
+  created_at     INTEGER NOT NULL,
+  FOREIGN KEY (opportunity_id) REFERENCES opportunities(id) ON DELETE SET NULL
+);
 
 -- ═══ HFT RESILIENCE BACKUP TABLES ═══
 -- These tables provide state persistence for failover scenarios
@@ -160,9 +214,37 @@ CREATE TABLE IF NOT EXISTS railway_metrics (
   data_center TEXT
 );
 
+-- Indices for time-range queries and filtering
+CREATE INDEX IF NOT EXISTS idx_trades_created_at
+  ON trades(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_trades_strategy
+  ON trades(strategy);
+CREATE INDEX IF NOT EXISTS idx_trades_mode
+  ON trades(mode);
+CREATE INDEX IF NOT EXISTS idx_admin_events_created_at
+  ON admin_events(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_bot_events_created_at
+  ON bot_events(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_opportunities_created_at
+  ON opportunities(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_opportunities_status
+  ON opportunities(status);
+CREATE INDEX IF NOT EXISTS idx_opportunities_symbol
+  ON opportunities(symbol);
+CREATE INDEX IF NOT EXISTS idx_opportunities_strategy
+  ON opportunities(strategy);
+CREATE INDEX IF NOT EXISTS idx_perf_created_at
+  ON performance_snapshots(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_strategy_insights_strategy
+  ON strategy_insights(strategy, last_updated DESC);
+CREATE INDEX IF NOT EXISTS idx_opportunity_audit_opp
+  ON opportunity_audit(opportunity_id);
+
 -- Indices for resilience tables
 CREATE INDEX IF NOT EXISTS idx_backup_positions_status
   ON backup_positions(status);
+CREATE INDEX IF NOT EXISTS idx_backup_symbol
+  ON backup_positions(symbol);
 CREATE INDEX IF NOT EXISTS idx_backup_prices_timestamp
   ON backup_prices(timestamp);
 CREATE INDEX IF NOT EXISTS idx_backup_opportunities_recorded_at
@@ -183,4 +265,3 @@ CREATE INDEX IF NOT EXISTS idx_logs_created_at
   ON logs(created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_backtest_runs_created_at
   ON backtest_runs(created_at DESC);
-
