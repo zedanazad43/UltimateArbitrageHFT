@@ -77,6 +77,9 @@ max_batch_timeout = 30
 PROXY_MODE = "auto"
 PROXY_URL_1 = "https://proxy-gateway.zedanazad43.workers.dev"
 PROXY_URL_2 = "https://1d7373f11e5c96fb-104-28-162-48.serveousercontent.com"
+# Go HFT engine (Cloudflare Container) — engine API server base URL.
+# HFT_ENGINE_SECRET is uploaded as a Worker secret (never in [vars]).
+HFT_ENGINE_URL = "https://hft-engine.zedanazad43.workers.dev"
 
 # Cloudflare Workers AI
 CF_AI_MODEL = "llama-3.1-8b-instruct"

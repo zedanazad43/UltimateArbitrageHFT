@@ -45,30 +45,45 @@ jobs:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: |
-          URL=$(grep -oE 'https://[a-zA-Z0-9-]+\.workers\.dev' /tmp/wrangler-deploy.log | head -1 || true)
+          # Strip ANSI (colors + OSC-8 hyperlinks) before extracting the URL.
+          URL=$(perl -pe 's/\e\]8;;[^\e]*\e\\//g; s/\e\[[0-9;]*m//g' /tmp/wrangler-deploy.log 2>/dev/null | grep -oE 'https://[a-z0-9-]+\.workers\.dev' | head -1 || true)
           if [ -z "$URL" ]; then
-            echo "No workers.dev URL in deploy output — listing containers instead:"
-            cd projects/go-engine
-            npx --yes wrangler@4 containers list || true
+            SUB=$(curl -s "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/workers/subdomain" -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" | python3 -c "import sys,json; print(json.load(sys.stdin).get('result',{}).get('subdomain',''))" 2>/dev/null || true)
+            URL="https://hft-engine.${SUB}.workers.dev"
+          fi
+          if [ -z "$URL" ] || [ "$URL" = "https://hft-engine..workers.dev" ]; then
+            echo "::error::Could not determine engine URL"
+            cd projects/go-engine && npx wrangler containers list || true
             exit 1
           fi
           echo "Engine URL: $URL"
           echo "engine_url=$URL" >> "$GITHUB_OUTPUT"
           echo "--- Waiting for container provisioning (cold start can take minutes) ---"
+          HEALTHY=""
           for i in $(seq 1 20); do
-            CODE=$(curl -s -o /tmp/engine-health.json -w '%{http_code}' --max-time 30 "$URL/health" || true)
+            CODE=$(curl -s -o /tmp/engine-health.json -w '%{http_code}' --max-time 30 "$URL/api/health" || true)
             echo "probe $i: HTTP $CODE"
             if [ "$CODE" = "200" ]; then
               echo "✅ Engine healthy:"
               cat /tmp/engine-health.json
               echo
-              exit 0
+              HEALTHY=1
+              break
             fi
             sleep 30
           done
-          echo "::error::Engine did not become healthy within 10 minutes"
-          cat /tmp/engine-health.json 2>/dev/null || true
-          exit 1
+          if [ -z "$HEALTHY" ]; then
+            echo "::error::Engine did not become healthy within 10 minutes"
+            cat /tmp/engine-health.json 2>/dev/null || true
+            exit 1
+          fi
+          # Auth must be enforced on trading endpoints even without a secret.
+          SCAN_CODE=$(curl -s -o /dev/null -w '%{http_code}' --max-time 30 "$URL/api/scan" || true)
+          echo "unauthenticated /api/scan -> HTTP $SCAN_CODE (expect 401)"
+          if [ "$SCAN_CODE" != "401" ]; then
+            echo "::error::Expected 401 from unauthenticated /api/scan, got $SCAN_CODE"
+            exit 1
+          fi
 
       - name: Confirm container status
         working-directory: projects/go-engine

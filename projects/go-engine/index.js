@@ -7,8 +7,8 @@ import { Container, getContainer } from "@cloudflare/containers";
 
 export class HftEngine extends Container {
   defaultPort = 8080;
-  // Health-check the container against the engine API's /health during startup.
-  pingEndpoint = "localhost/health";
+  // Health-check the container against the engine API's /api/health during startup.
+  pingEndpoint = "localhost/api/health";
   // Keep the engine warm: 6h idle timeout (continuous WS feeds keep it busy).
   sleepAfter = "21600s";
   enableInternet = true;
