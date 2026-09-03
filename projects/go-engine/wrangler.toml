@@ -1,0 +1,22 @@
+# ─── UltimateArbitrageHFT — Go HFT Engine on Cloudflare Containers ──────────
+# The engine image runs as a Durable Object-backed Container; this Worker wraps
+# it and routes every request to the container's API server (port 8080).
+# Deploy: npx wrangler deploy   (from this directory)
+
+name = "hft-engine"
+main = "index.js"
+compatibility_date = "2025-09-01"
+workers_dev = true
+
+[[containers]]
+max_instances = 1
+class_name = "HftEngine"
+image = "./Dockerfile"
+
+[[durable_objects.bindings]]
+name = "HFT_ENGINE"
+class_name = "HftEngine"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = [ "HftEngine" ]

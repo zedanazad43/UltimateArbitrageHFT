@@ -1,0 +1,73 @@
+name: Deploy HFT Engine (Containers)
+
+on:
+  workflow_dispatch: {}
+  push:
+    branches: [ main ]
+    paths:
+      - 'projects/go-engine/**'
+      - '.github/workflows/deploy-engine.yml'
+
+jobs:
+  deploy:
+    name: Build + Deploy Container
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Deploy engine container
+        id: deploy
+        working-directory: projects/go-engine
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          echo "--- Building image + deploying container (first build is slow) ---"
+          npx --yes wrangler@4 deploy 2>&1 | tee /tmp/wrangler-deploy.log
+          if ! grep -q "Uploaded" /tmp/wrangler-deploy.log && ! grep -qi "success" /tmp/wrangler-deploy.log; then
+            echo "::error::Engine container deploy did not report success"
+            exit 1
+          fi
+
+      - name: Smoke test deployed engine
+        timeout-minutes: 15
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          URL=$(grep -oE 'https://[a-zA-Z0-9-]+\.workers\.dev' /tmp/wrangler-deploy.log | head -1 || true)
+          if [ -z "$URL" ]; then
+            echo "No workers.dev URL in deploy output — listing containers instead:"
+            cd projects/go-engine
+            npx --yes wrangler@4 containers list || true
+            exit 1
+          fi
+          echo "Engine URL: $URL"
+          echo "engine_url=$URL" >> "$GITHUB_OUTPUT"
+          echo "--- Waiting for container provisioning (cold start can take minutes) ---"
+          for i in $(seq 1 20); do
+            CODE=$(curl -s -o /tmp/engine-health.json -w '%{http_code}' --max-time 30 "$URL/health" || true)
+            echo "probe $i: HTTP $CODE"
+            if [ "$CODE" = "200" ]; then
+              echo "✅ Engine healthy:"
+              cat /tmp/engine-health.json
+              echo
+              exit 0
+            fi
+            sleep 30
+          done
+          echo "::error::Engine did not become healthy within 10 minutes"
+          cat /tmp/engine-health.json 2>/dev/null || true
+          exit 1
+
+      - name: Confirm container status
+        working-directory: projects/go-engine
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: npx --yes wrangler@4 containers list || true
