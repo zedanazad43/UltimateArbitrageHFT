@@ -400,7 +400,10 @@ type executeRequest struct {
 }
 
 // newAPIServer builds the HTTP mux for the engine REST API.
-func newAPIServer(eng *engine, secret string) *http.Server {
+// requireAuthAlways fails closed: trading endpoints demand a valid Bearer token
+// even when secret is empty (then nothing can authenticate). Local dev keeps
+// requireAuthAlways=false and an empty secret to stay open.
+func newAPIServer(eng *engine, secret string, requireAuthAlways bool) *http.Server {
 	mux := http.NewServeMux()
 
 	// ── CORS middleware ───────────────────────────────────────────────────────
@@ -423,7 +426,7 @@ func newAPIServer(eng *engine, secret string) *http.Server {
 	// ── Auth middleware ───────────────────────────────────────────────────────
 	requireAuth := func(next http.HandlerFunc) http.HandlerFunc {
 		return func(w http.ResponseWriter, r *http.Request) {
-			if secret != "" {
+			if requireAuthAlways || secret != "" {
 				got := r.Header.Get("Authorization")
 				if got != "Bearer "+secret {
 					w.Header().Set("Content-Type", "application/json")
@@ -486,7 +489,7 @@ func newAPIServer(eng *engine, secret string) *http.Server {
 			},
 		})
 	})
-	mux.HandleFunc("/api/scan", withCORS(scanHandler))
+	mux.HandleFunc("/api/scan", withCORS(requireAuth(scanHandler)))
 
 	// ── POST /api/execute ─────────────────────────────────────────────────────
 	executeHandler := requireAuth(func(w http.ResponseWriter, r *http.Request) {
@@ -581,7 +584,7 @@ func main() {
 
 	// ── Engine API server (used by the CF Worker for scan + execute) ──────
 	go func() {
-		apiSrv := newAPIServer(eng, cfg.EngineSecret)
+		apiSrv := newAPIServer(eng, cfg.EngineSecret, cfg.EngineRequireAuth)
 		slog.Info("engine API server", "addr", cfg.APIAddr, "auth", cfg.EngineSecret != "")
 		if err := apiSrv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			slog.Error("engine API server error", "err", err)

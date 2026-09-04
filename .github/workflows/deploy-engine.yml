@@ -25,6 +25,32 @@ jobs:
       - name: Install wrapper worker deps
         run: npm ci --prefix projects/go-engine
 
+      - name: Upload secrets to engine worker
+        timeout-minutes: 5
+        working-directory: projects/go-engine
+        # HFT_ENGINE_SECRET must exist on BOTH the main worker (deploy.yml) and
+        # the hft-engine worker so the container can enforce bearer auth. Skipped
+        # gracefully when not configured in GitHub repository settings; the
+        # container then fails closed (401) until it is added.
+        run: |
+          python3 - <<'PYEOF'
+          import json, os
+          keys = ["HFT_ENGINE_SECRET"]
+          secrets = {k: os.environ[k] for k in keys if os.environ.get(k)}
+          if not secrets:
+              print("ℹ️ HFT_ENGINE_SECRET not set in GitHub secrets — engine will fail closed (401) until it is added")
+              raise SystemExit(0)
+          fd = os.open("/tmp/hft_secrets.json", os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+          with os.fdopen(fd, "w") as f:
+              json.dump(secrets, f)
+          PYEOF
+          npx --yes wrangler@4 secret bulk /tmp/hft_secrets.json
+          rm -f /tmp/hft_secrets.json
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          HFT_ENGINE_SECRET: ${{ secrets.HFT_ENGINE_SECRET }}
+
       - name: Deploy engine container
         id: deploy
         working-directory: projects/go-engine
@@ -44,6 +70,7 @@ jobs:
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          HFT_ENGINE_SECRET: ${{ secrets.HFT_ENGINE_SECRET }}
         run: |
           # Strip ANSI (colors + OSC-8 hyperlinks) before extracting the URL.
           URL=$(perl -pe 's/\e\]8;;[^\e]*\e\\//g; s/\e\[[0-9;]*m//g' /tmp/wrangler-deploy.log 2>/dev/null | grep -oE 'https://[a-z0-9-]+\.workers\.dev' | head -1 || true)
@@ -77,12 +104,25 @@ jobs:
             cat /tmp/engine-health.json 2>/dev/null || true
             exit 1
           fi
-          # Auth must be enforced on trading endpoints even without a secret.
+          # Auth must be enforced on trading endpoints even without a secret
+          # (fail-closed: ENGINE_REQUIRE_AUTH=true on the container).
           SCAN_CODE=$(curl -s -o /dev/null -w '%{http_code}' --max-time 30 "$URL/api/scan" || true)
           echo "unauthenticated /api/scan -> HTTP $SCAN_CODE (expect 401)"
           if [ "$SCAN_CODE" != "401" ]; then
             echo "::error::Expected 401 from unauthenticated /api/scan, got $SCAN_CODE"
             exit 1
+          fi
+          # When the secret IS configured, a valid bearer must be accepted.
+          if [ -n "$HFT_ENGINE_SECRET" ]; then
+            AUTH_CODE=$(curl -s -o /tmp/engine-scan.json -w '%{http_code}' --max-time 30 -H "Authorization: Bearer $HFT_ENGINE_SECRET" "$URL/api/scan" || true)
+            echo "authenticated /api/scan -> HTTP $AUTH_CODE (expect 200)"
+            if [ "$AUTH_CODE" != "200" ]; then
+              echo "::error::Expected 200 from authenticated /api/scan, got $AUTH_CODE"
+              exit 1
+            fi
+            echo "✅ Engine bearer auth verified"
+          else
+            echo "ℹ️ HFT_ENGINE_SECRET not configured — skipping authenticated probe (engine stays fail-closed)"
           fi
 
       - name: Confirm container status

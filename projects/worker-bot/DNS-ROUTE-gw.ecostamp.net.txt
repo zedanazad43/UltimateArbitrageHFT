@@ -1,6 +1,13 @@
 ============================================================
 CLOUDFLARE DNS ROUTE — uahft-gateway tunnel
 ============================================================
+
+⚠️ SUPERSEDED (2026-09): the Go engine now runs as a Cloudflare Container
+at https://hft-engine.<account>.workers.dev (see projects/go-engine/wrangler.toml
++ .github/workflows/deploy-engine.yml). wrangler.toml points HFT_ENGINE_URL at
+that container, so the gw.ecostamp.net tunnel route below is NOT required.
+The record can still be added if you want a branded engine URL, but the worker
+will keep using the workers.dev host until HFT_ENGINE_URL is changed.
 Add this ONE CNAME manually in the Cloudflare dashboard
 (ecostamp.net → DNS → Records → Add record):
 

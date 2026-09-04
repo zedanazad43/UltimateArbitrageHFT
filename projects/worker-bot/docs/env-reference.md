@@ -34,7 +34,7 @@ and are exposed as properties on the `env` object inside the Worker.
 
 | Variable | Default | Description |
 |---|---|---|
-| `HFT_ENGINE_URL` | `""` | Base URL of the running Go engine, e.g. `https://hft.example.com`. Leave blank to disable. |
+| `HFT_ENGINE_URL` | `""` | Base URL of the running Go engine, e.g. `https://hft-engine.<acct>.workers.dev`. Leave blank to disable. |
 
 ### 1.3 Ecosystem integrations (remote execution endpoints)
 
@@ -183,7 +183,7 @@ Only configure the exchanges you trade. Bybit and Gate.io are **data-only** (Ger
 
 | Secret | Description |
 |---|---|
-| `HFT_ENGINE_SECRET` | ****** matching `HFT_ENGINE_SECRET` on the Go engine |
+| `HFT_ENGINE_SECRET` | ****** matching `HFT_ENGINE_SECRET` on the Go engine container. Must be set in GitHub repo secrets — deploy workflows upload it to BOTH the main worker and the `hft-engine` container worker. Until set, the engine fails closed (scan/execute return 401) and the worker reports `executionReady=false`. |
 
 ### 2.5 Temporal Cloud
 
@@ -283,7 +283,7 @@ Same `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID` as the Worker (section 2.2).
 | `MIN_NET_PROFIT_PCT` | `0.05` | Minimum net profit to execute a trade |
 | `METRICS_ADDR` | `:9090` | Prometheus metrics listen address |
 | `API_ADDR` | `:8080` | Engine REST API listen address |
-| `HFT_ENGINE_SECRET` | `""` | Auth token clients must send (matches Worker secret) |
+| `HFT_ENGINE_SECRET` | `""` | Auth token clients must send (matches Worker secret). On the deployed container, `ENGINE_REQUIRE_AUTH=true` fails closed when blank (401 on scan/execute) — trading stays disabled until a secret is configured. |
 
 ---
 

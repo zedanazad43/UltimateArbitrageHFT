@@ -3,6 +3,7 @@
 // The container boots with safe paper-trading defaults; exchange credentials
 // and ENGINE_SECRET are passed via envVars below when live trading is enabled.
 
+import { env } from "cloudflare:workers";
 import { Container, getContainer } from "@cloudflare/containers";
 
 export class HftEngine extends Container {
@@ -14,6 +15,12 @@ export class HftEngine extends Container {
   enableInternet = true;
   envVars = {
     // Safe defaults — paper trading only until credentials are provided.
+    // ENGINE_REQUIRE_AUTH=true fails closed: until HFT_ENGINE_SECRET is set
+    // (bound as a Worker secret, uploaded by deploy-engine.yml) the engine
+    // refuses scan/execute with 401 instead of running unauthenticated.
+    ENGINE_REQUIRE_AUTH: "true",
+    // Secret flows from the Worker binding (undefined -> "" until configured).
+    HFT_ENGINE_SECRET: env.HFT_ENGINE_SECRET ?? "",
     PAPER_TRADING: "true",
     TRADING_ENABLED: "false",
     SCAN_INTERVAL_MS: "500",

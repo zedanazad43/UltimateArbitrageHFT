@@ -93,6 +93,12 @@ type Config struct {
 	// Authorization header to call the engine API.  Leave blank to disable auth.
 	EngineSecret string
 
+	// EngineRequireAuth fails closed: trading endpoints (scan/execute) always
+	// require a valid Bearer token, even when EngineSecret is blank (nothing can
+	// authenticate). Set ENGINE_REQUIRE_AUTH=true on the deployed container so an
+	// unconfigured engine refuses trading instead of running open.
+	EngineRequireAuth bool
+
 	// Prometheus metrics HTTP listen address.
 	MetricsAddr string
 }
@@ -152,8 +158,9 @@ func Load() (*Config, error) {
 		MetricsAddr:     envOr("METRICS_ADDR", ":9090"),
 
 		// API server
-		APIAddr:      envOr("API_ADDR", ":8080"),
-		EngineSecret: os.Getenv("HFT_ENGINE_SECRET"),
+		APIAddr:           envOr("API_ADDR", ":8080"),
+		EngineSecret:      os.Getenv("HFT_ENGINE_SECRET"),
+		EngineRequireAuth: os.Getenv("ENGINE_REQUIRE_AUTH") == "true",
 	}
 
 	var missing []string
