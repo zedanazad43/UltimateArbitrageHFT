@@ -87,6 +87,19 @@ jobs:
           fi
           echo "Engine URL: $URL"
           echo "engine_url=$URL" >> "$GITHUB_OUTPUT"
+          echo "--- Restarting container so it picks up freshly uploaded secrets/env ---"
+          for i in $(seq 1 5); do
+            if [ -n "$HFT_ENGINE_SECRET" ]; then
+              RESTART_CODE=$(curl -s -o /dev/null -w '%{http_code}' --max-time 30 -X POST -H "Authorization: Bearer $HFT_ENGINE_SECRET" "$URL/__admin/restart" || true)
+            else
+              RESTART_CODE=$(curl -s -o /dev/null -w '%{http_code}' --max-time 30 -X POST "$URL/__admin/restart" || true)
+            fi
+            echo "restart probe $i: POST /__admin/restart -> HTTP $RESTART_CODE"
+            if [ "$RESTART_CODE" = "200" ]; then
+              break
+            fi
+            sleep 10
+          done
           echo "--- Waiting for container provisioning (cold start can take minutes) ---"
           HEALTHY=""
           for i in $(seq 1 20); do
@@ -107,17 +120,34 @@ jobs:
             exit 1
           fi
           # Auth must be enforced on trading endpoints even without a secret
-          # (fail-closed: ENGINE_REQUIRE_AUTH=true on the container).
-          SCAN_CODE=$(curl -s -o /dev/null -w '%{http_code}' --max-time 30 "$URL/api/scan" || true)
-          echo "unauthenticated /api/scan -> HTTP $SCAN_CODE (expect 401)"
+          # (fail-closed: ENGINE_REQUIRE_AUTH=true on the container). Health can
+          # come up on the PREVIOUS image while the container rollout replaces
+          # instances, so retry the auth probe until the new image serves.
+          SCAN_CODE=""
+          for i in $(seq 1 10); do
+            SCAN_CODE=$(curl -s -o /dev/null -w '%{http_code}' --max-time 30 "$URL/api/scan" || true)
+            echo "probe $i: unauthenticated /api/scan -> HTTP $SCAN_CODE (expect 401)"
+            if [ "$SCAN_CODE" = "401" ]; then
+              break
+            fi
+            sleep 30
+          done
           if [ "$SCAN_CODE" != "401" ]; then
-            echo "::error::Expected 401 from unauthenticated /api/scan, got $SCAN_CODE"
+            echo "::error::Expected 401 from unauthenticated /api/scan, got $SCAN_CODE (rollout may still be replacing instances)"
             exit 1
           fi
+          echo "✅ Engine fail-closed auth verified (401 without token)"
           # When the secret IS configured, a valid bearer must be accepted.
           if [ -n "$HFT_ENGINE_SECRET" ]; then
-            AUTH_CODE=$(curl -s -o /tmp/engine-scan.json -w '%{http_code}' --max-time 30 -H "Authorization: Bearer $HFT_ENGINE_SECRET" "$URL/api/scan" || true)
-            echo "authenticated /api/scan -> HTTP $AUTH_CODE (expect 200)"
+            AUTH_CODE=""
+            for i in $(seq 1 6); do
+              AUTH_CODE=$(curl -s -o /tmp/engine-scan.json -w '%{http_code}' --max-time 30 -H "Authorization: Bearer $HFT_ENGINE_SECRET" "$URL/api/scan" || true)
+              echo "probe $i: authenticated /api/scan -> HTTP $AUTH_CODE (expect 200)"
+              if [ "$AUTH_CODE" = "200" ]; then
+                break
+              fi
+              sleep 30
+            done
             if [ "$AUTH_CODE" != "200" ]; then
               echo "::error::Expected 200 from authenticated /api/scan, got $AUTH_CODE"
               exit 1

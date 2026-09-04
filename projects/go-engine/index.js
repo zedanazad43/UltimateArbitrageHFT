@@ -39,6 +39,31 @@ export class HftEngine extends Container {
 
 export default {
   async fetch(request, env) {
+    const url = new URL(request.url);
+
+    // Internal admin route used by deploy-engine.yml after uploading secrets:
+    // stops the running instance so the next request starts it fresh and reads
+    // the current envVars (including a newly set HFT_ENGINE_SECRET). When the
+    // secret is configured, the caller must present it as a Bearer token.
+    if (url.pathname === "/__admin/restart" && request.method === "POST") {
+      const secret = env.HFT_ENGINE_SECRET ?? "";
+      if (secret !== "" && request.headers.get("Authorization") !== `Bearer ${secret}`) {
+        return new Response(JSON.stringify({ error: "Unauthorized" }), {
+          status: 401,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+      const container = getContainer(env.HFT_ENGINE, "engine");
+      try {
+        await container.stop();
+      } catch {
+        // Instance may already be stopped — next request starts it fresh.
+      }
+      return new Response(JSON.stringify({ stopped: true }), {
+        headers: { "Content-Type": "application/json" },
+      });
+    }
+
     return getContainer(env.HFT_ENGINE, "engine").fetch(request);
   },
 };
