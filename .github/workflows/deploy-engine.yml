@@ -44,8 +44,10 @@ jobs:
           with os.fdopen(fd, "w") as f:
               json.dump(secrets, f)
           PYEOF
-          npx --yes wrangler@4 secret bulk /tmp/hft_secrets.json
-          rm -f /tmp/hft_secrets.json
+          if [ -f /tmp/hft_secrets.json ]; then
+            npx --yes wrangler@4 secret bulk /tmp/hft_secrets.json
+            rm -f /tmp/hft_secrets.json
+          fi
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
