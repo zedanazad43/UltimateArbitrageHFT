@@ -27,6 +27,6 @@ jobs:
           days-before-close: 7
           stale-issue-label: 'Stale'
           stale-pr-label: 'Stale'
-          close-issue-reason: 'not planned'
+          close-issue-reason: 'not_planned'
           exempt-draft-pr: true
           enable-statistics: true
