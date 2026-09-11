@@ -9,6 +9,7 @@ on:
 jobs:
   build-and-deploy:
     runs-on: ubuntu-latest
+    if: vars.ENABLE_PRODUCTION_DEPLOY == 'true'
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4

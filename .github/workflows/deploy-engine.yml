@@ -12,6 +12,7 @@ jobs:
   deploy:
     name: Build + Deploy Container
     runs-on: ubuntu-latest
+    if: vars.ENABLE_PRODUCTION_DEPLOY == 'true'
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@v5
