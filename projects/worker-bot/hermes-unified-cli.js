@@ -1,231 +1,207 @@
 #!/usr/bin/env node
-// hermes-unified-cli.js - Unified CLI interface for Hermes + Copilot + OmniRoute + OpenRouter
-// Usage: node hermes-unified-cli.js [command] [options]
+// Unified, paper-safe command line interface for configured AI providers.
 
-import { UnifiedRouter, PROVIDER_CONFIG, MODEL_ALIASES } from './src/infrastructure/hermes-unified-router.js';
+import { UnifiedRouter, PROVIDER_CONFIG, MODEL_ALIASES } from './src/ai-integration/hermes-unified-router.js';
 import { readFileSync, writeFileSync, existsSync } from 'fs';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
+const CONFIG_PATH = process.env.HERMES_UNIFIED_CONFIG_PATH || join(__dirname, '.hermes-unified-config.json');
+const DEFAULT_CONFIG = Object.freeze({
+  defaultProvider: 'auto',
+  paperMode: true,
+  budgetLimit: 0,
+  latencyRequirement: 'medium',
+  modelAliases: MODEL_ALIASES,
+});
 
-// CLI Configuration
-const CONFIG_PATH = join(__dirname, '.hermes-unified-config.json');
-
-// Load or create config
-let config = {};
-try {
-  if (existsSync(CONFIG_PATH)) {
-    config = JSON.parse(readFileSync(CONFIG_PATH, 'utf-8'));
-  }
-} catch (_e) {
-  // Create default config
-  config = {
-    defaultProvider: 'hermes',
-    paperMode: true,
-    budgetLimit: 0,
-    latencyRequirement: 'medium',
-    modelAliases: MODEL_ALIASES
-  };
-  saveConfig(config);
+function saveConfig(config) {
+  writeFileSync(CONFIG_PATH, `${JSON.stringify(config, null, 2)}\n`, { encoding: 'utf8', mode: 0o600 });
 }
 
-function saveConfig(cfg) {
+function loadConfig() {
+  if (!existsSync(CONFIG_PATH)) {
+    const config = { ...DEFAULT_CONFIG };
+    saveConfig(config);
+    return config;
+  }
+
   try {
-    writeFileSync(CONFIG_PATH, JSON.stringify(cfg, null, 2));
-  } catch (e) {
-    console.error('Warning: Could not save config:', e.message);
+    const parsed = JSON.parse(readFileSync(CONFIG_PATH, 'utf8'));
+    return { ...DEFAULT_CONFIG, ...(parsed && typeof parsed === 'object' ? parsed : {}) };
+  } catch (error) {
+    console.error(`Warning: invalid Hermes config at ${CONFIG_PATH}; using safe defaults (${error.message})`);
+    return { ...DEFAULT_CONFIG };
   }
 }
 
-// Mock environment for CLI
-const mockEnv = {
-  AIWORKER: process.env.AIWORKER || null,
-  AI_GATEWAY_URL: process.env.AI_GATEWAY_URL || null,
-  CODECOPILOT_TOKEN: process.env.CODECOPILOT_TOKEN || process.env.GITHUB_TOKEN || null,
-  OMNIROUTE_GATEWAY_URL: process.env.OMNIROUTE_GATEWAY_URL || process.env.LOCAL_GATEWAY_URL || null,
-  OPENROUTER_API_KEY: process.env.OPENROUTER_API_KEY || process.env.OPENAI_API_KEY || null,
-  CLOUDFLARE_ACCOUNT_ID: process.env.CLOUDFLARE_ACCOUNT_ID || null
+const config = loadConfig();
+const env = {
+  AIWORKER: globalThis.AIWORKER,
+  HERMES_API_URL: process.env.HERMES_API_URL,
+  HERMES_API_KEY: process.env.HERMES_API_KEY,
+  COPILOT_API_URL: process.env.COPILOT_API_URL,
+  CODECOPILOT_TOKEN: process.env.CODECOPILOT_TOKEN || process.env.GITHUB_TOKEN,
+  OMNIROUTE_GATEWAY_URL: process.env.OMNIROUTE_GATEWAY_URL || process.env.LOCAL_GATEWAY_URL,
+  OMNIROUTE_API_KEY: process.env.OMNIROUTE_API_KEY,
+  OPENROUTER_API_KEY: process.env.OPENROUTER_API_KEY,
 };
+const router = new UnifiedRouter(env, { paper_trading: config.paperMode !== false });
 
-const mockState = {
-  paper_trading: config.paperMode !== false
-};
+function parseRouteArgs(args) {
+  const promptParts = [];
+  const options = {
+    paperMode: config.paperMode !== false,
+    latencyRequirement: config.latencyRequirement,
+    budgetLimit: config.budgetLimit,
+  };
 
-const router = new UnifiedRouter(mockEnv, mockState);
+  for (let index = 0; index < args.length; index += 1) {
+    const value = args[index];
+    if (value === '--provider') {
+      const provider = args[++index];
+      if (!provider) throw new Error('--provider requires a provider name');
+      options.preferredProvider = provider;
+    } else if (value === '--model') {
+      const model = args[++index];
+      if (!model) throw new Error('--model requires a model name or alias');
+      options.modelHint = router.resolveModelAlias(model);
+    } else if (value === '--budget') {
+      const budget = Number(args[++index]);
+      if (!Number.isFinite(budget) || budget < 0) throw new Error('--budget must be a non-negative number');
+      options.budgetLimit = budget;
+    } else if (value === '--live') {
+      options.paperMode = false;
+    } else if (value.startsWith('--')) {
+      throw new Error(`Unknown option: ${value}`);
+    } else {
+      promptParts.push(value);
+    }
+  }
 
-// Command handlers
+  if (!options.preferredProvider && config.defaultProvider && config.defaultProvider !== 'auto') {
+    options.preferredProvider = config.defaultProvider;
+  }
+  return { prompt: promptParts.join(' ').trim(), options };
+}
+
 async function cmdStatus() {
   console.log('\n=== Hermes Unified Router Status ===\n');
   const statuses = await router.getAllProviderStatuses();
-  
   for (const [provider, status] of Object.entries(statuses)) {
-    const cfg = PROVIDER_CONFIG[provider];
+    const metadata = PROVIDER_CONFIG[provider];
     const icon = status.healthy ? '✅' : status.configured ? '⚠️' : '❌';
-    console.log(`${icon} ${provider.padEnd(12)} [${cfg.type}] models: ${cfg.models.length}, cost: ${cfg.cost}, latency: ${cfg.latency}`);
-    if (status.error) console.log(`   Error: ${status.error}`);
+    console.log(`${icon} ${provider.padEnd(12)} [${metadata.type}] models: ${metadata.models.length}, cost: ${metadata.cost}, latency: ${metadata.latency}`);
+    if (status.error) console.log(`   ${status.error}`);
   }
-  console.log('');
+  console.log('\nStatus checks are local configuration checks; no provider request was made.\n');
 }
 
 async function cmdRoute(args) {
-  const prompt = args.join(' ');
-  if (!prompt) {
-    console.error('Usage: hermes route <prompt> [--provider <name>] [--model <alias>] [--budget <usd>]');
-    process.exit(1);
-  }
+  const { prompt, options } = parseRouteArgs(args);
+  if (!prompt) throw new Error('Usage: hermes route <prompt> [--provider <name>] [--model <alias>] [--budget <usd>] [--live]');
 
-  const options = {
-    paperMode: config.paperMode !== false,
-    latencyRequirement: config.latencyRequirement || 'medium',
-    budgetLimit: config.budgetLimit || 0
-  };
+  console.log(`\nRouting: "${prompt.slice(0, 80)}${prompt.length > 80 ? '…' : ''}"`);
+  console.log(`Mode: ${options.paperMode ? 'paper' : 'live'}`);
+  console.log(`Budget limit: $${options.budgetLimit}`);
 
-  // Parse flags
-  for (let i = 0; i < args.length; i++) {
-    if (args[i] === '--provider' && args[i+1]) {
-      options.preferredProvider = args[++i];
-    }
-    if (args[i] === '--model' && args[i+1]) {
-      options.modelHint = router.resolveModelAlias(args[++i]);
-    }
-    if (args[i] === '--budget' && args[i+1]) {
-      options.budgetLimit = parseFloat(args[++i]);
-    }
-    if (args[i] === '--live') {
-      options.paperMode = false;
-    }
-  }
-
-  console.log(`\n🧠 Routing: "${prompt.substring(0, 50)}..."`);
-  console.log(`   Mode: ${options.paperMode ? 'paper' : 'live'}`);
-  console.log(`   Budget: $${options.budgetLimit}`);
-
-  try {
-    const result = await router.routeLLMCall([{ role: 'user', content: prompt }], options);
-    console.log(`\n✅ Provider: ${result.routedVia}`);
-    console.log(`   Model: ${result.model}`);
-    console.log(`   Reason: ${result.route?.reason || 'auto'}`);
-    if (result.cached) console.log(`   Status: cached`);
-    console.log(`\n📝 Response:\n${result.text}\n`);
-  } catch (e) {
-    console.error(`\n❌ Error: ${e.message}\n`);
-    process.exit(1);
-  }
+  const result = await router.routeLLMCall([{ role: 'user', content: prompt }], options);
+  console.log(`\nProvider: ${result.routedVia}`);
+  console.log(`Model: ${result.model}`);
+  console.log(`Reason: ${result.route?.reason || 'auto'}`);
+  console.log(`\nResponse:\n${result.text}\n`);
 }
 
-async function cmdListModels() {
-  console.log('\n=== Available Models ===\n');
-  
-  for (const [provider, cfg] of Object.entries(PROVIDER_CONFIG)) {
+function cmdListModels() {
+  console.log('\n=== Configured Model Defaults ===\n');
+  for (const [provider, metadata] of Object.entries(PROVIDER_CONFIG)) {
     console.log(`\n${provider.toUpperCase()}:`);
-    for (const model of cfg.models) {
-      const alias = Object.entries(MODEL_ALIASES).find(([_, v]) => v === model)?.[0];
+    for (const model of metadata.models) {
+      const alias = Object.entries(MODEL_ALIASES).find(([, value]) => value === model)?.[0];
       console.log(`  • ${model}${alias ? ` (${alias})` : ''}`);
     }
   }
-  console.log('');
+  console.log('\nUse a live provider catalog to select a production model; these defaults are compatibility fallbacks.\n');
 }
 
-async function cmdSwitch(args) {
-  const key = args[0];
-  const value = args[1];
-  
-  if (!key || !value) {
-    console.error('Usage: hermes switch <key> <value>');
-    console.error('  Keys: defaultProvider, paperMode, budgetLimit, latencyRequirement');
-    process.exit(1);
-  }
+function cmdSwitch(args) {
+  const [key, value] = args;
+  if (!key || value === undefined) throw new Error('Usage: hermes switch <defaultProvider|paperMode|budgetLimit|latencyRequirement> <value>');
 
   if (key === 'paperMode') {
+    if (!['true', 'false', '1', '0'].includes(value)) throw new Error('paperMode must be true or false');
     config.paperMode = value === 'true' || value === '1';
   } else if (key === 'budgetLimit') {
-    config.budgetLimit = parseFloat(value);
+    const budget = Number(value);
+    if (!Number.isFinite(budget) || budget < 0) throw new Error('budgetLimit must be a non-negative number');
+    config.budgetLimit = budget;
   } else if (key === 'latencyRequirement') {
+    if (!['low', 'medium', 'high'].includes(value)) throw new Error('latencyRequirement must be low, medium, or high');
     config.latencyRequirement = value;
   } else if (key === 'defaultProvider') {
+    if (value !== 'auto' && !PROVIDER_CONFIG[value]) throw new Error(`Unknown provider: ${value}`);
     config.defaultProvider = value;
+  } else {
+    throw new Error(`Unsupported setting: ${key}`);
   }
 
   saveConfig(config);
-  console.log(`✅ Updated ${key} = ${value}`);
+  console.log(`Updated ${key} = ${value}`);
 }
 
-async function cmdConfig(_args) {
+function cmdConfig() {
   console.log('\n=== Current Configuration ===\n');
   console.log(JSON.stringify(config, null, 2));
   console.log('');
 }
 
-async function cmdHelp() {
+function cmdHelp() {
   console.log(`
 === Hermes Unified Router CLI ===
 
-Usage: hermes <command> [options]
+Usage: node hermes-unified-cli.js <command> [options]
 
 Commands:
-  status              Show all provider statuses
-  route <prompt>      Route a prompt to the best provider
-  list-models         List all available models with aliases
-  switch <key> <val>  Switch configuration
-  config              Show current configuration
+  status              Show local provider configuration status
+  route <prompt>      Select a provider (paper mode by default)
+  list-models         Show compatibility model defaults
+  switch <key> <val>  Update a local CLI setting
+  config              Show current local CLI configuration
   help                Show this help
 
-Options for 'route':
-  --provider <name>   Force specific provider (hermes, copilot, omniroute, openrouter)
-  --model <alias>     Use specific model alias
-  --budget <usd>      Set budget limit for routing
-  --live              Use live mode (disable paper mode)
+Route options:
+  --provider <name>   Force hermes, copilot, omniroute, or openrouter
+  --model <alias>     Use a model alias or explicit model ID
+  --budget <usd>      Set a non-negative routing budget
+  --live              Allow a configured provider request (disabled by default)
 
 Examples:
-  hermes status
-  hermes route "analyze this arbitrage opportunity"
-  hermes route "optimize trading strategy" --provider openrouter --model or-claude
-  hermes switch paperMode false
-  hermes list-models
-
+  node hermes-unified-cli.js status
+  node hermes-unified-cli.js route "analyze this arbitrage opportunity"
+  node hermes-unified-cli.js route "review this code" --provider openrouter --model or-gpt-mini
+  node hermes-unified-cli.js switch defaultProvider auto
 `);
 }
 
-// Main CLI entry point
 async function main() {
-  const [, , command, ...args] = process.argv;
-
-  if (!command || command === '--help' || command === 'help' || command === '-h') {
-    await cmdHelp();
-    return;
-  }
-
+  const [, , command = 'help', ...args] = process.argv;
   switch (command) {
-    case 'status':
-      await cmdStatus();
-      break;
-    case 'route':
-      await cmdRoute(args);
-      break;
+    case 'status': await cmdStatus(); break;
+    case 'route': await cmdRoute(args); break;
     case 'list-models':
-    case 'models':
-      await cmdListModels();
-      break;
-    case 'switch':
-      await cmdSwitch(args);
-      break;
-    case 'config':
-      await cmdConfig(args);
-      break;
+    case 'models': cmdListModels(); break;
+    case 'switch': cmdSwitch(args); break;
+    case 'config': cmdConfig(); break;
     case 'help':
     case '--help':
-      await cmdHelp();
-      break;
-    default:
-      console.error(`Unknown command: ${command}`);
-      await cmdHelp();
-      process.exit(1);
+    case '-h': cmdHelp(); break;
+    default: throw new Error(`Unknown command: ${command}`);
   }
 }
 
-main().catch(e => {
-  console.error('Fatal error:', e);
-  process.exit(1);
+main().catch((error) => {
+  console.error(`Hermes CLI error: ${error.message}`);
+  process.exitCode = 1;
 });
