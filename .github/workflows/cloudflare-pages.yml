@@ -1,56 +1,40 @@
-# Deploy the React frontend to Cloudflare Pages (free tier)
-name: Deploy frontend to Cloudflare Pages
+name: Validate Cloudflare Pages frontend
 
 on:
   push:
-    branches: ["main"]
+    branches: [main]
+    paths:
+      - "projects/dashboard/**"
+      - ".github/workflows/cloudflare-pages.yml"
+  pull_request:
+    paths:
+      - "projects/dashboard/**"
+      - ".github/workflows/cloudflare-pages.yml"
   workflow_dispatch:
 
 permissions:
   contents: read
 
-concurrency:
-  group: cloudflare-pages
-  cancel-in-progress: true
-
 jobs:
-  deploy-frontend:
+  validate-frontend:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout
-        uses: actions/checkout@v5
-
-      - name: Setup Node
-        uses: actions/setup-node@v4
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v4
         with:
-          node-version: 24
+          node-version: "22"
           cache: npm
           cache-dependency-path: projects/dashboard/package-lock.json
-
-      - name: Install frontend deps
+      - name: Install frontend dependencies
         working-directory: projects/dashboard
-        run: npm ci || npm install
-
+        run: npm ci
+      - name: Type-check frontend
+        working-directory: projects/dashboard
+        run: npm run typecheck
       - name: Build frontend
         working-directory: projects/dashboard
         env:
-          REACT_APP_BACKEND_URL: https://api.ecostamp.net
-        run: CI=false npm run build
-
-      - name: Add SPA fallback for Cloudflare Pages
-        run: printf '/*    /index.html   200\n' > projects/dashboard/build/_redirects
-
-      - name: Create Cloudflare Pages project (if missing)
-        uses: cloudflare/wrangler-action@v3
-        continue-on-error: true
-        with:
-          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          accountId: 652e53f35781522e2745784cc4425d9d
-          command: pages project create ultimate-arbitrage-frontend --production-branch=main || true
-
-      - name: Deploy to Cloudflare Pages
-        uses: cloudflare/wrangler-action@v3
-        with:
-          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          accountId: 652e53f35781522e2745784cc4425d9d
-          command: pages deploy projects/dashboard/build --project-name=ultimate-arbitrage-frontend --commit-dirty=true
+          VITE_BACKEND_URL: https://api.ecostamp.net
+        run: npm run build
+      - name: Verify Pages build output
+        run: test -f projects/dashboard/build/index.html
